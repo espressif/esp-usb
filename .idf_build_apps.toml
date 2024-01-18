@@ -1,0 +1,8 @@
+target = "all"
+paths = "usb/test_app"
+recursive = true
+manifest_file = ".build-test-rules.yml"
+check_warnings = true
+
+# build related options
+build_dir = "build_@t"

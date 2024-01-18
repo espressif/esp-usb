@@ -1,0 +1,3 @@
+usb/test_app:
+  enable:
+    - if: IDF_TARGET in ["esp32s2", "esp32s3"]
