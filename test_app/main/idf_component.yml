@@ -1,0 +1,7 @@
+## IDF Component Manager Manifest File
+dependencies:
+  espressif/esp_tinyusb:
+    version: "*"
+    override_path: "../../device/esp_tinyusb"
+    rules:
+      - if: "idf_version >= 5.0"
