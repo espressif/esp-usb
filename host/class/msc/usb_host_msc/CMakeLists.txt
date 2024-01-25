@@ -8,7 +8,3 @@ idf_component_register( SRCS ${sources}
                         PRIV_INCLUDE_DIRS private_include include/esp_private
                         REQUIRES usb fatfs
                         PRIV_REQUIRES heap )
-
-# We access packeted USB string descriptor via pointers. The memory used for storing the descritptors
-# allows unaligned access, so this is not an issue
-target_compile_options(${COMPONENT_LIB} PRIVATE -Wno-address-of-packed-member)
