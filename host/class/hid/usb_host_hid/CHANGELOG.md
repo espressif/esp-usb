@@ -1,5 +1,6 @@
 ## 1.0.2
-<! Unreleased >
+
+- Added support for ESP32-P4
 - Fixed device open procedure for HID devices with multiple non-sequential interfaces.
 
 ## 1.0.1

@@ -1013,11 +1013,9 @@ static esp_err_t hid_host_string_descriptor_copy(wchar_t *dest,
     }
     if (src != NULL) {
         size_t len = MIN((src->bLength - USB_STANDARD_DESC_SIZE) / 2, HID_STR_DESC_MAX_LENGTH - 1);
-        /*
-        * To pass the warning during compilation, there is a
-        * '-Wno-address-of-packed-member' flag added to this component
-        */
-        wcsncpy(dest, src->wData, len);
+        for (int i = 0; i < len; i++) {
+            dest[i] = (wchar_t) src->wData[i];
+        }
         // This should be always true, we just check to avoid LoadProhibited exception
         if (dest != NULL) {
             dest[len] = 0;
