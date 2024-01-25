@@ -543,7 +543,9 @@ static void copy_string_desc(wchar_t *dest, const usb_str_desc_t *src)
     }
     if (src != NULL) {
         size_t len = MIN((src->bLength - USB_STANDARD_DESC_SIZE) / 2, MSC_STR_DESC_SIZE - 1);
-        wcsncpy(dest, src->wData, len);
+        for (int i = 0; i < len; i++) {
+            dest[i] = (wchar_t)src->wData[i];
+        }
         if (dest != NULL) { // This should be always true, we just check to avoid LoadProhibited exception
             dest[len] = 0;
         }
