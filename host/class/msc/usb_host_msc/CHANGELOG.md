@@ -1,4 +1,4 @@
-## 1.1.2 Unreleased
+## 1.1.2
 
 - Added support for ESP32-P4
 - Reverted zero-copy bulk transfers. Data are now copied to USB buffers with negligible effect on performance
