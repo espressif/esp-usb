@@ -1,5 +1,5 @@
 target = "all"
-paths = "usb/test_app"
+paths = "test_app"
 recursive = true
 manifest_file = ".build-test-rules.yml"
 check_warnings = true
