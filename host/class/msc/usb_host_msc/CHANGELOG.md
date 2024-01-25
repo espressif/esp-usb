@@ -1,3 +1,7 @@
+## 1.1.2 Unreleased
+
+- Reverted zero-copy bulk transfers. Data are now copied to USB buffers with negligible effect on performance
+
 ## 1.1.1
 
 - Fix `msc_host_get_device_info` for devices without Serial Number string descriptor https://github.com/espressif/esp-idf/issues/12163

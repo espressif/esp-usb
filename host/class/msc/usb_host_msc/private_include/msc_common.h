@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2015-2023 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2015-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -42,15 +42,9 @@ typedef struct msc_host_device {
 } msc_device_t;
 
 /**
- * @brief Trigger a BULK transfer to device: zero copy
+ * @brief Trigger a BULK transfer to device
  *
  * Data buffer ownership is transferred to the MSC driver and the application cannot access it before the transfer finishes.
- * This function is true zero-copy only if the passed data buffer is in DMA capable memory, as the USB Host uses DMA transfers.
- * If the buffer is NOT DMA capable, an intermediate DMA capable buffer is allocated and used for the transfer, resulting in memory coping.
- *
- * This function significantly improves performance with C Standard Library, which creates its own buffer for each opened file.
- * The STD lib buffer is then used for USB transfers too, which eliminates need of 2 large buffers and unnecessary copying of the data.
- * The user can set size of the buffer with setvbuf() function.
  *
  * @param[in]    device_handle MSC device handle
  * @param[inout] data          Data buffer. Direction depends on 'ep'.
@@ -58,7 +52,7 @@ typedef struct msc_host_device {
  * @param[in]    ep            Direction of the transfer
  * @return esp_err_t
  */
-esp_err_t msc_bulk_transfer_zcpy(msc_device_t *device_handle, uint8_t *data, size_t size, msc_endpoint_t ep);
+esp_err_t msc_bulk_transfer(msc_device_t *device_handle, uint8_t *data, size_t size, msc_endpoint_t ep);
 
 /**
  * @brief Trigger a CTRL transfer to device
