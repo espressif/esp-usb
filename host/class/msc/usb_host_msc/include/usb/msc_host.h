@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2015-2023 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2015-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -10,6 +10,7 @@
 #include <stdint.h>
 #include "esp_err.h"
 #include "freertos/FreeRTOS.h"
+#include "usb/usb_types_stack.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -67,6 +68,7 @@ typedef struct {
     uint32_t sector_size;
     uint16_t idProduct;
     uint16_t idVendor;
+    usb_speed_t port_speed;
     wchar_t iManufacturer[MSC_STR_DESC_SIZE];
     wchar_t iProduct[MSC_STR_DESC_SIZE];
     wchar_t iSerialNumber[MSC_STR_DESC_SIZE];

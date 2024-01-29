@@ -2,6 +2,7 @@
 
 - Added support for ESP32-P4
 - Reverted zero-copy bulk transfers. Data are now copied to USB buffers with negligible effect on performance
+- Added device speed info to msc_host_get_device_info() to distinguish LS, FS, HS devices
 
 ## 1.1.1
 

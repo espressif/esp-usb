@@ -570,6 +570,7 @@ esp_err_t msc_host_get_device_info(msc_host_device_handle_t device, msc_host_dev
     info->idVendor = desc->idVendor;
     info->sector_size = dev->disk.block_size;
     info->sector_count = dev->disk.block_count;
+    info->port_speed = dev_info.speed;
 
     copy_string_desc(info->iManufacturer, dev_info.str_desc_manufacturer);
     copy_string_desc(info->iProduct, dev_info.str_desc_product);
