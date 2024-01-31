@@ -1,4 +1,10 @@
+## 1.4.4 (Unreleased)
+
+- CDC-ACM: Remove MIN() definition if already defined
+- MSC: Set EP size in configuration descriptor based on speed
+
 ## 1.4.3
+
 - esp_tinyusb: ESP32P4 HS only support
 
 ## 1.4.2
