@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2015-2021 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2015-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -269,6 +269,19 @@ void cdc_acm_host_desc_print(cdc_acm_dev_hdl_t cdc_hdl);
  * @return esp_err_t
  */
 esp_err_t cdc_acm_host_protocols_get(cdc_acm_dev_hdl_t cdc_hdl, cdc_comm_protocol_t *comm, cdc_data_protocol_t *data);
+
+/**
+ * @brief Get CDC functional descriptor
+ *
+ * @param cdc_hdl       CDC handle obtained from cdc_acm_host_open()
+ * @param[in] desc_type Type of functional descriptor
+ * @param[out] desc_out Pointer to the required descriptor
+ * @return
+ *   - ESP_OK: Success
+ *   - ESP_ERR_INVALID_ARG: Invalid device or descriptor type
+ *   - ESP_ERR_NOT_FOUND: The required descriptor is not present in the device
+ */
+esp_err_t cdc_acm_host_cdc_desc_get(cdc_acm_dev_hdl_t cdc_hdl, cdc_desc_subtype_t desc_type, const usb_standard_desc_t **desc_out);
 
 /**
  * @brief Send command to CTRL endpoint
