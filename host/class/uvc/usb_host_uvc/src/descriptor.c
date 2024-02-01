@@ -377,7 +377,7 @@ typedef struct {
     uint8_t  bFormatIndex;
     uint8_t  bmCapabilities;
     uint16_t wWidth;
-    uint16_t wHeigh;
+    uint16_t wHeight;
     uint32_t dwMinBitRate;
     uint32_t dwMaxBitRate;
     uint32_t dwMaxVideoFrameBufSize;
@@ -643,7 +643,7 @@ static void print_vs_frame_mjpeg_desc(const uint8_t *buff)
     printf("\tbFormatIndex 0x%x\n", desc->bFormatIndex);
     printf("\tbmCapabilities 0x%x\n", desc->bmCapabilities);
     printf("\twWidth %u\n", desc->wWidth);
-    printf("\twHeigh %u\n", desc->wHeigh);
+    printf("\twHeigh %u\n", desc->wHeight);
     printf("\tdwMinBitRate %"PRIu32"\n", desc->dwMinBitRate);
     printf("\tdwMaxBitRate %"PRIu32"\n", desc->dwMaxBitRate);
     printf("\tdwMaxVideoFrameBufSize %"PRIu32"\n", desc->dwMaxVideoFrameBufSize);

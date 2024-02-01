@@ -771,7 +771,7 @@ int libusb_release_interface(libusb_device_handle *dev_handle, int interface)
     return esp_to_libusb_error( usb_host_interface_release(s_uvc_driver->client, device->handle, interface) );
 }
 
-int libusb_set_interface_alt_setting(libusb_device_handle *dev_handle, int32_t inferface, int32_t alt_settings)
+int libusb_set_interface_alt_setting(libusb_device_handle *dev_handle, int32_t interface, int32_t alt_settings)
 {
     uvc_camera_t *device = (uvc_camera_t *)dev_handle;
     usb_host_client_handle_t client = s_uvc_driver->client;
@@ -780,12 +780,12 @@ int libusb_set_interface_alt_setting(libusb_device_handle *dev_handle, int32_t i
 
     // Setting alternate interface 0.0 is special case in UVC specs.
     // No interface is to be released, just send control transfer.
-    if (inferface != 0 || alt_settings != 0) {
-        RETURN_ON_ERROR_LIBUSB( usb_host_interface_release(client, device->handle, inferface) );
-        RETURN_ON_ERROR_LIBUSB( usb_host_interface_claim(client, device->handle, inferface, alt_settings) );
+    if (interface != 0 || alt_settings != 0) {
+        RETURN_ON_ERROR_LIBUSB( usb_host_interface_release(client, device->handle, interface) );
+        RETURN_ON_ERROR_LIBUSB( usb_host_interface_claim(client, device->handle, interface, alt_settings) );
     }
 
-    USB_SETUP_PACKET_INIT_SET_INTERFACE(&request, inferface, alt_settings);
+    USB_SETUP_PACKET_INIT_SET_INTERFACE(&request, interface, alt_settings);
     int result = control_transfer(dev_handle, &request, data, 2000);
     return result > 0 ? LIBUSB_SUCCESS : result;
 }
@@ -816,6 +816,6 @@ int8_t libusb_get_bus_number(libusb_device *device)
 
 int8_t libusb_get_device_address(libusb_device *device)
 {
-    // Device addres is stored directly in libusb_device
+    // Device address is stored directly in libusb_device
     return (uint8_t)(uint32_t)device;
 }

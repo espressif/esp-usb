@@ -187,7 +187,7 @@ static void test_uninstall_hid_driver_while_device_is_present(void)
     test_hid_setup(test_hid_host_event_callback_open, HID_TEST_EVENT_HANDLE_IN_DRIVER);
     // Wait for USB device appearing for 250 msec
     vTaskDelay(250);
-    // Uninstall HID Driver wile device is still connected and verify a result
+    // Uninstall HID Driver while device is still connected and verify a result
     printf("HID Driver uninstall attempt while HID Device is still present ...\n");
     TEST_ASSERT_EQUAL(ESP_ERR_INVALID_STATE, hid_host_uninstall());
     // Tear down test

@@ -234,7 +234,7 @@ void hid_host_test_requests_callback(hid_host_device_handle_t hid_device_handle,
         wprintf(L"\t iSerialNumber: %S \n", hid_dev_info.iSerialNumber);
 
         if (dev_params.proto == HID_PROTOCOL_NONE) {
-            // If Protocol NONE, based on hid1_11.pdf, p.78, all ohter devices should support
+            // If Protocol NONE, based on hid1_11.pdf, p.78, all other devices should support
             rep_len = sizeof(tmp);
             // For testing with ESP32 we used ReportID = 0x01 (Keyboard ReportID)
             if (ESP_OK == hid_class_request_get_report(hid_device_handle,
@@ -616,7 +616,7 @@ TEST_CASE("class_specific_requests", "[hid_host]")
     test_setup_hid_task();
     // Install USB and HID driver with 'hid_host_test_device_callback_to_queue'
     test_hid_setup(hid_host_test_device_callback_to_queue, HID_TEST_EVENT_HANDLE_IN_DRIVER);
-    // All specific control requests will be verified during device connetion callback 'hid_host_test_requests_callback'
+    // All specific control requests will be verified during device connection callback 'hid_host_test_requests_callback'
     // Wait for test completed for 250 ms
     vTaskDelay(250);
     // Tear down test
@@ -632,7 +632,7 @@ TEST_CASE("class_specific_requests_with_external_polling", "[hid_host]")
     test_hid_setup(hid_host_test_device_callback_to_queue, HID_TEST_EVENT_HANDLE_EXTERNAL);
     // Create HID Driver events polling task
     test_setup_hid_polling_task();
-    // All specific control requests will be verified during device connetion callback 'hid_host_test_requests_callback'
+    // All specific control requests will be verified during device connection callback 'hid_host_test_requests_callback'
     // Wait for test completed for 250 ms
     vTaskDelay(250);
     // Tear down test

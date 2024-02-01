@@ -389,7 +389,7 @@ TEST_CASE("error_handling", "[cdc_acm]")
     TEST_ASSERT_NOT_NULL(cdc_dev);
     TEST_ASSERT_EQUAL(ESP_ERR_NOT_SUPPORTED, cdc_acm_host_data_tx_blocking(cdc_dev, tx_buf, sizeof(tx_buf), 1000));
 
-    // Send unsupported CDC request (TinyUSB accepts SendBreak command, eventhough it doesn't support it)
+    // Send unsupported CDC request (TinyUSB accepts SendBreak command, even though it doesn't support it)
     TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_send_break(cdc_dev, 100));
 
     // Clean-up

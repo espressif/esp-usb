@@ -24,7 +24,7 @@ static portMUX_TYPE hid_lock = portMUX_INITIALIZER_UNLOCKED;
 #define HID_ENTER_CRITICAL()    portENTER_CRITICAL(&hid_lock)
 #define HID_EXIT_CRITICAL()     portEXIT_CRITICAL(&hid_lock)
 
-// HID verification macroses
+// HID verification macros
 #define HID_GOTO_ON_FALSE_CRITICAL(exp, err)    \
     do {                                        \
         if(!(exp)) {                            \
@@ -52,7 +52,7 @@ static portMUX_TYPE hid_lock = portMUX_INITIALIZER_UNLOCKED;
 
 #define HID_RETURN_ON_INVALID_ARG(exp) ESP_RETURN_ON_FALSE((exp) != NULL, ESP_ERR_INVALID_ARG, TAG, "Argument error")
 
-// USB Descriptor parsing helping macroses
+// USB Descriptor parsing helping macros
 #define GET_NEXT_INTERFACE_DESC(p, max_len, offs)                                                \
     ((const usb_intf_desc_t *)usb_parse_next_descriptor_of_type((const usb_standard_desc_t *)p,  \
                                                                 max_len,                         \
@@ -79,7 +79,7 @@ typedef struct hid_host_device {
     SemaphoreHandle_t ctrl_xfer_done;           /**< Control transfer semaphore */
     usb_transfer_t *ctrl_xfer;                  /**< Pointer to control transfer buffer */
     usb_device_handle_t dev_hdl;                /**< USB device handle */
-    uint8_t dev_addr;                           /**< USB devce address */
+    uint8_t dev_addr;                           /**< USB device address */
 } hid_device_t;
 
 /**
@@ -194,7 +194,7 @@ static hid_device_t *get_hid_device_by_handle(usb_device_handle_t usb_handle)
 }
 
 /**
- * @brief Return HID Device fron the transfer context
+ * @brief Return HID Device from the transfer context
  *
  * @param[in] xfer   USB transfer struct
  * @return hid_device_t Pointer to HID Device
@@ -539,7 +539,7 @@ static bool hid_host_device_init_attempt(uint8_t dev_addr)
 /**
  * @brief USB device was removed we need to shutdown HID Interface
  *
- * @param[in] hid_dev_handle    Handle of the HID devive to close
+ * @param[in] hid_dev_handle    Handle of the HID device to close
  * @return esp_err_t
  */
 static esp_err_t hid_host_interface_shutdown(hid_host_device_handle_t hid_dev_handle)
@@ -887,11 +887,11 @@ static esp_err_t hid_class_request_report_descriptor(hid_iface_t *iface)
 {
     HID_RETURN_ON_INVALID_ARG(iface);
 
-    // Get Report Descritpor is possible only in Ready or Active state
+    // Get Report Descriptor is possible only in Ready or Active state
     HID_RETURN_ON_FALSE((HID_INTERFACE_STATE_READY == iface->state) ||
                         (HID_INTERFACE_STATE_ACTIVE == iface->state),
                         ESP_ERR_INVALID_STATE,
-                        "Unable to request report decriptor. Interface is not ready");
+                        "Unable to request report descriptor. Interface is not ready");
 
     iface->report_desc = malloc(iface->report_desc_size);
     HID_RETURN_ON_FALSE(iface->report_desc,
@@ -1077,7 +1077,7 @@ esp_err_t hid_host_uninstall_device(hid_device_t *hid_device)
     HID_RETURN_ON_INVALID_ARG(hid_device);
 
     HID_RETURN_ON_ERROR( usb_host_transfer_free(hid_device->ctrl_xfer),
-                         "Unablet to free transfer buffer for EP0");
+                         "Unable to free transfer buffer for EP0");
     HID_RETURN_ON_ERROR( usb_host_device_close(s_hid_driver->client_handle,
                          hid_device->dev_hdl),
                          "Unable to close USB host");

@@ -55,7 +55,7 @@ esp_err_t libuvc_adapter_print_descriptors(uvc_device_handle_t *device);
  * - This function has to be called periodically, if configuration
  *   was provided with `create_background_task` set to `false`.
  *
- * @param[in]  timeout_ms  Timeout in miliseconds
+ * @param[in]  timeout_ms  Timeout in milliseconds
  * @return esp_err_t
  */
 esp_err_t libuvc_adapter_handle_events(uint32_t timeout_ms);

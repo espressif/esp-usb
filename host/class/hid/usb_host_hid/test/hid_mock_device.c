@@ -172,7 +172,7 @@ void tud_hid_set_report_cb(uint8_t instance, uint8_t report_id, hid_report_type_
  * @brief HID Mock device start
  *
  * @param[in] iface_count   Interface count, when TUSB_IFACE_COUNT_ONE then there is two Interfaces, but equal (Protocol=None).
- * when TUSB_IFACE_COUNT_TWO then HID device mocked with two independed Interfaces (Protocol=BootKeyboard, Protocol=BootMouse).
+ * when TUSB_IFACE_COUNT_TWO then HID device mocked with two independent Interfaces (Protocol=BootKeyboard, Protocol=BootMouse).
  */
 void hid_mock_device(tusb_iface_count_t iface_count)
 {
