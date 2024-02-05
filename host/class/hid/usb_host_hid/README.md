@@ -49,4 +49,4 @@ The following steps outline the typical API call pattern of the HID Class Driver
 ## Supported Devices
 
 - HID Driver support any HID compatible device with a USB bIterfaceClass 0x03 (Human Interface Device).
-- There are two options to handle HID device input data: either in RAW format or via special event handlers (which are available only for HID Devices which supprot Boot Protocol).
+- There are two options to handle HID device input data: either in RAW format or via special event handlers (which are available only for HID Devices which support Boot Protocol).
