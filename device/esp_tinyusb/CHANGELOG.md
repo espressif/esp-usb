@@ -1,27 +1,28 @@
-## 1.4.4 (Unreleased)
+## 1.4.4
 
-- CDC-ACM: Remove MIN() definition if already defined
-- MSC: Set EP size in configuration descriptor based on speed
+- esp_tinyusb: Added HighSpeed and Qualifier device descriptors in tinyusb configuration
+- CDC-ACM: Removed MIN() definition if already defined
+- MSC: Fixed EP size selecting in default configuration descriptor
 
 ## 1.4.3
 
-- esp_tinyusb: ESP32P4 HS only support
+- esp_tinyusb: Added ESP32P4 support (HS only)
 
 ## 1.4.2
 
-- MSC: Fix maximum files open
-- Add uninstall function
+- MSC: Fixed maximum files open
+- Added uninstall function
 
 ## 1.4.0
 
-- MSC: Fix integer overflows
-- CDC-ACM: Remove intermediate RX ringbuffer
-- CDC-ACM: Increase default FIFO size to 512 bytes
-- CDC-ACM: Fix Virtual File System binding
+- MSC: Fixed integer overflows
+- CDC-ACM: Removed intermediate RX ringbuffer
+- CDC-ACM: Increased default FIFO size to 512 bytes
+- CDC-ACM: Fixed Virtual File System binding
 
 ## 1.3.0
 
-- Add NCM extension
+- Added NCM extension
 
 ## 1.2.1 - 1.2.2
 
@@ -29,15 +30,15 @@
 
 ## 1.2.0
 
-- Add MSC extension for accessing SPI Flash on memory card https://github.com/espressif/idf-extra-components/commit/a8c00d7707ba4ceeb0970c023d702c7768dba3dc
+- Added MSC extension for accessing SPI Flash on memory card https://github.com/espressif/idf-extra-components/commit/a8c00d7707ba4ceeb0970c023d702c7768dba3dc
 
 ## 1.1.0
 
-- Add support for NCM, ECM/RNDIS, DFU and Bluetooth TinyUSB drivers https://github.com/espressif/idf-extra-components/commit/79f35c9b047b583080f93a63310e2ee7d82ef17b
+- Added support for NCM, ECM/RNDIS, DFU and Bluetooth TinyUSB drivers https://github.com/espressif/idf-extra-components/commit/79f35c9b047b583080f93a63310e2ee7d82ef17b
 
 ## 1.0.4
 
-- Clean up string descriptors handling https://github.com/espressif/idf-extra-components/commit/046cc4b02f524d5c7e3e56480a473cfe844dc3d6
+- Cleaned up string descriptors handling https://github.com/espressif/idf-extra-components/commit/046cc4b02f524d5c7e3e56480a473cfe844dc3d6
 
 ## 1.0.2 - 1.0.3
 
