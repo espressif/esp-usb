@@ -794,7 +794,7 @@ esp_err_t cdc_acm_host_open(uint16_t vid, uint16_t pid, uint8_t interface_idx, c
     cdc_dev->data_protocol = (cdc_data_protocol_t)cdc_dev->data.intf_desc->bInterfaceProtocol;
 
     // The following line is here for backward compatibility with v1.0.*
-    // where fixed size of IN buffer (equal to IN Maximum Packe Size) was used
+    // where fixed size of IN buffer (equal to IN Maximum Packet Size) was used
     const size_t in_buf_size = (dev_config->data_cb && (dev_config->in_buffer_size == 0)) ? USB_EP_DESC_GET_MPS(in_ep) : dev_config->in_buffer_size;
 
     // Allocate USB transfers, claim CDC interfaces and return CDC-ACM handle
@@ -1037,7 +1037,7 @@ static void in_xfer_cb(usb_transfer_t *transfer)
             uint8_t **ptr = (uint8_t **)(&(transfer->data_buffer));
             *ptr += transfer->actual_num_bytes;
 
-            // Calculate remaining space in the buffer. Attention: pointer arithmetics!
+            // Calculate remaining space in the buffer. Attention: pointer arithmetic!
             size_t space_left = transfer->data_buffer_size - (transfer->data_buffer - cdc_dev->data.in_data_buffer_base);
             uint16_t mps = cdc_dev->data.in_mps;
             transfer->num_bytes = (space_left / mps) * mps; // Round down to MPS for next transfer

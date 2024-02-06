@@ -132,7 +132,7 @@ esp_err_t hid_host_uninstall(void);
 /**
  * @brief USB HID Host open a device with specific device parameters
  *
- * @param[in] iface_handle     Handle of the HID devive to open
+ * @param[in] iface_handle     Handle of the HID device to open
  * @param[in] config           Configuration structure HID device to open
  * @return esp_err_t
  */
@@ -142,7 +142,7 @@ esp_err_t hid_host_device_open(hid_host_device_handle_t hid_dev_handle,
 /**
  * @brief USB HID Host close device
  *
- * @param[in] hid_dev_handle   Handle of the HID devive to close
+ * @param[in] hid_dev_handle   Handle of the HID device to close
  * @return esp_err_t
  */
 esp_err_t hid_host_device_close(hid_host_device_handle_t hid_dev_handle);

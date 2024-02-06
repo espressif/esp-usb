@@ -270,7 +270,7 @@ inline void libusb_set_iso_packet_lengths(struct libusb_transfer *transfer, size
     }
 }
 
-int libusb_set_interface_alt_setting(libusb_device_handle *dev_handle, int32_t inferface, int32_t alt_settings);
+int libusb_set_interface_alt_setting(libusb_device_handle *dev_handle, int32_t interface, int32_t alt_settings);
 
 int libusb_get_ss_endpoint_companion_descriptor(struct libusb_context *ctx,
         const struct libusb_endpoint_descriptor *endpoint,

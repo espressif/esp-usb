@@ -85,7 +85,7 @@ typedef void (*cdc_acm_new_dev_callback_t)(usb_device_handle_t usb_dev);
  * @brief Data receive callback type
  *
  * @param[in] data     Pointer to received data
- * @param[in] data_len Lenght of received data in bytes
+ * @param[in] data_len Length of received data in bytes
  * @param[in] user_arg User's argument passed to open function
  * @return true        Received data was processed     -> Flush RX buffer
  * @return false       Received data was NOT processed -> Append new data to the buffer
@@ -95,7 +95,7 @@ typedef bool (*cdc_acm_data_callback_t)(const uint8_t *data, size_t data_len, vo
 /**
  * @brief Device event callback type
  *
- * @param[in] event    Event strucutre
+ * @param[in] event    Event structure
  * @param[in] user_arg User's argument passed to open function
  */
 typedef void (*cdc_acm_host_dev_callback_t)(const cdc_acm_host_dev_event_data_t *event, void *user_ctx);
