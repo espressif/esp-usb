@@ -188,8 +188,10 @@ esp_err_t cdc_acm_host_open_vendor_specific(uint16_t vid, uint16_t pid, uint8_t 
  * @brief Close CDC device and release its resources
  *
  * @note All in-flight transfers will be prematurely canceled.
- * @param cdc_hdl CDC handle obtained from cdc_acm_host_open()
- * @return esp_err_t
+ * @param[in] cdc_hdl CDC handle obtained from cdc_acm_host_open()
+ * @return
+ *   - ESP_OK: Success - device closed
+ *   - ESP_ERR_INVALID_STATE: cdc_hdl is NULL or the CDC driver is not installed
  */
 esp_err_t cdc_acm_host_close(cdc_acm_dev_hdl_t cdc_hdl);
 
