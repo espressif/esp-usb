@@ -177,7 +177,7 @@ TEST_CASE("read_write", "[cdc_acm]")
     TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_open(0x303A, 0x4002, 0, &dev_config, &cdc_dev)); // 0x303A:0x4002 (TinyUSB Dual CDC device)
     TEST_ASSERT_NOT_NULL(cdc_dev);
     cdc_acm_host_desc_print(cdc_dev);
-    vTaskDelay(100);
+    vTaskDelay(10);
 
     TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_data_tx_blocking(cdc_dev, tx_buf, sizeof(tx_buf), 1000));
     TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_data_tx_blocking(cdc_dev, tx_buf, sizeof(tx_buf), 1000));
@@ -566,6 +566,39 @@ TEST_CASE("functional_descriptor", "[cdc_acm]")
     vTaskDelay(20);
 }
 
+/**
+ * @brief Closing procedure test
+ *
+ * -# Close already closed device
+ */
+TEST_CASE("closing", "[cdc_acm]")
+{
+    nb_of_responses = 0;
+    cdc_acm_dev_hdl_t cdc_dev = NULL;
+
+    test_install_cdc_driver();
+
+    const cdc_acm_host_device_config_t dev_config = {
+        .connection_timeout_ms = 500,
+        .out_buffer_size = 64,
+        .event_cb = notif_cb,
+        .data_cb = handle_rx,
+        .user_arg = tx_buf,
+    };
+
+    printf("Opening CDC-ACM device\n");
+    TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_open(0x303A, 0x4002, 0, &dev_config, &cdc_dev)); // 0x303A:0x4002 (TinyUSB Dual CDC device)
+    TEST_ASSERT_NOT_NULL(cdc_dev);
+    vTaskDelay(10);
+
+    TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_close(cdc_dev));
+    printf("Closing already closed device \n");
+    TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_close(cdc_dev));
+    TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_uninstall());
+
+    vTaskDelay(20); //Short delay to allow task to be cleaned up
+}
+
 /* Following test case implements dual CDC-ACM USB device that can be used as mock device for CDC-ACM Host tests */
 void run_usb_dual_cdc_device(void);
 TEST_CASE("mock_device_app", "[cdc_acm_device][ignore]")
@@ -576,4 +609,4 @@ TEST_CASE("mock_device_app", "[cdc_acm_device][ignore]")
     }
 }
 
-#endif
+#endif // SOC_USB_OTG_SUPPORTED

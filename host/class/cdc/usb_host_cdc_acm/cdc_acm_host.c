@@ -845,13 +845,30 @@ esp_err_t cdc_acm_host_close(cdc_acm_dev_hdl_t cdc_hdl)
 
     xSemaphoreTake(p_cdc_acm_obj->open_close_mutex, portMAX_DELAY);
 
-    cdc_dev_t *cdc_dev = (cdc_dev_t *)cdc_hdl;
-
-    // Cancel polling of BULK IN and INTERRUPT IN
+    // Make sure that the device is in the devices list (that it is not already closed)
+    cdc_dev_t *cdc_dev;
+    bool device_found = false;
     CDC_ACM_ENTER_CRITICAL();
+    SLIST_FOREACH(cdc_dev, &p_cdc_acm_obj->cdc_devices_list, list_entry) {
+        if (cdc_dev == (cdc_dev_t *)cdc_hdl) {
+            device_found = true;
+            break;
+        }
+    }
+
+    // Device was not found in the cdc_devices_list; it was already closed, return OK
+    if (!device_found) {
+        CDC_ACM_EXIT_CRITICAL();
+        xSemaphoreGive(p_cdc_acm_obj->open_close_mutex);
+        return ESP_OK;
+    }
+
+    // No user callbacks from this point
     cdc_dev->notif.cb = NULL;
     cdc_dev->data.in_cb = NULL;
     CDC_ACM_EXIT_CRITICAL();
+
+    // Cancel polling of BULK IN and INTERRUPT IN
     if (cdc_dev->data.in_xfer) {
         ESP_ERROR_CHECK(cdc_acm_reset_transfer_endpoint(cdc_dev->dev_hdl, cdc_dev->data.in_xfer));
     }

@@ -1,6 +1,7 @@
 ## [Unreleased]
 
 - Added `cdc_acm_host_cdc_desc_get()` function that enables users to get CDC functional descriptors of the device
+- Fixed closing of a CDC device from multiple threads
 
 ## 2.0.2
 
