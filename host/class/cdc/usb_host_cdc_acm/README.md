@@ -1,6 +1,7 @@
 # USB Host CDC-ACM Class Driver
 
 [![Component Registry](https://components.espressif.com/components/espressif/usb_host_cdc_acm/badge.svg)](https://components.espressif.com/components/espressif/usb_host_cdc_acm)
+![maintenance-status](https://img.shields.io/badge/maintenance-passively--maintained-yellowgreen.svg)
 
 This component contains an implementation of a USB CDC-ACM Host Class Driver that is implemented on top of the [USB Host Library](https://docs.espressif.com/projects/esp-idf/en/latest/esp32s2/api-reference/peripherals/usb_host.html).
 
@@ -36,7 +37,7 @@ The following steps outline the typical API call pattern of the CDC-ACM Class Dr
 
 1. Install the USB Host Library via `usb_host_install()`
 2. Install the CDC-ACM driver via `cdc_acm_host_install()`
-3. Call `cdc_acm_host_open()`/`cdc_acm_host_open_vendor_specific()` to open a target CDC-ACM/CDC-like device. These functions will block until the target device is connected or time-out
+3. Call `cdc_acm_host_open()` to open a CDC-ACM/CDC-like device. This function will block until the target device is connected or timeout
 4. To transmit data, call `cdc_acm_host_data_tx_blocking()`
 5. When data is received, the driver will automatically run the receive data callback
 6. An opened device can be closed via `cdc_acm_host_close()`

@@ -1,6 +1,7 @@
-## [Unreleased]
+## 2.0.4
 
 - Fixed Control transfer allocation size for too small EP0 Max Packet Size (https://github.com/espressif/esp-idf/issues/14345)
+- Merged `open()` and `open_vendor_specific()` functions. All types of CDC devices are now opened with `cdc_acm_host_open()`, CDC compliance is detected automatically
 
 ## 2.0.3
 
