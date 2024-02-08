@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2015-2021 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2015-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -75,47 +75,6 @@ static const cdc_acm_host_driver_config_t cdc_acm_driver_config_default = {
     .new_dev_cb = NULL,
 };
 
-/**
- * @brief USB CDC PSTN Call Descriptor
- *
- * @see Table 3, USB CDC-PSTN specification rev. 1.2
- */
-typedef struct {
-    uint8_t bFunctionLength;
-    const uint8_t bDescriptorType;
-    const cdc_desc_subtype_t bDescriptorSubtype;
-    union {
-        struct {
-            uint8_t call_management:   1; // Device handles call management itself
-            uint8_t call_over_data_if: 1; // Device sends/receives call management information over Data Class interface
-            uint8_t reserved: 6;
-        };
-        uint8_t val;
-    } bmCapabilities;
-    uint8_t bDataInterface; // Interface number of Data Class interface optionally used for call management
-} __attribute__((packed)) cdc_acm_call_desc_t;
-
-/**
- * @brief USB CDC PSTN Abstract Control Model Descriptor
- *
- * @see Table 4, USB CDC-PSTN specification rev. 1.2
- */
-typedef struct {
-    uint8_t bFunctionLength;
-    const uint8_t bDescriptorType;
-    const cdc_desc_subtype_t bDescriptorSubtype;
-    union {
-        struct {
-            uint8_t feature:    1; // Device supports Set/Clear/Get_Comm_Feature requests
-            uint8_t serial:     1; // Device supports Set/Get_Line_Coding, Set_Control_Line_State and Serial_State request and notifications
-            uint8_t send_break: 1; // Device supports Send_Break request
-            uint8_t network:    1; // Device supports Network_Connection notification
-            uint8_t reserved:   4;
-        };
-        uint8_t val;
-    } bmCapabilities;
-} __attribute__((packed)) cdc_acm_acm_desc_t;
-
 typedef struct cdc_dev_s cdc_dev_t;
 struct cdc_dev_s {
     usb_device_handle_t dev_hdl;          // USB device handle
@@ -141,8 +100,8 @@ struct cdc_dev_s {
     cdc_acm_uart_state_t serial_state;    // Serial State
     cdc_comm_protocol_t comm_protocol;
     cdc_data_protocol_t data_protocol;
-    int             num_cdc_intf_desc;    // Number of CDC Interface descriptors in following array
-    const usb_standard_desc_t **cdc_intf_desc;   // CDC Interface descriptors
+    int             num_cdc_func_desc;    // Number of CDC Functional descriptors in following array
+    const usb_standard_desc_t **cdc_func_desc;   // CDC Functional descriptors
     SLIST_ENTRY(cdc_dev_s) list_entry;
 };
 
@@ -332,7 +291,7 @@ static void cdc_acm_device_remove(cdc_dev_t *cdc_dev)
 {
     assert(cdc_dev);
     cdc_acm_transfers_free(cdc_dev);
-    free(cdc_dev->cdc_intf_desc);
+    free(cdc_dev->cdc_func_desc);
     // We don't check the error code of usb_host_device_close, as the close might fail, if someone else is still using the device (not all interfaces are released)
     usb_host_device_close(p_cdc_acm_obj->cdc_acm_client_hdl, cdc_dev->dev_hdl); // Gracefully continue on error
     free(cdc_dev);
@@ -732,11 +691,11 @@ static esp_err_t cdc_acm_find_intf_and_ep_desc(cdc_dev_t *cdc_dev, uint8_t intf_
             if ((cdc_desc == NULL) || (cdc_desc->bDescriptorType != ((USB_CLASS_COMM << 4) | USB_B_DESCRIPTOR_TYPE_INTERFACE ))) {
                 break;    // We found all CDC specific descriptors
             }
-            cdc_dev->num_cdc_intf_desc++;
-            cdc_dev->cdc_intf_desc =
-                realloc(cdc_dev->cdc_intf_desc, cdc_dev->num_cdc_intf_desc * (sizeof(usb_standard_desc_t *)));
-            assert(cdc_dev->cdc_intf_desc);
-            cdc_dev->cdc_intf_desc[cdc_dev->num_cdc_intf_desc - 1] = cdc_desc;
+            cdc_dev->num_cdc_func_desc++;
+            cdc_dev->cdc_func_desc =
+                realloc(cdc_dev->cdc_func_desc, cdc_dev->num_cdc_func_desc * (sizeof(usb_standard_desc_t *)));
+            assert(cdc_dev->cdc_func_desc);
+            cdc_dev->cdc_func_desc[cdc_dev->num_cdc_func_desc - 1] = cdc_desc;
         } while (1);
         *notif_ep = usb_parse_endpoint_descriptor_by_index(cdc_dev->notif.intf_desc, 0, config_desc->wTotalLength, &desc_offset);
         assert(notif_ep);
@@ -1328,4 +1287,23 @@ esp_err_t cdc_acm_host_protocols_get(cdc_acm_dev_hdl_t cdc_hdl, cdc_comm_protoco
         *data = cdc_dev->data_protocol;
     }
     return ESP_OK;
+}
+
+esp_err_t cdc_acm_host_cdc_desc_get(cdc_acm_dev_hdl_t cdc_hdl, cdc_desc_subtype_t desc_type, const usb_standard_desc_t **desc_out)
+{
+    CDC_ACM_CHECK(cdc_hdl, ESP_ERR_INVALID_ARG);
+    CDC_ACM_CHECK(desc_type < USB_CDC_DESC_SUBTYPE_MAX, ESP_ERR_INVALID_ARG);
+    cdc_dev_t *cdc_dev = (cdc_dev_t *)cdc_hdl;
+    esp_err_t ret = ESP_ERR_NOT_FOUND;
+    *desc_out = NULL;
+
+    for (int i = 0; i < cdc_dev->num_cdc_func_desc; i++) {
+        cdc_header_desc_t *_desc = (cdc_header_desc_t *)(cdc_dev->cdc_func_desc[i]);
+        if (_desc->bDescriptorSubtype == desc_type) {
+            ret = ESP_OK;
+            *desc_out = cdc_dev->cdc_func_desc[i];
+            break;
+        }
+    }
+    return ret;
 }

@@ -1,10 +1,14 @@
+## [Unreleased]
+
+- Added `cdc_acm_host_cdc_desc_get()` function that enables users to get CDC functional descriptors of the device
+
 ## 2.0.2
 
 - Return an error if the selected interface does not have IN and OUT bulk endpoints
 
 ## 2.0.1
 
-- Add support for USB "triple null" devices, which use USB interface association descriptors, but have Device Class, Device Subclass, and Device Protocol all set to 0x00, instead of 0xEF, 0x02, and 0x01 respectively. USB Standard reference: https://www.usb.org/defined-class-codes, Base Class 00h (Device) section.
+- Added support for USB "triple null" devices, which use USB interface association descriptors, but have Device Class, Device Subclass, and Device Protocol all set to 0x00, instead of 0xEF, 0x02, and 0x01 respectively. USB Standard reference: https://www.usb.org/defined-class-codes, Base Class 00h (Device) section.
 
 ## 2.0.0
 
