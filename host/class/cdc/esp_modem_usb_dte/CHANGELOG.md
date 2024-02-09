@@ -1,14 +1,15 @@
-## 1.0.0
+## Unreleased
 
-- Initial version
+- Fixed C++ build error for `usb_host_config_t` backward compatibility
+- Added default configuration for SimCom SIM7070G, SIM7080 and SIMA7672E modems
 
 ## 1.1.0
 
-- Update to [CDC-ACM driver](https://components.espressif.com/components/espressif/usb_host_cdc_acm) to v2
-- Provide default configurations for tested modems
-- Fix USB receive path bug, where received data could be overwritten by new data
-- Initial support for modems with two AT ports
+- Updated to [CDC-ACM driver](https://components.espressif.com/components/espressif/usb_host_cdc_acm) to v2
+- Added default configurations for tested modems
+- Fixed USB receive path bug, where received data could be overwritten by new data
+- Added initial support for modems with two AT ports
 
-## Unreleased
+## 1.0.0
 
-- Fix C++ build error for `usb_host_config_t` backward compatibility
+- Initial version
