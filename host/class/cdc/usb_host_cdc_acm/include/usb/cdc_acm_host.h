@@ -11,6 +11,10 @@
 #include "usb/usb_types_cdc.h"
 #include "esp_err.h"
 
+// Pass these to cdc_acm_host_open() to signal that you don't care about VID/PID of the opened device
+#define CDC_HOST_ANY_VID (0)
+#define CDC_HOST_ANY_PID (0)
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -166,8 +170,11 @@ esp_err_t cdc_acm_host_register_new_dev_callback(cdc_acm_new_dev_callback_t new_
  *
  * The driver first looks for CDC compliant descriptor, if it is not found the driver checks if the interface has 2 Bulk endpoints that can be used for data
  *
- * @param[in] vid           Device's Vendor ID
- * @param[in] pid           Device's Product ID
+ * Use CDC_HOST_ANY_* macros to signal that you don't care about the device's VID and PID. In this case, first USB device will be opened.
+ * It is recommended to use this feature if only one device can ever be in the system (there is no USB HUB connected).
+ *
+ * @param[in] vid           Device's Vendor ID, set to CDC_HOST_ANY_VID for any
+ * @param[in] pid           Device's Product ID, set to CDC_HOST_ANY_PID for any
  * @param[in] interface_idx Index of device's interface used for CDC-ACM communication
  * @param[in] dev_config    Configuration structure of the device
  * @param[out] cdc_hdl_ret  CDC device handle

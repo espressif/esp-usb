@@ -1,6 +1,7 @@
 ## [Unreleased]
 
 - Fixed CDC descriptor parsing logic, when some CDC devices could not be opened
+- Added an option to open a CDC device with any VID/PID
 
 ## 2.0.4
 
