@@ -1,7 +1,7 @@
 /*
  * SPDX-FileCopyrightText: 2015-2024 Espressif Systems (Shanghai) CO LTD
  *
- * SPDX-License-Identifier: CC0-1.0
+ * SPDX-License-Identifier: Apache-2.0
  */
 
 #include "soc/soc_caps.h"

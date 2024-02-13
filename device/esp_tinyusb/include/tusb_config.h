@@ -1,5 +1,7 @@
 /*
- * The MIT License (MIT)
+ * SPDX-FileCopyrightText: 2019 Ha Thach (tinyusb.org),
+ * SPDX-FileContributor: 2020 Espressif Systems (Shanghai) CO LTD
+ * SPDX-License-Identifier: MIT
  *
  * Copyright (c) 2019 Ha Thach (tinyusb.org),
  * Additions Copyright (c) 2020, Espressif Systems (Shanghai) PTE LTD

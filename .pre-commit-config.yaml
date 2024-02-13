@@ -11,6 +11,12 @@ repos:
     - id: codespell
       args: [-w, "--ignore-words=codespell-ignore-list"]
 
+-   repo: https://github.com/espressif/check-copyright/
+    rev: v1.0.3
+    hooks:
+      - id: check-copyright
+        args: ['-r', '--config', 'check_copyright_config.yaml']
+
 -   repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v4.3.0
     hooks:
