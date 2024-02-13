@@ -2,6 +2,7 @@
 
 - CDC-ACM: Remove MIN() definition if already defined
 - MSC: Set EP size in configuration descriptor based on speed
+- esp_tinyusb: Add check for max number of endpoints
 
 ## 1.4.3
 

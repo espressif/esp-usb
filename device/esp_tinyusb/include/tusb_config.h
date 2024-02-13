@@ -148,6 +148,29 @@ extern "C" {
 #define CFG_TUD_DFU_RUNTIME         CONFIG_TINYUSB_DFU_MODE_DFU_RUNTIME
 #define CFG_TUD_BTH                 CONFIG_TINYUSB_BTH_ENABLED
 
+// Calculate used endpoints
+#define CFG_TUD_IN_EP_COUNT         2 * CONFIG_TINYUSB_CDC_COUNT +    \
+                                        CONFIG_TINYUSB_MSC_ENABLED +  \
+                                        CONFIG_TINYUSB_HID_COUNT +    \
+                                        CONFIG_TINYUSB_MIDI_COUNT +   \
+                                        CONFIG_TINYUSB_CUSTOM_CLASS_ENABLED + \
+                                    2 * CONFIG_TINYUSB_NET_MODE_ECM_RNDIS + \
+                                    2 * CONFIG_TINYUSB_NET_MODE_NCM + \
+                                    2 * CONFIG_TINYUSB_DFU_MODE_DFU + \
+                                    2 * CONFIG_TINYUSB_DFU_MODE_DFU_RUNTIME + \
+                                        CONFIG_TINYUSB_BTH_ENABLED
+
+#define CFG_TUD_OUT_EP_COUNT            CONFIG_TINYUSB_CDC_COUNT +    \
+                                        CONFIG_TINYUSB_MSC_ENABLED +  \
+                                        CONFIG_TINYUSB_HID_COUNT +    \
+                                        CONFIG_TINYUSB_MIDI_COUNT +   \
+                                        CONFIG_TINYUSB_CUSTOM_CLASS_ENABLED + \
+                                        CONFIG_TINYUSB_NET_MODE_ECM_RNDIS + \
+                                        CONFIG_TINYUSB_NET_MODE_NCM + \
+                                        CONFIG_TINYUSB_DFU_MODE_DFU + \
+                                        CONFIG_TINYUSB_DFU_MODE_DFU_RUNTIME + \
+                                        CONFIG_TINYUSB_BTH_ENABLED
+
 #ifdef __cplusplus
 }
 #endif
