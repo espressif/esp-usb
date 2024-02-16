@@ -33,11 +33,12 @@ jobs:
         with:
           name: usb_test_app_bin_${{ matrix.idf_ver }}
           path: |
-            test_app/build_esp*/bootloader/bootloader.bin
-            test_app/build_esp*/partition_table/partition-table.bin
-            test_app/build_esp*/usb_test_app.bin
-            test_app/build_esp*/usb_test_app.elf
-            test_app/build_esp*/flasher_args.json
+            **/test_app/build_esp*/bootloader/bootloader.bin
+            **/test_app/build_esp*/partition_table/partition-table.bin
+            **/test_app/build_esp*/test_app_usb_*.bin
+            **/test_app/build_esp*/test_app_usb_*.elf
+            **/test_app/build_esp*/flasher_args.json
+          if-no-files-found: error
 
   run-target:
     name: Run USB Test App on target

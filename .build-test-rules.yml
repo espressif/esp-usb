@@ -1,3 +1,9 @@
-test_app:
+device/esp_tinyusb:
+  enable:
+    - if: IDF_TARGET in ["esp32s2", "esp32s3"]
+  disable:
+    - if: IDF_VERSION < 5.0
+
+host/class:
   enable:
     - if: IDF_TARGET in ["esp32s2", "esp32s3"]
