@@ -1,0 +1,62 @@
+name: Bug report
+description: Report build and runtime bugs
+labels: ["Type: Bug"]
+body:
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Answers checklist.
+      description: Before submitting a new issue, please follow the checklist and try to find the answer.
+      options:
+        - label: I have read the component documentation [ESP-IDF Components](https://components.espressif.com) and the issue is not addressed there.
+          required: true
+        - label: I am using target and esp-idf version as defined in component's idf_component.yml
+          required: true
+        - label: I have searched the [issue tracker](https://github.com/espressif/esp-usb/issues?q=is%3Aissue) for a similar issue and not found any related issue.
+          required: true
+  - type: dropdown
+    id: component
+    attributes:
+      label: Which component are you using? If you choose Other, provide details in More Information.
+      multiple: false
+      options:
+        - device/esp_tinyusb
+        - host/cdc
+        - host/hid
+        - host/msc
+        - host/uvc
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: idf_version
+    attributes:
+      label: ESP-IDF version.
+      description: On which ESP-IDF version does this issue occur on? Run `git describe --tags` in your esp-idf folder to find it.
+      placeholder: ex. v5.0-rc1
+    validations:
+      required: true
+  - type: input
+    id: devkit
+    attributes:
+      label: Development Kit.
+      description: On which Development Kit does this issue occur on?
+      placeholder: ex. ESP32-Wrover-Kit v2 | Custom Board
+    validations:
+      required: true
+  - type: input
+    id: component_version
+    attributes:
+      label: Used Component version.
+      description: On which Component version does this issue occur on? Check `dependencies.lock` file in your project root to find it.
+      placeholder: ex. v1.2.0-rc0
+    validations:
+      required: true
+  - type: textarea
+    id: more-info
+    attributes:
+      label: More Information.
+      description: Do you have any other information from investigating this?
+      placeholder: ex. I tried on my friend's Windows 10 PC and the command works there.
+    validations:
+      required: false
