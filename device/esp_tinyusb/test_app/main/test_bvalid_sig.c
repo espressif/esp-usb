@@ -20,6 +20,7 @@
 #include "soc/gpio_sig_map.h"
 #include "unity.h"
 #include "tinyusb.h"
+#include "tusb_tasks.h"
 
 #define DEVICE_DETACH_TEST_ROUNDS       10
 #define DEVICE_DETACH_ROUND_DELAY_MS    1000
@@ -90,6 +91,8 @@ TEST_CASE("bvalid_signal", "[esp_tinyusb][usb_device]")
     TEST_ASSERT_EQUAL(dev_umounted, dev_mounted);
     TEST_ASSERT_EQUAL(DEVICE_DETACH_TEST_ROUNDS, dev_mounted);
 
-    tinyusb_driver_uninstall();
+    // Cleanup
+    TEST_ASSERT_EQUAL(ESP_OK, tinyusb_driver_uninstall());
+    TEST_ASSERT_EQUAL(ESP_OK, tusb_stop_task());
 }
 #endif // SOC_USB_OTG_SUPPORTED
