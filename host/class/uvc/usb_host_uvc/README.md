@@ -21,3 +21,4 @@ Following two supported formats are the most common (both encoded in MJPEG):
 ## Tested cameras
  * Logitech C980
  * CANYON CNE-CWC2
+ * Logitech C270
