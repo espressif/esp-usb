@@ -1,5 +1,5 @@
 [![pre-commit](https://img.shields.io/badge/pre--commit-enabled-brightgreen?logo=pre-commit&logoColor=white)](https://github.com/pre-commit/pre-commit)
-[![Build and Run Test Application](https://github.com/espressif/esp-usb/actions/workflows/build_and_run_test_app.yml/badge.svg?branch=master)](https://github.com/espressif/esp-usb/actions/workflows/build_and_run_test_app.yml)
+[![Build and Run Test Application](https://github.com/espressif/esp-usb/actions/workflows/build_and_run_test_app_usb.yml/badge.svg?branch=master)](https://github.com/espressif/esp-usb/actions/workflows/build_and_run_test_app_usb.yml)
 [![Clang-Tidy](https://github.com/espressif/esp-usb/actions/workflows/clang-tidy.yml/badge.svg?branch=master)](https://github.com/espressif/esp-usb/security/code-scanning?query=is%3Aopen+branch%3Amaster)
 
 # Espressif ESP-USB
