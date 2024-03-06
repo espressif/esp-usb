@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2022 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2022-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -190,8 +190,8 @@ int parse_configuration(libusb_config_descriptor_t *config, const uint8_t *buffe
             LIBUSB_GOTO_ON_FALSE(interface->altsetting);
 
             for (int ep = 0; ep < endpoints; ep++) {
-                ep_desc = usb_parse_endpoint_descriptor_by_index(ifc_desc, ep, config->wTotalLength, &offset);
-                ifc_desc = (const usb_intf_desc_t *)ep_desc;
+                int intf_offset = offset; // Current offset is interface offset in the configuration descriptor
+                ep_desc = usb_parse_endpoint_descriptor_by_index(ifc_desc, ep, config->wTotalLength, &intf_offset);
                 libusb_endpoint_descriptor_t *endpoint = &altsetting->endpoint[ep];
                 copy_endpoint_desc(endpoint, ep_desc);
                 LIBUSB_GOTO_ON_ERROR( add_extra_data(&extra, ep_desc) );
