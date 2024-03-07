@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2022-2023 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2022-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -73,3 +73,18 @@ struct esp_modem_usb_term_config {
  * @brief Default configuration of SimCom A7670E modem
  */
 #define ESP_MODEM_A7670_USB_CONFIG()   ESP_MODEM_DEFAULT_USB_CONFIG_DUAL(0x1E0E, 0x9011, 4, 5)
+
+/**
+ * @brief Default configuration of SimCom SIM7070G modem
+ */
+#define ESP_MODEM_SIM7070G_USB_CONFIG()   ESP_MODEM_DEFAULT_USB_CONFIG(0x1E0E, 0x9206, 2)
+
+/**
+ * @brief Default configuration of SimCom SIM7080 modem
+ */
+#define ESP_MODEM_SIM7080_USB_CONFIG()   ESP_MODEM_DEFAULT_USB_CONFIG(0x1E0E, 0x9205, 2)
+
+/**
+ * @brief Default configuration of SimCom SIMA7672E modem
+ */
+#define ESP_MODEM_SIMA7672E_USB_CONFIG()   ESP_MODEM_DEFAULT_USB_CONFIG_DUAL(0x1E0E, 0x9011, 4, 5)
