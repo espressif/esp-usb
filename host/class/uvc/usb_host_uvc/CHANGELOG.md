@@ -3,6 +3,7 @@
 - Added support for ESP32-P4
 - Bumped libuvc version to relax frame format negotiation
 - Fixed crash on opening non-UVC devices
+- Added `libuvc_get_usb_device_info` function
 
 ## 1.0.2
 

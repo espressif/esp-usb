@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2022 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2022-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -8,6 +8,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include "esp_err.h"
+#include "usb/usb_types_stack.h"
+#include "libuvc/libuvc.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -59,6 +61,14 @@ esp_err_t libuvc_adapter_print_descriptors(uvc_device_handle_t *device);
  * @return esp_err_t
  */
 esp_err_t libuvc_adapter_handle_events(uint32_t timeout_ms);
+
+/**
+ * @brief Get information about underlying USB device
+ *
+ * @param[in]  dev      UVC device handle obtained from uvc_find_device()
+ * @param[out] dev_info Pointer to structure where the information will be saved
+ */
+esp_err_t libuvc_get_usb_device_info(uvc_device_t *dev, usb_device_info_t *dev_info);
 
 #ifdef __cplusplus
 }
