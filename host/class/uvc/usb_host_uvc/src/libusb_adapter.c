@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2021-2022 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2021-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -189,6 +189,24 @@ esp_err_t libuvc_adapter_print_descriptors(uvc_device_handle_t *device)
     usb_print_config_descriptor(config_desc, print_usb_class_descriptors);
     print_string_descriptors(&dev_info);
 
+    return ESP_OK;
+}
+
+esp_err_t libuvc_get_usb_device_info(uvc_device_t *dev, usb_device_info_t *dev_info)
+{
+    uvc_error_t ret;
+    struct libusb_device_handle *usb_devh;
+
+    ret = libusb_open(dev->usb_dev, &usb_devh);
+    UVC_DEBUG("libusb_open() = %d", ret);
+    if (ret != UVC_SUCCESS) {
+        return ESP_FAIL;
+    }
+
+    uvc_camera_t *camera = (uvc_camera_t *)(usb_devh);
+    RETURN_ON_ERROR( usb_host_device_info(camera->handle, dev_info) );
+
+    libusb_close(usb_devh);
     return ESP_OK;
 }
 
