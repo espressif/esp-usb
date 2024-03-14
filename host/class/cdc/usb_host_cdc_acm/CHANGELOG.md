@@ -2,6 +2,7 @@
 
 - Added `cdc_acm_host_cdc_desc_get()` function that enables users to get CDC functional descriptors of the device
 - Fixed closing of a CDC device from multiple threads
+- Merged `open()` and `open_vendor_specific()` functions. All types of CDC devices are now opened with `cdc_acm_host_open()`, CDC compliance is detected automatically
 
 ## 2.0.2
 
