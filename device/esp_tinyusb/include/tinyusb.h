@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2020-2023 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2020-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -31,7 +31,20 @@ typedef struct {
     const char **string_descriptor;            /*!< Pointer to array of string descriptors. If set to NULL, TinyUSB device will use a default string descriptors whose values are set in Kconfig */
     int string_descriptor_count;               /*!< Number of descriptors in above array */
     bool external_phy;                         /*!< Should USB use an external PHY */
-    const uint8_t *configuration_descriptor;   /*!< Pointer to a configuration descriptor. If set to NULL, TinyUSB device will use a default configuration descriptor whose values are set in Kconfig */
+    union {
+        struct {
+            const uint8_t *configuration_descriptor;            /*!< Pointer to a configuration descriptor. If set to NULL, TinyUSB device will use a default configuration descriptor whose values are set in Kconfig */
+        };
+#if (TUD_OPT_HIGH_SPEED)
+        struct {
+            const uint8_t *fs_configuration_descriptor;         /*!< Pointer to a FullSpeed configuration descriptor. If set to NULL, TinyUSB device will use a default configuration descriptor whose values are set in Kconfig */
+        };
+    };
+    const uint8_t *hs_configuration_descriptor;                 /*!< Pointer to a HighSpeed configuration descriptor. If set to NULL, TinyUSB device will use a default configuration descriptor whose values are set in Kconfig */
+    const tusb_desc_device_qualifier_t *qualifier_descriptor;   /*!< Pointer to a qualifier descriptor */
+#else
+    };
+#endif // TUD_OPT_HIGH_SPEED
     bool self_powered;                         /*!< This is a self-powered USB device. USB VBUS must be monitored. */
     int vbus_monitor_io;                       /*!< GPIO for VBUS monitoring. Ignored if not self_powered. */
 } tinyusb_config_t;

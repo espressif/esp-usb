@@ -25,6 +25,10 @@
 #define DEVICE_DETACH_TEST_ROUNDS       10
 #define DEVICE_DETACH_ROUND_DELAY_MS    1000
 
+#if (CONFIG_IDF_TARGET_ESP32P4)
+#define USB_SRP_BVALID_IN_IDX       USB_SRP_BVALID_PAD_IN_IDX
+#endif // CONFIG_IDF_TARGET_ESP32P4
+
 /* TinyUSB descriptors
    ********************************************************************* */
 #define TUSB_DESC_TOTAL_LEN         (TUD_CONFIG_DESC_LEN)
@@ -54,14 +58,12 @@ static const tusb_desc_device_t test_device_descriptor = {
     .bNumConfigurations = 0x01
 };
 
-// Invoked when device is mounted
-void tud_mount_cb(void)
+void test_bvalid_sig_mount_cb(void)
 {
     dev_mounted++;
 }
 
-// Invoked when device is unmounted
-void tud_umount_cb(void)
+void test_bvalid_sig_umount_cb(void)
 {
     dev_umounted++;
 }
@@ -77,6 +79,9 @@ TEST_CASE("bvalid_signal", "[esp_tinyusb][usb_device]")
         .configuration_descriptor = test_configuration_descriptor,
     };
     TEST_ASSERT_EQUAL(ESP_OK, tinyusb_driver_install(&tusb_cfg));
+
+    dev_mounted = 0;
+    dev_umounted = 0;
 
     while (rounds--) {
         // LOW to emulate disconnect USB device
