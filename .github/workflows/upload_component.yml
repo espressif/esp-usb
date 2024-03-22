@@ -41,6 +41,7 @@ jobs:
             host/class/cdc/usb_host_vcp;
             host/class/hid/usb_host_hid;
             host/class/msc/usb_host_msc;
+            host/class/uac/usb_host_uac;
             host/class/uvc/usb_host_uvc;
           namespace: "espressif"
           # API token will only be available in the master branch in the main repository.

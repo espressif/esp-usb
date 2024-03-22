@@ -1,0 +1,10 @@
+## IDF Component Manager Manifest File
+version: "1.0.0"
+description: USB Host UAC driver
+url: https://github.com/espressif/esp-usb/tree/master/host/class/uac/usb_host_uac
+dependencies:
+  idf: ">=4.4"
+targets:
+  - esp32s2
+  - esp32s3
+  - esp32p4
