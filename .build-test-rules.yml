@@ -7,3 +7,9 @@ device/esp_tinyusb:
 host/class:
   enable:
     - if: IDF_TARGET in ["esp32s2", "esp32s3"]
+
+host/class/uac/usb_host_uac/examples/usb_audio_player:
+  enable:
+    - if: IDF_TARGET in ["esp32s2", "esp32s3"]
+  disable:
+    - if: IDF_VERSION < 5.0
