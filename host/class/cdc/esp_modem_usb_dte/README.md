@@ -49,6 +49,7 @@ Then, you can pass these constants to [ESP_MODEM_DEFAULT_USB_CONFIG](https://git
 
 ## List of tested modems
 The following modems were tested with this component, their configurations can be found in [esp_modem_usb_config.h](https://github.com/espressif/idf-extra-components/blob/master/usb/esp_modem_usb_dte/include/esp_modem_usb_config.h):
-* Quactel BG96
+* Quectel BG96
+* Quectel EC20
 * SimCom SIM7600E
 * SimCom A7670E
