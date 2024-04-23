@@ -1,3 +1,7 @@
+## Unreleased
+
+- CDC-ACM: Fixed memory leak at VFS unregister
+
 ## 1.4.4
 
 - esp_tinyusb: Added HighSpeed and Qualifier device descriptors in tinyusb configuration
