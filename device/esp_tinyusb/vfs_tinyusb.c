@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2020-2023 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2020-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -102,6 +102,8 @@ static esp_err_t vfstusb_init(int cdc_intf, char const *path)
  */
 static void vfstusb_deinit(void)
 {
+    _lock_close(&(s_vfstusb.write_lock));
+    _lock_close(&(s_vfstusb.read_lock));
     memset(&s_vfstusb, 0, sizeof(s_vfstusb));
 }
 
