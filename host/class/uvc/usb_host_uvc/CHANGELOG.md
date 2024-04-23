@@ -1,3 +1,7 @@
+## 1.0.4
+
+- Support printf frame based descriptor
+
 ## 1.0.3
 
 - Added support for ESP32-P4
