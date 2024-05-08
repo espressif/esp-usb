@@ -409,6 +409,40 @@ typedef struct {
 } __attribute__((packed)) uac_ac_output_terminal_desc_t;
 
 /**
+ * @brief Audio Class-Specific AC Mixer Unit Descriptor
+ *
+ * @see Table 4-5 of audio10.pdf
+ */
+typedef struct {
+    uint8_t bLength;
+    uint8_t bDescriptorType;
+    uint8_t bDescriptorSubtype;
+    uint8_t bUnitID;
+    uint8_t bNrInPins;
+    uint8_t baSourceID[2];
+    uint8_t bNrChannels;
+    uint16_t wChannelConfig;
+    uint8_t iChannelNames;
+    uint8_t bmControls;
+    uint8_t iMixer;
+} __attribute__((packed)) uac_ac_mixer_unit_desc_t;
+
+/**
+ * @brief Audio Class-Specific AC Selector Unit Descriptor
+ *
+ * @see Table 4-6 of audio10.pdf
+ */
+typedef struct {
+    uint8_t bLength;
+    uint8_t bDescriptorType;
+    uint8_t bDescriptorSubtype;
+    uint8_t bUnitID;
+    uint8_t bNrInPins;
+    uint8_t baSourceID[2];
+    uint8_t iSelector;
+} __attribute__((packed)) uac_ac_selector_unit_desc_t;
+
+/**
  * @brief Audio Class-Specific AC Feature Unit Descriptor (ch=2, bControlSize=2)
  *
  * @see Table 4-7 of audio10.pdf

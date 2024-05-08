@@ -155,6 +155,40 @@ static void print_ac_feature_desc(const uint8_t *buff)
     printf("\tiFeature %d\n", desc->iFeature);
 }
 
+static void print_ac_mix_desc(const uint8_t *buff)
+{
+    const uac_ac_mixer_unit_desc_t *desc = (const uac_ac_mixer_unit_desc_t *)buff;
+    printf("\t*** Audio control mixer unit descriptor ***\n");
+    printf("\tbLength %d\n", desc->bLength);
+    printf("\tbDescriptorType 0x%x\n", desc->bDescriptorType);
+    printf("\tbDescriptorSubtype 0x%x\n", desc->bDescriptorSubtype);
+    printf("\tbUnitID %d\n", desc->bUnitID);
+    printf("\tbNrInPins %d\n", desc->bNrInPins);
+    for (size_t i = 0; i < desc->bNrInPins; ++i) {
+        printf("\tbSourceID[%d] %d\n", i, desc->baSourceID[i]);
+    }
+    printf("\tbNrChannels %d\n", buff[5 + desc->bNrInPins]);
+    printf("\twChannelConfig 0x%x\n", buff[6 + desc->bNrInPins] | (buff[7 + desc->bNrInPins] << 8));
+    printf("\tiChannelNames %d\n", buff[8 + desc->bNrInPins]);
+    printf("\tbmControls 0x%x\n", buff[9 + desc->bNrInPins]);
+    printf("\tiMixer %d\n", buff[10 + desc->bNrInPins]);
+}
+
+static void print_ac_selector_desc(const uint8_t *buff)
+{
+    const uac_ac_selector_unit_desc_t *desc = (const uac_ac_selector_unit_desc_t *)buff;
+    printf("\t*** Audio control selector unit descriptor ***\n");
+    printf("\tbLength %d\n", desc->bLength);
+    printf("\tbDescriptorType 0x%x\n", desc->bDescriptorType);
+    printf("\tbDescriptorSubtype 0x%x\n", desc->bDescriptorSubtype);
+    printf("\tbUnitID %d\n", desc->bUnitID);
+    printf("\tbNrInPins %d\n", desc->bNrInPins);
+    for (size_t i = 0; i < desc->bNrInPins; ++i) {
+        printf("\tbSourceID[%d] %d\n", i, desc->baSourceID[i]);
+    }
+    printf("\tiSelector %d\n", buff[5 + desc->bNrInPins]);
+}
+
 static void parse_as_ep_general_desc(const uint8_t *buff)
 {
     const uac_as_cs_ep_desc_t *desc = (const uac_as_cs_ep_desc_t *)buff;
@@ -234,6 +268,12 @@ static void print_uac_class_descriptors(const usb_standard_desc_t *desc, uint8_t
             break;
         case UAC_AC_FEATURE_UNIT:
             print_ac_feature_desc(buff);
+            break;
+        case UAC_AC_MIXER_UNIT:
+            print_ac_mix_desc(buff);
+            break;
+        case UAC_AC_SELECTOR_UNIT:
+            print_ac_selector_desc(buff);
             break;
         default:
             goto unknown;

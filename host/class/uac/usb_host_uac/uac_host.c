@@ -98,14 +98,7 @@ typedef struct uac_host_device {
     SemaphoreHandle_t ctrl_xfer_done;               /*!< Control transfer semaphore */
     usb_transfer_t *ctrl_xfer;                      /*!< Pointer to control transfer buffer */
     uint8_t ctrl_iface_num;                         /*!< Control interface number */
-    uint8_t input_terminal[UAC_STREAM_MAX];         /*!< Input terminal ID */
-    uint8_t input_channel[UAC_STREAM_MAX];          /*!< Input channel ID */
-    uint8_t output_terminal[UAC_STREAM_MAX];        /*!< Output terminal ID */
-    uint8_t feature_unit[UAC_STREAM_MAX];           /*!< Feature unit ID */
-    uint8_t mute_ch_map[UAC_STREAM_MAX];            /*!< Channel bitmap mark which channel support mute,
-                                                    eg. 0x01 - 0b00000001 : channel 0 support mute */
-    uint8_t vol_ch_map[UAC_STREAM_MAX];             /*!< Channel bitmap mark which channel support volume control,
-                                                    eg. 0x03 - 0b00000011 : channel 0 and 1 support volume control */
+    uint8_t *cs_ac_desc;                            /*!< Class-Specific Audio Control Interface descriptor */
 } uac_device_t;
 
 /**
@@ -132,6 +125,9 @@ typedef struct uac_interface_alt {
     uint8_t ep_attr;                           /*!< audio stream endpoint attributes */
     uint8_t interval;                          /*!< audio stream endpoint interval */
     uint8_t connected_terminal;                /*!< connected terminal ID */
+    uint8_t feature_unit;                      /*!< connected feature unit ID */
+    uint8_t vol_ch_map;                        /*!< volume channel map */
+    uint8_t mute_ch_map;                       /*!< mute channel map */
     bool freq_ctrl_supported;                  /*!< sampling frequency control supported */
     uac_host_dev_alt_param_t dev_alt_param;    /*!< audio stream alternate setting parameters */
 } uac_iface_alt_t;
@@ -480,6 +476,140 @@ static inline esp_err_t uac_host_interface_unlock(uac_iface_t *iface)
     return (xSemaphoreGive(iface->state_mutex) ? ESP_OK : ESP_FAIL);
 }
 
+static uint8_t _uac_next_linked_uint_id(const uint8_t *desc, uint8_t unit_id, uint8_t **feat_desc)
+{
+    *feat_desc = NULL;
+    if (!desc) {
+        return 0;
+    }
+    uac_ac_header_desc_t *header_desc = (uac_ac_header_desc_t *)desc;
+    const size_t total_length = header_desc->wTotalLength;
+    int uac_desc_offset = 0;
+    const uac_desc_header_t *uac_cs_desc = (const uac_desc_header_t *)header_desc;
+    while (uac_cs_desc) {
+        switch (uac_cs_desc->bDescriptorSubtype) {
+        case UAC_AC_HEADER:
+        case UAC_AC_INPUT_TERMINAL:
+            break;
+        case UAC_AC_OUTPUT_TERMINAL: {
+            const uac_ac_output_terminal_desc_t *output_terminal_desc = (const uac_ac_output_terminal_desc_t *)uac_cs_desc;
+            if (output_terminal_desc->bSourceID == unit_id) {
+                return output_terminal_desc->bTerminalID;
+            }
+            break;
+        }
+        case UAC_AC_FEATURE_UNIT: {
+            const uac_ac_feature_unit_desc_t *feature_unit_desc = (const uac_ac_feature_unit_desc_t *)uac_cs_desc;
+            if (feature_unit_desc->bSourceID == unit_id) {
+                *feat_desc = (uint8_t *)feature_unit_desc;
+                return feature_unit_desc->bUnitID;
+            }
+            break;
+        }
+        case UAC_AC_SELECTOR_UNIT: {
+            const uac_ac_selector_unit_desc_t *selector_unit_desc = (const uac_ac_selector_unit_desc_t *)uac_cs_desc;
+            for (int i = 0; i < selector_unit_desc->bNrInPins; i++) {
+                if (selector_unit_desc->baSourceID[i] == unit_id) {
+                    return selector_unit_desc->bUnitID;
+                }
+            }
+            break;
+        }
+        case UAC_AC_MIXER_UNIT: {
+            const uac_ac_mixer_unit_desc_t *mixer_unit_desc = (const uac_ac_mixer_unit_desc_t *)uac_cs_desc;
+            for (int i = 0; i < mixer_unit_desc->bNrInPins; i++) {
+                if (mixer_unit_desc->baSourceID[i] == unit_id) {
+                    return mixer_unit_desc->bUnitID;
+                }
+            }
+            break;
+        }
+        default:
+            ESP_LOGD(TAG, "UAC Unknown Descriptor Subtype %d", uac_cs_desc->bDescriptorSubtype);
+            break;
+        }
+        uac_cs_desc = (uac_desc_header_t *)GET_NEXT_DESC(uac_cs_desc, total_length, uac_desc_offset);
+    }
+    return 0;
+}
+
+static uint8_t _uac_last_linked_uint_id(const uint8_t *desc, uint8_t unit_id, uint8_t **feat_desc)
+{
+    *feat_desc = NULL;
+    if (!desc) {
+        return 0;
+    }
+    uac_ac_header_desc_t *header_desc = (uac_ac_header_desc_t *)desc;
+    const size_t total_length = header_desc->wTotalLength;
+    int uac_desc_offset = 0;
+    const uac_desc_header_t *uac_cs_desc = (const uac_desc_header_t *)header_desc;
+    while (uac_cs_desc) {
+        switch (uac_cs_desc->bDescriptorSubtype) {
+        case UAC_AC_HEADER:
+        case UAC_AC_INPUT_TERMINAL:
+            break;
+        case UAC_AC_OUTPUT_TERMINAL: {
+            const uac_ac_output_terminal_desc_t *output_terminal_desc = (const uac_ac_output_terminal_desc_t *)uac_cs_desc;
+            if (output_terminal_desc->bTerminalID == unit_id) {
+                return output_terminal_desc->bSourceID;
+            }
+            break;
+        }
+        case UAC_AC_FEATURE_UNIT: {
+            const uac_ac_feature_unit_desc_t *feature_unit_desc = (const uac_ac_feature_unit_desc_t *)uac_cs_desc;
+            if (feature_unit_desc->bUnitID == unit_id) {
+                *feat_desc = (uint8_t *)feature_unit_desc;
+                return feature_unit_desc->bSourceID;
+            }
+            break;
+        }
+        case UAC_AC_SELECTOR_UNIT: {
+            const uac_ac_selector_unit_desc_t *selector_unit_desc = (const uac_ac_selector_unit_desc_t *)uac_cs_desc;
+            if (selector_unit_desc->bUnitID == unit_id) {
+                // for basic audio device, the first source should be microphone
+                return selector_unit_desc->baSourceID[0];
+            }
+            break;
+        }
+        case UAC_AC_MIXER_UNIT: {
+            const uac_ac_mixer_unit_desc_t *mixer_unit_desc = (const uac_ac_mixer_unit_desc_t *)uac_cs_desc;
+            if (mixer_unit_desc->bUnitID == unit_id) {
+                return mixer_unit_desc->baSourceID[0];
+            }
+            break;
+        }
+        default:
+            ESP_LOGD(TAG, "UAC Unknown Descriptor Subtype %d", uac_cs_desc->bDescriptorSubtype);
+            break;
+        }
+        uac_cs_desc = (uac_desc_header_t *)GET_NEXT_DESC(uac_cs_desc, total_length, uac_desc_offset);
+    }
+    return 0;
+}
+
+static uac_ac_feature_unit_desc_t *_uac_host_device_find_feature_unit(const uint8_t *header_desc, uint8_t terminal_id, bool if_input)
+{
+    if (!header_desc) {
+        return NULL;
+    }
+
+    uint8_t unit_id = terminal_id;
+    uac_ac_feature_unit_desc_t *feature_unit_desc = NULL;
+    if (if_input) {
+        while (feature_unit_desc == NULL && unit_id != 0) {
+            unit_id = _uac_next_linked_uint_id(header_desc, unit_id, (uint8_t **)&feature_unit_desc);
+            ESP_LOGD(TAG, "Input Terminal next linked unit ID %d", unit_id);
+        }
+    } else {
+        while (feature_unit_desc == NULL && unit_id != 0) {
+            unit_id = _uac_last_linked_uint_id(header_desc, unit_id, (uint8_t **)&feature_unit_desc);
+            ESP_LOGD(TAG, "Output Terminal last linked unit ID %d", unit_id);
+        }
+    }
+
+    return feature_unit_desc;
+}
+
 /**
  * @brief Add a new logical device/interface to the UAC driver
  * @param[in] iface_num     Interface number
@@ -521,6 +651,7 @@ static esp_err_t uac_host_interface_add(uac_device_t *uac_device, uint8_t iface_
         uac_iface->iface_alt = realloc(uac_iface->iface_alt, iface_alt_idx * sizeof(uac_iface_alt_t));
         UAC_GOTO_ON_FALSE(uac_iface->iface_alt, ESP_ERR_NO_MEM, "Unable to allocate memory");
         uac_iface_alt_t *iface_alt = &uac_iface->iface_alt[iface_alt_idx - 1];
+        memset(iface_alt, 0, sizeof(uac_iface_alt_t));
         iface_alt->alt_idx = iface_alt_desc->bAlternateSetting;
         // Parse each descriptor following the alternate interface descriptor
         int cs_offset = iface_alt_offset;
@@ -534,27 +665,13 @@ static esp_err_t uac_host_interface_add(uac_device_t *uac_device, uint8_t iface_
                     const uac_as_general_desc_t *as_general_desc = (const uac_as_general_desc_t *)uac_desc;
                     iface_alt->dev_alt_param.format = as_general_desc->wFormatTag;
                     iface_alt->connected_terminal = as_general_desc->bTerminalLink;
-                    // connected terminal can only be RX input or TX output terminal
-                    if (iface_alt->connected_terminal == uac_device->output_terminal[UAC_STREAM_RX]) {
-                        iface_alt->dev_alt_param.channels = uac_device->input_channel[UAC_STREAM_RX];
-                        // set the interface type to RX, used to check the interface supported feature
-                        uac_iface->dev_info.type = UAC_STREAM_RX;
-                        ESP_LOGD(TAG, "RX: UAC AS connected terminal %d", as_general_desc->bTerminalLink);
-                    } else if (iface_alt->connected_terminal == uac_device->input_terminal[UAC_STREAM_TX]) {
-                        iface_alt->dev_alt_param.channels = uac_device->input_channel[UAC_STREAM_TX];
-                        uac_iface->dev_info.type = UAC_STREAM_TX;
-                        ESP_LOGD(TAG, "TX: UAC AS connected terminal %d", as_general_desc->bTerminalLink);
-                    } else {
-                        ESP_LOGE(TAG, "UAC AS connected terminal %d", as_general_desc->bTerminalLink);
-                        UAC_GOTO_ON_FALSE(0, ESP_ERR_NOT_SUPPORTED, "UAC AS General connected terminal not exist");
-                    }
                 } else if (uac_desc->bDescriptorSubtype == UAC_AS_FORMAT_TYPE) {
                     const uac_as_type_I_format_desc_t *as_format_type_desc = (const uac_as_type_I_format_desc_t *)uac_desc;
                     if (as_format_type_desc->bFormatType != UAC_FORMAT_TYPE_I) {
                         ESP_LOGE(TAG, "UAC Format Type %d", as_format_type_desc->bFormatType);
                         UAC_GOTO_ON_FALSE(0, ESP_ERR_NOT_SUPPORTED, "UAC Format Type not supported");
                     }
-                    UAC_GOTO_ON_FALSE(iface_alt->dev_alt_param.channels == as_format_type_desc->bNrChannels, ESP_ERR_INVALID_STATE, "UAC AS Format Type channels not match");
+                    iface_alt->dev_alt_param.channels = as_format_type_desc->bNrChannels;
                     iface_alt->dev_alt_param.bit_resolution = as_format_type_desc->bBitResolution;
                     iface_alt->dev_alt_param.sample_freq_type = as_format_type_desc->bSamFreqType;
                     if (as_format_type_desc->bSamFreqType == 0) {
@@ -580,6 +697,24 @@ static esp_err_t uac_host_interface_add(uac_device_t *uac_device, uint8_t iface_
                 iface_alt->ep_mps = ep_desc->wMaxPacketSize;
                 iface_alt->ep_attr = ep_desc->bmAttributes;
                 iface_alt->interval = ep_desc->bInterval;
+                uac_iface->dev_info.type = (ep_desc->bEndpointAddress & UAC_EP_DIR_IN) ? UAC_STREAM_RX : UAC_STREAM_TX;
+                uac_ac_feature_unit_desc_t *feature_unit_desc = _uac_host_device_find_feature_unit((uint8_t *)uac_device->cs_ac_desc,
+                        iface_alt->connected_terminal, !(ep_desc->bEndpointAddress & UAC_EP_DIR_IN));
+                if (feature_unit_desc) {
+                    iface_alt->feature_unit = feature_unit_desc->bUnitID;
+                    uint8_t ch_num = 0;
+                    for (size_t i = 0; i < (feature_unit_desc->bLength - 7) / feature_unit_desc->bControlSize; i++) {
+                        if (feature_unit_desc->bmaControls[i * feature_unit_desc->bControlSize] & UAC_FU_CONTROL_POS_VOLUME) {
+                            iface_alt->vol_ch_map |= (1 << ch_num);
+                        }
+                        if (feature_unit_desc->bmaControls[i * feature_unit_desc->bControlSize] & UAC_FU_CONTROL_POS_MUTE) {
+                            iface_alt->mute_ch_map |= (1 << ch_num);
+                        }
+                        ch_num++;
+                    }
+                    ESP_LOGD(TAG, "UAC %s Feature Unit ID %d, Volume Ch Map %02X, Mute Ch Map %02X", uac_iface->dev_info.type == UAC_STREAM_RX ? "RX" : "TX",
+                             feature_unit_desc->bUnitID, iface_alt->vol_ch_map, iface_alt->mute_ch_map);
+                }
                 ESP_LOGD(TAG, "UAC Endpoint 0x%02X, Max Packet Size %d, Attributes 0x%02X, Interval %d", ep_desc->bEndpointAddress, ep_desc->wMaxPacketSize, ep_desc->bmAttributes, ep_desc->bInterval);
                 break;
             }
@@ -1185,8 +1320,7 @@ static esp_err_t _uac_host_device_add(uint8_t addr, usb_device_handle_t dev_hdl,
         // 1. Parse the configuration descriptor to find only the first the UAC control interface
         // 2. Parse each class specific audio control interface
         // 2.1. for header descriptor, check if it is supported uac version
-        // 2.2. find RX, TX corresponding input/output terminal id, input channel config bitmap
-        // 2.3. find RX, TX corresponding feature unit, volume and mute control ability
+        // 2.2. save the class specific audio control descriptor for future use
         if (iface_desc->bInterfaceClass == USB_CLASS_AUDIO && iface_desc->bInterfaceSubClass == UAC_SUBCLASS_AUDIOCONTROL) {
             ESP_LOGD(TAG, "Found UAC Control, bInterfaceNumber=%d", iface_desc->bInterfaceNumber);
             uac_cs_desc = GET_NEXT_UAC_CS_DESC(iface_desc, total_length, uac_desc_offset);
@@ -1201,75 +1335,14 @@ static esp_err_t _uac_host_device_add(uint8_t addr, usb_device_handle_t dev_hdl,
                         free(uac_device);
                         return ESP_ERR_NOT_SUPPORTED;
                     }
+                    uint8_t *cs_ac_desc = calloc(header_desc->wTotalLength, sizeof(uint8_t));
+                    UAC_GOTO_ON_FALSE(cs_ac_desc, ESP_ERR_NO_MEM, "Unable to allocate memory for UAC Control CS descriptor");
+                    memcpy(cs_ac_desc, uac_cs_desc, header_desc->wTotalLength);
+                    uac_device->cs_ac_desc = cs_ac_desc;
                     ESP_LOGD(TAG, "UAC version %04X", header_desc->bcdADC);
                     break;
                 }
-                case UAC_AC_INPUT_TERMINAL: {
-                    const uac_ac_input_terminal_desc_t *input_terminal_desc = (const uac_ac_input_terminal_desc_t *)uac_cs_desc;
-                    if (input_terminal_desc->wTerminalType == UAC_USB_TERMINAL_TYPE_USB_STREAMING) {
-                        uac_device->input_terminal[UAC_STREAM_TX] = input_terminal_desc->bTerminalID;
-                        uac_device->input_channel[UAC_STREAM_TX] = input_terminal_desc->bNrChannels;
-                        ESP_LOGD(TAG, "TX: UAC Input Terminal ID %d, Channel %d", input_terminal_desc->bTerminalID,
-                                 input_terminal_desc->bNrChannels);
-                    } else {
-                        // We don't care the terminal type
-                        uac_device->input_terminal[UAC_STREAM_RX] = input_terminal_desc->bTerminalID;
-                        uac_device->input_channel[UAC_STREAM_RX] = input_terminal_desc->bNrChannels;
-                        ESP_LOGD(TAG, "RX: UAC Input Terminal ID %d, Channel %d", input_terminal_desc->bTerminalID,
-                                 input_terminal_desc->bNrChannels);
-                    }
-                    break;
-                }
-                case UAC_AC_FEATURE_UNIT: {
-                    const uac_ac_feature_unit_desc_t *feature_unit_desc = (const uac_ac_feature_unit_desc_t *)uac_cs_desc;
-                    // check the feature unit ID corresponding to the input terminal
-                    if (feature_unit_desc->bSourceID == uac_device->input_terminal[UAC_STREAM_RX]) {
-                        uac_device->feature_unit[UAC_STREAM_RX] = feature_unit_desc->bUnitID;
-                        uint8_t ch_num = 0;
-                        for (size_t i = 0; i < (feature_unit_desc->bLength - 7) / feature_unit_desc->bControlSize; i += feature_unit_desc->bControlSize) {
-                            if (feature_unit_desc->bmaControls[i] & UAC_FU_CONTROL_POS_VOLUME) {
-                                uac_device->vol_ch_map[UAC_STREAM_RX] |= (1 << ch_num);
-                            }
-                            if (feature_unit_desc->bmaControls[i] & UAC_FU_CONTROL_POS_MUTE) {
-                                uac_device->mute_ch_map[UAC_STREAM_RX] |= (1 << ch_num);
-                            }
-                            ch_num++;
-                        }
-                        ESP_LOGD(TAG, "RX: UAC Feature Unit ID %d, Volume Ch Map %02X, Mute Ch Map %02X", feature_unit_desc->bUnitID,
-                                 uac_device->vol_ch_map[UAC_STREAM_RX], uac_device->mute_ch_map[UAC_STREAM_RX]);
-                    } else if (feature_unit_desc->bSourceID == uac_device->input_terminal[UAC_STREAM_TX]) {
-                        uac_device->feature_unit[UAC_STREAM_TX] = feature_unit_desc->bUnitID;
-                        uint8_t ch_num = 0;
-                        for (size_t i = 0; i < (feature_unit_desc->bLength - 7) / feature_unit_desc->bControlSize; i++) {
-                            if (feature_unit_desc->bmaControls[i * feature_unit_desc->bControlSize] & UAC_FU_CONTROL_POS_VOLUME) {
-                                uac_device->vol_ch_map[UAC_STREAM_TX] |= (1 << ch_num);
-                            }
-                            if (feature_unit_desc->bmaControls[i * feature_unit_desc->bControlSize] & UAC_FU_CONTROL_POS_MUTE) {
-                                uac_device->mute_ch_map[UAC_STREAM_TX] |= (1 << ch_num);
-                            }
-                            ch_num++;
-                        }
-                        ESP_LOGD(TAG, "TX: UAC Feature Unit ID %d, Volume Ch Map %02X, Mute Ch Map %02X", feature_unit_desc->bUnitID,
-                                 uac_device->vol_ch_map[UAC_STREAM_TX], uac_device->mute_ch_map[UAC_STREAM_TX]);
-                    } else {
-                        ESP_LOGW(TAG, "Feature Unit ID %d not corresponding to the input terminal", feature_unit_desc->bUnitID);
-                    }
-                    break;
-                }
-                case UAC_AC_OUTPUT_TERMINAL: {
-                    const uac_ac_output_terminal_desc_t *output_terminal_desc = (const uac_ac_output_terminal_desc_t *)uac_cs_desc;
-                    if (output_terminal_desc->wTerminalType == UAC_USB_TERMINAL_TYPE_USB_STREAMING) {
-                        uac_device->output_terminal[UAC_STREAM_RX] = output_terminal_desc->bTerminalID;
-                        ESP_LOGD(TAG, "RX: UAC Output Terminal ID %d", output_terminal_desc->bTerminalID);
-                    } else {
-                        // We don't care the terminal type
-                        uac_device->output_terminal[UAC_STREAM_TX] = output_terminal_desc->bTerminalID;
-                        ESP_LOGD(TAG, "TX: UAC Output Terminal ID %d", output_terminal_desc->bTerminalID);
-                    }
-                    break;
-                }
                 default:
-                    ESP_LOGD(TAG, "Skip UAC CS bDescriptorSubtype=%d", uac_cs_desc->bDescriptorSubtype);
                     break;
                 }
                 uac_cs_desc = (uac_desc_header_t *)GET_NEXT_DESC(uac_cs_desc, total_length, uac_desc_offset);
@@ -1327,6 +1400,10 @@ static esp_err_t _uac_host_device_delete(uac_device_t *uac_device)
 
     if (uac_device->device_busy) {
         vSemaphoreDelete(uac_device->device_busy);
+    }
+
+    if (uac_device->cs_ac_desc) {
+        free(uac_device->cs_ac_desc);
     }
 
     ESP_LOGD(TAG, "Remove addr %d device from list", uac_device->addr);
@@ -1488,8 +1565,8 @@ static esp_err_t uac_cs_request_set_ep_frequency(uac_iface_t *iface, uint8_t ep_
  */
 static esp_err_t uac_cs_request_set_volume(uac_iface_t *iface, uint32_t volume)
 {
-    uint8_t feature_unit = iface->parent->feature_unit[iface->dev_info.type];
-    uint8_t vol_ch_map = iface->parent->vol_ch_map[iface->dev_info.type];
+    uint8_t feature_unit = iface->iface_alt[iface->cur_alt].feature_unit;
+    uint8_t vol_ch_map = iface->iface_alt[iface->cur_alt].vol_ch_map;
     UAC_RETURN_ON_FALSE(feature_unit && vol_ch_map, ESP_ERR_NOT_SUPPORTED, "volume control not supported");
     uint8_t ctrl_iface_num = iface->parent->ctrl_iface_num;
     uint8_t tmp[2] = { 0, 0 };
@@ -1528,8 +1605,8 @@ static esp_err_t uac_cs_request_set_volume(uac_iface_t *iface, uint32_t volume)
  */
 static esp_err_t uac_cs_request_set_mute(uac_iface_t *iface, bool mute)
 {
-    uint8_t feature_unit = iface->parent->feature_unit[iface->dev_info.type];
-    uint8_t mute_ch_map = iface->parent->mute_ch_map[iface->dev_info.type];
+    uint8_t feature_unit = iface->iface_alt[iface->cur_alt].feature_unit;
+    uint8_t mute_ch_map = iface->iface_alt[iface->cur_alt].mute_ch_map;
     UAC_RETURN_ON_FALSE(feature_unit, ESP_ERR_NOT_SUPPORTED, "mute control not supported");
     uint8_t ctrl_iface_num = iface->parent->ctrl_iface_num;
     uint8_t tmp[1] = { 0 };
