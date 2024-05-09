@@ -374,7 +374,7 @@ typedef struct {
     uint8_t  bLength;
     uint8_t  bDescriptorType;
     uint8_t  bDescriptorSubType;
-    uint8_t  bFormatIndex;
+    uint8_t  bFrameIndex;
     uint8_t  bmCapabilities;
     uint16_t wWidth;
     uint16_t wHeight;
@@ -392,6 +392,46 @@ typedef struct {
         };
     };
 } USB_DESC_ATTR vs_frame_desc_t;
+
+
+typedef struct {
+    uint8_t  bLength;
+    uint8_t  bDescriptorType;
+    uint8_t  bDescriptorSubType;
+    uint8_t  bFormatIndex;
+    uint8_t  bNumFrameDescriptors;
+    uint8_t  guidFormat[16];
+    uint8_t  bBitsPerPixel;
+    uint8_t  bDefaultFrameIndex;
+    uint8_t  bAspectRatioX;
+    uint8_t  bAspectRatioY;
+    uint8_t  bmInterlaceFlags;
+    uint8_t  bCopyProtect;
+    uint8_t  bVariableSize;
+} USB_DESC_ATTR vs_format_frame_based_desc_t;
+
+typedef struct {
+    uint8_t  bLength;
+    uint8_t  bDescriptorType;
+    uint8_t  bDescriptorSubType;
+    uint8_t  bFrameIndex;
+    uint8_t  bmCapabilities;
+    uint16_t wWidth;
+    uint16_t wHeight;
+    uint32_t dwMinBitRate;
+    uint32_t dwMaxBitRate;
+    uint32_t dwDefaultFrameInterval;
+    uint8_t  bFrameIntervalType;
+    uint32_t dwBytesPerLine;
+    union {
+        uint32_t dwFrameInterval[16];
+        struct {
+            uint32_t dwMinFrameInterval;
+            uint32_t dwMaxFrameInterval;
+            uint32_t dwFrameIntervalStep;
+        };
+    };
+} USB_DESC_ATTR vs_frame_frame_based_desc_t;
 
 // Helper struct
 typedef struct {
@@ -452,6 +492,8 @@ typedef enum {
     VC_PROCESSING_UNIT = 0x05,
     VS_FORMAT_MJPEG = 0x06,
     VS_FRAME_MJPEG = 0x07,
+    VS_FORMAT_FRAME_BASED = 0x10,
+    VS_FRAME_FRAME_BASED = 0x11,
     VS_STILL_FRAME = 0x03,
     VS_COLORFORMAT = 0x0D,
 } descriptor_subtypes_t;
@@ -640,7 +682,7 @@ static void print_vs_frame_mjpeg_desc(const uint8_t *buff)
     printf("\tbLength 0x%x\n", desc->bLength);
     printf("\tbDescriptorType 0x%x\n", desc->bDescriptorType);
     printf("\tbDescriptorSubType 0x%x\n", desc->bDescriptorSubType);
-    printf("\tbFormatIndex 0x%x\n", desc->bFormatIndex);
+    printf("\tbFrameIndex 0x%x\n", desc->bFrameIndex);
     printf("\tbmCapabilities 0x%x\n", desc->bmCapabilities);
     printf("\twWidth %u\n", desc->wWidth);
     printf("\twHeigh %u\n", desc->wHeight);
@@ -649,6 +691,60 @@ static void print_vs_frame_mjpeg_desc(const uint8_t *buff)
     printf("\tdwMaxVideoFrameBufSize %"PRIu32"\n", desc->dwMaxVideoFrameBufSize);
     printf("\tdwDefaultFrameInterval %"PRIu32"\n", desc->dwDefaultFrameInterval);
     printf("\tbFrameIntervalType %u\n", desc->bFrameIntervalType);
+
+    if (desc->bFrameIntervalType == 0) {
+        // Continuous Frame Intervals
+        printf("\tdwMinFrameInterval %"PRIu32"\n",  desc->dwMinFrameInterval);
+        printf("\tdwMaxFrameInterval %"PRIu32"\n",  desc->dwMaxFrameInterval);
+        printf("\tdwFrameIntervalStep %"PRIu32"\n", desc->dwFrameIntervalStep);
+    } else {
+        // Discrete Frame Intervals
+        size_t max_intervals = sizeof(desc->dwFrameInterval) / sizeof(desc->dwFrameInterval[0]);
+        size_t num_of_intervals = MIN((desc->bLength - 26) / 4, max_intervals);
+        for (int i = 0; i < num_of_intervals; ++i) {
+            printf("\tFrameInterval[%d] %"PRIu32"\n", i, desc->dwFrameInterval[i]);
+        }
+    }
+}
+
+static void print_vs_format_frame_based_desc(const uint8_t *buff)
+{
+    const vs_format_frame_based_desc_t *desc = (const vs_format_frame_based_desc_t *) buff;
+    printf("\t*** VS Format Frame-Based Descriptor ***\n");
+    printf("\tbLength 0x%x\n", desc->bLength);
+    printf("\tbDescriptorType 0x%x\n", desc->bDescriptorType);
+    printf("\tbDescriptorSubType 0x%x\n", desc->bDescriptorSubType);
+    printf("\tbFormatIndex 0x%x\n", desc->bFormatIndex);
+    printf("\tbNumFrameDescriptors %u\n", desc->bNumFrameDescriptors);
+    printf("\tguidFormat %.*s\n", 16, desc->guidFormat);
+    printf("\tbDefaultFrameIndex %u\n", desc->bDefaultFrameIndex);
+    printf("\tbAspectRatioX %u\n", desc->bAspectRatioX);
+    printf("\tbAspectRatioY %u\n", desc->bAspectRatioY);
+    printf("\tbmInterlaceFlags 0x%x\n", desc->bmInterlaceFlags);
+    printf("\tbCopyProtect %u\n", desc->bCopyProtect);
+}
+
+static void print_vs_frame_frame_based_desc(const uint8_t *buff)
+{
+    // Copy to local buffer due to potential misalignment issues.
+    uint32_t raw_desc[25];
+    uint32_t desc_size = ((const vs_frame_desc_t *)buff)->bLength;
+    memcpy(raw_desc, buff, desc_size);
+
+    const vs_frame_frame_based_desc_t *desc = (const vs_frame_frame_based_desc_t *) raw_desc;
+    printf("\t*** VS Frame Frame-Based Descriptor ***\n");
+    printf("\tbLength 0x%x\n", desc->bLength);
+    printf("\tbDescriptorType 0x%x\n", desc->bDescriptorType);
+    printf("\tbDescriptorSubType 0x%x\n", desc->bDescriptorSubType);
+    printf("\tbFrameIndex 0x%x\n", desc->bFrameIndex);
+    printf("\tbmCapabilities 0x%x\n", desc->bmCapabilities);
+    printf("\twWidth %u\n", desc->wWidth);
+    printf("\twHeight %u\n", desc->wHeight);
+    printf("\tdwMinBitRate %"PRIu32"\n", desc->dwMinBitRate);
+    printf("\tdwMaxBitRate %"PRIu32"\n", desc->dwMaxBitRate);
+    printf("\tdwDefaultFrameInterval %"PRIu32"\n", desc->dwDefaultFrameInterval);
+    printf("\tbFrameIntervalType %u\n", desc->bFrameIntervalType);
+    printf("\tdwBytesPerLine %"PRIu32"\n", desc->dwBytesPerLine);
 
     if (desc->bFrameIntervalType == 0) {
         // Continuous Frame Intervals
@@ -729,6 +825,12 @@ static void print_class_specific_desc(const uint8_t *buff)
         break;
     case VS_FRAME_MJPEG:
         print_vs_frame_mjpeg_desc(buff);
+        break;
+    case VS_FORMAT_FRAME_BASED:
+        print_vs_format_frame_based_desc(buff);
+        break;
+    case VS_FRAME_FRAME_BASED:
+        print_vs_frame_frame_based_desc(buff);
         break;
     case VS_COLORFORMAT:
         print_vs_color_format_desc(buff);
