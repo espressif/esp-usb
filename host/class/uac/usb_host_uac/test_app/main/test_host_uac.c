@@ -294,6 +294,10 @@ void test_handle_dev_connection(uint8_t *iface_num, uint8_t *if_rx)
     }
 }
 
+/**
+ * @brief Test with known UAC device, check if the device's parameters are parsed correctly
+ * @note please modify the known device parameters if the device is changed
+ */
 TEST_CASE("test uac device handling", "[uac_host][known_device]")
 {
     test_uac_setup();
@@ -371,6 +375,9 @@ TEST_CASE("test uac device handling", "[uac_host][known_device]")
     // Verify the memory leackage during test environment tearDown()
 }
 
+/**
+ * @brief record the rx stream data from microphone
+ */
 TEST_CASE("test uac rx reading", "[uac_host][rx]")
 {
     // write test for uac rx
@@ -445,6 +452,10 @@ exit_rx:
     test_uac_teardown(false);
 }
 
+/**
+ * @brief playback the wav sound to speaker, the wav will be down-sampled
+ * if the device's sample frequency is not matched
+ */
 TEST_CASE("test uac tx writing", "[uac_host][tx]")
 {
     // write test for uac tx
@@ -552,7 +563,7 @@ TEST_CASE("test uac tx writing", "[uac_host][tx]")
                     s_buffer = (uint16_t *)(wav_file_start + 44);
                     volume += 20;
                     TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_set_volume(uac_device_handle, volume > 100 ? 100 : volume));
-                    printf("Volume: %" PRIu32 "\n", volume);
+                    printf("Volume: %" PRIu32 "\n", volume > 100 ? 100 : volume);
                 } else {
                     // fill the tx buffer with wav file data
                     tx_size = tx_buffer_threshold;
@@ -604,6 +615,10 @@ exit_tx:
     test_uac_teardown(false);
 }
 
+/**
+ * @brief loopback the microphone received data to speaker
+ * please use a headset with microphone and speaker to test this function
+ */
 TEST_CASE("test uac tx rx loopback", "[uac_host][tx][rx]")
 {
     test_uac_setup();
@@ -753,6 +768,11 @@ exit_rx:
     test_uac_teardown(false);
 }
 
+/**
+ * @brief: Test disconnect the device when the stream is running
+ * @note: Currently, the P4 PHY can't be controlled to emulate the hot-plug event,
+ *  so the test is disabled
+ */
 #if !CONFIG_IDF_TARGET_ESP32P4
 TEST_CASE("test uac tx rx loopback with disconnect", "[uac_host][tx][rx][hot-plug]")
 {
