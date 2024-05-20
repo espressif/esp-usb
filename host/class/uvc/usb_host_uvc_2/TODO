@@ -1,0 +1,35 @@
+To-Do list:
+
+## Done
+- [x] Allow VID and PID to be 0
+- [x] 1 CTRL transfer for the driver? of 1 transfer for a device?
+- [x] Mock USB host for descriptor parsing
+- [x] Inform user about dropped frames because of frame buffer overflow and underflow
+- [x] Example: Add support for JPEG frames that use default Huffman tables. Release esp_jpeg 1.1
+- [x] Example: Pass larger buffer to JPEG decoder. Release new esp_jpeg 1.2
+- [x] Allow placing frame buffers to SPIRAM
+  - [x] Test this
+- [x] current_frame_id should not be 0 or 1 on start, to catch the very first frame
+- [x] Add descriptor printing from UVC version 1
+- [x] Support bulk transfers
+  - [x] Halt Bulk endpoint during stream_stop
+  - [x] Check which parts of BULK and ISOC processing can be shared: None, let's keep it separated
+- [x] In case of errors in the videos streaming we set flag 'skip_current_frame' but we do not honor it. We keep adding new data and we send the broken frame to user
+- [x] Add host test that checks functionality of uvc_bulk.c
+- [x] Add host test that checks functionality of uvc_isoc.c
+- [x] Test sudden disconnections and reconnections
+- [x] Update README.md
+
+## Future releases
+- [x] Check if MPS fits into IN FIFO (on S2 and S3 our buffer is not big enough to hold 1 ISOC frame!)
+  - [ ] Add FIFO configuration API to esp-idf!
+- [ ] Allow external events handling
+- [ ] Support for different uncompressed formats (other than YUY2)
+- [ ] Still image capture
+- [ ] Allow floating point FPS
+- [ ] Allow setting of default frame format and better format negotiation
+- [ ] Create private members of uvc_host_frame_t (eg. data_buffer_size and pointer to queue it belongs to). EDIT: is this safe? If the user passes the frame by copy, he will lose the private members!
+- [ ] Consider making uvc_host_stream_pause/unpause private!
+- [ ] Add more bulk and isoc reconstruction tests
+- [ ] Organize members of uvc_host_stream_s into dynamic/constant/mux_protected/single_thread sub-structures
+- [ ] Test frequent stream stop/resume
