@@ -1,24 +1,26 @@
-# USB Host UVC Driver
+# USB Host UVC Class Driver
 
 [![Component Registry](https://components.espressif.com/components/espressif/usb_host_uvc/badge.svg)](https://components.espressif.com/components/espressif/usb_host_uvc)
+![maintenance-status](https://img.shields.io/badge/maintenance-experimental-blue.svg)
 
-This directory contains USB host UVC driver based on [libuvc](https://github.com/libuvc/libuvc) library. Support for `libuvc` is achieved by implementing adapter between [libusb](https://github.com/libusb/libusb) (underling host library used by `libuvc`) and [usb_host](https://docs.espressif.com/projects/esp-idf/en/latest/esp32s2/api-reference/peripherals/usb_host.html) library targeted for ESP SOCs.    
+This component contains an implementation of a USB Host UVC Class Driver that is implemented on top of the [USB Host Library](https://docs.espressif.com/projects/esp-idf/en/latest/esp32s2/api-reference/peripherals/usb_host.html).
 
-## Usage
+The UVC driver allows video streaming from USB cameras.
 
-Reference [uvc_host_example](https://github.com/espressif/esp-idf/tree/master/examples/peripherals/usb/host/uvc) is similar to one found in `libuvc` repository with few additions:
-1. Before calling `uvc_init()`, `initialize_usb_host_lib()` has to be called in order to initialize usb host library.
-2. Since `libuvc` selects highest possible `dwMaxPayloadTransferSize` by default, user has to manually overwrite obatained value to 512 bytes (maximum transfer size supported by ESP32-S2/S3) before passing it to `uvc_print_stream_ctrl()` function.
-3. Optionally, user can configure `libusb adapter` by passing appropriate parameters to `libuvc_adapter_set_config()`.
+### Features
+- Isochronous and Bulk transfers streaming
+- Multiple video streams
+- Frame buffers in PSRAM
+- Video Stream format negotiation
+- Stream overflow and underflow management
 
-## Known limitations
+### Usage
 
-Having only Full Speed USB peripheral and hardware limited MPS (maximum packet size) to 512 bytes, ESP32-S2/S3 is capable of reading about 0.5 MB of data per second. When connected to Full Speed USB host, cameras normally provide resolution no larger than 640x480 pixels. 
-Following two supported formats are the most common (both encoded in MJPEG):
- * 320x240  30 FPS
- * 640x480  15 FPS
+Following sequence diagram represents public API usage of the UVC driver. New frames are passed to user in a callback. This design offers flexible interface upon which more complex frame processing components can be built.
 
-## Tested cameras
- * Logitech C980
- * CANYON CNE-CWC2
- * Logitech C270
+![UVC public API](docs/uvc_public_api.png)
+
+### Additional information
+- [Frequently Asked Questions](docs/FAQ.md)
+- [Examples](examples/)
+- [Architectural notes](docs/arch_notes.md)

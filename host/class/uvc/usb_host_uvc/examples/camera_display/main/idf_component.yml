@@ -1,0 +1,8 @@
+## IDF Component Manager Manifest File
+dependencies:
+  idf: ">=5.3"
+  espressif/esp_lcd_ra8875: "*"
+  espressif/esp_jpeg: "~1.2"
+  usb_host_uvc:
+    version: "*"
+    override_path: "../../.."
