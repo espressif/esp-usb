@@ -1,3 +1,0 @@
-[submodule "host/usb_host_uvc/libuvc"]
-	path = host/class/uvc/usb_host_uvc/libuvc
-	url = ../../espressif/libuvc.git
