@@ -1,0 +1,9 @@
+## IDF Component Manager Manifest File
+version: "0.1.0"
+description: USB Host UVC driver
+dependencies:
+  idf: ">=5.0"
+targets:
+  - esp32s2
+  - esp32s3
+  - esp32p4
