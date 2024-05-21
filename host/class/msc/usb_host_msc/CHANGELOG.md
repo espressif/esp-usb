@@ -1,3 +1,7 @@
+## 1.1.3 (unreleased)
+
+- Implemented request sense, to get sense data from USB device in case of an error
+
 ## 1.1.2
 
 - Added support for ESP32-P4

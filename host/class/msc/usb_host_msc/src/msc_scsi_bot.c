@@ -7,6 +7,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include "esp_log.h"
+#include "inttypes.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -67,6 +68,29 @@ static const char *TAG = "USB_MSC_SCSI";
 #define CBW_SIZE        31
 
 #define CWB_FLAG_DIRECTION_IN (1<<7) // device -> host
+
+/**
+ * @brief LUT with error codes and descriptions
+ *
+ * @see USB Mass Storage Class – UFI Command Specification, Revision 1.0
+ * Table 51 - Sense Keys, ASC/ASCQ Listing for All Commands (sorted by Key)
+ *
+ */
+typedef struct {
+    uint8_t sense_key;
+    uint8_t asc;
+    uint8_t ascq;
+    const char *description;
+} sense_errors_t;
+
+const sense_errors_t sense_errors_lut[] = {
+    {0x00, 0x00, 0x00, "NO SENSE"},
+    {0x07, 0x27, 0x00, "WRITE PROTECTED MEDIA"},
+
+    // add more items as needed
+};
+
+#define SENSE_ERROR_COUNT (sizeof(sense_errors_lut) / sizeof(sense_errors_t))
 
 /**
  * @brief Command Block Wrapper structure
@@ -211,11 +235,13 @@ static uint32_t cbw_tag;
 
 static esp_err_t check_csw(msc_csw_t *csw, uint32_t tag)
 {
-    bool csw_ok = csw->signature == CSW_SIGNATURE && csw->tag == tag &&
-                  csw->dataResidue == 0 && csw->status == 0;
+    const bool csw_ok = csw->signature == CSW_SIGNATURE && csw->tag == tag &&
+                        csw->dataResidue == 0 && csw->status == 0;
 
     if (!csw_ok) {
-        ESP_LOGD(TAG, "CSW failed: status %d", csw->status);
+        ESP_LOGV(TAG, "CSW failed: dCSWSignature = 0x%02"PRIx32", dCSWTag = 0x%02"PRIx32", dCSWDataResidue = 0x%02"PRIx32"",
+                 csw->signature, csw->tag, csw->dataResidue);
+        ESP_LOGD(TAG, "CSW failed: bCSWStatus 0x%02"PRIx8"", csw->status);
     }
 
     return csw_ok ? ESP_OK : ESP_FAIL;
@@ -273,6 +299,20 @@ esp_err_t bot_execute_command(msc_device_t *device, msc_cbw_t *cbw, void *data, 
     return check_csw(&csw, cbw->tag);
 }
 
+static const char *decode_sense_keys(cbw_sense_response_t *sense_response)
+{
+    // Only decode WRITE_PROTECTED_MEDIA sense key, other keys are not implemented
+    for (int i = 0; i < SENSE_ERROR_COUNT; i++) {
+        if (sense_errors_lut[i].sense_key == sense_response->sense_key &&
+                sense_errors_lut[i].asc == sense_response->sense_code &&
+                sense_errors_lut[i].ascq == sense_response->sense_code_qualifier) {
+            return sense_errors_lut[i].description;
+        }
+    }
+
+    return "not found, refer to USB Mass Storage Class – UFI Command Specification (Table 51)";
+}
+
 
 esp_err_t scsi_cmd_read10(msc_host_device_handle_t dev,
                           uint8_t *data,
@@ -289,7 +329,13 @@ esp_err_t scsi_cmd_read10(msc_host_device_handle_t dev,
         .length = __builtin_bswap16(num_sectors),
     };
 
-    return bot_execute_command(device, &cbw.base, data, num_sectors * sector_size);
+    esp_err_t ret = bot_execute_command(device, &cbw.base, data, num_sectors * sector_size);
+
+    // In case of an error, get an error code
+    if (unlikely(ret != ESP_OK)) {
+        MSC_RETURN_ON_ERROR( scsi_cmd_sense(device, NULL));
+    }
+    return ret;
 }
 
 esp_err_t scsi_cmd_write10(msc_host_device_handle_t dev,
@@ -306,7 +352,13 @@ esp_err_t scsi_cmd_write10(msc_host_device_handle_t dev,
         .length = __builtin_bswap16(num_sectors),
     };
 
-    return bot_execute_command(device, &cbw.base, (void *)data, num_sectors * sector_size);
+    esp_err_t ret = bot_execute_command(device, &cbw.base, (void *)data, num_sectors * sector_size);
+
+    // In case of an error, get an error code
+    if (unlikely(ret != ESP_OK)) {
+        MSC_RETURN_ON_ERROR( scsi_cmd_sense(device, NULL));
+    }
+    return ret;
 }
 
 esp_err_t scsi_cmd_read_capacity(msc_host_device_handle_t dev, uint32_t *block_size, uint32_t *block_count)
@@ -319,12 +371,17 @@ esp_err_t scsi_cmd_read_capacity(msc_host_device_handle_t dev, uint32_t *block_s
         .opcode = SCSI_CMD_READ_CAPACITY,
     };
 
-    MSC_RETURN_ON_ERROR( bot_execute_command(device, &cbw.base, &response, sizeof(response)) );
+    esp_err_t ret = bot_execute_command(device, &cbw.base, &response, sizeof(response));
+
+    // In case of an error, get an error code
+    if (unlikely(ret != ESP_OK)) {
+        MSC_RETURN_ON_ERROR( scsi_cmd_sense(device, NULL));
+    }
 
     *block_count = __builtin_bswap32(response.block_count);
     *block_size = __builtin_bswap32(response.block_size);
 
-    return ESP_OK;
+    return ret;
 }
 
 esp_err_t scsi_cmd_unit_ready(msc_host_device_handle_t dev)
@@ -335,7 +392,13 @@ esp_err_t scsi_cmd_unit_ready(msc_host_device_handle_t dev)
         .opcode = SCSI_CMD_TEST_UNIT_READY,
     };
 
-    return bot_execute_command(device, &cbw.base, NULL, 0);
+    esp_err_t ret = bot_execute_command(device, &cbw.base, NULL, 0);
+
+    // In case of an error, get an error code
+    if (unlikely(ret != ESP_OK)) {
+        MSC_RETURN_ON_ERROR( scsi_cmd_sense(device, NULL));
+    }
+    return ret;
 }
 
 esp_err_t scsi_cmd_sense(msc_host_device_handle_t dev, scsi_sense_data_t *sense)
@@ -351,9 +414,12 @@ esp_err_t scsi_cmd_sense(msc_host_device_handle_t dev, scsi_sense_data_t *sense)
 
     MSC_RETURN_ON_ERROR( bot_execute_command(device, &cbw.base, &response, sizeof(response)) );
 
-    if (sense->key) {
-        ESP_LOGD(TAG, "sense_key: 0x%02X, code: 0x%02X, qualifier: 0x%02X",
+    if (sense == NULL) {
+        ESP_LOGE(TAG, "Sense error codes: Sense Key 0x%02"PRIx8", ASC: 0x%02"PRIx8", ASCQ: 0x%02"PRIx8"",
                  response.sense_key, response.sense_code, response.sense_code_qualifier);
+        const char *error_description = decode_sense_keys(&response);
+        ESP_LOGE(TAG, "Sense error description: %s", error_description);
+        return ESP_OK;
     }
 
     sense->key = response.sense_key;
@@ -374,7 +440,13 @@ esp_err_t scsi_cmd_inquiry(msc_host_device_handle_t dev)
         .allocation_length = sizeof(response),
     };
 
-    return bot_execute_command(device, &cbw.base, &response, sizeof(response) );
+    esp_err_t ret = bot_execute_command(device, &cbw.base, &response, sizeof(response) );
+
+    // In case of an error, get an error code
+    if (unlikely(ret != ESP_OK)) {
+        MSC_RETURN_ON_ERROR( scsi_cmd_sense(device, NULL));
+    }
+    return ret;
 }
 
 esp_err_t scsi_cmd_mode_sense(msc_host_device_handle_t dev)
@@ -389,7 +461,13 @@ esp_err_t scsi_cmd_mode_sense(msc_host_device_handle_t dev)
         .parameter_list_length = sizeof(response),
     };
 
-    return bot_execute_command(device, &cbw.base, &response, sizeof(response) );
+    esp_err_t ret = bot_execute_command(device, &cbw.base, &response, sizeof(response) );
+
+    // In case of an error, get an error code
+    if (unlikely(ret != ESP_OK)) {
+        MSC_RETURN_ON_ERROR( scsi_cmd_sense(device, NULL));
+    }
+    return ret;
 }
 
 esp_err_t scsi_cmd_prevent_removal(msc_host_device_handle_t dev, bool prevent)
@@ -401,5 +479,11 @@ esp_err_t scsi_cmd_prevent_removal(msc_host_device_handle_t dev, bool prevent)
         .prevent = (uint8_t) prevent,
     };
 
-    return bot_execute_command(device, &cbw.base, NULL, 0);
+    esp_err_t ret = bot_execute_command(device, &cbw.base, NULL, 0);
+
+    // In case of an error, get an error code
+    if (unlikely(ret != ESP_OK)) {
+        MSC_RETURN_ON_ERROR( scsi_cmd_sense(device, NULL));
+    }
+    return ret;
 }
