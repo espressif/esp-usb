@@ -72,7 +72,7 @@ static void force_conn_state(bool connected, TickType_t delay_ticks)
         //Delay of 0 ticks causes a yield. So skip if delay_ticks is 0.
         vTaskDelay(delay_ticks);
     }
-    ESP_ERROR_CHECK(usb_phy_action(phy_hdl, (connected) ? USB_PHY_ACTION_HOST_ALLOW_CONN : USB_PHY_ACTION_HOST_FORCE_DISCONN));
+    TEST_ASSERT_EQUAL(ESP_OK, usb_phy_action(phy_hdl, (connected) ? USB_PHY_ACTION_HOST_ALLOW_CONN : USB_PHY_ACTION_HOST_FORCE_DISCONN));
 }
 
 typedef enum {
@@ -106,7 +106,7 @@ static void uac_device_callback(uac_host_device_handle_t uac_device_handle, cons
 {
     if (event == UAC_HOST_DRIVER_EVENT_DISCONNECTED) {
         ESP_LOGI(TAG, "UAC Device disconnected");
-        ESP_ERROR_CHECK(uac_host_device_close(uac_device_handle));
+        TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_close(uac_device_handle));
         return;
     }
     // Send uac device event to the event queue
@@ -155,7 +155,7 @@ static void usb_lib_task(void *arg)
         .intr_flags = ESP_INTR_FLAG_LEVEL1,
     };
 
-    ESP_ERROR_CHECK(usb_host_install(&host_config));
+    TEST_ASSERT_EQUAL(ESP_OK, usb_host_install(&host_config));
     ESP_LOGI(TAG, "USB Host installed");
     xTaskNotifyGive(arg);
 
@@ -179,8 +179,8 @@ static void usb_lib_task(void *arg)
     ESP_LOGI(TAG, "USB Host shutdown");
     // Clean up USB Host
     vTaskDelay(10); // Short delay to allow clients clean-up
-    ESP_ERROR_CHECK(usb_host_uninstall());
-    ESP_ERROR_CHECK(usb_del_phy(phy_hdl)); //Tear down USB PHY
+    TEST_ASSERT_EQUAL(ESP_OK, usb_host_uninstall());
+    TEST_ASSERT_EQUAL(ESP_OK, usb_del_phy(phy_hdl)); //Tear down USB PHY
     phy_hdl = NULL;
     // set bit BIT0_USB_HOST_DRIVER_REMOVED to notify driver removed
     xEventGroupSetBits(s_evt_handle, BIT0_USB_HOST_DRIVER_REMOVED);
@@ -219,7 +219,7 @@ void test_uac_setup(void)
         .callback_arg = NULL
     };
 
-    ESP_ERROR_CHECK(uac_host_install(&uac_config));
+    TEST_ASSERT_EQUAL(ESP_OK, uac_host_install(&uac_config));
     ESP_LOGI(TAG, "UAC Class Driver installed");
 }
 
@@ -236,7 +236,7 @@ void test_uac_teardown(bool force)
     vTaskDelay(500);
     // uninstall uac host driver
     ESP_LOGI(TAG, "UAC Driver uninstall");
-    ESP_ERROR_CHECK(uac_host_uninstall());
+    TEST_ASSERT_EQUAL(ESP_OK, uac_host_uninstall());
     // Wait for USB lib task to finish
     xEventGroupWaitBits(s_evt_handle, BIT0_USB_HOST_DRIVER_REMOVED, pdTRUE, pdTRUE, portMAX_DELAY);
     // delete event queue and event group
@@ -257,7 +257,7 @@ void test_open_mic_device(uint8_t iface_num, uint32_t buffer_size, uint32_t buff
         .callback = uac_device_callback,
         .callback_arg = NULL,
     };
-    ESP_ERROR_CHECK(uac_host_device_open(&dev_config, uac_device_handle));
+    TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_open(&dev_config, uac_device_handle));
 }
 
 void test_open_spk_device(uint8_t iface_num, uint32_t buffer_size, uint32_t buffer_threshold, uac_host_device_handle_t *uac_device_handle)
@@ -271,12 +271,12 @@ void test_open_spk_device(uint8_t iface_num, uint32_t buffer_size, uint32_t buff
         .callback = uac_device_callback,
         .callback_arg = NULL,
     };
-    ESP_ERROR_CHECK(uac_host_device_open(&dev_config, uac_device_handle));
+    TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_open(&dev_config, uac_device_handle));
 }
 
 void test_close_device(uac_host_device_handle_t uac_device_handle)
 {
-    ESP_ERROR_CHECK(uac_host_device_close(uac_device_handle));
+    TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_close(uac_device_handle));
 }
 
 void test_handle_dev_connection(uint8_t *iface_num, uint8_t *if_rx)
@@ -300,7 +300,6 @@ void test_handle_dev_connection(uint8_t *iface_num, uint8_t *if_rx)
  */
 TEST_CASE("test uac device handling", "[uac_host][known_device]")
 {
-    test_uac_setup();
     // handle device connection
     uint8_t mic_iface_num = 0;
     uint8_t spk_iface_num = 0;
@@ -369,10 +368,6 @@ TEST_CASE("test uac device handling", "[uac_host][known_device]")
         // reset the queue
         test_uac_queue_reset();
     }
-
-    // Tear down test
-    test_uac_teardown(false);
-    // Verify the memory leackage during test environment tearDown()
 }
 
 /**
@@ -380,9 +375,6 @@ TEST_CASE("test uac device handling", "[uac_host][known_device]")
  */
 TEST_CASE("test uac rx reading", "[uac_host][rx]")
 {
-    // write test for uac rx
-    test_uac_setup();
-
     uint8_t mic_iface_num = 0;
     uint8_t spk_iface_num = 0;
     uint8_t if_rx = false;
@@ -449,7 +441,6 @@ exit_rx:
     TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_close(uac_device_handle));
 
     free(rx_buffer);
-    test_uac_teardown(false);
 }
 
 /**
@@ -458,9 +449,6 @@ exit_rx:
  */
 TEST_CASE("test uac tx writing", "[uac_host][tx]")
 {
-    // write test for uac tx
-    test_uac_setup();
-
     // handle device connection
     uint8_t mic_iface_num = 0;
     uint8_t spk_iface_num = 0;
@@ -611,8 +599,6 @@ exit_tx:
     free(tx_buffer);
     TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_set_mute(uac_device_handle, 1));
     TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_close(uac_device_handle));
-
-    test_uac_teardown(false);
 }
 
 /**
@@ -621,8 +607,6 @@ exit_tx:
  */
 TEST_CASE("test uac tx rx loopback", "[uac_host][tx][rx]")
 {
-    test_uac_setup();
-
     // handle device connection
     uint8_t mic_iface_num = 0;
     uint8_t spk_iface_num = 0;
@@ -765,7 +749,6 @@ exit_rx:
     if (rx_buffer_stereo) {
         free(rx_buffer_stereo);
     }
-    test_uac_teardown(false);
 }
 
 /**
@@ -776,8 +759,6 @@ exit_rx:
 #if !CONFIG_IDF_TARGET_ESP32P4
 TEST_CASE("test uac tx rx loopback with disconnect", "[uac_host][tx][rx][hot-plug]")
 {
-    test_uac_setup();
-
     // handle device connection
     uint8_t mic_iface_num = 0;
     uint8_t spk_iface_num = 0;
@@ -919,6 +900,5 @@ exit_rx:
     if (rx_buffer_stereo) {
         free(rx_buffer_stereo);
     }
-    test_uac_teardown(false);
 }
 #endif

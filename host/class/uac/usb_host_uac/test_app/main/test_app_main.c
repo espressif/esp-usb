@@ -40,16 +40,21 @@ void app_main(void)
     UNITY_END();
 }
 
+extern void test_uac_setup(void);
+extern void test_uac_teardown(bool);
+
 /* setUp runs before every test */
 void setUp(void)
 {
     before_free_8bit = heap_caps_get_free_size(MALLOC_CAP_8BIT);
     before_free_32bit = heap_caps_get_free_size(MALLOC_CAP_32BIT);
+    test_uac_setup();
 }
 
 /* tearDown runs after every test */
 void tearDown(void)
 {
+    test_uac_teardown(false);
     size_t after_free_8bit = heap_caps_get_free_size(MALLOC_CAP_8BIT);
     size_t after_free_32bit = heap_caps_get_free_size(MALLOC_CAP_32BIT);
     check_leak(before_free_8bit, after_free_8bit, "8BIT");
