@@ -175,7 +175,7 @@ static const uvc_host_stream_config_t stream_mjpeg_config = {
     .advanced.number_of_urbs = 3,
     .advanced.urb_size = 20 * 1024,
 };
-
+/*
 static const uvc_host_stream_config_t stream_h265_config = {
     .event_cb = handle_event,
     .frame_cb = frame_callback,
@@ -192,7 +192,7 @@ static const uvc_host_stream_config_t stream_h265_config = {
     .advanced.number_of_urbs = 3,
     .advanced.urb_size = 20 * 1024,
 };
-
+*/
 /*
 void app_init_sdcard(void)
 {
@@ -307,6 +307,6 @@ void app_main(void)
     // USB tasks are pinned to Core0. Frame handling is pinned to Core1
     task_created = xTaskCreatePinnedToCore(frame_handling_task, "mjpeg_handling", 4096, (void *)&stream_mjpeg_config, EXAMPLE_USB_HOST_PRIORITY - 2, NULL, tskNO_AFFINITY);
     assert(task_created == pdTRUE);
-    task_created = xTaskCreatePinnedToCore(frame_handling_task, "h265_handling", 4096, (void *)&stream_h265_config, EXAMPLE_USB_HOST_PRIORITY - 3, NULL, tskNO_AFFINITY);
-    assert(task_created == pdTRUE);
+    //task_created = xTaskCreatePinnedToCore(frame_handling_task, "h265_handling", 4096, (void *)&stream_h265_config, EXAMPLE_USB_HOST_PRIORITY - 3, NULL, tskNO_AFFINITY);
+    //assert(task_created == pdTRUE);
 }
