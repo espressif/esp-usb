@@ -28,12 +28,12 @@
 #include "usb/usb_host.h"
 #include "usb/uvc_host.h"
 
-#define EXAMPLE_USB_HOST_PRIORITY   (20)
+#define EXAMPLE_USB_HOST_PRIORITY   (15)
 #define EXAMPLE_USB_DEVICE_VID      (0x2207)
 #define EXAMPLE_USB_DEVICE_PID      (0x0018) // Customer's dual camera
 #define EXAMPLE_FRAME_COUNT         (3)
 #define EXAMPLE_STREAM_FPS          (15)
-#define EXAMPLE_RECORDING_LENGTH_S  (2)
+#define EXAMPLE_RECORDING_LENGTH_S  (5)
 #define EXAMPLE_NUMBER_OF_STREAMS   (2)
 
 #define MOUNT_POINT "/sdcard"
@@ -125,6 +125,7 @@ static void frame_handling_task(void *arg)
         unsigned count = 0;
 
         // This is the main processing loop. It enables the stream for 2 seconds and then closes it
+        uvc_host_stream_start(uvc_stream);
         while (true) {
             ESP_LOGI(TAG, "Stream %d start. Iteration %u", uvc_index, count);
             count++;
@@ -132,7 +133,7 @@ static void frame_handling_task(void *arg)
             TimeOut_t connection_timeout;
             vTaskSetTimeOutState(&connection_timeout);
 
-            uvc_host_stream_start(uvc_stream);
+            uvc_host_stream_unpause(uvc_stream);
             do {
                 uvc_frame_t *frame;
                 if (xQueueReceive(frame_q, &frame, pdMS_TO_TICKS(1000)) == pdPASS) {
@@ -146,11 +147,11 @@ static void frame_handling_task(void *arg)
                 }
             } while (xTaskCheckForTimeOut(&connection_timeout, &timeout_ticks) == pdFALSE);
             ESP_LOGI(TAG, "Stream %d stop", uvc_index);
-            uvc_host_stream_stop(uvc_stream);
+            uvc_host_stream_pause(uvc_stream);
 
-            vTaskDelay(pdMS_TO_TICKS(1000));
+            vTaskDelay(pdMS_TO_TICKS(2000));
         }
-
+        uvc_host_stream_stop(uvc_stream);
         uvc_host_stream_close(uvc_stream);
 
         // We are done. Wait for device disconnection and start over
@@ -172,10 +173,10 @@ static const uvc_host_stream_config_t stream_mjpeg_config = {
     .vs_format.format = UVC_VS_FORMAT_MJPEG,
     .advanced.number_of_frame_buffers = EXAMPLE_FRAME_COUNT,
     .advanced.frame_size = 0,
-    .advanced.number_of_urbs = 3,
+    .advanced.number_of_urbs = 6,
     .advanced.urb_size = 20 * 1024,
 };
-/*
+
 static const uvc_host_stream_config_t stream_h265_config = {
     .event_cb = handle_event,
     .frame_cb = frame_callback,
@@ -189,10 +190,10 @@ static const uvc_host_stream_config_t stream_h265_config = {
     .vs_format.format = UVC_VS_FORMAT_H265,
     .advanced.number_of_frame_buffers = EXAMPLE_FRAME_COUNT,
     .advanced.frame_size = 0,
-    .advanced.number_of_urbs = 3,
+    .advanced.number_of_urbs = 6,
     .advanced.urb_size = 20 * 1024,
 };
-*/
+
 /*
 void app_init_sdcard(void)
 {
@@ -298,7 +299,7 @@ void app_main(void)
     ESP_LOGI(TAG, "Installing UVC driver");
     const uvc_host_driver_config_t uvc_driver_config = {
         .driver_task_stack_size = 4 * 1024,
-        .driver_task_priority = EXAMPLE_USB_HOST_PRIORITY - 1,
+        .driver_task_priority = EXAMPLE_USB_HOST_PRIORITY + 1,
         .xCoreID = tskNO_AFFINITY,
         .create_background_task = true,
     };
@@ -307,6 +308,7 @@ void app_main(void)
     // USB tasks are pinned to Core0. Frame handling is pinned to Core1
     task_created = xTaskCreatePinnedToCore(frame_handling_task, "mjpeg_handling", 4096, (void *)&stream_mjpeg_config, EXAMPLE_USB_HOST_PRIORITY - 2, NULL, tskNO_AFFINITY);
     assert(task_created == pdTRUE);
-    //task_created = xTaskCreatePinnedToCore(frame_handling_task, "h265_handling", 4096, (void *)&stream_h265_config, EXAMPLE_USB_HOST_PRIORITY - 3, NULL, tskNO_AFFINITY);
-    //assert(task_created == pdTRUE);
+    vTaskDelay(pdMS_TO_TICKS(1000));
+    task_created = xTaskCreatePinnedToCore(frame_handling_task, "h265_handling", 4096, (void *)&stream_h265_config, EXAMPLE_USB_HOST_PRIORITY - 3, NULL, tskNO_AFFINITY);
+    assert(task_created == pdTRUE);
 }
