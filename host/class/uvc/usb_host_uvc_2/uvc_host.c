@@ -316,7 +316,7 @@ static esp_err_t uvc_claim_interface(uvc_stream_t *uvc_stream, const usb_ep_desc
 
     const usb_intf_desc_t *intf_desc;
     const usb_ep_desc_t *ep_desc;
-    ESP_RETURN_ON_ERROR (
+    ESP_RETURN_ON_ERROR(
         uvc_desc_get_streaming_intf_and_ep(uvc_stream, uvc_stream->bInterfaceNumber, &intf_desc, &ep_desc),
         TAG, "Could not find Streaming interface %d", uvc_stream->bInterfaceNumber);
 
@@ -607,7 +607,6 @@ esp_err_t uvc_host_stream_start(uvc_host_stream_hdl_t stream_hdl)
     UVC_CHECK(stream_hdl, ESP_ERR_INVALID_ARG);
     UVC_CHECK(stream_hdl->streaming == false, ESP_ERR_INVALID_STATE);
 
-    esp_err_t ret = ESP_OK;
     uvc_stream_t *uvc_stream = (uvc_stream_t *)stream_hdl;
 
     // 1. Negotiate the frame format
@@ -623,45 +622,67 @@ esp_err_t uvc_host_stream_start(uvc_host_stream_hdl_t stream_hdl)
         uvc_set_interface(stream_hdl, true),
         TAG, "Could not Set Interface %d-%d", uvc_stream->bInterfaceNumber, uvc_stream->bAlternateSetting);
 
-    // 3. Submit all URBs
-    UVC_ENTER_CRITICAL();
-    uvc_stream->streaming = true;
-    UVC_EXIT_CRITICAL();
-    for (int i = 0; i < uvc_stream->num_of_xfers; i++) {
-        ESP_GOTO_ON_ERROR(
-            usb_host_transfer_submit(uvc_stream->xfers[i]),
-            stop_stream, TAG, "Could not submit ISOC transfer %d", i);
-    }
-    return ESP_OK;
+    // 3. Unpause: Submit all URBs
+    // ESP_RETURN_ON_ERROR(
+    //     uvc_host_stream_unpause(stream_hdl),
+    //     TAG, "Could not unpause the stream");
 
-stop_stream:
-    UVC_ENTER_CRITICAL();
-    uvc_stream->streaming = false;
-    UVC_EXIT_CRITICAL();
-    uvc_host_stream_stop(stream_hdl);
-    return ret;
+    return ESP_OK;
 }
 
 esp_err_t uvc_host_stream_stop(uvc_host_stream_hdl_t stream_hdl)
 {
     UVC_CHECK(stream_hdl, ESP_ERR_INVALID_ARG);
 
-    // We do not cancel the ongoing transfers here, it is not supported by USB Host Library
-    // By setting uvc_stream->streaming = false; no frame callbacks will be called and the transfer can gracefully finish
+    //ESP_RETURN_ON_ERROR(uvc_host_stream_pause(stream_hdl), TAG, "Could not pause the stream");
+    return uvc_set_interface(stream_hdl, false);
+}
+
+esp_err_t uvc_host_stream_pause(uvc_host_stream_hdl_t stream_hdl)
+{
+    UVC_CHECK(stream_hdl, ESP_ERR_INVALID_ARG);
     uvc_stream_t *uvc_stream = (uvc_stream_t *)stream_hdl;
     uvc_frame_t *current_frame;
-    //@todo halt the pipe here?
+
+    // We do not cancel the ongoing transfers here, it is not supported by USB Host Library
+    // By setting uvc_stream->streaming = false; no frame callbacks will be called and the transfer can gracefully finish
     UVC_ENTER_CRITICAL();
+    UVC_CHECK_FROM_CRIT(uvc_stream->streaming, ESP_ERR_INVALID_STATE);
     uvc_stream->streaming = false;
     current_frame = uvc_stream->current_frame;
     uvc_stream->current_frame = NULL;
     UVC_EXIT_CRITICAL();
+
     if (current_frame) {
         uvc_host_frame_return(uvc_stream, current_frame);
     }
+
     //@todo this is not a clean solution
-    vTaskDelay(pdMS_TO_TICKS(10)); // Wait for all transfers to finish
-    return uvc_set_interface(stream_hdl, false);
+    vTaskDelay(pdMS_TO_TICKS(50)); // Wait for all transfers to finish
+    return ESP_OK;
+}
+
+esp_err_t uvc_host_stream_unpause(uvc_host_stream_hdl_t stream_hdl)
+{
+    UVC_CHECK(stream_hdl, ESP_ERR_INVALID_ARG);
+    uvc_stream_t *uvc_stream = (uvc_stream_t *)stream_hdl;
+    esp_err_t ret = ESP_OK;
+
+    UVC_ENTER_CRITICAL();
+    UVC_CHECK_FROM_CRIT(!uvc_stream->streaming, ESP_ERR_INVALID_STATE);
+    uvc_stream->streaming = true;
+    UVC_EXIT_CRITICAL();
+
+    for (int i = 0; i < uvc_stream->num_of_xfers; i++) {
+        ESP_GOTO_ON_ERROR(
+            usb_host_transfer_submit(uvc_stream->xfers[i]),
+            stop_stream, TAG, "Could not submit transfer %d", i);
+    }
+    return ret;
+
+stop_stream:
+    uvc_host_stream_pause(stream_hdl);
+    return ret;
 }
 
 static void in_xfer_cb(usb_transfer_t *transfer)

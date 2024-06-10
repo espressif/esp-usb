@@ -28,16 +28,17 @@ static uint16_t uvc_vs_control_size(uint16_t uvc_version)
     }
 }
 
-static esp_err_t uvc_host_stream_control(uvc_host_stream_hdl_t stream_hdl, uvc_vs_ctrl_t *vs_control, uvc_host_stream_format_t *vs_format, bool commit, bool set)
+static esp_err_t uvc_host_stream_control(uvc_host_stream_hdl_t stream_hdl, uvc_vs_ctrl_t *vs_control, uvc_host_stream_format_t *vs_format, enum uvc_req_code req_code, bool commit)
 {
     uvc_stream_t *uvc_stream = (uvc_stream_t *)stream_hdl;
     uint8_t bmRequestType, bRequest;
     uint16_t wValue, wIndex, wLength;
     esp_err_t ret = ESP_OK;
+    const bool set = (req_code == UVC_SET_CUR) ? true : false;
 
     bmRequestType = USB_BM_REQUEST_TYPE_TYPE_CLASS | USB_BM_REQUEST_TYPE_RECIP_INTERFACE;
     bmRequestType |= set ? USB_BM_REQUEST_TYPE_DIR_OUT : USB_BM_REQUEST_TYPE_DIR_IN;
-    bRequest = set ? UVC_SET_CUR : UVC_GET_CUR;
+    bRequest = (uint8_t)req_code;
     wValue = (commit ? UVC_VS_COMMIT_CONTROL : UVC_VS_PROBE_CONTROL) << 8;
     wIndex = uvc_stream->bInterfaceNumber;
     wLength = uvc_vs_control_size(uvc_stream->bcdUVC);
@@ -81,17 +82,27 @@ static esp_err_t uvc_host_stream_control(uvc_host_stream_hdl_t stream_hdl, uvc_v
 
 static inline esp_err_t uvc_host_stream_control_probe_set(uvc_host_stream_hdl_t stream_hdl, uvc_vs_ctrl_t *vs_control, const uvc_host_stream_format_t *vs_format)
 {
-    return uvc_host_stream_control(stream_hdl, vs_control, (uvc_host_stream_format_t *)vs_format, false, true);
+    return uvc_host_stream_control(stream_hdl, vs_control, (uvc_host_stream_format_t *)vs_format, UVC_SET_CUR, false);
 }
 
 static inline esp_err_t uvc_host_stream_control_probe_get(uvc_host_stream_hdl_t stream_hdl, uvc_vs_ctrl_t *vs_control, uvc_host_stream_format_t *vs_format)
 {
-    return uvc_host_stream_control(stream_hdl, vs_control, vs_format, false, false);
+    return uvc_host_stream_control(stream_hdl, vs_control, vs_format, UVC_GET_CUR, false);
+}
+
+static inline esp_err_t uvc_host_stream_control_probe_get_max(uvc_host_stream_hdl_t stream_hdl, uvc_vs_ctrl_t *vs_control, uvc_host_stream_format_t *vs_format)
+{
+    return uvc_host_stream_control(stream_hdl, vs_control, vs_format, UVC_GET_MAX, false);
+}
+
+static inline esp_err_t uvc_host_stream_control_probe_get_min(uvc_host_stream_hdl_t stream_hdl, uvc_vs_ctrl_t *vs_control, uvc_host_stream_format_t *vs_format)
+{
+    return uvc_host_stream_control(stream_hdl, vs_control, vs_format, UVC_GET_MIN, false);
 }
 
 static inline esp_err_t uvc_host_stream_control_commit(uvc_host_stream_hdl_t stream_hdl, uvc_vs_ctrl_t *vs_control, const uvc_host_stream_format_t *vs_format)
 {
-    return uvc_host_stream_control(stream_hdl, vs_control, (uvc_host_stream_format_t *)vs_format, true, true);
+    return uvc_host_stream_control(stream_hdl, vs_control, (uvc_host_stream_format_t *)vs_format, UVC_SET_CUR, true);
 }
 
 static inline bool uvc_is_vs_format_equal(const uvc_host_stream_format_t *a, const uvc_host_stream_format_t *b)
@@ -116,8 +127,15 @@ esp_err_t uvc_host_stream_control_negotiate(uvc_host_stream_hdl_t stream_hdl, co
 
     // Try 2x
     memset(vs_result, 0, sizeof(uvc_vs_ctrl_t));
-    uvc_host_stream_format_t set_format;
+    uvc_vs_ctrl_t fake_result = {0};
+    uvc_host_stream_format_t set_format, fake_format;
     for (int i = 0; i < 2; i++) {
+        // We do this to mimic Windows driver
+        uvc_host_stream_control_probe_get(stream_hdl, &fake_result, &fake_format);
+        uvc_host_stream_control_probe_set(stream_hdl, &fake_result, &fake_format);
+        uvc_host_stream_control_probe_get_max(stream_hdl, &fake_result, &fake_format);
+        uvc_host_stream_control_probe_get_min(stream_hdl, &fake_result, &fake_format);
+
         ret = uvc_host_stream_control_probe_set(stream_hdl, vs_result, vs_format);
         ret |= uvc_host_stream_control_probe_get(stream_hdl, vs_result, &set_format);
         UVC_CHECK(ret == ESP_OK, ret);

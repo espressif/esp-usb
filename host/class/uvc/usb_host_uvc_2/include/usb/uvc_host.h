@@ -162,6 +162,28 @@ esp_err_t uvc_host_stream_start(uvc_host_stream_hdl_t stream_hdl);
 esp_err_t uvc_host_stream_stop(uvc_host_stream_hdl_t stream_hdl);
 
 /**
+ * @brief Pause UVC stream
+ *
+ * After this call, the user will be informed about new frames by frame callback.
+ * This function does not issue any CTRL request. In only stops receiving new data from streaming endpoint.
+ *
+ * @param[in] stream_hdl UVC handle obtained from uvc_host_stream_open()
+ * @return esp_err_t
+ */
+esp_err_t uvc_host_stream_pause(uvc_host_stream_hdl_t stream_hdl);
+
+/**
+ * @brief Start UVC stream
+ *
+ * After this call, the user will be informed about new frames by frame callback.
+ * This function does not issue any CTRL request. In only starts receiving new data from streaming endpoint.
+ *
+ * @param[in] stream_hdl UVC handle obtained from uvc_host_stream_open()
+ * @return esp_err_t
+ */
+esp_err_t uvc_host_stream_unpause(uvc_host_stream_hdl_t stream_hdl);
+
+/**
  * @brief Close UVC device and release its resources
  *
  * @note All in-flight transfers will be prematurely canceled.
