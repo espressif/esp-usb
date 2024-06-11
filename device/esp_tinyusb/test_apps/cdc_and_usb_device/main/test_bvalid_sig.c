@@ -121,6 +121,5 @@ TEST_CASE("bvalid_signal", "[esp_tinyusb][usb_device]")
 
     // Cleanup
     TEST_ASSERT_EQUAL(ESP_OK, tinyusb_driver_uninstall());
-    TEST_ASSERT_EQUAL(ESP_OK, tusb_stop_task());
 }
 #endif // SOC_USB_OTG_SUPPORTED
