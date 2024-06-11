@@ -122,7 +122,6 @@ TEST_CASE("descriptors_config_all_default", "[esp_tinyusb][usb_device]")
     TEST_ASSERT_EQUAL(ESP_OK, __test_wait_conn());
     // Cleanup
     TEST_ASSERT_EQUAL(ESP_OK, tinyusb_driver_uninstall());
-    TEST_ASSERT_EQUAL(ESP_OK, tusb_stop_task());
     __test_free();
 }
 
@@ -144,7 +143,6 @@ TEST_CASE("descriptors_config_device", "[esp_tinyusb][usb_device]")
     TEST_ASSERT_EQUAL(ESP_OK, __test_wait_conn());
     // Cleanup
     TEST_ASSERT_EQUAL(ESP_OK, tinyusb_driver_uninstall());
-    TEST_ASSERT_EQUAL(ESP_OK, tusb_stop_task());
     __test_free();
 }
 
@@ -166,7 +164,6 @@ TEST_CASE("descriptors_config_device_and_config", "[esp_tinyusb][usb_device]")
     TEST_ASSERT_EQUAL(ESP_OK, __test_wait_conn());
     // Cleanup
     TEST_ASSERT_EQUAL(ESP_OK, tinyusb_driver_uninstall());
-    TEST_ASSERT_EQUAL(ESP_OK, tusb_stop_task());
     __test_free();
 }
 
@@ -187,7 +184,6 @@ TEST_CASE("descriptors_config_device_and_fs_config_only", "[esp_tinyusb][usb_dev
     TEST_ASSERT_EQUAL(ESP_OK, __test_wait_conn());
     // Cleanup
     TEST_ASSERT_EQUAL(ESP_OK, tinyusb_driver_uninstall());
-    TEST_ASSERT_EQUAL(ESP_OK, tusb_stop_task());
     __test_free();
 }
 
@@ -207,7 +203,6 @@ TEST_CASE("descriptors_config_device_and_hs_config_only", "[esp_tinyusb][usb_dev
     TEST_ASSERT_EQUAL(ESP_OK, __test_wait_conn());
     // Cleanup
     TEST_ASSERT_EQUAL(ESP_OK, tinyusb_driver_uninstall());
-    TEST_ASSERT_EQUAL(ESP_OK, tusb_stop_task());
     __test_free();
 }
 
@@ -227,7 +222,6 @@ TEST_CASE("descriptors_config_all_configured", "[esp_tinyusb][usb_device]")
     TEST_ASSERT_EQUAL(ESP_OK, __test_wait_conn());
     // Cleanup
     TEST_ASSERT_EQUAL(ESP_OK, tinyusb_driver_uninstall());
-    TEST_ASSERT_EQUAL(ESP_OK, tusb_stop_task());
     __test_free();
 }
 #endif // TUD_OPT_HIGH_SPEED
