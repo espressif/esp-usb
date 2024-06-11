@@ -82,7 +82,7 @@ void test_bvalid_sig_umount_cb(void)
     dev_umounted++;
 }
 
-TEST_CASE("bvalid_signal", "[esp_tinyusb][usb_device]")
+TEST_CASE("bvalid_signal", "[usb_device]")
 {
     unsigned int rounds = DEVICE_DETACH_TEST_ROUNDS;
 
