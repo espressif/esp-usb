@@ -1155,15 +1155,27 @@ esp_err_t cdc_acm_host_data_tx_blocking(cdc_acm_dev_hdl_t cdc_hdl, const uint8_t
     memcpy(cdc_dev->data.out_xfer->data_buffer, data, data_len);
     cdc_dev->data.out_xfer->num_bytes = data_len;
     cdc_dev->data.out_xfer->timeout_ms = timeout_ms;
+    cdc_dev->data.out_xfer->actual_num_bytes = 0;
     ESP_GOTO_ON_ERROR(usb_host_transfer_submit(cdc_dev->data.out_xfer), unblock, TAG,);
 
     // Wait for OUT transfer completion
-    taken = xSemaphoreTake((SemaphoreHandle_t)cdc_dev->data.out_xfer->context, pdMS_TO_TICKS(timeout_ms));
-    if (!taken) {
-        // Reset the endpoint
-        cdc_acm_reset_transfer_endpoint(cdc_dev->dev_hdl, cdc_dev->data.out_xfer);
-        ret = ESP_ERR_TIMEOUT;
-        goto unblock;
+
+    uint32_t start = xTaskGetTickCount();
+    uint32_t timeout_ticks = pdMS_TO_TICKS(timeout_ms);
+
+    while(cdc_dev->data.out_xfer->actual_num_bytes < data_len) {
+        int32_t timeout = timeout_ticks - (xTaskGetTickCount() - start);
+        if (timeout > 0) {
+            taken = xSemaphoreTake((SemaphoreHandle_t)cdc_dev->data.out_xfer->context, timeout);
+        } else {
+            taken = pdFALSE;
+        }
+        if (!taken) {
+            // Reset the endpoint
+            cdc_acm_reset_transfer_endpoint(cdc_dev->dev_hdl, cdc_dev->data.out_xfer);
+            ret = ESP_ERR_TIMEOUT;
+            goto unblock;
+        }
     }
 
     ESP_GOTO_ON_FALSE(cdc_dev->data.out_xfer->status == USB_TRANSFER_STATUS_COMPLETED, ESP_ERR_INVALID_RESPONSE, unblock, TAG, "Bulk OUT transfer error");
