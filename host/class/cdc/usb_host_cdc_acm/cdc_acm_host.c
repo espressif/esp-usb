@@ -1163,7 +1163,7 @@ esp_err_t cdc_acm_host_data_tx_blocking(cdc_acm_dev_hdl_t cdc_hdl, const uint8_t
     uint32_t start = xTaskGetTickCount();
     uint32_t timeout_ticks = pdMS_TO_TICKS(timeout_ms);
 
-    while(cdc_dev->data.out_xfer->actual_num_bytes < data_len) {
+    while (cdc_dev->data.out_xfer->actual_num_bytes < data_len) {
         int32_t timeout = timeout_ticks - (xTaskGetTickCount() - start);
         if (timeout > 0) {
             taken = xSemaphoreTake((SemaphoreHandle_t)cdc_dev->data.out_xfer->context, timeout);
