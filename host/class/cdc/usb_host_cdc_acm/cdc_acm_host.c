@@ -574,7 +574,6 @@ static esp_err_t cdc_acm_transfers_allocate(cdc_dev_t *cdc_dev, const usb_ep_des
     cdc_dev->ctrl_transfer->timeout_ms = 1000;
     cdc_dev->ctrl_transfer->bEndpointAddress = 0;
     cdc_dev->ctrl_transfer->device_handle = cdc_dev->dev_hdl;
-    cdc_dev->ctrl_transfer->context = cdc_dev;
     cdc_dev->ctrl_transfer->callback = out_xfer_cb;
     cdc_dev->ctrl_transfer->context = xSemaphoreCreateBinary();
     ESP_GOTO_ON_FALSE(cdc_dev->ctrl_transfer->context, ESP_ERR_NO_MEM, err, TAG,);
@@ -1152,16 +1151,19 @@ esp_err_t cdc_acm_host_data_tx_blocking(cdc_acm_dev_hdl_t cdc_hdl, const uint8_t
     }
 
     ESP_LOGD("CDC_ACM", "Submitting BULK OUT transfer");
+    SemaphoreHandle_t transfer_finished_semaphore = (SemaphoreHandle_t)cdc_dev->data.out_xfer->context;
+    xSemaphoreTake(transfer_finished_semaphore, 0); // Make sure the semaphore is taken before we submit new transfer
+
     memcpy(cdc_dev->data.out_xfer->data_buffer, data, data_len);
     cdc_dev->data.out_xfer->num_bytes = data_len;
     cdc_dev->data.out_xfer->timeout_ms = timeout_ms;
     ESP_GOTO_ON_ERROR(usb_host_transfer_submit(cdc_dev->data.out_xfer), unblock, TAG,);
 
     // Wait for OUT transfer completion
-    taken = xSemaphoreTake((SemaphoreHandle_t)cdc_dev->data.out_xfer->context, pdMS_TO_TICKS(timeout_ms));
+    taken = xSemaphoreTake(transfer_finished_semaphore, pdMS_TO_TICKS(timeout_ms));
     if (!taken) {
-        // Reset the endpoint
-        cdc_acm_reset_transfer_endpoint(cdc_dev->dev_hdl, cdc_dev->data.out_xfer);
+        cdc_acm_reset_transfer_endpoint(cdc_dev->dev_hdl, cdc_dev->data.out_xfer); // Resetting the endpoint will cause all in-progress transfers to complete
+        ESP_LOGW(TAG, "TX transfer timeout");
         ret = ESP_ERR_TIMEOUT;
         goto unblock;
     }
