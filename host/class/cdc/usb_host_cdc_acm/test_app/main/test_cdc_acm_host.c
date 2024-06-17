@@ -573,7 +573,6 @@ TEST_CASE("functional_descriptor", "[cdc_acm]")
  */
 TEST_CASE("closing", "[cdc_acm]")
 {
-    nb_of_responses = 0;
     cdc_acm_dev_hdl_t cdc_dev = NULL;
 
     test_install_cdc_driver();
@@ -593,6 +592,40 @@ TEST_CASE("closing", "[cdc_acm]")
 
     TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_close(cdc_dev));
     printf("Closing already closed device \n");
+    TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_close(cdc_dev));
+    TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_uninstall());
+
+    vTaskDelay(20); //Short delay to allow task to be cleaned up
+}
+
+/* Basic test to check CDC driver reaction to TX timeout */
+TEST_CASE("tx_timeout", "[cdc_acm]")
+{
+    cdc_acm_dev_hdl_t cdc_dev = NULL;
+
+    test_install_cdc_driver();
+
+    const cdc_acm_host_device_config_t dev_config = {
+        .connection_timeout_ms = 500,
+        .out_buffer_size = 64,
+        .event_cb = notif_cb,
+        .data_cb = handle_rx,
+        .user_arg = tx_buf,
+    };
+
+    printf("Opening CDC-ACM device\n");
+    TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_open(0x303A, 0x4002, 0, &dev_config, &cdc_dev)); // 0x303A:0x4002 (TinyUSB Dual CDC device)
+    TEST_ASSERT_NOT_NULL(cdc_dev);
+    vTaskDelay(10);
+
+    // TX some data with timeout_ms=0. This will cause a timeout
+    TEST_ASSERT_EQUAL(ESP_ERR_TIMEOUT, cdc_acm_host_data_tx_blocking(cdc_dev, tx_buf, sizeof(tx_buf), 0));
+    vTaskDelay(100); // Wait before trying new TX
+
+    // TX some data again with greater timeout. This will check normal operation
+    TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_data_tx_blocking(cdc_dev, tx_buf, sizeof(tx_buf), 1000));
+    vTaskDelay(100);
+
     TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_close(cdc_dev));
     TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_uninstall());
 

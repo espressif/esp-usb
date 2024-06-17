@@ -1,7 +1,8 @@
-## [Unreleased]
+## 2.0.3
 
 - Added `cdc_acm_host_cdc_desc_get()` function that enables users to get CDC functional descriptors of the device
 - Fixed closing of a CDC device from multiple threads
+- Fixed reaction on TX transfer timeout (https://github.com/espressif/esp-protocols/issues/514)
 
 ## 2.0.2
 
