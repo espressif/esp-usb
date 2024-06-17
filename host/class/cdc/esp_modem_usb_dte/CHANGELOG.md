@@ -1,11 +1,12 @@
-## Unreleased
-
 ## 1.2.0
 
 - Fixed C++ build error for `usb_host_config_t` backward compatibility
 - Added default configuration for SimCom SIM7070G, SIM7080 and SIMA7672E modems
 - Added default configuration for Quectel EC20
 - Added ESP32-P4 support
+
+### Known issues
+- ESP32-P4 cannot receive fragmented AT responses from a modem. Thus, some SimCom modems do not work with this version
 
 ## 1.1.0
 
