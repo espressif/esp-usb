@@ -60,7 +60,7 @@ struct esp_modem_usb_term_config {
 #define ESP_MODEM_DEFAULT_USB_CONFIG(_vid, _pid, _intf) ESP_MODEM_DEFAULT_USB_CONFIG_DUAL(_vid, _pid, _intf, -1)
 
 /**
- * @brief Default configuration of Quactel BG96 modem
+ * @brief Default configuration of Quectel BG96 modem
  */
 #define ESP_MODEM_BG96_USB_CONFIG()    ESP_MODEM_DEFAULT_USB_CONFIG(0x2C7C, 0x0296, 2)
 
@@ -88,3 +88,8 @@ struct esp_modem_usb_term_config {
  * @brief Default configuration of SimCom SIMA7672E modem
  */
 #define ESP_MODEM_SIMA7672E_USB_CONFIG()   ESP_MODEM_DEFAULT_USB_CONFIG_DUAL(0x1E0E, 0x9011, 4, 5)
+
+/**
+ * @brief Default configuration of Quectel EC20 modem
+ */
+#define ESP_MODEM_EC20_USB_CONFIG()    ESP_MODEM_DEFAULT_USB_CONFIG(0x2C7C, 0x0125, 3)
