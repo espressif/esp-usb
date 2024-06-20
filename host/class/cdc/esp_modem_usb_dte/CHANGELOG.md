@@ -1,3 +1,10 @@
+## 1.2.1
+
+- Added support to transmit larger payloads than the buffer_size of DTE
+
+### Known issues
+- ESP32-P4 cannot receive fragmented AT responses from a modem. Thus, some SimCom modems do not work with this version
+
 ## 1.2.0
 
 - Fixed C++ build error for `usb_host_config_t` backward compatibility
