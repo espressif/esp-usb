@@ -371,6 +371,95 @@ TEST_CASE("test uac device handling", "[uac_host][known_device]")
 }
 
 /**
+ * @brief Test with known UAC device, check if the device's parameters are parsed correctly
+ * @note please modify the known device parameters if the device is changed
+ */
+TEST_CASE("test uac device handling with known pid vid", "[uac_host][known_device]")
+{
+    uint8_t mic_iface_num = UAC_DEV_MIC_IFACE_NUM;
+    uint8_t spk_iface_num = UAC_DEV_SPK_IFACE_NUM;
+    uint8_t test_counter = 0;
+
+    while (++test_counter < 5) {
+        // check if mic device params as expected
+        uac_host_device_handle_t mic_device_handle = NULL;
+        uac_host_dev_info_t dev_info;
+        // check if device params as expected
+        uac_host_device_config_t dev_config = {
+            .iface_num = mic_iface_num,
+            .buffer_size = 16000,
+            .buffer_threshold = 4000,
+            .callback = uac_device_callback,
+            .callback_arg = NULL,
+        };
+
+        do {
+            esp_err_t ret = uac_host_device_open_with_vid_pid(UAC_DEV_VID, UAC_DEV_PID, &dev_config, &mic_device_handle);
+            if (ret == ESP_ERR_NOT_FOUND) {
+                ESP_LOGI(TAG, "Device not found, please connect the device");
+                vTaskDelay(1000);
+            }
+        } while (mic_device_handle == NULL);
+
+        TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_open_with_vid_pid(UAC_DEV_VID, UAC_DEV_PID, &dev_config, &mic_device_handle));
+        TEST_ASSERT_EQUAL(ESP_OK, uac_host_get_device_info(mic_device_handle, &dev_info));
+        TEST_ASSERT_EQUAL(UAC_STREAM_RX, dev_info.type);
+        ESP_LOGI(TAG, "UAC Device opened: MIC");
+        TEST_ASSERT_EQUAL(ESP_OK, uac_host_printf_device_param(mic_device_handle));
+        TEST_ASSERT_EQUAL(UAC_DEV_PID, dev_info.PID);
+        TEST_ASSERT_EQUAL(UAC_DEV_VID, dev_info.VID);
+        TEST_ASSERT_EQUAL(UAC_DEV_MIC_IFACE_NUM, dev_info.iface_num);
+        TEST_ASSERT_EQUAL(UAC_DEV_MIC_IFACE_ALT_NUM, dev_info.iface_alt_num);
+        printf("iManufacturer: %ls\n", dev_info.iManufacturer);
+        printf("iProduct: %ls\n", dev_info.iProduct);
+        printf("iSerialNumber: %ls\n", dev_info.iSerialNumber);
+        uac_host_dev_alt_param_t iface_alt_params;
+        for (int i = 0; i < dev_info.iface_alt_num; i++) {
+            TEST_ASSERT_EQUAL(ESP_OK, uac_host_get_device_alt_param(mic_device_handle, i + 1, &iface_alt_params));
+            TEST_ASSERT_EQUAL(UAC_DEV_MIC_IFACE_CHANNELS_ALT[i], iface_alt_params.channels);
+            TEST_ASSERT_EQUAL(UAC_DEV_MIC_IFACE_BIT_RESOLUTION_ALT[i], iface_alt_params.bit_resolution);
+            TEST_ASSERT_EQUAL(UAC_DEV_MIC_IFACE_SAMPLE_FREQ_TPYE_ALT[i], iface_alt_params.sample_freq_type);
+            // check frequency one by one
+            for (size_t j = 0; j < iface_alt_params.sample_freq_type; j++) {
+                TEST_ASSERT_EQUAL(UAC_DEV_MIC_IFACE_SAMPLE_FREQ_ALT[i][j], iface_alt_params.sample_freq[j]);
+            }
+        }
+
+        // check if spk device params as expected
+        uac_host_device_handle_t spk_device_handle = NULL;
+        dev_config.iface_num = spk_iface_num;
+        TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_open_with_vid_pid(UAC_DEV_VID, UAC_DEV_PID, &dev_config, &spk_device_handle));
+        TEST_ASSERT_EQUAL(ESP_OK, uac_host_get_device_info(spk_device_handle, &dev_info));
+        TEST_ASSERT_EQUAL(UAC_STREAM_TX, dev_info.type);
+        ESP_LOGI(TAG, "UAC Device opened: SPK");
+        TEST_ASSERT_EQUAL(ESP_OK, uac_host_printf_device_param(spk_device_handle));
+        TEST_ASSERT_EQUAL(UAC_DEV_PID, dev_info.PID);
+        TEST_ASSERT_EQUAL(UAC_DEV_VID, dev_info.VID);
+        TEST_ASSERT_EQUAL(UAC_DEV_SPK_IFACE_NUM, dev_info.iface_num);
+        TEST_ASSERT_EQUAL(UAC_DEV_SPK_IFACE_ALT_NUM, dev_info.iface_alt_num);
+        printf("iManufacturer: %ls\n", dev_info.iManufacturer);
+        printf("iProduct: %ls\n", dev_info.iProduct);
+        printf("iSerialNumber: %ls\n", dev_info.iSerialNumber);
+
+        for (int i = 0; i < dev_info.iface_alt_num; i++) {
+            TEST_ASSERT_EQUAL(ESP_OK, uac_host_get_device_alt_param(spk_device_handle, i + 1, &iface_alt_params));
+            TEST_ASSERT_EQUAL(UAC_DEV_SPK_IFACE_CHANNELS_ALT[i], iface_alt_params.channels);
+            TEST_ASSERT_EQUAL(UAC_DEV_SPK_IFACE_BIT_RESOLUTION_ALT[i], iface_alt_params.bit_resolution);
+            TEST_ASSERT_EQUAL(UAC_DEV_SPK_IFACE_SAMPLE_FREQ_TPYE_ALT[i], iface_alt_params.sample_freq_type);
+            for (size_t j = 0; j < iface_alt_params.sample_freq_type; j++) {
+                TEST_ASSERT_EQUAL(UAC_DEV_SPK_IFACE_SAMPLE_FREQ_ALT[i][j], iface_alt_params.sample_freq[j]);
+            }
+        }
+
+        // close the device
+        test_close_device(mic_device_handle);
+        test_close_device(spk_device_handle);
+        // reset the queue
+        test_uac_queue_reset();
+    }
+}
+
+/**
  * @brief record the rx stream data from microphone
  */
 TEST_CASE("test uac rx reading", "[uac_host][rx]")
