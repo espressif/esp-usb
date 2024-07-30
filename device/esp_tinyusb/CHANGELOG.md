@@ -1,6 +1,8 @@
-## Unreleased
+## Unreleased (1.4.5)
 
 - CDC-ACM: Fixed memory leak at VFS unregister
+- esp_tinyusb: Added possibility to teardown tinyusb stack and reconfigure the tinyusb driver
+- esp_tinyusb: Added test for tinyusb driver reconfiguration
 
 ## 1.4.4
 
