@@ -197,8 +197,10 @@ esp_err_t uac_host_install(const uac_host_driver_config_t *config);
 esp_err_t uac_host_uninstall(void);
 
 /**
- * @brief Open a UAC logic device/interface
+ * @brief Open a UAC logic device/interface when new UAC device is connected
  *
+ * @note The config->addr and config->iface_num should be retrieved from the UAC driver event callback
+ *      after UAC_HOST_DRIVER_EVENT_RX_CONNECTED or UAC_HOST_DRIVER_EVENT_TX_CONNECTED event
  * @param[in] config            Pointer to UAC device configuration structure
  * @param[out] uac_dev_handle   Pointer to UAC device handle
  * @return esp_err_t
@@ -209,6 +211,27 @@ esp_err_t uac_host_uninstall(void);
  *  - ESP_ERR_NOT_SUPPORTED if the UAC version is not supported
  */
 esp_err_t uac_host_device_open(const uac_host_device_config_t *config, uac_host_device_handle_t *uac_dev_handle);
+
+/**
+ * @brief Open a UAC logic device/interface with specific VID, PID and interface number
+ *
+ * @note The config->addr is not used in this function, the VID, PID and config->iface_num should be provided by user.
+ *       If multiple hardware devices with the same VID and PID are connected through USB hub, the first one will be opened.
+ *
+ * @param[in] vid               Vendor ID
+ * @param[in] pid               Product ID
+ * @param[in] config            Pointer to UAC device configuration structure
+ * @param[out] uac_dev_handle   Pointer to UAC device handle
+ * @return esp_err_t
+ * - ESP_OK on success
+ * - ESP_ERR_INVALID_STATE if UAC driver is not installed
+ * - ESP_ERR_INVALID_ARG if the configuration is invalid
+ * - ESP_ERR_NO_MEM if memory allocation failed
+ * - ESP_ERR_NOT_SUPPORTED if the UAC version is not supported
+ * - ESP_ERR_NOT_FOUND if the device is not found
+ */
+esp_err_t uac_host_device_open_with_vid_pid(uint16_t vid, uint16_t pid, const uac_host_device_config_t *config,
+        uac_host_device_handle_t *uac_dev_handle);
 
 /**
  * @brief Close a UAC logic device/interface

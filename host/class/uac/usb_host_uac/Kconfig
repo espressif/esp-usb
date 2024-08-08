@@ -4,6 +4,12 @@ menu "USB Host UAC"
         default n
         help
             Print UAC Configuration Descriptor to console.
+    config UAC_DEV_ADDR_LIST_MAX
+        int "Max USB Device Address List"
+        default 6
+        help
+            Max USB Device Address List to find the UAC device. If more devices are connected.
+            The driver will only use the first UAC_DEV_ADDR_LIST_MAX devices.
     config UAC_FREQ_NUM_MAX
         int "Max Number of Frequencies each Alt-interface supports"
         default 4
