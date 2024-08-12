@@ -162,8 +162,16 @@ static esp_err_t uvc_transfers_allocate(uvc_stream_t *uvc_stream, unsigned num_o
     uvc_stream->xfers = malloc(num_of_transfers * sizeof(usb_transfer_t *));
     UVC_CHECK(uvc_stream->xfers, ESP_ERR_NO_MEM);
 
+    bool is_bulk = false;
+    const unsigned num_isoc_packets = 0;
+    if (ep_desc->bmAttributes == 0x10) {
+        /*!< For bulk transfers, set num_isoc_packets to 0. */
+        is_bulk = true;
+    } else {
+        num_isoc_packets = transfer_size / max_packet_size;
+    }
+
     // Divide the transfer data buffer into ISOC packets
-    const unsigned num_isoc_packets = transfer_size / max_packet_size;
     ESP_LOGD(TAG, "Allocating %d USB ISOC transfers, each has %d ISOC packets per %d bytes.", num_of_transfers, num_isoc_packets, max_packet_size);
 
     for (unsigned i = 0; i < num_of_transfers; i++) {
@@ -175,10 +183,16 @@ static esp_err_t uvc_transfers_allocate(uvc_stream_t *uvc_stream, unsigned num_o
         this_transfer->callback = in_xfer_cb;
         this_transfer->context = uvc_stream;
         this_transfer->timeout_ms = 1000;
-        this_transfer->num_bytes = num_isoc_packets * max_packet_size;
+        if (!is_bulk) {
+            this_transfer->num_bytes = num_isoc_packets * max_packet_size;
+        } else {
+            this_transfer->num_bytes = transfer_size;
+        }
         this_transfer->bEndpointAddress = ep_desc->bEndpointAddress;
-        for (unsigned j = 0; j < num_isoc_packets; j++) {
-            this_transfer->isoc_packet_desc[j].num_bytes = max_packet_size;
+        if (!is_bulk) {
+            for (unsigned j = 0; j < num_isoc_packets; j++) {
+                this_transfer->isoc_packet_desc[j].num_bytes = max_packet_size;
+            }
         }
     }
     return ESP_OK;
