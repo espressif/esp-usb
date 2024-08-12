@@ -149,23 +149,31 @@ static void uvc_transfers_free(uvc_stream_t *uvc_stream)
  */
 static esp_err_t uvc_transfers_allocate(uvc_stream_t *uvc_stream, unsigned num_of_transfers, size_t transfer_size, const usb_ep_desc_t *ep_desc)
 {
-    UVC_CHECK(ep_desc, ESP_ERR_INVALID_ARG);
     esp_err_t ret = ESP_OK;
+    UVC_CHECK(ep_desc, ESP_ERR_INVALID_ARG);
     uint16_t max_packet_size = USB_EP_DESC_GET_MPS(ep_desc);
-    max_packet_size *= (USB_EP_DESC_GET_MULT(ep_desc) + 1); // We multiply MPS by number of transactions in microframe
-
-    UVC_CHECK(max_packet_size <= transfer_size, ESP_ERR_INVALID_ARG);
     UVC_CHECK(max_packet_size > 0, ESP_ERR_INVALID_ARG);
+    UVC_CHECK(max_packet_size <= transfer_size, ESP_ERR_INVALID_ARG);
+
+    bool is_bulk = false;
+    unsigned num_isoc_packets = 0;
+    if (USB_EP_DESC_GET_XFERTYPE(ep_desc) == USB_BM_ATTRIBUTES_XFER_BULK) {
+        // For bulk transfers, set num_isoc_packets to 0
+        is_bulk = true;
+        ESP_LOGD(TAG, "Allocating %d USB BULK transferss.", num_of_transfers);
+    } else {
+        max_packet_size *= (USB_EP_DESC_GET_MULT(ep_desc) + 1); // We multiply MPS by number of transactions in microframe
+        UVC_CHECK(max_packet_size <= transfer_size, ESP_ERR_INVALID_ARG);
+        num_isoc_packets = transfer_size / max_packet_size;     // Divide the transfer data buffer into ISOC packets
+        ESP_LOGD(TAG, "Allocating %d USB ISOC transfers, each has %d ISOC packets per %d bytes.", num_of_transfers, num_isoc_packets, max_packet_size);
+    }
 
     // Allocate array of transfers
     uvc_stream->num_of_xfers = num_of_transfers;
     uvc_stream->xfers = malloc(num_of_transfers * sizeof(usb_transfer_t *));
     UVC_CHECK(uvc_stream->xfers, ESP_ERR_NO_MEM);
 
-    // Divide the transfer data buffer into ISOC packets
-    const unsigned num_isoc_packets = transfer_size / max_packet_size;
-    ESP_LOGD(TAG, "Allocating %d USB ISOC transfers, each has %d ISOC packets per %d bytes.", num_of_transfers, num_isoc_packets, max_packet_size);
-
+    // Allocate and init all the transfers
     for (unsigned i = 0; i < num_of_transfers; i++) {
         ESP_GOTO_ON_ERROR(
             usb_host_transfer_alloc(transfer_size, num_isoc_packets, &uvc_stream->xfers[i]),
@@ -175,10 +183,15 @@ static esp_err_t uvc_transfers_allocate(uvc_stream_t *uvc_stream, unsigned num_o
         this_transfer->callback = in_xfer_cb;
         this_transfer->context = uvc_stream;
         this_transfer->timeout_ms = 1000;
-        this_transfer->num_bytes = num_isoc_packets * max_packet_size;
         this_transfer->bEndpointAddress = ep_desc->bEndpointAddress;
-        for (unsigned j = 0; j < num_isoc_packets; j++) {
-            this_transfer->isoc_packet_desc[j].num_bytes = max_packet_size;
+
+        if (!is_bulk) {
+            this_transfer->num_bytes = num_isoc_packets * max_packet_size;
+            for (unsigned j = 0; j < num_isoc_packets; j++) {
+                this_transfer->isoc_packet_desc[j].num_bytes = max_packet_size;
+            }
+        } else {
+            this_transfer->num_bytes = transfer_size;
         }
     }
     return ESP_OK;
