@@ -1,3 +1,7 @@
+## [Unreleased]
+
+- Fixed Control transfer allocation size for too small EP0 Max Packet Size (https://github.com/espressif/esp-idf/issues/14345)
+
 ## 2.0.3
 
 - Added `cdc_acm_host_cdc_desc_get()` function that enables users to get CDC functional descriptors of the device
