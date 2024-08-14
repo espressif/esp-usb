@@ -163,8 +163,8 @@ static esp_err_t uvc_transfers_allocate(uvc_stream_t *uvc_stream, unsigned num_o
     UVC_CHECK(uvc_stream->xfers, ESP_ERR_NO_MEM);
 
     bool is_bulk = false;
-    const unsigned num_isoc_packets = 0;
-    if (ep_desc->bmAttributes == 0x10) {
+    unsigned num_isoc_packets = 0;
+    if (ep_desc->bmAttributes == 0x02) {
         /*!< For bulk transfers, set num_isoc_packets to 0. */
         is_bulk = true;
     } else {
@@ -699,6 +699,249 @@ stop_stream:
     return ret;
 }
 
+static void _uvc_complete_transfer(uvc_stream_t *uvc_stream)
+{
+    bool return_frame = true; // In case streaming is stopped ATM, we must return the frame
+
+    // Check if the user did not stop the stream in the meantime
+    UVC_ENTER_CRITICAL();
+    uvc_frame_t *this_frame = uvc_stream->current_frame;
+    uvc_stream->current_frame = NULL; // Stop writing more data to this frame
+    const bool invoke_fb_callback = (uvc_stream->streaming && uvc_stream->frame_cb && this_frame);
+    uvc_host_frame_callback_t fb_callback = uvc_stream->frame_cb;
+    UVC_EXIT_CRITICAL();
+    if (invoke_fb_callback) {
+        memcpy((uvc_host_stream_format_t *)&this_frame->vs_format, &uvc_stream->vs_format, sizeof(uvc_host_stream_format_t));
+        return_frame = fb_callback(this_frame, uvc_stream->cb_arg);
+    }
+    if (return_frame) {
+        uvc_stream->hold_last_scr = uvc_stream->last_scr;
+        uvc_stream->hold_pts = uvc_stream->pts;
+        uvc_stream->hold_seq = uvc_stream->seq;
+
+        // The user has processed the frame in his callback, return it back to empty queue
+        uvc_host_frame_return(uvc_stream, this_frame);
+    }
+    uvc_stream->seq++;
+    uvc_stream->got_bytes = 0;
+    uvc_stream->last_scr = 0;
+    uvc_stream->pts = 0;
+}
+
+static void _uvc_process_bulk_payload(uvc_stream_t *strm, size_t req_len, uint8_t *payload, size_t payload_len)
+{
+/** Converts an unaligned four-byte little-endian integer into an int32 */
+#define DW_TO_INT(p) ((p)[0] | ((p)[1] << 8) | ((p)[2] << 16) | ((p)[3] << 24))
+/** Converts an unaligned two-byte little-endian integer into an int16 */
+#define SW_TO_SHORT(p) ((p)[0] | ((p)[1] << 8))
+
+    size_t header_len = 0;
+    size_t variable_offset = 0;
+    uint8_t header_info = 0;
+    size_t data_len = 0;
+
+    /*!< last packet */
+    uint8_t flag_lstp = 0;
+    /*!< zero pachet */
+    uint8_t flag_zlp = 0;
+    /*!< flag transfer not complete */
+    uint8_t flag_rsb = 0;
+
+    if (payload_len == req_len) {
+        //transfer not complete
+        flag_rsb = 1;
+    } else if (payload_len == 0) {
+        flag_zlp = 1;
+        ESP_LOGD(TAG, "payload_len == 0");
+    } else if (payload_len < req_len) {
+        flag_lstp = 1;
+    } else {
+        flag_lstp = 1;
+    }
+
+    /********************* processing header *******************/
+    if (!flag_zlp) {
+        ESP_LOGD(TAG, "zlp=%d, lstp=%d, req_len=%d, payload_len=%d, first=0x%02x, second=0x%02x", flag_zlp, flag_lstp, req_len, payload_len, payload[0], payload_len > 1 ? payload[1] : 0);
+        // make sure this is a header, judge from header length and bit field
+        // For SCR, PTS, some vendors not set bit, but also offer 12 Bytes header. so we just check SET condition
+        if (payload_len >= payload[0]
+                && (payload[0] == 12 || (payload[0] == 2 && !(payload[1] & 0x0C)) || (payload[0] == 6 && !(payload[1] & 0x08)))
+                && !(payload[1] & 0x30)
+// #ifdef CONFIG_UVC_CHECK_HEADER_EOH
+#if 1
+                /* EOH bit, when set, indicates the end of the BFH fields
+                 * Most camera set this bit to 1 in each header, but some vendors may not set it.
+                 */
+                && (payload[1] & 0x80)
+#endif
+                && (!strm->reassembling)
+          ) {
+            header_len = payload[0];
+            data_len = payload_len - header_len;
+            /* checking the end-of-header */
+            variable_offset = 2;
+            header_info = payload[1];
+
+            ESP_LOGD(TAG, "header=%u info=0x%02x, payload_len = %u, last_pts = %"PRIu32" , last_scr = %"PRIu32"", header_len, header_info, payload_len, strm->pts, strm->last_scr);
+            if (flag_rsb || flag_lstp) {
+                ESP_LOGD(TAG, "reassembling start ...");
+                strm->reassembling = 1;
+                strm->current_frame = uvc_frame_get_empty(strm);
+                if (strm->current_frame == NULL) {
+                    // There is no free frame buffer now, skipping this frame
+                    strm->skip_current_frame = true;
+                    strm->reassembling = 0;
+                    ESP_LOGD(TAG, "no free frame buffer, skipping this frame");
+                }
+            }
+            /* ERR bit defined in Stream Header*/
+            if (header_info & 0x40) {
+                ESP_LOGD(TAG,  "bad packet: error bit set");
+                strm->reassembling = 0;
+                uvc_frame_reset(strm->current_frame);
+                return;
+            }
+        } else if (strm->reassembling) {
+            ESP_LOGD(TAG, "reassembling %u + %u", strm->current_frame->data_len, payload_len);
+            data_len = payload_len;
+        } else {
+            if (payload_len > 1) {
+// #ifdef CONFIG_UVC_CHECK_HEADER_EOH
+#if 1
+                /* Give warning if EOH check enable, but camera not have*/
+                if (!(payload[1] & 0x80)) {
+                    ESP_LOGD(TAG,  "bogus packet: EOH bit not set");
+                }
+#endif
+                ESP_LOGD(TAG, "bogus packet: len = %u %02x %02x...%02x %02x\n", payload_len, payload[0], payload[1], payload[payload_len - 2], payload[payload_len - 1]);
+            }
+            return;
+        }
+    }
+
+    if (header_len >= 2) {
+        if (strm->fid != (header_info & 1) && strm->current_frame->data_len != 0) {
+            /* The frame ID bit was flipped, but we have image data sitting
+                around from prior transfers. This means the camera didn't send
+                an EOF for the last transfer of the previous frame. */
+            ESP_LOGD(TAG, "SWAP NO EOF %d", strm->current_frame->data_len);
+            _uvc_complete_transfer(strm);
+        }
+
+        strm->fid = header_info & 1;
+        if (header_info & (1 << 2)) {
+            strm->pts = DW_TO_INT(payload + variable_offset);
+            variable_offset += 4;
+        }
+
+        if (header_info & (1 << 3)) {
+            strm->last_scr = DW_TO_INT(payload + variable_offset);
+            variable_offset += 6;
+        }
+    }
+
+    /********************* processing data *****************/
+    if (data_len >= 1) {
+        if (payload_len > 1) {
+            ESP_LOGD(TAG, "uvc payload = %02x %02x...%02x %02x\n", payload[header_len], payload[header_len + 1], payload[payload_len - 2], payload[payload_len - 1]);
+        }
+        esp_err_t ret = uvc_frame_add_data(strm->current_frame, payload + header_len, data_len);
+        if (ret != ESP_OK) {
+            ESP_LOGD(TAG, "SWAP overflow %d", strm->current_frame->data_len);
+            strm->skip_current_frame = true;
+            strm->reassembling = 0;
+            uvc_host_frame_return(strm, strm->current_frame);
+            return;
+        }
+
+    }
+    /* Just ignore the EOF bit if using payload reassembling in bulk transfer */
+    if (((header_info & (1 << 1)) ) || flag_zlp || flag_lstp) {
+        /* The EOF bit is set, so publish the complete frame */
+        if (strm->current_frame->data_len != 0) {
+            _uvc_complete_transfer(strm);
+        }
+        strm->reassembling = 0;
+    }
+}
+
+static void _uvc_process_isoc_payload(uvc_stream_t *strm, usb_isoc_packet_desc_t *isoc_desc, uint8_t *payload)
+{
+    if (isoc_desc->actual_num_bytes == 0) {
+        return;
+    }
+
+    // Check for start of new frame
+    const uvc_payload_header_t *payload_header = (const uvc_payload_header_t *)payload;
+    const bool start_of_frame = (strm->current_frame_id != payload_header->bmHeaderInfo.frame_id);
+    if (start_of_frame) {
+        // We detected start of new frame. Update Frame ID and start fetching this frame
+        strm->current_frame_id = payload_header->bmHeaderInfo.frame_id;
+        strm->skip_current_frame = false;
+
+        // Get free frame buffer for this new frame
+        UVC_ENTER_CRITICAL();
+        bool need_new_frame = (strm->streaming && !strm->current_frame);
+        if (need_new_frame) {
+            UVC_EXIT_CRITICAL();
+            strm->current_frame = uvc_frame_get_empty(strm);
+            if (strm->current_frame == NULL) {
+                // There is no free frame buffer now, skipping this frame
+                strm->skip_current_frame = true;
+                return;
+            }
+        } else {
+            // We received SoF but current_frame is not NULL: We missed EoF - reset the frame buffer
+            uvc_frame_reset(strm->current_frame);
+            UVC_EXIT_CRITICAL();
+        }
+    } else if (strm->skip_current_frame) {
+        // Previous packets indicated we must skip this frame
+        return;
+    }
+
+    // Check for empty data
+    if (isoc_desc->actual_num_bytes <= payload_header->bHeaderLength) {
+        return;
+    }
+
+    // Check for error flag
+    if (payload_header->bmHeaderInfo.error) {
+        strm->skip_current_frame = true;
+        return;
+    }
+
+    // Add received data to frame buffer
+    const uint8_t *payload_data = payload + payload_header->bHeaderLength;
+    const size_t payload_data_len = isoc_desc->actual_num_bytes - payload_header->bHeaderLength;
+    esp_err_t ret = uvc_frame_add_data(strm->current_frame, payload_data, payload_data_len);
+    if (ret != ESP_OK) {
+        strm->skip_current_frame = true;
+        return;
+    }
+
+    // End of Frame. Pass the frame to user
+    if (payload_header->bmHeaderInfo.end_of_frame) {
+        bool return_frame = true; // In case streaming is stopped ATM, we must return the frame
+
+        // Check if the user did not stop the stream in the meantime
+        UVC_ENTER_CRITICAL();
+        uvc_frame_t *this_frame = strm->current_frame;
+        strm->current_frame = NULL; // Stop writing more data to this frame
+        const bool invoke_fb_callback = (strm->streaming && strm->frame_cb && this_frame);
+        uvc_host_frame_callback_t fb_callback = strm->frame_cb;
+        UVC_EXIT_CRITICAL();
+        if (invoke_fb_callback) {
+            memcpy((uvc_host_stream_format_t *)&this_frame->vs_format, &strm->vs_format, sizeof(uvc_host_stream_format_t));
+            return_frame = fb_callback(this_frame, strm->cb_arg);
+        }
+        if (return_frame) {
+            // The user has processed the frame in his callback, return it back to empty queue
+            uvc_host_frame_return(strm, this_frame);
+        }
+    }
+}
+
 static void in_xfer_cb(usb_transfer_t *transfer)
 {
     ESP_LOGD(TAG, "in xfer cb");
@@ -711,108 +954,48 @@ static void in_xfer_cb(usb_transfer_t *transfer)
         return; // If the streaming was turned off, we don't have to do anything
     }
 
-    const uint8_t *payload = transfer->data_buffer;
-    for (int i = 0; i < transfer->num_isoc_packets; i++) {
-        usb_isoc_packet_desc_t *isoc_desc = &transfer->isoc_packet_desc[i];
-
-        // Check USB status
-        switch (isoc_desc->status) {
-        case USB_TRANSFER_STATUS_COMPLETED:
-            break;
-        case USB_TRANSFER_STATUS_NO_DEVICE:
-        case USB_TRANSFER_STATUS_CANCELED:
-            return; // No need to process the rest
-        case USB_TRANSFER_STATUS_ERROR:
-        case USB_TRANSFER_STATUS_OVERFLOW:
-        case USB_TRANSFER_STATUS_STALL:
-            ESP_LOGW(TAG, "usb err %d", isoc_desc->status);
-            uvc_stream->skip_current_frame = true;
-            goto next_isoc_packet; // Data corrupted
-
-        case USB_TRANSFER_STATUS_TIMED_OUT:
-        case USB_TRANSFER_STATUS_SKIPPED:
-            goto next_isoc_packet; // Skipped and timed out ISOC transfers are not an issue
-        default:
-            assert(false);
+    if (transfer->num_isoc_packets == 0) {
+        /* This is a bulk mode transfer, so it just has one payload transfer */
+        switch (transfer->status) {
+            case USB_TRANSFER_STATUS_COMPLETED:
+                _uvc_process_bulk_payload(uvc_stream, transfer->data_buffer_size, transfer->data_buffer, transfer->actual_num_bytes);
+                break;
+            case USB_TRANSFER_STATUS_STALL:
+            case USB_TRANSFER_STATUS_TIMED_OUT:
+            case USB_TRANSFER_STATUS_OVERFLOW:
+                ESP_LOGE(TAG, "usb err %d", transfer->status);
+            default:
+                break;
         }
+    } else {
+        uint8_t *payload = transfer->data_buffer;
+        for (int i = 0; i < transfer->num_isoc_packets; i++) {
+            usb_isoc_packet_desc_t *isoc_desc = &transfer->isoc_packet_desc[i];
 
-        // Check for Zero Length Packet
-        if (isoc_desc->actual_num_bytes == 0) {
-            goto next_isoc_packet;
-        }
-
-        // Check for start of new frame
-        const uvc_payload_header_t *payload_header = (const uvc_payload_header_t *)payload;
-        const bool start_of_frame = (uvc_stream->current_frame_id != payload_header->bmHeaderInfo.frame_id);
-        if (start_of_frame) {
-            // We detected start of new frame. Update Frame ID and start fetching this frame
-            uvc_stream->current_frame_id = payload_header->bmHeaderInfo.frame_id;
-            uvc_stream->skip_current_frame = false;
-
-            // Get free frame buffer for this new frame
-            UVC_ENTER_CRITICAL();
-            bool need_new_frame = (uvc_stream->streaming && !uvc_stream->current_frame);
-            if (need_new_frame) {
-                UVC_EXIT_CRITICAL();
-                uvc_stream->current_frame = uvc_frame_get_empty(uvc_stream);
-                if (uvc_stream->current_frame == NULL) {
-                    // There is no free frame buffer now, skipping this frame
-                    uvc_stream->skip_current_frame = true;
-                    goto next_isoc_packet;
-                }
-            } else {
-                // We received SoF but current_frame is not NULL: We missed EoF - reset the frame buffer
-                uvc_frame_reset(uvc_stream->current_frame);
-                UVC_EXIT_CRITICAL();
+            // Check USB status
+            switch (isoc_desc->status) {
+            case USB_TRANSFER_STATUS_COMPLETED:
+                _uvc_process_isoc_payload(uvc_stream, isoc_desc, payload);
+                break;
+            case USB_TRANSFER_STATUS_NO_DEVICE:
+            case USB_TRANSFER_STATUS_CANCELED:
+                return; // No need to process the rest
+            case USB_TRANSFER_STATUS_ERROR:
+            case USB_TRANSFER_STATUS_OVERFLOW:
+            case USB_TRANSFER_STATUS_STALL:
+                ESP_LOGW(TAG, "usb err %d", isoc_desc->status);
+                uvc_stream->skip_current_frame = true;
+                break; // Data corrupted
+            case USB_TRANSFER_STATUS_TIMED_OUT:
+            case USB_TRANSFER_STATUS_SKIPPED:
+                break; // Skipped and timed out ISOC transfers are not an issue
+            default:
+                assert(false);
             }
-        } else if (uvc_stream->skip_current_frame) {
-            // Previous packets indicated we must skip this frame
-            goto next_isoc_packet;
-        }
 
-        // Check for empty data
-        if (isoc_desc->actual_num_bytes <= payload_header->bHeaderLength) {
-            goto next_isoc_packet;
+            payload += isoc_desc->num_bytes;
+            continue;
         }
-
-        // Check for error flag
-        if (payload_header->bmHeaderInfo.error) {
-            uvc_stream->skip_current_frame = true;
-            goto next_isoc_packet;
-        }
-
-        // Add received data to frame buffer
-        const uint8_t *payload_data = payload + payload_header->bHeaderLength;
-        const size_t payload_data_len = isoc_desc->actual_num_bytes - payload_header->bHeaderLength;
-        esp_err_t ret = uvc_frame_add_data(uvc_stream->current_frame, payload_data, payload_data_len);
-        if (ret != ESP_OK) {
-            uvc_stream->skip_current_frame = true;
-            goto next_isoc_packet;
-        }
-
-        // End of Frame. Pass the frame to user
-        if (payload_header->bmHeaderInfo.end_of_frame) {
-            bool return_frame = true; // In case streaming is stopped ATM, we must return the frame
-
-            // Check if the user did not stop the stream in the meantime
-            UVC_ENTER_CRITICAL();
-            uvc_frame_t *this_frame = uvc_stream->current_frame;
-            uvc_stream->current_frame = NULL; // Stop writing more data to this frame
-            const bool invoke_fb_callback = (uvc_stream->streaming && uvc_stream->frame_cb && this_frame);
-            uvc_host_frame_callback_t fb_callback = uvc_stream->frame_cb;
-            UVC_EXIT_CRITICAL();
-            if (invoke_fb_callback) {
-                memcpy((uvc_host_stream_format_t *)&this_frame->vs_format, &uvc_stream->vs_format, sizeof(uvc_host_stream_format_t));
-                return_frame = fb_callback(this_frame, uvc_stream->cb_arg);
-            }
-            if (return_frame) {
-                // The user has processed the frame in his callback, return it back to empty queue
-                uvc_host_frame_return(uvc_stream, this_frame);
-            }
-        }
-next_isoc_packet:
-        payload += isoc_desc->num_bytes;
-        continue;
     }
 
     UVC_ENTER_CRITICAL();

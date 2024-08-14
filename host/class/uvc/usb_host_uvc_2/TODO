@@ -2,3 +2,4 @@
 - [ ] Allow VID and PID to be 0
 - [x] 1 CTRL transfer for the driver? of 1 transfer for a device?
 - [ ] Mock USB host for descriptor parsing
+- [x] Support bulk mode

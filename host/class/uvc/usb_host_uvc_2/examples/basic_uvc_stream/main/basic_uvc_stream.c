@@ -119,7 +119,7 @@ static void frame_handling_task(void *arg)
             vTaskDelay(pdMS_TO_TICKS(5000));
             continue;
         }
-        //uvc_host_desc_print(uvc_stream);
+        // uvc_host_desc_print(uvc_stream);
         ESP_LOGI(TAG, "Device 0x%04X:0x%04X-%d OPENED!", stream_config->usb.vid, stream_config->usb.pid, uvc_index);
         vTaskDelay(pdMS_TO_TICKS(100));
         unsigned count = 0;
@@ -172,9 +172,9 @@ static const uvc_host_stream_config_t stream_mjpeg_config = {
     .vs_format.fps = 15,
     .vs_format.format = UVC_VS_FORMAT_MJPEG,
     .advanced.number_of_frame_buffers = EXAMPLE_FRAME_COUNT,
-    .advanced.frame_size = 0,
+    .advanced.frame_size = 300*1024,
     .advanced.number_of_urbs = 6,
-    .advanced.urb_size = 20 * 1024,
+    .advanced.urb_size = 8 * 1024,
 };
 
 static const uvc_host_stream_config_t stream_h265_config = {
@@ -189,9 +189,9 @@ static const uvc_host_stream_config_t stream_h265_config = {
     .vs_format.fps = 15,
     .vs_format.format = UVC_VS_FORMAT_H265,
     .advanced.number_of_frame_buffers = EXAMPLE_FRAME_COUNT,
-    .advanced.frame_size = 0,
+    .advanced.frame_size = 300*1024,
     .advanced.number_of_urbs = 6,
-    .advanced.urb_size = 20 * 1024,
+    .advanced.urb_size = 8 * 1024,
 };
 
 /*
