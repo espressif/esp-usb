@@ -24,10 +24,14 @@ static const char *TAG = "cdc_acm";
 // bDeviceClass = 0xEF (Miscellaneous Device Class), bDeviceSubClass = 0x02 (Common Class), bDeviceProtocol = 0x01 (Interface Association Descriptor),
 // or when bDeviceClass, bDeviceSubClass, and bDeviceProtocol are 0x00 (Null class code triple), as per https://www.usb.org/defined-class-codes, "Base Class 00h (Device)" section
 // @see USB Interface Association Descriptor: Device Class Code and Use Model rev 1.0, Table 1-1
-#define USB_SUBCLASS_NULL        0x00
+#define USB_SUBCLASS_NULL          0x00
 #define USB_SUBCLASS_COMMON        0x02
-#define USB_PROTOCOL_NULL    0x00
+#define USB_PROTOCOL_NULL          0x00
 #define USB_DEVICE_PROTOCOL_IAD    0x01
+
+// Control transfer constants
+#define CDC_ACM_CTRL_TRANSFER_SIZE (64)   // All standard CTRL requests and responses fit in this size
+#define CDC_ACM_CTRL_TIMEOUT_MS    (5000) // Every CDC device should be able to respond to CTRL transfer in 5 seconds
 
 // CDC-ACM spinlock
 static portMUX_TYPE cdc_acm_lock = portMUX_INITIALIZER_UNLOCKED;
@@ -566,10 +570,8 @@ static esp_err_t cdc_acm_transfers_allocate(cdc_dev_t *cdc_dev, const usb_ep_des
     }
 
     // 2. Setup control transfer
-    usb_device_info_t dev_info;
-    ESP_ERROR_CHECK(usb_host_device_info(cdc_dev->dev_hdl, &dev_info));
     ESP_GOTO_ON_ERROR(
-        usb_host_transfer_alloc(dev_info.bMaxPacketSize0, 0, &cdc_dev->ctrl_transfer),
+        usb_host_transfer_alloc(CDC_ACM_CTRL_TRANSFER_SIZE, 0, &cdc_dev->ctrl_transfer),
         err, TAG,);
     cdc_dev->ctrl_transfer->timeout_ms = 1000;
     cdc_dev->ctrl_transfer->bEndpointAddress = 0;
@@ -1235,7 +1237,7 @@ esp_err_t cdc_acm_host_send_custom_request(cdc_acm_dev_hdl_t cdc_hdl, uint8_t bm
     esp_err_t ret;
 
     // Take Mutex and fill the CTRL request
-    BaseType_t taken = xSemaphoreTake(cdc_dev->ctrl_mux, pdMS_TO_TICKS(5000));
+    BaseType_t taken = xSemaphoreTake(cdc_dev->ctrl_mux, pdMS_TO_TICKS(CDC_ACM_CTRL_TIMEOUT_MS));
     if (!taken) {
         return ESP_ERR_TIMEOUT;
     }
@@ -1258,7 +1260,7 @@ esp_err_t cdc_acm_host_send_custom_request(cdc_acm_dev_hdl_t cdc_hdl, uint8_t bm
         usb_host_transfer_submit_control(p_cdc_acm_obj->cdc_acm_client_hdl, cdc_dev->ctrl_transfer),
         unblock, TAG, "CTRL transfer failed");
 
-    taken = xSemaphoreTake((SemaphoreHandle_t)cdc_dev->ctrl_transfer->context, pdMS_TO_TICKS(5000)); // This is a fixed timeout. Every CDC device should be able to respond to CTRL transfer in 5 seconds
+    taken = xSemaphoreTake((SemaphoreHandle_t)cdc_dev->ctrl_transfer->context, pdMS_TO_TICKS(CDC_ACM_CTRL_TIMEOUT_MS));
     if (!taken) {
         // Transfer was not finished, error in USB LIB. Reset the endpoint
         cdc_acm_reset_transfer_endpoint(cdc_dev->dev_hdl, cdc_dev->ctrl_transfer);
