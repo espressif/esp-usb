@@ -55,4 +55,11 @@ struct uvc_host_stream_s {
     uvc_frame_t *current_frame;           // Frame that is being written to
     bool skip_current_frame;              // Flag to skip this frame. An error has occurred during fetch
     uint8_t current_frame_id;             // Current frame ID. Used for start of frame detection
+    /*!< Bulk Mode */
+    uint8_t reassembling;                 // Indicates whether packet aggregation is occurring in bulk mode.
+    uint8_t fid;
+    uint32_t seq, hold_seq;
+    uint32_t pts, hold_pts;
+    uint32_t last_scr, hold_last_scr;
+    size_t got_bytes, hold_bytes;
 };
