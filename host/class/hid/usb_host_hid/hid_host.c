@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2022-2023 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2022-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -202,28 +202,6 @@ static hid_device_t *get_hid_device_by_handle(usb_device_handle_t usb_handle)
 static inline hid_device_t *get_hid_device_from_context(usb_transfer_t *xfer)
 {
     return (hid_device_t *)xfer->context;
-}
-
-/**
- * @brief Get HID Interface pointer by Endpoint address
- *
- * @param[in] ep_addr      Endpoint address
- * @return hid_iface_t     Pointer to HID Interface configuration structure
- */
-static hid_iface_t *get_interface_by_ep(uint8_t ep_addr)
-{
-    hid_iface_t *interface = NULL;
-
-    HID_ENTER_CRITICAL();
-    STAILQ_FOREACH(interface, &s_hid_driver->hid_ifaces_tailq, tailq_entry) {
-        if (ep_addr == interface->ep_in) {
-            HID_EXIT_CRITICAL();
-            return interface;
-        }
-    }
-
-    HID_EXIT_CRITICAL();
-    return NULL;
 }
 
 /**
@@ -537,35 +515,6 @@ static bool hid_host_device_init_attempt(uint8_t dev_addr)
 }
 
 /**
- * @brief USB device was removed we need to shutdown HID Interface
- *
- * @param[in] hid_dev_handle    Handle of the HID device to close
- * @return esp_err_t
- */
-static esp_err_t hid_host_interface_shutdown(hid_host_device_handle_t hid_dev_handle)
-{
-    hid_iface_t *hid_iface = get_iface_by_handle(hid_dev_handle);
-
-    HID_RETURN_ON_INVALID_ARG(hid_iface);
-
-    if (hid_iface->user_cb) {
-        // Let user handle the remove process
-        hid_iface->state = HID_INTERFACE_STATE_WAIT_USER_DELETION;
-        hid_host_user_interface_callback(hid_iface, HID_HOST_INTERFACE_EVENT_DISCONNECTED);
-    } else {
-        // Remove HID Interface from the list right now
-        ESP_LOGD(TAG, "Remove addr %d, iface %d from list",
-                 hid_iface->dev_params.addr,
-                 hid_iface->dev_params.iface_num);
-        HID_ENTER_CRITICAL();
-        _hid_host_remove_interface(hid_iface);
-        HID_EXIT_CRITICAL();
-    }
-
-    return ESP_OK;
-}
-
-/**
  * @brief Deinit USB device by handle
  *
  * @param[in] dev_hdl   USB device handle
@@ -574,23 +523,26 @@ static esp_err_t hid_host_interface_shutdown(hid_host_device_handle_t hid_dev_ha
 static esp_err_t hid_host_device_disconnected(usb_device_handle_t dev_hdl)
 {
     hid_device_t *hid_device = get_hid_device_by_handle(dev_hdl);
-    hid_iface_t *hid_iface = NULL;
-    // Device should be in the list
-    assert(hid_device);
+    HID_RETURN_ON_INVALID_ARG(hid_device);
 
     HID_ENTER_CRITICAL();
-    while (!STAILQ_EMPTY(&s_hid_driver->hid_ifaces_tailq)) {
-        hid_iface = STAILQ_FIRST(&s_hid_driver->hid_ifaces_tailq);
+    hid_iface_t *hid_iface_curr;
+    hid_iface_t *hid_iface_next;
+    // Go through list
+    hid_iface_curr = STAILQ_FIRST(&s_hid_driver->hid_ifaces_tailq);
+    while (hid_iface_curr != NULL) {
+        hid_iface_next = STAILQ_NEXT(hid_iface_curr, tailq_entry);
         HID_EXIT_CRITICAL();
-        if (hid_iface->parent && (hid_iface->parent->dev_addr == hid_device->dev_addr)) {
-            HID_RETURN_ON_ERROR( hid_host_device_close(hid_iface),
+
+        if (hid_iface_curr->parent && (hid_iface_curr->parent->dev_addr == hid_device->dev_addr)) {
+            HID_RETURN_ON_ERROR( hid_host_device_close(hid_iface_curr),
                                  "Unable to close device");
-            HID_RETURN_ON_ERROR( hid_host_interface_shutdown(hid_iface),
-                                 "Unable to shutdown interface");
         }
         HID_ENTER_CRITICAL();
+        hid_iface_curr = hid_iface_next;
     }
     HID_EXIT_CRITICAL();
+
     // Delete HID compliant device
     HID_RETURN_ON_ERROR( hid_host_uninstall_device(hid_device),
                          "Unable to uninstall device");
@@ -699,12 +651,9 @@ static esp_err_t hid_host_disable_interface(hid_iface_t *iface)
 static void in_xfer_done(usb_transfer_t *in_xfer)
 {
     assert(in_xfer);
+    assert(in_xfer->context);
 
-    hid_iface_t *iface = get_interface_by_ep(in_xfer->bEndpointAddress);
-    assert(iface);
-
-    // Interfaces' parent device should be the same as the hid_device in context
-    assert(get_hid_device_from_context(in_xfer) == iface->parent);
+    hid_iface_t *iface = (hid_iface_t *) in_xfer->context;
 
     switch (in_xfer->status) {
     case USB_TRANSFER_STATUS_COMPLETED:
@@ -1269,12 +1218,17 @@ esp_err_t hid_host_device_close(hid_host_device_handle_t hid_dev_handle)
         hid_iface->report_desc = NULL;
     }
 
-    if (HID_INTERFACE_STATE_WAIT_USER_DELETION == hid_iface->state) {
+    if (hid_iface->user_cb && hid_iface->state != HID_INTERFACE_STATE_WAIT_USER_DELETION) {
+        // Let user handle the remove process and wait for next hid_host_device_close() call
+        hid_iface->state = HID_INTERFACE_STATE_WAIT_USER_DELETION;
+        hid_host_user_interface_callback(hid_iface, HID_HOST_INTERFACE_EVENT_DISCONNECTED);
+    } else {
+        // Second call
         hid_iface->user_cb = NULL;
         hid_iface->user_cb_arg = NULL;
 
         /* Remove Interface from the list */
-        ESP_LOGD(TAG, "User Remove addr %d, iface %d from list",
+        ESP_LOGD(TAG, "Remove addr %d, iface %d from list",
                  hid_iface->dev_params.addr,
                  hid_iface->dev_params.iface_num);
         HID_ENTER_CRITICAL();
@@ -1366,7 +1320,7 @@ esp_err_t hid_host_device_start(hid_host_device_handle_t hid_dev_handle)
     // prepare transfer
     iface->in_xfer->device_handle = iface->parent->dev_hdl;
     iface->in_xfer->callback = in_xfer_done;
-    iface->in_xfer->context = iface->parent;
+    iface->in_xfer->context = iface;
     iface->in_xfer->timeout_ms = DEFAULT_TIMEOUT_MS;
     iface->in_xfer->bEndpointAddress = iface->ep_in;
     iface->in_xfer->num_bytes = iface->ep_in_mps;
