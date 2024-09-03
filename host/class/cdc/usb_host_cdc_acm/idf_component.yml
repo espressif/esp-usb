@@ -1,5 +1,5 @@
 ## IDF Component Manager Manifest File
-version: "2.0.3"
+version: "2.0.4"
 description: USB Host CDC-ACM driver
 tags:
   - usb
