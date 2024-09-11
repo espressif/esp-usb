@@ -166,7 +166,7 @@ typedef struct hid_class_request {
 static void event_handler_task(void *arg)
 {
     ESP_LOGD(TAG, "USB HID handling start");
-    while (hid_host_handle_events(portMAX_DELAY) == ESP_OK) {
+    while (hid_host_handle_events((uint32_t)portMAX_DELAY) == ESP_OK) {
     }
     ESP_LOGD(TAG, "USB HID handling stop");
     vTaskDelete(NULL);
@@ -293,40 +293,40 @@ static bool hid_interface_present(const usb_config_desc_t *config_desc)
 /**
  * @brief HID Interface user callback function.
  *
- * @param[in] hid_iface   Pointer to an Interface structure
- * @param[in] event_id    HID Interface event
+ * @param[in] iface   Pointer to an Interface structure
+ * @param[in] event   HID Interface event
  */
-static inline void hid_host_user_interface_callback(hid_iface_t *hid_iface,
+static inline void hid_host_user_interface_callback(hid_iface_t *iface,
         const hid_host_interface_event_t event)
 {
-    assert(hid_iface);
+    assert(iface);
 
-    hid_host_dev_params_t *dev_params = &hid_iface->dev_params;
+    hid_host_dev_params_t *dev_params = &iface->dev_params;
 
     assert(dev_params);
 
-    if (hid_iface->user_cb) {
-        hid_iface->user_cb(hid_iface, event, hid_iface->user_cb_arg);
+    if (iface->user_cb) {
+        iface->user_cb(iface, event, iface->user_cb_arg);
     }
 }
 
 /**
  * @brief HID Device user callback function.
  *
- * @param[in] event_id    HID Device event
- * @param[in] dev_params  HID Device parameters
+ * @param[in] iface   Pointer to an Interface structure
+ * @param[in] event   HID Device event
  */
-static inline void hid_host_user_device_callback(hid_iface_t *hid_iface,
+static inline void hid_host_user_device_callback(hid_iface_t *iface,
         const hid_host_driver_event_t event)
 {
-    assert(hid_iface);
+    assert(iface);
 
-    hid_host_dev_params_t *dev_params = &hid_iface->dev_params;
+    hid_host_dev_params_t *dev_params = &iface->dev_params;
 
     assert(dev_params);
 
     if (s_hid_driver && s_hid_driver->user_cb) {
-        s_hid_driver->user_cb(hid_iface, event, s_hid_driver->user_arg);
+        s_hid_driver->user_cb(iface, event, s_hid_driver->user_arg);
     }
 }
 
@@ -393,14 +393,14 @@ static esp_err_t hid_host_add_interface(hid_device_t *hid_device,
  *
  * Use only inside critical section
  *
- * @param[in] hid_iface    HID interface handle
+ * @param[in] iface    HID interface handle
  * @return esp_err_t
  */
-static esp_err_t _hid_host_remove_interface(hid_iface_t *hid_iface)
+static esp_err_t _hid_host_remove_interface(hid_iface_t *iface)
 {
-    hid_iface->state = HID_INTERFACE_STATE_NOT_INITIALIZED;
-    STAILQ_REMOVE(&s_hid_driver->hid_ifaces_tailq, hid_iface, hid_interface, tailq_entry);
-    free(hid_iface);
+    iface->state = HID_INTERFACE_STATE_NOT_INITIALIZED;
+    STAILQ_REMOVE(&s_hid_driver->hid_ifaces_tailq, iface, hid_interface, tailq_entry);
+    free(iface);
     return ESP_OK;
 }
 
@@ -765,7 +765,7 @@ static esp_err_t hid_control_transfer(hid_device_t *hid_device,
 /**
  * @brief USB class standard request get descriptor
  *
- * @param[in] hidh_device Pointer to HID device structure
+ * @param[in] hid_device  Pointer to HID device structure
  * @param[in] req         Pointer to a class specific request structure
  * @return esp_err_t
  */
@@ -788,7 +788,7 @@ static esp_err_t usb_class_request_get_descriptor(hid_device_t *hid_device, cons
         ESP_ERROR_CHECK(usb_host_device_info(hid_device->dev_hdl, &dev_info));
         // reallocate the ctrl xfer buffer for new length
         ESP_LOGD(TAG, "Change HID ctrl xfer size from %d to %d",
-                 ctrl_size,
+                 (int) ctrl_size,
                  (int) (USB_SETUP_PACKET_SIZE + req->wLength));
 
         usb_host_transfer_free(hid_device->ctrl_xfer);
@@ -829,7 +829,7 @@ static esp_err_t usb_class_request_get_descriptor(hid_device_t *hid_device, cons
 /**
  * @brief HID Host Request Report Descriptor
  *
- * @param[in] hidh_iface      Pointer to HID Interface configuration structure
+ * @param[in] iface       Pointer to HID Interface configuration structure
  * @return esp_err_t
  */
 static esp_err_t hid_class_request_report_descriptor(hid_iface_t *iface)

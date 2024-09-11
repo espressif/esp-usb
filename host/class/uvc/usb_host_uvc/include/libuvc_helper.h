@@ -11,7 +11,7 @@
 extern "C" {
 #endif
 
-inline static char *uvc_error_string(uvc_error_t error)
+inline static const char *uvc_error_string(uvc_error_t error)
 {
     switch (error) {
     case UVC_SUCCESS: return "UVC_SUCCESS";
