@@ -33,10 +33,19 @@ static const char *TAG = "cdc_acm";
 #define CDC_ACM_CTRL_TRANSFER_SIZE (64)   // All standard CTRL requests and responses fit in this size
 #define CDC_ACM_CTRL_TIMEOUT_MS    (5000) // Every CDC device should be able to respond to CTRL transfer in 5 seconds
 
-// CDC-ACM spinlock
+#if CONFIG_IDF_TARGET_LINUX
+#include <pthread.h>
+// CDC-ACM spinlock for linux target
+static pthread_mutex_t cdc_acm_lock = PTHREAD_MUTEX_INITIALIZER;
+#define CDC_ACM_ENTER_CRITICAL()    pthread_mutex_lock(&cdc_acm_lock)
+#define CDC_ACM_EXIT_CRITICAL()     pthread_mutex_unlock(&cdc_acm_lock)
+
+#else
+// CDC-ACM spinlock for esp32xx target
 static portMUX_TYPE cdc_acm_lock = portMUX_INITIALIZER_UNLOCKED;
 #define CDC_ACM_ENTER_CRITICAL()   portENTER_CRITICAL(&cdc_acm_lock)
 #define CDC_ACM_EXIT_CRITICAL()    portEXIT_CRITICAL(&cdc_acm_lock)
+#endif
 
 // CDC-ACM events
 #define CDC_ACM_TEARDOWN          BIT0

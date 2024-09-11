@@ -1,3 +1,7 @@
+## 2.0.5 (unreleased)
+
+- Support for linux target build, to allow running Cmock tests
+
 ## 2.0.4
 
 - Fixed Control transfer allocation size for too small EP0 Max Packet Size (https://github.com/espressif/esp-idf/issues/14345)

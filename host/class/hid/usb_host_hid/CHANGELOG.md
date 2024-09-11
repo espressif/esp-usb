@@ -1,3 +1,7 @@
+## 1.0.4 (unreleased)
+
+- Support for linux target build, to allow running Cmock tests
+
 ## 1.0.3
 - Fixed a bug with interface mismatch on EP IN transfer complete while several HID devices are present.
 - Fixed a bug during device freeing, while detaching one of several attached HID devices.

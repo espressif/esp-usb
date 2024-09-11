@@ -19,10 +19,19 @@
 
 #include "usb/hid_host.h"
 
-// HID spinlock
+#if CONFIG_IDF_TARGET_LINUX
+#include <pthread.h>
+// HID spinlock for linux target
+static pthread_mutex_t hid_lock = PTHREAD_MUTEX_INITIALIZER;
+#define HID_ENTER_CRITICAL()    pthread_mutex_lock(&hid_lock)
+#define HID_EXIT_CRITICAL()     pthread_mutex_unlock(&hid_lock)
+
+#else
+// HID spinlock for esp32xx target
 static portMUX_TYPE hid_lock = portMUX_INITIALIZER_UNLOCKED;
 #define HID_ENTER_CRITICAL()    portENTER_CRITICAL(&hid_lock)
 #define HID_EXIT_CRITICAL()     portEXIT_CRITICAL(&hid_lock)
+#endif
 
 // HID verification macros
 #define HID_GOTO_ON_FALSE_CRITICAL(exp, err)    \
@@ -166,7 +175,7 @@ typedef struct hid_class_request {
 static void event_handler_task(void *arg)
 {
     ESP_LOGD(TAG, "USB HID handling start");
-    while (hid_host_handle_events(portMAX_DELAY) == ESP_OK) {
+    while (hid_host_handle_events((uint32_t)portMAX_DELAY) == ESP_OK) {
     }
     ESP_LOGD(TAG, "USB HID handling stop");
     vTaskDelete(NULL);
@@ -765,7 +774,7 @@ static esp_err_t hid_control_transfer(hid_device_t *hid_device,
 /**
  * @brief USB class standard request get descriptor
  *
- * @param[in] hidh_device Pointer to HID device structure
+ * @param[in] hid_device  Pointer to HID device structure
  * @param[in] req         Pointer to a class specific request structure
  * @return esp_err_t
  */
@@ -788,7 +797,7 @@ static esp_err_t usb_class_request_get_descriptor(hid_device_t *hid_device, cons
         ESP_ERROR_CHECK(usb_host_device_info(hid_device->dev_hdl, &dev_info));
         // reallocate the ctrl xfer buffer for new length
         ESP_LOGD(TAG, "Change HID ctrl xfer size from %d to %d",
-                 ctrl_size,
+                 (int) ctrl_size,
                  (int) (USB_SETUP_PACKET_SIZE + req->wLength));
 
         usb_host_transfer_free(hid_device->ctrl_xfer);
@@ -829,7 +838,7 @@ static esp_err_t usb_class_request_get_descriptor(hid_device_t *hid_device, cons
 /**
  * @brief HID Host Request Report Descriptor
  *
- * @param[in] hidh_iface      Pointer to HID Interface configuration structure
+ * @param[in] hid_iface       Pointer to HID Interface configuration structure
  * @return esp_err_t
  */
 static esp_err_t hid_class_request_report_descriptor(hid_iface_t *iface)
