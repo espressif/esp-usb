@@ -178,8 +178,8 @@ esp_err_t tinyusb_set_descriptors(const tinyusb_config_t *config)
 
     // Select FullSpeed configuration descriptor
     if (config->configuration_descriptor == NULL) {
-        // Default configuration descriptor is provided only for CDC, MSC and NCM classes
-#if (CFG_TUD_HID > 0 || CFG_TUD_MIDI > 0 || CFG_TUD_CUSTOM_CLASS > 0 || CFG_TUD_ECM_RNDIS > 0 || CFG_TUD_DFU > 0 || CFG_TUD_DFU_RUNTIME > 0 || CFG_TUD_BTH > 0)
+        // Default configuration descriptor must be provided for the following classes
+#if (CFG_TUD_HID > 0 || CFG_TUD_MIDI > 0 || CFG_TUD_ECM_RNDIS > 0 || CFG_TUD_DFU > 0 || CFG_TUD_DFU_RUNTIME > 0 || CFG_TUD_BTH > 0)
         ESP_GOTO_ON_FALSE(config->configuration_descriptor, ESP_ERR_INVALID_ARG, fail, TAG, "Configuration descriptor must be provided for this device");
 #else
         ESP_LOGW(TAG, "No FullSpeed configuration descriptor provided, using default.");
@@ -192,8 +192,8 @@ esp_err_t tinyusb_set_descriptors(const tinyusb_config_t *config)
 #if (TUD_OPT_HIGH_SPEED)
     // High Speed
     if (config->hs_configuration_descriptor == NULL) {
-        // Default configuration descriptor is provided only for CDC, MSC and NCM classes
-#if (CFG_TUD_HID > 0 || CFG_TUD_MIDI > 0 || CFG_TUD_CUSTOM_CLASS > 0 || CFG_TUD_ECM_RNDIS > 0 || CFG_TUD_DFU > 0 || CFG_TUD_DFU_RUNTIME > 0 || CFG_TUD_BTH > 0)
+        // Default configuration descriptor must be provided for the following classes
+#if (CFG_TUD_HID > 0 || CFG_TUD_MIDI > 0 || CFG_TUD_ECM_RNDIS > 0 || CFG_TUD_DFU > 0 || CFG_TUD_DFU_RUNTIME > 0 || CFG_TUD_BTH > 0)
         ESP_GOTO_ON_FALSE(config->hs_configuration_descriptor, ESP_ERR_INVALID_ARG, fail, TAG, "HighSpeed configuration descriptor must be provided for this device");
 #else
         ESP_LOGW(TAG, "No HighSpeed configuration descriptor provided, using default.");

@@ -269,4 +269,13 @@ menu "TinyUSB Stack"
                 bool "None"
         endchoice
     endmenu # "Network driver (ECM/NCM/RNDIS)"
+
+    menu "Vendor Specific Interface"
+        config TINYUSB_VENDOR_COUNT
+            int "TinyUSB Vendor specific interfaces count"
+            default 0
+            range 0 2
+            help
+                Setting value greater than 0 will enable TinyUSB Vendor specific feature.
+    endmenu # "Vendor Specific Interface"
 endmenu # "TinyUSB Stack"
