@@ -10,6 +10,7 @@ from serial.tools.list_ports import comports
 
 @pytest.mark.esp32s2
 @pytest.mark.esp32s3
+@pytest.mark.esp32p4
 @pytest.mark.usb_device
 def test_usb_device_cdc(dut) -> None:
     '''
@@ -24,7 +25,7 @@ def test_usb_device_cdc(dut) -> None:
     3. Open both comports and send some data. Expect echoed data
     '''
     dut.expect_exact('Press ENTER to see the list of tests.')
-    dut.write('[esp_tinyusb]')
+    dut.write('[cdc]')
     dut.expect_exact('TinyUSB: TinyUSB Driver installed')
     sleep(2)  # Some time for the OS to enumerate our USB device
 

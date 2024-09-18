@@ -1,11 +1,6 @@
 target = "all"
-paths = [
-    "device/esp_tinyusb/test_app",
-    "host/class/cdc/usb_host_cdc_acm/test_app",
-    "host/class/hid/usb_host_hid/test_app",
-    "host/class/msc/usb_host_msc/test_app",
-    "host/class/uac/usb_host_uac/test_app",
-    "host/class/uvc/usb_host_uvc/test_app",
+exclude = [
+    "clang_tidy",
 ]
 recursive = true
 manifest_file = ".build-test-rules.yml"
