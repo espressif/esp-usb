@@ -22,9 +22,6 @@
 
 #define VFS_PATH "/dev/usb-cdc1"
 
-// idf_component_register(WHOLE_ARCHIVE) backward compatibility to IDF_v4.4
-void linker_hook(void) {};
-
 static const tusb_desc_device_t cdc_device_descriptor = {
     .bLength = sizeof(cdc_device_descriptor),
     .bDescriptorType = TUSB_DESC_DEVICE,
@@ -65,7 +62,7 @@ static void tinyusb_cdc_rx_callback(int itf, cdcacm_event_t *event)
  *
  * Note: CDC0 appends 'novfs' to echoed data, so the host (test runner) can easily determine which port is which.
  */
-TEST_CASE("tinyusb_cdc", "[esp_tinyusb]")
+TEST_CASE("tinyusb_cdc", "[esp_tinyusb][cdc]")
 {
     // Install TinyUSB driver
     const tinyusb_config_t tusb_cfg = {

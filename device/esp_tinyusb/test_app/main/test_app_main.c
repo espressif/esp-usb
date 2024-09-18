@@ -7,51 +7,56 @@
 #include <stdio.h>
 #include <string.h>
 #include "unity.h"
-#include "esp_heap_caps.h"
-
-static size_t before_free_8bit;
-static size_t before_free_32bit;
-
-#define TEST_MEMORY_LEAK_THRESHOLD (-530)
-static void check_leak(size_t before_free, size_t after_free, const char *type)
-{
-    ssize_t delta = after_free - before_free;
-    printf("MALLOC_CAP_%s: Before %u bytes free, After %u bytes free (delta %d)\n", type, before_free, after_free, delta);
-    TEST_ASSERT_MESSAGE(delta >= TEST_MEMORY_LEAK_THRESHOLD, "memory leak");
-}
+#include "unity_test_runner.h"
+#include "unity_test_utils_memory.h"
 
 void app_main(void)
 {
-    //  ____ ___  ___________________    __                   __
-    // |    |   \/   _____/\______   \ _/  |_  ____   _______/  |_
-    // |    |   /\_____  \  |    |  _/ \   __\/ __ \ /  ___/\   __\.
-    // |    |  / /        \ |    |   \  |  | \  ___/ \___ \  |  |
-    // |______/ /_______  / |______  /  |__|  \___  >____  > |__|
-    //                  \/         \/             \/     \/
-    printf(" ____ ___  ___________________    __                   __   \r\n");
-    printf("|    |   \\/   _____/\\______   \\ _/  |_  ____   _______/  |_ \r\n");
-    printf("|    |   /\\_____  \\  |    |  _/ \\   __\\/ __ \\ /  ___/\\   __\\\r\n");
-    printf("|    |  / /        \\ |    |   \\  |  | \\  ___/ \\___ \\  |  |  \r\n");
-    printf("|______/ /_______  / |______  /  |__|  \\___  >____  > |__|  \r\n");
-    printf("                 \\/         \\/             \\/     \\/        \r\n");
+    /*
+                     _   _                       _
+                    | | (_)                     | |
+      ___  ___ _ __ | |_ _ _ __  _   _ _   _ ___| |__
+     / _ \/ __| '_ \| __| | '_ \| | | | | | / __| '_ \
+    |  __/\__ \ |_) | |_| | | | | |_| | |_| \__ \ |_) |
+     \___||___/ .__/ \__|_|_| |_|\__, |\__,_|___/_.__/
+              | |______           __/ |
+              |_|______|         |___/
+      _____ _____ _____ _____
+     |_   _|  ___/  ___|_   _|
+      | | | |__ \ `--.  | |
+      | | |  __| `--. \ | |
+      | | | |___/\__/ / | |
+      \_/ \____/\____/  \_/
+    */
 
-    UNITY_BEGIN();
+    printf("                 _   _                       _     \n");
+    printf("                | | (_)                     | |    \n");
+    printf("  ___  ___ _ __ | |_ _ _ __  _   _ _   _ ___| |__  \n");
+    printf(" / _ \\/ __| '_ \\| __| | '_ \\| | | | | | / __| '_ \\ \n");
+    printf("|  __/\\__ \\ |_) | |_| | | | | |_| | |_| \\__ \\ |_) |\n");
+    printf(" \\___||___/ .__/ \\__|_|_| |_|\\__, |\\__,_|___/_.__/ \n");
+    printf("          | |______           __/ |               \n");
+    printf("          |_|______|         |___/                \n");
+    printf(" _____ _____ _____ _____                           \n");
+    printf("|_   _|  ___/  ___|_   _|                          \n");
+    printf("  | | | |__ \\ `--.  | |                            \n");
+    printf("  | | |  __| `--. \\ | |                            \n");
+    printf("  | | | |___/\\__/ / | |                            \n");
+    printf("  \\_/ \\____/\\____/  \\_/                            \n");
+
+    unity_utils_setup_heap_record(80);
+    unity_utils_set_leak_level(128);
     unity_run_menu();
-    UNITY_END();
 }
 
 /* setUp runs before every test */
 void setUp(void)
 {
-    before_free_8bit = heap_caps_get_free_size(MALLOC_CAP_8BIT);
-    before_free_32bit = heap_caps_get_free_size(MALLOC_CAP_32BIT);
+    unity_utils_record_free_mem();
 }
 
 /* tearDown runs after every test */
 void tearDown(void)
 {
-    size_t after_free_8bit = heap_caps_get_free_size(MALLOC_CAP_8BIT);
-    size_t after_free_32bit = heap_caps_get_free_size(MALLOC_CAP_32BIT);
-    check_leak(before_free_8bit, after_free_8bit, "8BIT");
-    check_leak(before_free_32bit, after_free_32bit, "32BIT");
+    unity_utils_evaluate_leaks();
 }
