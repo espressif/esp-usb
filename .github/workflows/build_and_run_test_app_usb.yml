@@ -8,15 +8,15 @@ on:
 
 jobs:
   build:
-    name: Build USB Test App
+    name: Build USB TestApps
     strategy:
       fail-fast: false
       matrix:
-        idf_ver: ["release-v4.4", "release-v5.0", "release-v5.1", "release-v5.2", "release-v5.3", "latest"]
+        idf_ver: ["release-v5.0", "release-v5.1", "release-v5.2", "release-v5.3", "latest"]
     runs-on: ubuntu-20.04
     container: espressif/idf:${{ matrix.idf_ver }}
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           submodules: 'true'
       - name: Build USB Test Application
@@ -29,7 +29,7 @@ jobs:
           export EXTRA_CXXFLAGS="${PEDANTIC_FLAGS}"
           idf-build-apps find
           idf-build-apps build
-      - uses: actions/upload-artifact@v2
+      - uses: actions/upload-artifact@v4
         with:
           name: usb_test_app_bin_${{ matrix.idf_ver }}
           path: |
@@ -40,8 +40,8 @@ jobs:
             **/test_app/build_esp*/flasher_args.json
           if-no-files-found: error
 
-  run-target:
-    name: Run USB Test App on target
+  run-target-usb-host:
+    name: Run USB Host TestApp on target
     if: ${{ github.repository_owner == 'espressif' }}
     needs: build
     strategy:
@@ -51,11 +51,11 @@ jobs:
         idf_target: ["esp32s2"]
     runs-on: [self-hosted, linux, docker, "${{ matrix.idf_target }}", "usb_host"]
     container:
-      image: python:3.7-buster
+      image: python:3.11-bookworm
       options: --privileged # Privileged mode has access to serial ports
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions/download-artifact@v2
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
         with:
           name: usb_test_app_bin_${{ matrix.idf_ver }}
       - name: Install Python packages
