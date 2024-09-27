@@ -1,6 +1,6 @@
 /*
  * SPDX-FileCopyrightText: 2019 Ha Thach (tinyusb.org),
- * SPDX-FileContributor: 2020 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileContributor: 2020-2024 Espressif Systems (Shanghai) CO LTD
  * SPDX-License-Identifier: MIT
  *
  * Copyright (c) 2019 Ha Thach (tinyusb.org),
@@ -55,8 +55,8 @@ extern "C" {
 #   define CONFIG_TINYUSB_MIDI_COUNT 0
 #endif
 
-#ifndef CONFIG_TINYUSB_CUSTOM_CLASS_ENABLED
-#   define CONFIG_TINYUSB_CUSTOM_CLASS_ENABLED 0
+#ifndef CONFIG_TINYUSB_VENDOR_COUNT
+#   define CONFIG_TINYUSB_VENDOR_COUNT 0
 #endif
 
 #ifndef CONFIG_TINYUSB_NET_MODE_ECM_RNDIS
@@ -128,9 +128,8 @@ extern "C" {
 #define CFG_TUD_MIDI_TX_BUFSIZE     64
 
 // Vendor FIFO size of TX and RX
-// If not configured vendor endpoints will not be buffered
-#define CFG_TUD_VENDOR_RX_BUFSIZE   64
-#define CFG_TUD_VENDOR_TX_BUFSIZE   64
+#define CFG_TUD_VENDOR_RX_BUFSIZE (TUD_OPT_HIGH_SPEED ? 512 : 64)
+#define CFG_TUD_VENDOR_TX_BUFSIZE (TUD_OPT_HIGH_SPEED ? 512 : 64)
 
 // DFU macros
 #define CFG_TUD_DFU_XFER_BUFSIZE    CONFIG_TINYUSB_DFU_BUFSIZE
@@ -143,7 +142,7 @@ extern "C" {
 #define CFG_TUD_MSC                 CONFIG_TINYUSB_MSC_ENABLED
 #define CFG_TUD_HID                 CONFIG_TINYUSB_HID_COUNT
 #define CFG_TUD_MIDI                CONFIG_TINYUSB_MIDI_COUNT
-#define CFG_TUD_CUSTOM_CLASS        CONFIG_TINYUSB_CUSTOM_CLASS_ENABLED
+#define CFG_TUD_VENDOR              CONFIG_TINYUSB_VENDOR_COUNT
 #define CFG_TUD_ECM_RNDIS           CONFIG_TINYUSB_NET_MODE_ECM_RNDIS
 #define CFG_TUD_NCM                 CONFIG_TINYUSB_NET_MODE_NCM
 #define CFG_TUD_DFU                 CONFIG_TINYUSB_DFU_MODE_DFU

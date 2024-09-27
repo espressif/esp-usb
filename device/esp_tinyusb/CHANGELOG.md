@@ -1,6 +1,7 @@
-## Unreleased
+## 1.4.5
 
 - CDC-ACM: Fixed memory leak at VFS unregister
+- Vendor specific: Provided default configuration
 
 ## 1.4.4
 

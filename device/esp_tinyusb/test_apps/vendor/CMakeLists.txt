@@ -6,4 +6,4 @@ include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 # "Trim" the build. Include the minimal set of components, main, and anything it depends on.
 set(COMPONENTS main)
 
-project(test_app_usb_device_esp_tinyusb)
+project(test_app_vendor_specific)
