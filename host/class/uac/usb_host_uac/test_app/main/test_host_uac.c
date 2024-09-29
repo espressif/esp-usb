@@ -618,16 +618,21 @@ TEST_CASE("test uac tx writing", "[uac_host][tx]")
     }
     s_buffer += offset_size * freq_offsite_step;
 
-    // invalid operate
-    uint32_t volume = 10;
+    uint8_t volume = 0;
+    uint8_t actual_volume = 0;
+    bool mute = false;
+    bool actual_mute = false;
     TEST_ASSERT_EQUAL(ESP_ERR_INVALID_STATE, uac_host_device_write(uac_device_handle, (uint8_t *)tx_buffer, tx_size, 0));
-    TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_set_mute(uac_device_handle, 0));
-    TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_set_volume(uac_device_handle, volume));
+    TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_set_mute(uac_device_handle, mute));
+    TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_get_mute(uac_device_handle, &actual_mute));
+    TEST_ASSERT_EQUAL(mute, actual_mute);
+    TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_get_volume(uac_device_handle, &volume));
+    printf("Volume: %d \n", volume);
     TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_resume(uac_device_handle));
     TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_write(uac_device_handle, (uint8_t *)tx_buffer, tx_size, 0));
 
-    // playback from volume 10 to 100
-    const uint32_t volume_max = 100;
+    uint8_t test_counter = 0;
+    const uint8_t test_counter_max = 15;
     event_queue_t evt_queue = {0};
     while (1) {
         if (xQueueReceive(s_event_queue, &evt_queue, portMAX_DELAY)) {
@@ -638,9 +643,15 @@ TEST_CASE("test uac tx writing", "[uac_host][tx]")
             case UAC_HOST_DEVICE_EVENT_TX_DONE:
                 if ((uint32_t)(s_buffer + offset_size) > (uint32_t)wav_file_end) {
                     s_buffer = (uint16_t *)(wav_file_start + 44);
-                    volume += 20;
-                    TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_set_volume(uac_device_handle, volume > 100 ? 100 : volume));
-                    printf("Volume: %" PRIu32 "\n", volume > 100 ? 100 : volume);
+                    volume += 10;
+                    if (volume > 100) {
+                        volume = 10;
+                    }
+                    test_counter++;
+                    TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_set_volume(uac_device_handle, volume));
+                    TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_get_volume(uac_device_handle, &actual_volume));
+                    TEST_ASSERT_EQUAL(volume, actual_volume);
+                    printf("Volume: %d \n", volume);
                 } else {
                     // fill the tx buffer with wav file data
                     tx_size = tx_buffer_threshold;
@@ -670,10 +681,10 @@ TEST_CASE("test uac tx writing", "[uac_host][tx]")
                             }
                         }
                     }
-                    TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_write(uac_device_handle, (uint8_t *)tx_buffer, tx_size, 0));
+                    TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_write(uac_device_handle, (uint8_t *)tx_buffer, tx_size, 1));
                     s_buffer += offset_size * freq_offsite_step;
                 }
-                if (volume > volume_max) {
+                if (test_counter > test_counter_max) {
                     goto exit_tx;
                 }
                 break;
@@ -730,9 +741,15 @@ TEST_CASE("test uac tx rx loopback", "[uac_host][tx][rx]")
         .flags = FLAG_STREAM_SUSPEND_AFTER_START,
     };
 
+    uint8_t actual_volume = 0;
+    bool actual_mute = 0;
     TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_start(mic_device_handle, &stream_config));
     TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_set_mute(mic_device_handle, 0));
+    TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_get_mute(mic_device_handle, &actual_mute));
+    TEST_ASSERT_EQUAL(0, actual_mute);
     TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_set_volume(mic_device_handle, 80));
+    TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_get_volume(mic_device_handle, &actual_volume));
+    TEST_ASSERT_EQUAL(80, actual_volume);
 
     uac_host_dev_alt_param_t spk_alt_params;
     TEST_ASSERT_EQUAL(ESP_OK, uac_host_get_device_alt_param(spk_device_handle, 1, &spk_alt_params));
@@ -752,7 +769,11 @@ TEST_CASE("test uac tx rx loopback", "[uac_host][tx][rx]")
 
     TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_start(spk_device_handle, &stream_config));
     TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_set_mute(spk_device_handle, 0));
+    TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_get_mute(spk_device_handle, &actual_mute));
+    TEST_ASSERT_EQUAL(0, actual_mute);
     TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_set_volume(spk_device_handle, 80));
+    TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_get_volume(spk_device_handle, &actual_volume));
+    TEST_ASSERT_EQUAL(80, actual_volume);
 
     uint8_t *rx_buffer = (uint8_t *)calloc(1, rx_buffer_threshold);
     uint8_t *rx_buffer_stereo = NULL;
@@ -881,7 +902,6 @@ TEST_CASE("test uac tx rx loopback with disconnect", "[uac_host][tx][rx][hot-plu
         .sample_freq = mic_alt_params.sample_freq[0],
         .flags = FLAG_STREAM_SUSPEND_AFTER_START,
     };
-
     TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_start(mic_device_handle, &stream_config));
     TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_set_mute(mic_device_handle, 0));
     TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_set_volume(mic_device_handle, 80));
