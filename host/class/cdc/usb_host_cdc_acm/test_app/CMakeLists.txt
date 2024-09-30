@@ -17,4 +17,7 @@ if("${IDF_VERSION_MAJOR}.${IDF_VERSION_MINOR}" VERSION_GREATER_EQUAL "5.0")
     list(APPEND EXTRA_COMPONENT_DIRS ../../../../../device/esp_tinyusb)
 endif()
 
+# "Trim" the build. Include the minimal set of components, main, and anything it depends on.
+set(COMPONENTS main)
+
 project(test_app_usb_host_cdc)
