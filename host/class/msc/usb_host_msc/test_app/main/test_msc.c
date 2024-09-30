@@ -19,9 +19,6 @@
 
 #if SOC_USB_OTG_SUPPORTED
 
-// idf_component_register(WHOLE_ARCHIVE) backward compatibility to IDF_v4.4
-void linker_hook(void) {};
-
 static const char *TAG = "APP";
 
 #define ESP_OK_ASSERT(exp) TEST_ASSERT_EQUAL(ESP_OK, exp)

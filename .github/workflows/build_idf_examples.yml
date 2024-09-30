@@ -21,7 +21,7 @@ jobs:
         shell: bash
         run: |
           . ${IDF_PATH}/export.sh
-          pip install idf-component-manager==1.5.2 idf-build-apps --upgrade
+          pip install idf-component-manager==1.5.2 idf-build-apps==2.4.3 --upgrade
           python .github/ci/override_managed_component.py esp_tinyusb device/esp_tinyusb ${IDF_PATH}/examples/peripherals/usb/device/tusb_*
           cd ${IDF_PATH}
           idf-build-apps find --path examples/peripherals/usb/device/ --recursive --target all --manifest-file examples/peripherals/.build-test-rules.yml

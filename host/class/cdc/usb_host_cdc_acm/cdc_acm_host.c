@@ -179,6 +179,8 @@ static void cdc_acm_reset_in_transfer(cdc_dev_t *cdc_dev)
     uint8_t **ptr = (uint8_t **)(&(transfer->data_buffer));
     *ptr = cdc_dev->data.in_data_buffer_base;
     transfer->num_bytes = transfer->data_buffer_size;
+    // This is a hotfix for IDF changes, where 'transfer->data_buffer_size' does not contain actual buffer length, but *allocated* buffer length, which can be larger
+    transfer->num_bytes -= transfer->data_buffer_size % cdc_dev->data.in_mps;
 }
 
 /**

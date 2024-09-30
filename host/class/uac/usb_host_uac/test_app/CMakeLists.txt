@@ -8,4 +8,7 @@ set(EXTRA_COMPONENT_DIRS
         ${EXTRA_COMPONENT_DIRS}
         )
 
+# "Trim" the build. Include the minimal set of components, main, and anything it depends on.
+set(COMPONENTS main)
+
 project(test_app_usb_host_uac)
