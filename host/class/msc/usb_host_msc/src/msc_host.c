@@ -345,10 +345,10 @@ esp_err_t msc_host_handle_events(uint32_t timeout)
  */
 static void event_handler_task(void *arg)
 {
-    ESP_LOGD(TAG, "USB HID handling start");
+    ESP_LOGD(TAG, "USB MSC handling start");
     while (msc_host_handle_events(portMAX_DELAY) == ESP_OK) {
     }
-    ESP_LOGD(TAG, "USB HID handling stop");
+    ESP_LOGD(TAG, "USB MSC handling stop");
     vTaskDelete(NULL);
 }
 
