@@ -9,6 +9,7 @@ from pytest_embedded_idf.dut import IdfDut
 
 @pytest.mark.esp32s2
 @pytest.mark.esp32s3
+@pytest.mark.esp32p4
 @pytest.mark.usb_host
 @pytest.mark.parametrize('count', [
     2,

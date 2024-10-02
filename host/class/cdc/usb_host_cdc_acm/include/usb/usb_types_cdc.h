@@ -205,3 +205,44 @@ typedef struct {
     const uint8_t bControlInterface; // Master/controlling interface
     uint8_t bSubordinateInterface[]; // Slave/subordinate interfaces
 } __attribute__((packed)) cdc_union_desc_t;
+
+/**
+ * @brief USB CDC PSTN Call Descriptor
+ *
+ * @see Table 3, USB CDC-PSTN specification rev. 1.2
+ */
+typedef struct {
+    uint8_t bFunctionLength;
+    const uint8_t bDescriptorType;
+    const cdc_desc_subtype_t bDescriptorSubtype;
+    union {
+        struct {
+            uint8_t call_management:   1; // Device handles call management itself
+            uint8_t call_over_data_if: 1; // Device sends/receives call management information over Data Class interface
+            uint8_t reserved: 6;
+        };
+        uint8_t val;
+    } bmCapabilities;
+    uint8_t bDataInterface; // Interface number of Data Class interface optionally used for call management
+} __attribute__((packed)) cdc_acm_call_desc_t;
+
+/**
+ * @brief USB CDC PSTN Abstract Control Model Descriptor
+ *
+ * @see Table 4, USB CDC-PSTN specification rev. 1.2
+ */
+typedef struct {
+    uint8_t bFunctionLength;
+    const uint8_t bDescriptorType;
+    const cdc_desc_subtype_t bDescriptorSubtype;
+    union {
+        struct {
+            uint8_t feature:    1; // Device supports Set/Clear/Get_Comm_Feature requests
+            uint8_t serial:     1; // Device supports Set/Get_Line_Coding, Set_Control_Line_State and Serial_State request and notifications
+            uint8_t send_break: 1; // Device supports Send_Break request
+            uint8_t network:    1; // Device supports Network_Connection notification
+            uint8_t reserved:   4;
+        };
+        uint8_t val;
+    } bmCapabilities;
+} __attribute__((packed)) cdc_acm_acm_desc_t;

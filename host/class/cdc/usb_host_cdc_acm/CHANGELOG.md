@@ -1,3 +1,7 @@
+## [Unreleased]
+
+- Fixed CDC descriptor parsing logic, when some CDC devices could not be opened
+
 ## 2.0.4
 
 - Fixed Control transfer allocation size for too small EP0 Max Packet Size (https://github.com/espressif/esp-idf/issues/14345)

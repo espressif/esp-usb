@@ -1,4 +1,7 @@
-idf_component_register(SRCS "test_cdc_acm_host.c" "usb_device.c" "test_app_main.c"
-                       INCLUDE_DIRS "."
+idf_component_register(SRC_DIRS .
+                       INCLUDE_DIRS .
                        REQUIRES usb_host_cdc_acm unity esp_tinyusb
                        WHOLE_ARCHIVE)
+
+# So we have access to private_include:
+target_include_directories(${COMPONENT_LIB} PRIVATE "../../")

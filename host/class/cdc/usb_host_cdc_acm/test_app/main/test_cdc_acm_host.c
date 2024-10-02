@@ -176,7 +176,6 @@ TEST_CASE("read_write", "[cdc_acm]")
     printf("Opening CDC-ACM device\n");
     TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_open(0x303A, 0x4002, 0, &dev_config, &cdc_dev)); // 0x303A:0x4002 (TinyUSB Dual CDC device)
     TEST_ASSERT_NOT_NULL(cdc_dev);
-    cdc_acm_host_desc_print(cdc_dev);
     vTaskDelay(10);
 
     TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_data_tx_blocking(cdc_dev, tx_buf, sizeof(tx_buf), 1000));
@@ -186,6 +185,28 @@ TEST_CASE("read_write", "[cdc_acm]")
     // We sent two messages, should get two responses
     TEST_ASSERT_EQUAL(2, nb_of_responses);
 
+    TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_close(cdc_dev));
+    TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_uninstall());
+    vTaskDelay(20); //Short delay to allow task to be cleaned up
+}
+
+TEST_CASE("cdc_specific_commands", "[cdc_acm]")
+{
+    cdc_acm_dev_hdl_t cdc_dev = NULL;
+
+    test_install_cdc_driver();
+
+    const cdc_acm_host_device_config_t dev_config = {
+        .connection_timeout_ms = 500,
+        .out_buffer_size = 64
+    };
+
+    printf("Opening CDC-ACM device\n");
+    TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_open(0x303A, 0x4002, 0, &dev_config, &cdc_dev)); // 0x303A:0x4002 (TinyUSB Dual CDC device)
+    TEST_ASSERT_NOT_NULL(cdc_dev);
+    vTaskDelay(10);
+
+    printf("Sending CDC specific commands\n");
     cdc_acm_line_coding_t line_coding_get;
     const cdc_acm_line_coding_t line_coding_set = {
         .dwDTERate = 9600,
@@ -200,7 +221,29 @@ TEST_CASE("read_write", "[cdc_acm]")
 
     TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_close(cdc_dev));
     TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_uninstall());
+    vTaskDelay(20);
+}
 
+/* Test descriptor print function */
+TEST_CASE("desc_print", "[cdc_acm]")
+{
+    cdc_acm_dev_hdl_t cdc_dev = NULL;
+
+    test_install_cdc_driver();
+
+    const cdc_acm_host_device_config_t dev_config = {
+        .connection_timeout_ms = 500,
+        .out_buffer_size = 64
+    };
+
+    printf("Opening CDC-ACM device\n");
+    TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_open(0x303A, 0x4002, 0, &dev_config, &cdc_dev)); // 0x303A:0x4002 (TinyUSB Dual CDC device)
+    TEST_ASSERT_NOT_NULL(cdc_dev);
+    cdc_acm_host_desc_print(cdc_dev);
+    vTaskDelay(10);
+
+    TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_close(cdc_dev));
+    TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_uninstall());
     vTaskDelay(20); //Short delay to allow task to be cleaned up
 }
 
@@ -582,7 +625,6 @@ TEST_CASE("closing", "[cdc_acm]")
         .out_buffer_size = 64,
         .event_cb = notif_cb,
         .data_cb = handle_rx,
-        .user_arg = tx_buf,
     };
 
     printf("Opening CDC-ACM device\n");

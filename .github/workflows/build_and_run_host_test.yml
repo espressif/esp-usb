@@ -1,0 +1,29 @@
+name: Build and Run USB Host test
+
+on:
+  schedule:
+    - cron: '0 0 * * SAT' # Saturday midnight
+  pull_request:
+    types: [opened, reopened, synchronize]
+
+jobs:
+  build:
+    name: Build
+    strategy:
+      fail-fast: false
+      matrix:
+        idf_ver: ["latest"]
+    runs-on: ubuntu-20.04
+    container: espressif/idf:${{ matrix.idf_ver }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: 'true'
+      - name: Build USB Test Application
+        shell: bash
+        run: |
+          . ${IDF_PATH}/export.sh
+          pip install pytest pytest-cpp idf-build-apps==2.4.3 --upgrade
+          idf-build-apps find --target linux
+          idf-build-apps build --target linux
+          pytest host/class/cdc/usb_host_cdc_acm/host_test/build_linux
