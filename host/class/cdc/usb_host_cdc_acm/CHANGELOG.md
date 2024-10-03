@@ -1,7 +1,8 @@
-## [Unreleased]
+## 2.0.5
 
 - Fixed CDC descriptor parsing logic, when some CDC devices could not be opened
 - Added an option to open a CDC device with any VID/PID
+- Fixed crash on ESP32-P4 if Receive buffer append function (introduced in v2.0.0) was used; this function does not work on P4 yet
 
 ## 2.0.4
 

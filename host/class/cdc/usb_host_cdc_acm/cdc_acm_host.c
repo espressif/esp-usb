@@ -12,6 +12,7 @@
 #include "freertos/task.h"
 #include "freertos/semphr.h"
 #include "freertos/event_groups.h"
+#include "soc/soc_caps.h"
 #include "esp_log.h"
 #include "esp_check.h"
 #include "esp_system.h"
@@ -172,7 +173,8 @@ static void cdc_acm_reset_in_transfer(cdc_dev_t *cdc_dev)
     uint8_t **ptr = (uint8_t **)(&(transfer->data_buffer));
     *ptr = cdc_dev->data.in_data_buffer_base;
     transfer->num_bytes = transfer->data_buffer_size;
-    // This is a hotfix for IDF changes, where 'transfer->data_buffer_size' does not contain actual buffer length, but *allocated* buffer length, which can be larger
+    // This is a hotfix for IDF changes, where 'transfer->data_buffer_size' does not contain actual buffer length,
+    // but *allocated* buffer length, which can be larger if CONFIG_HEAP_POISONING_COMPREHENSIVE is enabled
     transfer->num_bytes -= transfer->data_buffer_size % cdc_dev->data.in_mps;
 }
 
@@ -805,6 +807,7 @@ static void in_xfer_cb(usb_transfer_t *transfer)
         // In this case, the next received data must be appended to the existing buffer.
         // Since the data_buffer in usb_transfer_t is a constant pointer, we must cast away to const qualifier.
         if (!data_processed) {
+#if !SOC_CACHE_INTERNAL_MEM_VIA_L1CACHE
             // In case the received data was not processed, the next RX data must be appended to current buffer
             uint8_t **ptr = (uint8_t **)(&(transfer->data_buffer));
             *ptr += transfer->actual_num_bytes;
@@ -829,6 +832,11 @@ static void in_xfer_cb(usb_transfer_t *transfer)
                 cdc_acm_reset_in_transfer(cdc_dev);
                 cdc_dev->serial_state.bOverRun = false;
             }
+#else
+            // For targets that must sync internal memory through L1CACHE, we cannot change the data_buffer
+            // because it would lead to unaligned cache sync, which is not allowed
+            ESP_LOGW(TAG, "RX buffer append is not yet supported on ESP32-P4!");
+#endif
         } else {
             cdc_acm_reset_in_transfer(cdc_dev);
         }
