@@ -15,6 +15,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/semphr.h"
+#include "esp_private/critical_section.h"
 #include "esp_log.h"
 #include "esp_check.h"
 #include "usb/usb_host.h"
@@ -42,8 +43,10 @@
     }                                       \
 } while(0)
 
-#define UVC_ENTER_CRITICAL()    portENTER_CRITICAL(&s_uvc_lock)
-#define UVC_EXIT_CRITICAL()     portEXIT_CRITICAL(&s_uvc_lock)
+// UVC spinlock
+DEFINE_CRIT_SECTION_LOCK_STATIC(uvc_lock);
+#define UVC_ENTER_CRITICAL()           esp_os_enter_critical(&uvc_lock)
+#define UVC_EXIT_CRITICAL()            esp_os_exit_critical(&uvc_lock)
 
 #define COUNT_OF(array) (sizeof(array) / sizeof(array[0]))
 
@@ -71,7 +74,6 @@ typedef struct {
     STAILQ_HEAD(opened_devs, opened_camera) opened_devices_tailq;
 } uvc_driver_t;
 
-static portMUX_TYPE s_uvc_lock = portMUX_INITIALIZER_UNLOCKED;
 static uvc_driver_t *s_uvc_driver;
 
 static libuvc_adapter_config_t s_config = {
