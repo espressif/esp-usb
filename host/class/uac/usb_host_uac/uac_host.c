@@ -108,7 +108,6 @@ typedef enum {
     UAC_INTERFACE_STATE_READY,                      /*!< UAC Interface has started but stream is suspended */
     UAC_INTERFACE_STATE_ACTIVE,                     /*!< UAC Interface is streaming */
     UAC_INTERFACE_STATE_SUSPENDING,                 /*!< UAC Interface is suspending */
-    UAC_INTERFACE_STATE_MAX
 } uac_iface_state_t;
 
 /**
@@ -208,7 +207,7 @@ static esp_err_t uac_cs_request_set_ep_frequency(uac_iface_t *iface, uint8_t ep_
  * 0x7FFF: 127.9961db
  * 0x0100: 1.0000db
  * 0x0000: 0.0000db
- * 0xFF00: -1.0000db (there is an typo in UAC 1.0 spec, it should be 0xFF00)
+ * 0xFF00: -1.0000db (there is a typo in UAC 1.0 spec, it should be 0xFF00)
  * 0xFE00: -2.0000db
  * 0x8001: -127.9961db
  * @param[in] volume      Volume in db
@@ -1730,7 +1729,7 @@ static esp_err_t uac_cs_request_get_volume(uac_iface_t *iface, int16_t *volume_d
         .data = tmp
     };
 
-    // get volume for the first logical channel as we not support separate volume control for each channel
+    // get volume for the first logical channel as we don't support separate volume control for each channel
     for (size_t i = 0; i < 8; i++) {
         if (vol_ch_map & (1 << i)) {
             get_volume.wValue = (UAC_VOLUME_CONTROL << 8) | i;
@@ -1862,7 +1861,7 @@ static esp_err_t uac_cs_request_get_mute(uac_iface_t *iface, bool *mute)
         .data = tmp
     };
 
-    // get mute for the first logical channel as we not support separate mute control for each channel
+    // get mute for the first logical channel as we don't support separate mute control for each channel
     for (size_t i = 0; i < 8; i++) {
         if (mute_ch_map & (1 << i)) {
             get_mute.wValue = (UAC_MUTE_CONTROL << 8) | i;
@@ -1987,7 +1986,7 @@ esp_err_t uac_host_device_open(const uac_host_device_config_t *config, uac_host_
     }
 
     // Check if the physical device is already added
-    esp_err_t ret;
+    esp_err_t ret = ESP_OK;
     uac_device_t *uac_device = get_uac_device_by_addr(config->addr);
     bool new_device = false;
     usb_device_handle_t dev_hdl = NULL;
@@ -2019,10 +2018,12 @@ esp_err_t uac_host_device_open(const uac_host_device_config_t *config, uac_host_
     uac_device->opened_cnt++;
     UAC_EXIT_CRITICAL();
 
-    // Get the current volume settings, we pass the error for the volume control may not be supported
-    ret = uac_cs_request_get_volume_range(uac_iface, &uac_iface->vol_min_db, &uac_iface->vol_max_db, &uac_iface->vol_res_db);
-    if (ret != ESP_OK && ret != ESP_ERR_NOT_SUPPORTED) {
-        ESP_LOGW(TAG, "Failed to get volume range");
+    // Get the current volume range if the device supports volume control
+    if (uac_iface->iface_alt[uac_iface->cur_alt].feature_unit && uac_iface->iface_alt[uac_iface->cur_alt].vol_ch_map) {
+        ret = uac_cs_request_get_volume_range(uac_iface, &uac_iface->vol_min_db, &uac_iface->vol_max_db, &uac_iface->vol_res_db);
+        if (ret != ESP_OK) {
+            ESP_LOGW(TAG, "Failed to get volume range");
+        }
     }
 
     return ESP_OK;
@@ -2526,7 +2527,7 @@ esp_err_t uac_host_device_get_volume(uac_host_device_handle_t uac_dev_handle, ui
                       ESP_ERR_INVALID_STATE, "device not ready or active");
 
     // Return the backup volume value to avoid the volume reads differently than expected.
-    // Because the device volume adjustment step may relatively large,
+    // Because the device volume adjustment step may be relatively large,
     // For example, when the user sets 83%, the actual volume may be 80.
     if (iface->cur_vol) {
         *volume = iface->cur_vol;
@@ -2559,7 +2560,8 @@ esp_err_t uac_host_device_set_volume_db(uac_host_device_handle_t uac_dev_handle,
     UAC_RETURN_ON_ERROR(uac_host_interface_try_lock(iface, DEFAULT_CTRL_XFER_TIMEOUT_MS), "Unable to lock UAC Interface");
     UAC_GOTO_ON_FALSE((UAC_INTERFACE_STATE_ACTIVE == iface->state || UAC_INTERFACE_STATE_READY == iface->state),
                       ESP_ERR_INVALID_STATE, "device not ready or active");
-
+    // Check if the volume is within the range
+    UAC_GOTO_ON_FALSE((volume_db >= iface->vol_min_db && volume_db <= iface->vol_max_db), ESP_ERR_INVALID_ARG, "Invalid volume value");
     UAC_GOTO_ON_ERROR(uac_cs_request_set_volume(iface, volume_db), "Unable to set volume");
     uac_host_interface_unlock(iface);
     return ESP_OK;
