@@ -211,15 +211,20 @@ static esp_err_t uac_cs_request_set_ep_frequency(uac_iface_t *iface, uint8_t ep_
  * 0xFE00: -2.0000db
  * 0x8001: -127.9961db
  * @param[in] volume      Volume in db
- * @return uint16_t
+ * @return float
  */
 static float _volume_db_i16_2_f(int16_t volume_db)
 {
-    return (float)(volume_db * 1.0 / 256);
+    return (float)(volume_db) / 256.0f;
 }
 
 static int16_t _volume_db_f_2_i16(float volume_db_f)
 {
+    if (volume_db_f > 127.9961) {
+        volume_db_f = 127.9961;
+    } else if (volume_db_f < -127.9961) {
+        volume_db_f = -127.9961;
+    }
     return (int16_t)(volume_db_f * 256);
 }
 
@@ -2497,11 +2502,11 @@ esp_err_t uac_host_device_set_volume(uac_host_device_handle_t uac_dev_handle, ui
                       ESP_ERR_INVALID_STATE, "device not ready or active");
 
     // Calculate target volume in float to avoid the int16_t calculation overflow
-    float volume_db_f = _volume_db_i16_2_f(iface->vol_min_db) + (_volume_db_i16_2_f(iface->vol_max_db) - _volume_db_i16_2_f(iface->vol_min_db)) * volume / 100;
+    float volume_db_f = _volume_db_i16_2_f(iface->vol_min_db) + (_volume_db_i16_2_f(iface->vol_max_db) - _volume_db_i16_2_f(iface->vol_min_db)) * (float)volume / 100.0f;
     // Round to the nearest float value based the vol_res_db
-    volume_db_f = round(volume_db_f / _volume_db_i16_2_f(iface->vol_res_db)) * _volume_db_i16_2_f(iface->vol_res_db);
+    volume_db_f = roundf(volume_db_f / _volume_db_i16_2_f(iface->vol_res_db)) * _volume_db_i16_2_f(iface->vol_res_db);
     // Convert back to 16-bit value
-    int16_t volume_db = _volume_db_f_2_i16(volume_db_f);
+    const int16_t volume_db = _volume_db_f_2_i16(volume_db_f);
 
     UAC_GOTO_ON_ERROR(uac_cs_request_set_volume(iface, volume_db), "Unable to set volume");
     // Backup the volume value for the get volume function
@@ -2539,9 +2544,9 @@ esp_err_t uac_host_device_get_volume(uac_host_device_handle_t uac_dev_handle, ui
     // Get volume range, calculate in dB float
     int16_t volume_db = 0;
     UAC_GOTO_ON_ERROR(uac_cs_request_get_volume(iface, &volume_db), "Unable to get volume");
-    float volume_db_f = _volume_db_i16_2_f(volume_db);
+    const float volume_db_f = _volume_db_i16_2_f(volume_db);
     // Calculate volume in percentage
-    *volume = (uint8_t)round((volume_db_f - _volume_db_i16_2_f(iface->vol_min_db)) * 100.0 / (_volume_db_i16_2_f(iface->vol_max_db) - _volume_db_i16_2_f(iface->vol_min_db)));
+    *volume = (uint8_t)roundf((volume_db_f - _volume_db_i16_2_f(iface->vol_min_db)) * 100.0f / (_volume_db_i16_2_f(iface->vol_max_db) - _volume_db_i16_2_f(iface->vol_min_db)));
 
     uac_host_interface_unlock(iface);
     return ESP_OK;
