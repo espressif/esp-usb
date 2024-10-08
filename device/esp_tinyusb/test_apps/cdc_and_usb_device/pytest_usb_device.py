@@ -10,4 +10,4 @@ from pytest_embedded_idf.dut import IdfDut
 @pytest.mark.esp32p4
 @pytest.mark.usb_device
 def test_usb_device_esp_tinyusb(dut: IdfDut) -> None:
-    dut.run_all_single_board_cases(group='usb_device')
+    dut.run_all_single_board_cases(group='')
