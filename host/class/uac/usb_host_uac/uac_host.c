@@ -157,9 +157,9 @@ typedef struct uac_interface {
     uint32_t ringbuf_size;                     /*!< Ring buffer size */
     uint32_t ringbuf_threshold;                /*!< Ring buffer threshold */
     uac_host_dev_info_t dev_info;              /*!< USB device parameters */
-    uint16_t vol_min_db;                       /*!< volume min with 1/256 db step */
-    uint16_t vol_max_db;                       /*!< volume max with 1/256 db step */
-    uint16_t vol_res_db;                       /*!< volume resolution with 1/256 db step */
+    int16_t vol_min_db;                        /*!< volume min with 1/256 db step */
+    int16_t vol_max_db;                        /*!< volume max with 1/256 db step */
+    int16_t vol_res_db;                        /*!< volume resolution with 1/256 db step */
     uac_iface_alt_t *iface_alt;                /*!< audio stream alternate setting */
 } uac_iface_t;
 
@@ -214,20 +214,14 @@ static esp_err_t uac_cs_request_set_ep_frequency(uac_iface_t *iface, uint8_t ep_
  * @param[in] volume      Volume in db
  * @return uint16_t
  */
-static float _volume_db_u16_2_f(uint16_t volume_db)
+static float _volume_db_i16_2_f(int16_t volume_db)
 {
-    return (volume_db & 0x8000 ? -128.0 : 0) + ((uint16_t)(volume_db & 0x7fff)) * 1.0 / 256;
+    return (float)(volume_db * 1.0 / 256);
 }
 
-static uint16_t _volume_db_f_2_u16(float volume_db_f)
+static int16_t _volume_db_f_2_i16(float volume_db_f)
 {
-    uint16_t volume_db = 0;
-    if (volume_db_f >= 0) {
-        volume_db = (uint16_t)round(volume_db_f * 256);
-    } else {
-        volume_db = ((uint16_t)round((128.0 + volume_db_f) * 256)) | 0x8000;
-    }
-    return volume_db;
+    return (int16_t)(volume_db_f * 256);
 }
 
 // --------------------------- Buffer Management --------------------------------
@@ -1686,7 +1680,7 @@ static esp_err_t uac_cs_request_set_ep_frequency(uac_iface_t *iface, uint8_t ep_
  * @param[in] volume_db      Volume to set, db
  * @return esp_err_t
  */
-static esp_err_t uac_cs_request_set_volume(uac_iface_t *iface, uint16_t volume_db)
+static esp_err_t uac_cs_request_set_volume(uac_iface_t *iface, int16_t volume_db)
 {
     uint8_t feature_unit = iface->iface_alt[iface->cur_alt].feature_unit;
     uint8_t vol_ch_map = iface->iface_alt[iface->cur_alt].vol_ch_map;
@@ -1716,11 +1710,11 @@ static esp_err_t uac_cs_request_set_volume(uac_iface_t *iface, uint16_t volume_d
             }
         }
     }
-    ESP_LOGD(TAG, "Set volume %.4fdb (0x%04X)", _volume_db_u16_2_f(volume_db), volume_db);
+    ESP_LOGD(TAG, "Set volume %.4fdb (0x%04X)", _volume_db_i16_2_f(volume_db), volume_db);
     return ret;
 }
 
-static esp_err_t uac_cs_request_get_volume(uac_iface_t *iface, uint16_t *volume_db)
+static esp_err_t uac_cs_request_get_volume(uac_iface_t *iface, int16_t *volume_db)
 {
     uint8_t feature_unit = iface->iface_alt[iface->cur_alt].feature_unit;
     uint8_t vol_ch_map = iface->iface_alt[iface->cur_alt].vol_ch_map;
@@ -1752,11 +1746,11 @@ static esp_err_t uac_cs_request_get_volume(uac_iface_t *iface, uint16_t *volume_
     }
 
     *volume_db = tmp[0] | (tmp[1] << 8);
-    ESP_LOGD(TAG, "Get volume %.4fdb (0x%04X)", _volume_db_u16_2_f(*volume_db), *volume_db);
+    ESP_LOGD(TAG, "Get volume %.4fdb (0x%04X)", _volume_db_i16_2_f(*volume_db), *volume_db);
     return ret;
 }
 
-static esp_err_t uac_cs_request_get_volume_range(uac_iface_t *iface, uint16_t *volume_min_db, uint16_t *volume_max_db, uint16_t *volume_res_db)
+static esp_err_t uac_cs_request_get_volume_range(uac_iface_t *iface, int16_t *volume_min_db, int16_t *volume_max_db, int16_t *volume_res_db)
 {
     uint8_t feature_unit = iface->iface_alt[iface->cur_alt].feature_unit;
     uint8_t vol_ch_map = iface->iface_alt[iface->cur_alt].vol_ch_map;
@@ -1764,7 +1758,7 @@ static esp_err_t uac_cs_request_get_volume_range(uac_iface_t *iface, uint16_t *v
     uint8_t ctrl_iface_num = iface->parent->ctrl_iface_num;
     esp_err_t ret = ESP_OK;
     uint8_t tmp[2] = { 0, 0 };
-    uint16_t volume_min, volume_max, volume_res = 0;
+    int16_t volume_min, volume_max, volume_res = 0;
 
     uac_cs_request_t get_volume = {
         .bRequest = UAC_GET_MIN,
@@ -1808,8 +1802,8 @@ static esp_err_t uac_cs_request_get_volume_range(uac_iface_t *iface, uint16_t *v
     *volume_max_db = volume_max;
     *volume_res_db = volume_res;
 
-    ESP_LOGD(TAG, "Volume range: min %.4fdb (0x%04X), max %.4fdb (0x%04X), res %.4fdb (0x%04X)", _volume_db_u16_2_f(volume_min), volume_min,
-             _volume_db_u16_2_f(volume_max), volume_max, _volume_db_u16_2_f(volume_res), volume_res);
+    ESP_LOGD(TAG, "Volume range: min %.4fdb (0x%04X), max %.4fdb (0x%04X), res %.4fdb (0x%04X)", _volume_db_i16_2_f(volume_min), volume_min,
+             _volume_db_i16_2_f(volume_max), volume_max, _volume_db_i16_2_f(volume_res), volume_res);
     return ret;
 }
 
@@ -2501,14 +2495,12 @@ esp_err_t uac_host_device_set_volume(uac_host_device_handle_t uac_dev_handle, ui
     UAC_GOTO_ON_FALSE((UAC_INTERFACE_STATE_ACTIVE == iface->state || UAC_INTERFACE_STATE_READY == iface->state),
                       ESP_ERR_INVALID_STATE, "device not ready or active");
 
-    // Calculate target volume in dB float
-    float volume_db_f = _volume_db_u16_2_f(iface->vol_min_db) + (_volume_db_u16_2_f(iface->vol_max_db) - _volume_db_u16_2_f(iface->vol_min_db)) * volume / 100;
+    // Calculate target volume in float to avoid the int16_t calculation overflow
+    float volume_db_f = _volume_db_i16_2_f(iface->vol_min_db) + (_volume_db_i16_2_f(iface->vol_max_db) - _volume_db_i16_2_f(iface->vol_min_db)) * volume / 100;
     // Round to the nearest float value based the vol_res_db
-    volume_db_f = round(volume_db_f / _volume_db_u16_2_f(iface->vol_res_db)) * _volume_db_u16_2_f(iface->vol_res_db);
+    volume_db_f = round(volume_db_f / _volume_db_i16_2_f(iface->vol_res_db)) * _volume_db_i16_2_f(iface->vol_res_db);
     // Convert back to 16-bit value
-    uint16_t volume_db = _volume_db_f_2_u16(volume_db_f);
-    // 0x8000 is a special value means infinity, witch is CUR attribute only
-    volume_db = (volume_db == 0x8000) ? 0x8001 : volume_db;
+    int16_t volume_db = _volume_db_f_2_i16(volume_db_f);
 
     UAC_GOTO_ON_ERROR(uac_cs_request_set_volume(iface, volume_db), "Unable to set volume");
     // Backup the volume value for the get volume function
@@ -2544,11 +2536,11 @@ esp_err_t uac_host_device_get_volume(uac_host_device_handle_t uac_dev_handle, ui
 
     // Otherwise, get the volume from the device
     // Get volume range, calculate in dB float
-    uint16_t volume_db = 0;
+    int16_t volume_db = 0;
     UAC_GOTO_ON_ERROR(uac_cs_request_get_volume(iface, &volume_db), "Unable to get volume");
-    float volume_db_f = _volume_db_u16_2_f(volume_db);
+    float volume_db_f = _volume_db_i16_2_f(volume_db);
     // Calculate volume in percentage
-    *volume = (uint8_t)round((volume_db_f - _volume_db_u16_2_f(iface->vol_min_db)) * 100.0 / (_volume_db_u16_2_f(iface->vol_max_db) - _volume_db_u16_2_f(iface->vol_min_db)));
+    *volume = (uint8_t)round((volume_db_f - _volume_db_i16_2_f(iface->vol_min_db)) * 100.0 / (_volume_db_i16_2_f(iface->vol_max_db) - _volume_db_i16_2_f(iface->vol_min_db)));
 
     uac_host_interface_unlock(iface);
     return ESP_OK;
@@ -2558,7 +2550,7 @@ fail:
     return ret;
 }
 
-esp_err_t uac_host_device_set_volume_db(uac_host_device_handle_t uac_dev_handle, uint32_t volume_db)
+esp_err_t uac_host_device_set_volume_db(uac_host_device_handle_t uac_dev_handle, int16_t volume_db)
 {
     uac_iface_t *iface = get_iface_by_handle(uac_dev_handle);
     UAC_RETURN_ON_INVALID_ARG(iface);
@@ -2568,7 +2560,7 @@ esp_err_t uac_host_device_set_volume_db(uac_host_device_handle_t uac_dev_handle,
     UAC_GOTO_ON_FALSE((UAC_INTERFACE_STATE_ACTIVE == iface->state || UAC_INTERFACE_STATE_READY == iface->state),
                       ESP_ERR_INVALID_STATE, "device not ready or active");
 
-    UAC_GOTO_ON_ERROR(uac_cs_request_set_volume(iface, volume_db & 0xFFFF), "Unable to set volume");
+    UAC_GOTO_ON_ERROR(uac_cs_request_set_volume(iface, volume_db), "Unable to set volume");
     uac_host_interface_unlock(iface);
     return ESP_OK;
 
@@ -2577,7 +2569,7 @@ fail:
     return ret;
 }
 
-esp_err_t uac_host_device_get_volume_db(uac_host_device_handle_t uac_dev_handle, uint32_t *volume_db)
+esp_err_t uac_host_device_get_volume_db(uac_host_device_handle_t uac_dev_handle, int16_t *volume_db)
 {
     uac_iface_t *iface = get_iface_by_handle(uac_dev_handle);
     UAC_RETURN_ON_INVALID_ARG(iface);
@@ -2588,7 +2580,7 @@ esp_err_t uac_host_device_get_volume_db(uac_host_device_handle_t uac_dev_handle,
     UAC_GOTO_ON_FALSE((UAC_INTERFACE_STATE_ACTIVE == iface->state || UAC_INTERFACE_STATE_READY == iface->state),
                       ESP_ERR_INVALID_STATE, "device not ready or active");
 
-    UAC_GOTO_ON_ERROR(uac_cs_request_get_volume(iface, (uint16_t *)volume_db), "Unable to get volume");
+    UAC_GOTO_ON_ERROR(uac_cs_request_get_volume(iface, volume_db), "Unable to get volume");
     uac_host_interface_unlock(iface);
     return ESP_OK;
 

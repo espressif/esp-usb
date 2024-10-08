@@ -2,6 +2,11 @@
 
 ## 1.2.0 2024-09-27
 
+### Breaking Changes:
+
+1. Changed the parameter type of `uac_host_device_set_volume_db` from uint32_t to int16_t
+
+
 ### Improvements:
 
 1. Support get current volume and mute status

@@ -435,7 +435,7 @@ esp_err_t uac_host_device_get_volume(uac_host_device_handle_t uac_dev_handle, ui
  * @brief Set the volume of the UAC device in dB
  * @param[in] iface       Pointer to UAC interface structure
  * @param[in] volume_db   Volume to set, with resolution of 1/256 dB,
- * eg.  0x0100 is 1 dB. 0x7FFF is 127.996 dB. 0x8001 is -127.996 dB.
+ * eg.  256 (0x0100) is 1 dB. 32767 (0x7FFF) is 127.996 dB. -32767 (0x8001) is -127.996 dB.
  * @return esp_err_t
  * - ESP_OK on success
  * - ESP_ERR_INVALID_STATE if the device is not ready or active
@@ -443,13 +443,13 @@ esp_err_t uac_host_device_get_volume(uac_host_device_handle_t uac_dev_handle, ui
  * - ESP_ERR_NOT_SUPPORTED if the device does not support volume control
  * - ESP_ERR_TIMEOUT if the control timed out
  */
-esp_err_t uac_host_device_set_volume_db(uac_host_device_handle_t uac_dev_handle, uint32_t volume_db);
+esp_err_t uac_host_device_set_volume_db(uac_host_device_handle_t uac_dev_handle, int16_t volume_db);
 
 /**
  * @brief Get the volume of the UAC device in dB
  * @param[in] iface       Pointer to UAC interface structure
  * @param[out] volume_db  Pointer to store the volume, with resolution of 1/256 dB,
- * eg.  0x0100 is 1 dB. 0x7FFF is 127.996 dB. 0x8001 is -127.996 dB.
+ * eg.  256 (0x0100) is 1 dB. 32767 (0x7FFF) is 127.996 dB. -32767 (0x8001) is -127.996 dB.
  * @return esp_err_t
  * - ESP_OK on success
  * - ESP_ERR_INVALID_STATE if the device is not ready or active
@@ -457,7 +457,7 @@ esp_err_t uac_host_device_set_volume_db(uac_host_device_handle_t uac_dev_handle,
  * - ESP_ERR_NOT_SUPPORTED if the device does not support volume control
  * - ESP_ERR_TIMEOUT if the control timed out
  */
-esp_err_t uac_host_device_get_volume_db(uac_host_device_handle_t uac_dev_handle, uint32_t *volume_db);
+esp_err_t uac_host_device_get_volume_db(uac_host_device_handle_t uac_dev_handle, int16_t *volume_db);
 
 #ifdef __cplusplus
 }
