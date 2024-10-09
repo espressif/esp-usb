@@ -12,6 +12,7 @@
 #include "freertos/task.h"
 #include "freertos/semphr.h"
 #include "freertos/event_groups.h"
+#include "soc/soc_caps.h"
 #include "esp_log.h"
 #include "esp_check.h"
 #include "esp_system.h"
@@ -172,7 +173,8 @@ static void cdc_acm_reset_in_transfer(cdc_dev_t *cdc_dev)
     uint8_t **ptr = (uint8_t **)(&(transfer->data_buffer));
     *ptr = cdc_dev->data.in_data_buffer_base;
     transfer->num_bytes = transfer->data_buffer_size;
-    // This is a hotfix for IDF changes, where 'transfer->data_buffer_size' does not contain actual buffer length, but *allocated* buffer length, which can be larger
+    // This is a hotfix for IDF changes, where 'transfer->data_buffer_size' does not contain actual buffer length,
+    // but *allocated* buffer length, which can be larger if CONFIG_HEAP_POISONING_COMPREHENSIVE is enabled
     transfer->num_bytes -= transfer->data_buffer_size % cdc_dev->data.in_mps;
 }
 
@@ -255,7 +257,7 @@ static esp_err_t cdc_acm_start(cdc_dev_t *cdc_dev, cdc_acm_host_dev_callback_t e
             cdc_dev->data.intf_desc->bAlternateSetting),
         err, TAG, "Could not claim interface");
     if (cdc_dev->data.in_xfer) {
-        ESP_LOGD("CDC_ACM", "Submitting poll for BULK IN transfer");
+        ESP_LOGD(TAG, "Submitting poll for BULK IN transfer");
         ESP_ERROR_CHECK(usb_host_transfer_submit(cdc_dev->data.in_xfer));
     }
 
@@ -270,7 +272,7 @@ static esp_err_t cdc_acm_start(cdc_dev_t *cdc_dev, cdc_acm_host_dev_callback_t e
                     cdc_dev->notif.intf_desc->bAlternateSetting),
                 err, TAG, "Could not claim interface");
         }
-        ESP_LOGD("CDC_ACM", "Submitting poll for INTR IN transfer");
+        ESP_LOGD(TAG, "Submitting poll for INTR IN transfer");
         ESP_ERROR_CHECK(usb_host_transfer_submit(cdc_dev->notif.xfer));
     }
 
@@ -337,7 +339,8 @@ static esp_err_t cdc_acm_find_and_open_usb_device(uint16_t vid, uint16_t pid, in
     SLIST_FOREACH(cdc_dev, &p_cdc_acm_obj->cdc_devices_list, list_entry) {
         const usb_device_desc_t *device_desc;
         ESP_ERROR_CHECK(usb_host_get_device_descriptor(cdc_dev->dev_hdl, &device_desc));
-        if (device_desc->idVendor == vid && device_desc->idProduct == pid) {
+        if ((vid == device_desc->idVendor || vid == CDC_HOST_ANY_VID) &&
+                (pid == device_desc->idProduct || pid == CDC_HOST_ANY_PID)) {
             // Return path 1:
             (*dev)->dev_hdl = cdc_dev->dev_hdl;
             return ESP_OK;
@@ -365,7 +368,8 @@ static esp_err_t cdc_acm_find_and_open_usb_device(uint16_t vid, uint16_t pid, in
             assert(current_device);
             const usb_device_desc_t *device_desc;
             ESP_ERROR_CHECK(usb_host_get_device_descriptor(current_device, &device_desc));
-            if (device_desc->idVendor == vid && device_desc->idProduct == pid) {
+            if ((vid == device_desc->idVendor || vid == CDC_HOST_ANY_VID) &&
+                    (pid == device_desc->idProduct || pid == CDC_HOST_ANY_PID)) {
                 // Return path 2:
                 (*dev)->dev_hdl = current_device;
                 return ESP_OK;
@@ -788,7 +792,7 @@ static bool cdc_acm_is_transfer_completed(usb_transfer_t *transfer)
 
 static void in_xfer_cb(usb_transfer_t *transfer)
 {
-    ESP_LOGD("CDC_ACM", "in xfer cb");
+    ESP_LOGD(TAG, "in xfer cb");
     cdc_dev_t *cdc_dev = (cdc_dev_t *)transfer->context;
 
     if (!cdc_acm_is_transfer_completed(transfer)) {
@@ -803,6 +807,7 @@ static void in_xfer_cb(usb_transfer_t *transfer)
         // In this case, the next received data must be appended to the existing buffer.
         // Since the data_buffer in usb_transfer_t is a constant pointer, we must cast away to const qualifier.
         if (!data_processed) {
+#if !SOC_CACHE_INTERNAL_MEM_VIA_L1CACHE
             // In case the received data was not processed, the next RX data must be appended to current buffer
             uint8_t **ptr = (uint8_t **)(&(transfer->data_buffer));
             *ptr += transfer->actual_num_bytes;
@@ -827,18 +832,23 @@ static void in_xfer_cb(usb_transfer_t *transfer)
                 cdc_acm_reset_in_transfer(cdc_dev);
                 cdc_dev->serial_state.bOverRun = false;
             }
+#else
+            // For targets that must sync internal memory through L1CACHE, we cannot change the data_buffer
+            // because it would lead to unaligned cache sync, which is not allowed
+            ESP_LOGW(TAG, "RX buffer append is not yet supported on ESP32-P4!");
+#endif
         } else {
             cdc_acm_reset_in_transfer(cdc_dev);
         }
     }
 
-    ESP_LOGD("CDC_ACM", "Submitting poll for BULK IN transfer");
+    ESP_LOGD(TAG, "Submitting poll for BULK IN transfer");
     usb_host_transfer_submit(cdc_dev->data.in_xfer);
 }
 
 static void notif_xfer_cb(usb_transfer_t *transfer)
 {
-    ESP_LOGD("CDC_ACM", "notif xfer cb");
+    ESP_LOGD(TAG, "notif xfer cb");
     cdc_dev_t *cdc_dev = (cdc_dev_t *)transfer->context;
 
     if (cdc_acm_is_transfer_completed(transfer)) {
@@ -867,20 +877,20 @@ static void notif_xfer_cb(usb_transfer_t *transfer)
         }
         case USB_CDC_NOTIF_RESPONSE_AVAILABLE: // Encapsulated commands not implemented - fallthrough
         default:
-            ESP_LOGW("CDC_ACM", "Unsupported notification type 0x%02X", notif->bNotificationCode);
-            ESP_LOG_BUFFER_HEX("CDC_ACM", transfer->data_buffer, transfer->actual_num_bytes);
+            ESP_LOGW(TAG, "Unsupported notification type 0x%02X", notif->bNotificationCode);
+            ESP_LOG_BUFFER_HEX(TAG, transfer->data_buffer, transfer->actual_num_bytes);
             break;
         }
 
         // Start polling for new data again
-        ESP_LOGD("CDC_ACM", "Submitting poll for INTR IN transfer");
+        ESP_LOGD(TAG, "Submitting poll for INTR IN transfer");
         usb_host_transfer_submit(cdc_dev->notif.xfer);
     }
 }
 
 static void out_xfer_cb(usb_transfer_t *transfer)
 {
-    ESP_LOGD("CDC_ACM", "out/ctrl xfer cb");
+    ESP_LOGD(TAG, "out/ctrl xfer cb");
     assert(transfer->context);
     xSemaphoreGive((SemaphoreHandle_t)transfer->context);
 }
@@ -945,7 +955,7 @@ esp_err_t cdc_acm_host_data_tx_blocking(cdc_acm_dev_hdl_t cdc_hdl, const uint8_t
         return ESP_ERR_TIMEOUT;
     }
 
-    ESP_LOGD("CDC_ACM", "Submitting BULK OUT transfer");
+    ESP_LOGD(TAG, "Submitting BULK OUT transfer");
     SemaphoreHandle_t transfer_finished_semaphore = (SemaphoreHandle_t)cdc_dev->data.out_xfer->context;
     xSemaphoreTake(transfer_finished_semaphore, 0); // Make sure the semaphore is taken before we submit new transfer
 

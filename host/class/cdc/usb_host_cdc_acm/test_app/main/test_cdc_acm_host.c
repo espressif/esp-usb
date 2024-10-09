@@ -674,6 +674,43 @@ TEST_CASE("tx_timeout", "[cdc_acm]")
     vTaskDelay(20); //Short delay to allow task to be cleaned up
 }
 
+/**
+ * @brief Test: Opening with any VID/PID
+ *
+ * #. Try to open a device with all combinations of any VID/PID
+ * #. Try to open a non-existing device with all combinations of any VID/PID
+ */
+TEST_CASE("any_vid_pid", "[cdc_acm]")
+{
+    cdc_acm_dev_hdl_t cdc_dev = NULL;
+    test_install_cdc_driver();
+
+    const cdc_acm_host_device_config_t dev_config = {
+        .connection_timeout_ms = 500,
+        .out_buffer_size = 64,
+        .event_cb = notif_cb,
+        .data_cb = handle_rx,
+        .user_arg = tx_buf,
+    };
+
+    printf("Opening existing CDC-ACM devices with any VID/PID\n");
+    TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_open(CDC_HOST_ANY_VID, CDC_HOST_ANY_PID, 0, &dev_config, &cdc_dev));
+    TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_close(cdc_dev));
+
+    TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_open(0x303A, CDC_HOST_ANY_PID, 0, &dev_config, &cdc_dev));
+    TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_close(cdc_dev));
+
+    TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_open(CDC_HOST_ANY_VID, 0x4002, 0, &dev_config, &cdc_dev));
+    TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_close(cdc_dev));
+
+    printf("Opening non-existing CDC-ACM devices with any VID/PID\n");
+    TEST_ASSERT_EQUAL(ESP_ERR_NOT_FOUND, cdc_acm_host_open(0x1234, CDC_HOST_ANY_PID, 0, &dev_config, &cdc_dev));
+    TEST_ASSERT_EQUAL(ESP_ERR_NOT_FOUND, cdc_acm_host_open(CDC_HOST_ANY_VID, 0x1234, 0, &dev_config, &cdc_dev));
+
+    TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_uninstall());
+    vTaskDelay(20); //Short delay to allow task to be cleaned up
+}
+
 /* Following test case implements dual CDC-ACM USB device that can be used as mock device for CDC-ACM Host tests */
 void run_usb_dual_cdc_device(void);
 TEST_CASE("mock_device_app", "[cdc_acm_device][ignore]")

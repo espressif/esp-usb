@@ -43,6 +43,8 @@ The following steps outline the typical API call pattern of the CDC-ACM Class Dr
 6. An opened device can be closed via `cdc_acm_host_close()`
 7. The CDC-ACM driver can be uninstalled via `cdc_acm_host_uninstall()`
 
+Use `CDC_HOST_ANY_*` macros to signal to `cdc_acm_host_open()` function that you don't care about the device's VID and PID. In this case, first USB device will be opened. It is recommended to use this feature if only one device can ever be in the system (there is no USB HUB connected).
+
 ## Examples
 
 - For an example with a CDC-ACM device, refer to [cdc_acm_host](https://github.com/espressif/esp-idf/tree/master/examples/peripherals/usb/host/cdc/cdc_acm_host)
