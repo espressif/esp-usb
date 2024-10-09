@@ -381,7 +381,7 @@ esp_err_t uac_host_device_write(uac_host_device_handle_t uac_dev_handle, uint8_t
 
 /**
  * @brief Mute or un-mute the UAC device
- * @param[in] iface       Pointer to UAC interface structure
+ * @param[in] uac_dev_handle  UAC device handle
  * @param[in] mute        True to mute, false to unmute
  * @return esp_err_t
  * - ESP_OK on success
@@ -394,7 +394,7 @@ esp_err_t uac_host_device_set_mute(uac_host_device_handle_t uac_dev_handle, bool
 
 /**
  * @brief Get the mute status of the UAC device
- * @param[in] iface       Pointer to UAC interface structure
+ * @param[in] uac_dev_handle  UAC device handle
  * @param[out] mute       Pointer to store the mute status
  * @return esp_err_t
  * - ESP_OK on success
@@ -407,7 +407,7 @@ esp_err_t uac_host_device_get_mute(uac_host_device_handle_t uac_dev_handle, bool
 
 /**
  * @brief Set the volume of the UAC device
- * @param[in] iface       Pointer to UAC interface structure
+ * @param[in] uac_dev_handle  UAC device handle
  * @param[in] volume      Volume to set, 0-100
  * @return esp_err_t
  * - ESP_OK on success
@@ -420,7 +420,7 @@ esp_err_t uac_host_device_set_volume(uac_host_device_handle_t uac_dev_handle, ui
 
 /**
  * @brief Get the volume of the UAC device
- * @param[in] iface       Pointer to UAC interface structure
+ * @param[in] uac_dev_handle  UAC device handle
  * @param[out] volume     Pointer to store the volume, 0-100
  * @return esp_err_t
  * - ESP_OK on success
@@ -433,7 +433,7 @@ esp_err_t uac_host_device_get_volume(uac_host_device_handle_t uac_dev_handle, ui
 
 /**
  * @brief Set the volume of the UAC device in dB
- * @param[in] iface       Pointer to UAC interface structure
+ * @param[in] uac_dev_handle  UAC device handle
  * @param[in] volume_db   Volume to set, with resolution of 1/256 dB,
  * eg.  256 (0x0100) is 1 dB. 32767 (0x7FFF) is 127.996 dB. -32767 (0x8001) is -127.996 dB.
  * @return esp_err_t
@@ -447,7 +447,7 @@ esp_err_t uac_host_device_set_volume_db(uac_host_device_handle_t uac_dev_handle,
 
 /**
  * @brief Get the volume of the UAC device in dB
- * @param[in] iface       Pointer to UAC interface structure
+ * @param[in] uac_dev_handle  UAC device handle
  * @param[out] volume_db  Pointer to store the volume, with resolution of 1/256 dB,
  * eg.  256 (0x0100) is 1 dB. 32767 (0x7FFF) is 127.996 dB. -32767 (0x8001) is -127.996 dB.
  * @return esp_err_t
