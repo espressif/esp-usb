@@ -619,6 +619,7 @@ TEST_CASE("test uac tx writing", "[uac_host][tx]")
     s_buffer += offset_size * freq_offsite_step;
 
     uint8_t volume = 0;
+    int16_t volume_db = 0;
     uint8_t actual_volume = 0;
     bool mute = false;
     bool actual_mute = false;
@@ -626,7 +627,14 @@ TEST_CASE("test uac tx writing", "[uac_host][tx]")
     TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_set_mute(uac_device_handle, mute));
     TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_get_mute(uac_device_handle, &actual_mute));
     TEST_ASSERT_EQUAL(mute, actual_mute);
-    TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_get_volume(uac_device_handle, &volume));
+    TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_get_volume_db(uac_device_handle, &volume_db));
+    printf("Initial Volume db: %.3f \n", (float)volume_db / 256.0);
+    TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_set_volume_db(uac_device_handle, 0));
+    TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_get_volume_db(uac_device_handle, &volume_db));
+    TEST_ASSERT_EQUAL(0, volume_db);
+
+    TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_get_volume(uac_device_handle, &actual_volume));
+    volume = actual_volume;
     printf("Volume: %d \n", volume);
     TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_resume(uac_device_handle));
     TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_write(uac_device_handle, (uint8_t *)tx_buffer, tx_size, 0));
