@@ -80,6 +80,8 @@ static const char *TAG = "uac-host";
 #define INTERFACE_FLAGS_OFFSET              (16)
 #define FLAG_INTERFACE_WAIT_USER_DELETE     (1 << INTERFACE_FLAGS_OFFSET)
 #define UAC_EP_DIR_IN                       (0x80)
+#define VOLUME_DB_MIN                       (-127.9961f)
+#define VOLUME_DB_MAX                       (127.9961f)
 
 /**
  * @brief UAC Device structure.
@@ -220,10 +222,10 @@ static float _volume_db_i16_2_f(int16_t volume_db)
 
 static int16_t _volume_db_f_2_i16(float volume_db_f)
 {
-    if (volume_db_f > 127.9961) {
-        volume_db_f = 127.9961;
-    } else if (volume_db_f < -127.9961) {
-        volume_db_f = -127.9961;
+    if (volume_db_f > VOLUME_DB_MAX) {
+        volume_db_f = VOLUME_DB_MAX;
+    } else if (volume_db_f < VOLUME_DB_MIN) {
+        volume_db_f = VOLUME_DB_MIN;
     }
     return (int16_t)(volume_db_f * 256);
 }
