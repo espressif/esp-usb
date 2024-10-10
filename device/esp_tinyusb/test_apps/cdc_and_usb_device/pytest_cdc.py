@@ -33,6 +33,7 @@ def test_usb_device_cdc(dut) -> None:
     s = []
     ports = comports()
     for port, _, hwid in ports:
+        print(port)
         if '303A:4002' in hwid:
             s.append(port)
 
