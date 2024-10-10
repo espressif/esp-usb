@@ -54,8 +54,8 @@ def send_data_to_intf(VID, PID, interface_index):
         ep_out = usb.util.find_descriptor(intf, custom_match = \
         lambda e: usb.util.endpoint_direction(e.bEndpointAddress) == usb.util.ENDPOINT_OUT)
 
-        #print(ep_in)
-        #print(ep_out)
+        print(ep_in)
+        print(ep_out)
         buf = "IF{}\n".format(interface_index).encode('utf-8')
         ep_write(bytes(buf))
 
