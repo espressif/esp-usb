@@ -1,6 +1,6 @@
 device/esp_tinyusb:
   enable:
-    - if: SOC_USB_OTG_SUPPORTED == 1
+    - if: IDF_TARGET == "esp32s2"
 
 #host/class:
 #  enable:
