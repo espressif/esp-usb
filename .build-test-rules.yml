@@ -1,10 +1,10 @@
 device/esp_tinyusb:
   enable:
-    - if: IDF_TARGET == "esp32s2"
+    - if: SOC_USB_OTG_SUPPORTED == 1
 
-#host/class:
-#  enable:
-#    - if: SOC_USB_OTG_SUPPORTED == 1
+host/class:
+  enable:
+    - if: SOC_USB_OTG_SUPPORTED == 1
 
 host/class/cdc/usb_host_cdc_acm/host_test:
   enable:
