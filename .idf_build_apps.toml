@@ -1,5 +1,6 @@
 exclude = [
     "clang_tidy",
+    "usb_host",
 ]
 recursive = true
 manifest_file = ".build-test-rules.yml"
