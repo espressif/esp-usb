@@ -8,6 +8,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include <math.h>
 #include <inttypes.h>
 #include <sys/queue.h>
 #include <sys/param.h>
@@ -76,12 +77,11 @@ static const char *TAG = "uac-host";
 
 #define DEFAULT_CTRL_XFER_TIMEOUT_MS        (5000)
 #define DEFAULT_ISOC_XFER_TIMEOUT_MS        (100)
-#define UAC_SPK_VOLUME_MAX                  (0xfff0)
-#define UAC_SPK_VOLUME_MIN                  (0xe3a0)
-#define UAC_SPK_VOLUME_STEP                 ((UAC_SPK_VOLUME_MAX - UAC_SPK_VOLUME_MIN)/100)
 #define INTERFACE_FLAGS_OFFSET              (16)
 #define FLAG_INTERFACE_WAIT_USER_DELETE     (1 << INTERFACE_FLAGS_OFFSET)
 #define UAC_EP_DIR_IN                       (0x80)
+#define VOLUME_DB_MIN                       (-127.9961f)
+#define VOLUME_DB_MAX                       (127.9961f)
 
 /**
  * @brief UAC Device structure.
@@ -109,7 +109,7 @@ typedef enum {
     UAC_INTERFACE_STATE_IDLE,                       /*!< UAC Interface has been opened but not started */
     UAC_INTERFACE_STATE_READY,                      /*!< UAC Interface has started but stream is suspended */
     UAC_INTERFACE_STATE_ACTIVE,                     /*!< UAC Interface is streaming */
-    UAC_INTERFACE_STATE_MAX
+    UAC_INTERFACE_STATE_SUSPENDING,                 /*!< UAC Interface is suspending */
 } uac_iface_state_t;
 
 /**
@@ -146,6 +146,7 @@ typedef struct uac_interface {
     uac_iface_state_t state;                   /*!< Interface state */
     uint32_t flags;                            /*!< Interface flags */
     uint8_t cur_alt;                           /*!< Current alternate setting (-1) */
+    uint8_t cur_vol;                           /*!< volume % 0-100 */
     // constant parameters after interface opening
     uac_device_t *parent;                      /*!< Parent USB UAC device */
     uint8_t xfer_num;                          /*!< Number of transfers */
@@ -157,6 +158,9 @@ typedef struct uac_interface {
     uint32_t ringbuf_size;                     /*!< Ring buffer size */
     uint32_t ringbuf_threshold;                /*!< Ring buffer threshold */
     uac_host_dev_info_t dev_info;              /*!< USB device parameters */
+    int16_t vol_min_db;                        /*!< volume min with 1/256 db step */
+    int16_t vol_max_db;                        /*!< volume max with 1/256 db step */
+    int16_t vol_res_db;                        /*!< volume resolution with 1/256 db step */
     uac_iface_alt_t *iface_alt;                /*!< audio stream alternate setting */
 } uac_iface_t;
 
@@ -198,6 +202,33 @@ static esp_err_t _uac_host_device_add(uint8_t addr, usb_device_handle_t dev_hdl,
 static esp_err_t _uac_host_device_delete(uac_device_t *uac_device);
 static esp_err_t uac_cs_request_set(uac_device_t *uac_device, const uac_cs_request_t *req);
 static esp_err_t uac_cs_request_set_ep_frequency(uac_iface_t *iface, uint8_t ep_addr, uint32_t freq);
+
+// --------------------------- Utility Functions --------------------------------
+/**
+ * @brief Convert volume U16 type to UAC volume db, for details, please refer to UAC 1.0 spec P.77
+ * 0x7FFF: 127.9961db
+ * 0x0100: 1.0000db
+ * 0x0000: 0.0000db
+ * 0xFF00: -1.0000db (there is a typo in UAC 1.0 spec, it should be 0xFF00)
+ * 0xFE00: -2.0000db
+ * 0x8001: -127.9961db
+ * @param[in] volume      Volume in db
+ * @return float
+ */
+static float _volume_db_i16_2_f(int16_t volume_db)
+{
+    return (float)(volume_db) / 256.0f;
+}
+
+static int16_t _volume_db_f_2_i16(float volume_db_f)
+{
+    if (volume_db_f > VOLUME_DB_MAX) {
+        volume_db_f = VOLUME_DB_MAX;
+    } else if (volume_db_f < VOLUME_DB_MIN) {
+        volume_db_f = VOLUME_DB_MIN;
+    }
+    return (int16_t)(volume_db_f * 256);
+}
 
 // --------------------------- Buffer Management --------------------------------
 static size_t _ring_buffer_get_len(RingbufHandle_t ringbuf_hdl)
@@ -1229,6 +1260,7 @@ static esp_err_t uac_host_interface_suspend(uac_iface_t *iface)
     UAC_RETURN_ON_INVALID_ARG(iface->free_xfer_list);
     UAC_RETURN_ON_FALSE(is_interface_in_list(iface), ESP_ERR_NOT_FOUND, "Interface handle not found");
     UAC_RETURN_ON_FALSE((UAC_INTERFACE_STATE_ACTIVE == iface->state), ESP_ERR_INVALID_STATE, "Interface wrong state");
+    iface->state = UAC_INTERFACE_STATE_SUSPENDING;
 
     // Set Interface alternate setting to 0
     usb_setup_packet_t request;
@@ -1574,6 +1606,54 @@ static esp_err_t uac_cs_request_set(uac_device_t *uac_device, const uac_cs_reque
 }
 
 /**
+ * @brief UAC class specific request Get
+ *
+ * @param[in] uac_device     Pointer to UAC device structure
+ * @param[in] req            Pointer to a class specific request structure
+ * @param[out] actual_length Pointer to store the actual length of data received
+ * @return esp_err_t
+ */
+static esp_err_t uac_cs_request_get(uac_device_t *uac_device, const uac_cs_request_t *req, size_t *actual_length)
+{
+    esp_err_t ret;
+    usb_transfer_t *ctrl_xfer = uac_device->ctrl_xfer;
+    UAC_RETURN_ON_INVALID_ARG(uac_device);
+    UAC_RETURN_ON_INVALID_ARG(uac_device->ctrl_xfer);
+
+    UAC_RETURN_ON_ERROR(_uac_host_device_try_lock(uac_device, DEFAULT_CTRL_XFER_TIMEOUT_MS), "UAC Device is busy by other task");
+
+    usb_setup_packet_t *setup = (usb_setup_packet_t *)ctrl_xfer->data_buffer;
+
+    setup->bmRequestType = req->bmRequestType;
+    setup->bRequest = req->bRequest;
+    setup->wValue = req->wValue;
+    setup->wIndex = req->wIndex;
+    setup->wLength = req->wLength;
+
+    if (setup->bmRequestType == 0) {
+        setup->bmRequestType = USB_BM_REQUEST_TYPE_DIR_IN | USB_BM_REQUEST_TYPE_TYPE_CLASS
+                               | USB_BM_REQUEST_TYPE_RECIP_INTERFACE;
+    }
+
+    ret = uac_control_transfer(uac_device, USB_SETUP_PACKET_SIZE + setup->wLength, DEFAULT_CTRL_XFER_TIMEOUT_MS);
+
+    if (ret == ESP_OK) {
+        *actual_length = ctrl_xfer->actual_num_bytes - USB_SETUP_PACKET_SIZE;
+        if (*actual_length <= req->wLength) {
+            memcpy(req->data, ctrl_xfer->data_buffer + USB_SETUP_PACKET_SIZE, *actual_length);
+        } else {
+            ret = ESP_ERR_INVALID_SIZE;
+        }
+    } else {
+        *actual_length = 0;
+    }
+
+    _uac_host_device_unlock(uac_device);
+
+    return ret;
+}
+
+/**
  * @brief UAC class specific request - Set Endpoint Frequency
  * @param[in] iface       Pointer to UAC interface structure
  * @param[in] ep_addr     Endpoint address
@@ -1603,10 +1683,10 @@ static esp_err_t uac_cs_request_set_ep_frequency(uac_iface_t *iface, uint8_t ep_
 /**
  * @brief UAC class specific request - Set Volume
  * @param[in] iface       Pointer to UAC interface structure
- * @param[in] volume      Volume to set, db
+ * @param[in] volume_db      Volume to set, db
  * @return esp_err_t
  */
-static esp_err_t uac_cs_request_set_volume(uac_iface_t *iface, uint32_t volume)
+static esp_err_t uac_cs_request_set_volume(uac_iface_t *iface, int16_t volume_db)
 {
     uint8_t feature_unit = iface->iface_alt[iface->cur_alt].feature_unit;
     uint8_t vol_ch_map = iface->iface_alt[iface->cur_alt].vol_ch_map;
@@ -1622,8 +1702,8 @@ static esp_err_t uac_cs_request_set_volume(uac_iface_t *iface, uint32_t volume)
         .data = tmp
     };
 
-    tmp[0] = volume & 0xff;
-    tmp[1] = (volume >> 8) & 0xff;
+    tmp[0] = volume_db & 0xff;
+    tmp[1] = (volume_db >> 8) & 0xff;
 
     // set volume for all logical channels
     // we not support separate volume control for each channel
@@ -1636,7 +1716,100 @@ static esp_err_t uac_cs_request_set_volume(uac_iface_t *iface, uint32_t volume)
             }
         }
     }
-    ESP_LOGD(TAG, "Set volume 0x%04X db", (unsigned int)volume);
+    ESP_LOGD(TAG, "Set volume %.4fdb (0x%04X)", _volume_db_i16_2_f(volume_db), volume_db);
+    return ret;
+}
+
+static esp_err_t uac_cs_request_get_volume(uac_iface_t *iface, int16_t *volume_db)
+{
+    uint8_t feature_unit = iface->iface_alt[iface->cur_alt].feature_unit;
+    uint8_t vol_ch_map = iface->iface_alt[iface->cur_alt].vol_ch_map;
+    UAC_RETURN_ON_FALSE(feature_unit && vol_ch_map, ESP_ERR_NOT_SUPPORTED, "volume control not supported");
+    uint8_t ctrl_iface_num = iface->parent->ctrl_iface_num;
+    uint8_t tmp[2] = { 0, 0 };
+    esp_err_t ret = ESP_OK;
+
+    uac_cs_request_t get_volume = {
+        .bRequest = UAC_GET_CUR,
+        .wIndex = (feature_unit << 8) | (ctrl_iface_num & 0xff),
+        .wLength = 2,
+        .data = tmp
+    };
+
+    // get volume for the first logical channel as we don't support separate volume control for each channel
+    for (size_t i = 0; i < 8; i++) {
+        if (vol_ch_map & (1 << i)) {
+            get_volume.wValue = (UAC_VOLUME_CONTROL << 8) | i;
+            break;
+        }
+    }
+
+    size_t actual_length = 0;
+    ret = uac_cs_request_get(iface->parent, &get_volume, &actual_length);
+    if (ret != ESP_OK || actual_length != get_volume.wLength) {
+        ESP_LOGE(TAG, "Failed to get volume");
+        return ESP_FAIL;
+    }
+
+    *volume_db = tmp[0] | (tmp[1] << 8);
+    ESP_LOGD(TAG, "Get volume %.4fdb (0x%04X)", _volume_db_i16_2_f(*volume_db), *volume_db);
+    return ret;
+}
+
+static esp_err_t uac_cs_request_get_volume_range(uac_iface_t *iface, int16_t *volume_min_db, int16_t *volume_max_db, int16_t *volume_res_db)
+{
+    uint8_t feature_unit = iface->iface_alt[iface->cur_alt].feature_unit;
+    uint8_t vol_ch_map = iface->iface_alt[iface->cur_alt].vol_ch_map;
+    UAC_RETURN_ON_FALSE(feature_unit && vol_ch_map, ESP_ERR_NOT_SUPPORTED, "volume control not supported");
+    uint8_t ctrl_iface_num = iface->parent->ctrl_iface_num;
+    esp_err_t ret = ESP_OK;
+    uint8_t tmp[2] = { 0, 0 };
+    int16_t volume_min, volume_max, volume_res = 0;
+
+    uac_cs_request_t get_volume = {
+        .bRequest = UAC_GET_MIN,
+        .wIndex = (feature_unit << 8) | (ctrl_iface_num & 0xff),
+        .wLength = 2,
+        .data = tmp
+    };
+
+    // get volume range from the first logical channel
+    for (size_t i = 0; i < 8; i++) {
+        if (vol_ch_map & (1 << i)) {
+            get_volume.wValue = (UAC_VOLUME_CONTROL << 8) | i;
+            break;
+        }
+    }
+
+    size_t actual_length = 0;
+    ret = uac_cs_request_get(iface->parent, &get_volume, &actual_length);
+    if (ret != ESP_OK || actual_length != get_volume.wLength) {
+        ESP_LOGE(TAG, "Failed to get volume min");
+        return ESP_FAIL;
+    }
+    volume_min = tmp[0] | (tmp[1] << 8);
+
+    get_volume.bRequest = UAC_GET_MAX;
+    ret = uac_cs_request_get(iface->parent, &get_volume, &actual_length);
+    if (ret != ESP_OK || actual_length != get_volume.wLength) {
+        ESP_LOGE(TAG, "Failed to get volume max");
+        return ESP_FAIL;
+    }
+    volume_max = tmp[0] | (tmp[1] << 8);
+
+    get_volume.bRequest = UAC_GET_RES;
+    ret = uac_cs_request_get(iface->parent, &get_volume, &actual_length);
+    if (ret != ESP_OK || actual_length != get_volume.wLength) {
+        ESP_LOGE(TAG, "Failed to get volume res");
+        return ESP_FAIL;
+    }
+    volume_res = tmp[0] | (tmp[1] << 8);
+    *volume_min_db = volume_min;
+    *volume_max_db = volume_max;
+    *volume_res_db = volume_res;
+
+    ESP_LOGD(TAG, "Volume range: min %.4fdb (0x%04X), max %.4fdb (0x%04X), res %.4fdb (0x%04X)", _volume_db_i16_2_f(volume_min), volume_min,
+             _volume_db_i16_2_f(volume_max), volume_max, _volume_db_i16_2_f(volume_res), volume_res);
     return ret;
 }
 
@@ -1676,6 +1849,42 @@ static esp_err_t uac_cs_request_set_mute(uac_iface_t *iface, bool mute)
         }
     }
     ESP_LOGD(TAG, "Set mute %d", mute);
+    return ret;
+}
+
+static esp_err_t uac_cs_request_get_mute(uac_iface_t *iface, bool *mute)
+{
+    uint8_t feature_unit = iface->iface_alt[iface->cur_alt].feature_unit;
+    uint8_t mute_ch_map = iface->iface_alt[iface->cur_alt].mute_ch_map;
+    UAC_RETURN_ON_FALSE(feature_unit, ESP_ERR_NOT_SUPPORTED, "mute control not supported");
+    uint8_t ctrl_iface_num = iface->parent->ctrl_iface_num;
+    uint8_t tmp[1] = { 0 };
+    esp_err_t ret = ESP_OK;
+
+    uac_cs_request_t get_mute = {
+        .bRequest = UAC_GET_CUR,
+        .wIndex = (feature_unit << 8) | (ctrl_iface_num & 0xff),
+        .wLength = 1,
+        .data = tmp
+    };
+
+    // get mute for the first logical channel as we don't support separate mute control for each channel
+    for (size_t i = 0; i < 8; i++) {
+        if (mute_ch_map & (1 << i)) {
+            get_mute.wValue = (UAC_MUTE_CONTROL << 8) | i;
+            break;
+        }
+    }
+
+    size_t actual_length = 0;
+    ret = uac_cs_request_get(iface->parent, &get_mute, &actual_length);
+    if (ret != ESP_OK || actual_length != get_mute.wLength) {
+        ESP_LOGE(TAG, "Failed to get mute");
+        return ESP_FAIL;
+    }
+
+    *mute = tmp[0];
+    ESP_LOGD(TAG, "Get mute: %s", *mute ? "true" : "false");
     return ret;
 }
 
@@ -1784,7 +1993,7 @@ esp_err_t uac_host_device_open(const uac_host_device_config_t *config, uac_host_
     }
 
     // Check if the physical device is already added
-    esp_err_t ret;
+    esp_err_t ret = ESP_OK;
     uac_device_t *uac_device = get_uac_device_by_addr(config->addr);
     bool new_device = false;
     usb_device_handle_t dev_hdl = NULL;
@@ -1815,6 +2024,15 @@ esp_err_t uac_host_device_open(const uac_host_device_config_t *config, uac_host_
     UAC_ENTER_CRITICAL();
     uac_device->opened_cnt++;
     UAC_EXIT_CRITICAL();
+
+    // Get the current volume range if the device supports volume control
+    if (uac_iface->iface_alt[uac_iface->cur_alt].feature_unit && uac_iface->iface_alt[uac_iface->cur_alt].vol_ch_map) {
+        ret = uac_cs_request_get_volume_range(uac_iface, &uac_iface->vol_min_db, &uac_iface->vol_max_db, &uac_iface->vol_res_db);
+        if (ret != ESP_OK) {
+            ESP_LOGW(TAG, "Failed to get volume range");
+        }
+    }
+
     return ESP_OK;
 
 fail:
@@ -1926,8 +2144,8 @@ esp_err_t uac_host_device_close(uac_host_device_handle_t uac_dev_handle)
             // Unblock the task that is waiting for the ringbuffer
             _ring_buffer_flush(uac_iface->ringbuf);
         }
-        // Wait 10 ms for low priority task to unblock
-        vTaskDelay(pdMS_TO_TICKS(10));
+        // Unblock the low priority tasks waiting for the ringbuffer before deleting it
+        vTaskDelay(pdMS_TO_TICKS(CONFIG_UAC_RINGBUF_SAFE_DELETE_WAITING_MS));
         vRingbufferDelete(uac_iface->ringbuf);
         uac_iface->ringbuf = NULL;
     }
@@ -2239,11 +2457,39 @@ esp_err_t uac_host_device_set_mute(uac_host_device_handle_t uac_dev_handle, bool
     uac_iface_t *iface = get_iface_by_handle(uac_dev_handle);
     UAC_RETURN_ON_INVALID_ARG(iface);
     // Check if the device is active or ready
-    UAC_RETURN_ON_FALSE((UAC_INTERFACE_STATE_ACTIVE == iface->state || UAC_INTERFACE_STATE_READY == iface->state),
-                        ESP_ERR_INVALID_STATE, "device not ready or active");
+    esp_err_t ret = ESP_OK;
+    UAC_RETURN_ON_ERROR(uac_host_interface_try_lock(iface, DEFAULT_CTRL_XFER_TIMEOUT_MS), "Unable to lock UAC Interface");
+    UAC_GOTO_ON_FALSE(UAC_INTERFACE_STATE_ACTIVE == iface->state || UAC_INTERFACE_STATE_READY == iface->state,
+                      ESP_ERR_INVALID_STATE, "device not ready or active");
 
-    UAC_RETURN_ON_ERROR(uac_cs_request_set_mute(iface, mute), "Unable to set mute");
+    UAC_GOTO_ON_ERROR(uac_cs_request_set_mute(iface, mute), "Unable to set mute");
+    ESP_LOGI(TAG, "%s Interface %d-%d", mute ? "Mute" : "Unmute", iface->dev_info.iface_num, iface->cur_alt + 1);
+    uac_host_interface_unlock(iface);
     return ESP_OK;
+
+fail:
+    uac_host_interface_unlock(iface);
+    return ret;
+}
+
+esp_err_t uac_host_device_get_mute(uac_host_device_handle_t uac_dev_handle, bool *mute)
+{
+    uac_iface_t *iface = get_iface_by_handle(uac_dev_handle);
+    UAC_RETURN_ON_INVALID_ARG(iface);
+    UAC_RETURN_ON_INVALID_ARG(mute);
+    // Check if the device is active or ready
+    esp_err_t ret = ESP_OK;
+    UAC_RETURN_ON_ERROR(uac_host_interface_try_lock(iface, DEFAULT_CTRL_XFER_TIMEOUT_MS), "Unable to lock UAC Interface");
+    UAC_GOTO_ON_FALSE((UAC_INTERFACE_STATE_ACTIVE == iface->state || UAC_INTERFACE_STATE_READY == iface->state),
+                      ESP_ERR_INVALID_STATE, "device not ready or active");
+
+    UAC_GOTO_ON_ERROR(uac_cs_request_get_mute(iface, mute), "Unable to get mute");
+    uac_host_interface_unlock(iface);
+    return ESP_OK;
+
+fail:
+    uac_host_interface_unlock(iface);
+    return ret;
 }
 
 esp_err_t uac_host_device_set_volume(uac_host_device_handle_t uac_dev_handle, uint8_t volume)
@@ -2252,22 +2498,102 @@ esp_err_t uac_host_device_set_volume(uac_host_device_handle_t uac_dev_handle, ui
     UAC_RETURN_ON_INVALID_ARG(iface);
     UAC_RETURN_ON_FALSE(volume <= 100, ESP_ERR_INVALID_ARG, "Invalid volume value");
     // Check if the device is active or ready
-    UAC_RETURN_ON_FALSE((UAC_INTERFACE_STATE_ACTIVE == iface->state || UAC_INTERFACE_STATE_READY == iface->state),
-                        ESP_ERR_INVALID_STATE, "device not ready or active");
+    esp_err_t ret = ESP_OK;
+    UAC_RETURN_ON_ERROR(uac_host_interface_try_lock(iface, DEFAULT_CTRL_XFER_TIMEOUT_MS), "Unable to lock UAC Interface");
+    UAC_GOTO_ON_FALSE((UAC_INTERFACE_STATE_ACTIVE == iface->state || UAC_INTERFACE_STATE_READY == iface->state),
+                      ESP_ERR_INVALID_STATE, "device not ready or active");
 
-    uint32_t volume_db = volume * UAC_SPK_VOLUME_STEP + UAC_SPK_VOLUME_MIN;
-    UAC_RETURN_ON_ERROR(uac_cs_request_set_volume(iface, volume_db), "Unable to set volume");
+    // Calculate target volume in float to avoid the int16_t calculation overflow
+    float volume_db_f = _volume_db_i16_2_f(iface->vol_min_db) + (_volume_db_i16_2_f(iface->vol_max_db) - _volume_db_i16_2_f(iface->vol_min_db)) * (float)volume / 100.0f;
+    // Round to the nearest float value based the vol_res_db
+    volume_db_f = roundf(volume_db_f / _volume_db_i16_2_f(iface->vol_res_db)) * _volume_db_i16_2_f(iface->vol_res_db);
+    // Convert back to 16-bit value
+    const int16_t volume_db = _volume_db_f_2_i16(volume_db_f);
+
+    UAC_GOTO_ON_ERROR(uac_cs_request_set_volume(iface, volume_db), "Unable to set volume");
+    // Backup the volume value for the get volume function
+    iface->cur_vol = volume;
+    ESP_LOGI(TAG, "Set volume %d%%, Interface %d-%d", volume, iface->dev_info.iface_num, iface->cur_alt + 1);
+    uac_host_interface_unlock(iface);
     return ESP_OK;
+
+fail:
+    uac_host_interface_unlock(iface);
+    return ret;
 }
 
-esp_err_t uac_host_device_set_volume_db(uac_host_device_handle_t uac_dev_handle, uint32_t volume_db)
+esp_err_t uac_host_device_get_volume(uac_host_device_handle_t uac_dev_handle, uint8_t *volume)
+{
+    uac_iface_t *iface = get_iface_by_handle(uac_dev_handle);
+    UAC_RETURN_ON_INVALID_ARG(iface);
+    UAC_RETURN_ON_INVALID_ARG(volume);
+    // Check if the device is active or ready
+    esp_err_t ret = ESP_OK;
+    UAC_RETURN_ON_ERROR(uac_host_interface_try_lock(iface, DEFAULT_CTRL_XFER_TIMEOUT_MS), "Unable to lock UAC Interface");
+    UAC_GOTO_ON_FALSE((UAC_INTERFACE_STATE_ACTIVE == iface->state || UAC_INTERFACE_STATE_READY == iface->state),
+                      ESP_ERR_INVALID_STATE, "device not ready or active");
+
+    // Return the backup volume value to avoid the volume reads differently than expected.
+    // Because the device volume adjustment step may be relatively large,
+    // For example, when the user sets 83%, the actual volume may be 80.
+    if (iface->cur_vol) {
+        *volume = iface->cur_vol;
+        uac_host_interface_unlock(iface);
+        return ESP_OK;
+    }
+
+    // Otherwise, get the volume from the device
+    // Get volume range, calculate in dB float
+    int16_t volume_db = 0;
+    UAC_GOTO_ON_ERROR(uac_cs_request_get_volume(iface, &volume_db), "Unable to get volume");
+    const float volume_db_f = _volume_db_i16_2_f(volume_db);
+    // Calculate volume in percentage
+    *volume = (uint8_t)roundf((volume_db_f - _volume_db_i16_2_f(iface->vol_min_db)) * 100.0f / (_volume_db_i16_2_f(iface->vol_max_db) - _volume_db_i16_2_f(iface->vol_min_db)));
+
+    uac_host_interface_unlock(iface);
+    return ESP_OK;
+
+fail:
+    uac_host_interface_unlock(iface);
+    return ret;
+}
+
+esp_err_t uac_host_device_set_volume_db(uac_host_device_handle_t uac_dev_handle, int16_t volume_db)
 {
     uac_iface_t *iface = get_iface_by_handle(uac_dev_handle);
     UAC_RETURN_ON_INVALID_ARG(iface);
     // Check if the device is active or ready
-    UAC_RETURN_ON_FALSE((UAC_INTERFACE_STATE_ACTIVE == iface->state || UAC_INTERFACE_STATE_READY == iface->state),
-                        ESP_ERR_INVALID_STATE, "device not ready or active");
-
-    UAC_RETURN_ON_ERROR(uac_cs_request_set_volume(iface, volume_db), "Unable to set volume");
+    esp_err_t ret = ESP_OK;
+    UAC_RETURN_ON_ERROR(uac_host_interface_try_lock(iface, DEFAULT_CTRL_XFER_TIMEOUT_MS), "Unable to lock UAC Interface");
+    UAC_GOTO_ON_FALSE((UAC_INTERFACE_STATE_ACTIVE == iface->state || UAC_INTERFACE_STATE_READY == iface->state),
+                      ESP_ERR_INVALID_STATE, "device not ready or active");
+    // Check if the volume is within the range
+    UAC_GOTO_ON_FALSE((volume_db >= iface->vol_min_db && volume_db <= iface->vol_max_db), ESP_ERR_INVALID_ARG, "Invalid volume value");
+    UAC_GOTO_ON_ERROR(uac_cs_request_set_volume(iface, volume_db), "Unable to set volume");
+    uac_host_interface_unlock(iface);
     return ESP_OK;
+
+fail:
+    uac_host_interface_unlock(iface);
+    return ret;
+}
+
+esp_err_t uac_host_device_get_volume_db(uac_host_device_handle_t uac_dev_handle, int16_t *volume_db)
+{
+    uac_iface_t *iface = get_iface_by_handle(uac_dev_handle);
+    UAC_RETURN_ON_INVALID_ARG(iface);
+    UAC_RETURN_ON_INVALID_ARG(volume_db);
+    // Check if the device is active or ready
+    esp_err_t ret = ESP_OK;
+    UAC_RETURN_ON_ERROR(uac_host_interface_try_lock(iface, DEFAULT_CTRL_XFER_TIMEOUT_MS), "Unable to lock UAC Interface");
+    UAC_GOTO_ON_FALSE((UAC_INTERFACE_STATE_ACTIVE == iface->state || UAC_INTERFACE_STATE_READY == iface->state),
+                      ESP_ERR_INVALID_STATE, "device not ready or active");
+
+    UAC_GOTO_ON_ERROR(uac_cs_request_get_volume(iface, volume_db), "Unable to get volume");
+    uac_host_interface_unlock(iface);
+    return ESP_OK;
+
+fail:
+    uac_host_interface_unlock(iface);
+    return ret;
 }

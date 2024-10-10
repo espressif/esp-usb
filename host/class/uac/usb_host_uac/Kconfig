@@ -27,4 +27,9 @@ menu "USB Host UAC"
         default 3
         help
             Number of Packets per UAC ISOC URB. It limits the minimum packets each transfer will send.
+    config UAC_RINGBUF_SAFE_DELETE_WAITING_MS
+        int "Ringbuf Safe Delete Waiting Time in ms"
+        default 50
+        help
+            Ringbuf Safe Delay Time in ms. It is used to wait for the ringbuf to be untouched before deleting it.
 endmenu # "USB Host UAC"
