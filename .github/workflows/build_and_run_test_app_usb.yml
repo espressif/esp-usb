@@ -69,6 +69,6 @@ jobs:
              pip install --only-binary cryptography pytest-embedded pytest-embedded-serial-esp pytest-embedded-idf pyserial pyusb libusb
              git clone https://github.com/libusb/libusb.git
              cd libusb
-             ./autogen.sh
+             ./autogen.sh --disable-udev
       - name: Run USB Test App on target
         run: pytest --embedded-services esp,idf --target=${{ matrix.idf_target }} -m ${{ matrix.runner_tag }} --build-dir=build_${{ matrix.idf_target }}
