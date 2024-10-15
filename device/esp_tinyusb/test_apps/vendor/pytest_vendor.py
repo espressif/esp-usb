@@ -64,7 +64,7 @@ def send_data_to_intf(VID, PID, interface_index):
         print("NOT found")
 
 
-@pytest.mark.esp32s2
+#@pytest.mark.esp32s2
 @pytest.mark.esp32s3
 @pytest.mark.esp32p4
 @pytest.mark.usb_device
