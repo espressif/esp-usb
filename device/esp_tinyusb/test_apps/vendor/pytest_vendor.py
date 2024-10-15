@@ -84,11 +84,12 @@ def test_usb_device_esp_tinyusb(dut: IdfDut) -> None:
     2. Expect 2 Vendor specific interfaces in the system
     3. Send some data to it, check log output
     '''
-    dut.run_all_single_board_cases(group='vendor')
 
     be = libusb1.get_backend()
     print("Backend: \n\n")
     print(be)
+
+    dut.run_all_single_board_cases(group='vendor')
 
     sleep(2)  # Wait until the device is enumerated
 
