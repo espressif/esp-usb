@@ -27,7 +27,7 @@ def test_usb_device_cdc(dut) -> None:
     dut.expect_exact('Press ENTER to see the list of tests.')
     dut.write('[cdc]')
     dut.expect_exact('TinyUSB: TinyUSB Driver installed')
-    sleep(2)  # Some time for the OS to enumerate our USB device
+    sleep(5)  # Some time for the OS to enumerate our USB device
 
     # Find devices with Espressif TinyUSB VID/PID
     s = []
