@@ -12,23 +12,10 @@
 
 #include "usb/usb_host.h"
 #include "usb/uvc_host.h"
+#include "uvc_check_priv.h"
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
-
-// UVC check macros
-#define UVC_CHECK(cond, ret_val) ({                                     \
-            if (!(cond)) {                                              \
-                return (ret_val);                                       \
-            }                                                           \
-})
-
-#define UVC_CHECK_FROM_CRIT(cond, ret_val) ({                           \
-            if (!(cond)) {                                              \
-                UVC_EXIT_CRITICAL();                                    \
-                return ret_val;                                         \
-            }                                                           \
-})
 
 typedef struct uvc_host_stream_s uvc_stream_t;
 struct uvc_host_stream_s {

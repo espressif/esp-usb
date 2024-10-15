@@ -265,8 +265,8 @@ static esp_err_t uvc_find_and_open_usb_device(uint16_t vid, uint16_t pid, TickTy
             assert(current_device);
             const usb_device_desc_t *device_desc;
             ESP_ERROR_CHECK(usb_host_get_device_descriptor(current_device, &device_desc));
-            if ((vid == device_desc->idVendor || vid == CDC_HOST_ANY_VID) &&
-                    (pid == device_desc->idProduct || pid == CDC_HOST_ANY_PID)) {
+            if ((vid == device_desc->idVendor || vid == 0) &&
+                    (pid == device_desc->idProduct || pid == 0)) {
                 // Return path 2:
                 (*dev)->dev_hdl = current_device;
                 return ESP_OK;
@@ -286,22 +286,22 @@ static esp_err_t uvc_find_streaming_intf(uvc_stream_t *uvc_stream, uint8_t uvc_i
 {
     UVC_CHECK(uvc_stream && vs_format, ESP_ERR_INVALID_ARG);
 
-    // Find UVC USB function with desired index
-    const uvc_vc_header_desc_t *vc_header_desc = uvc_desc_get_control_interface_header(uvc_stream, uvc_index);
-    ESP_RETURN_ON_FALSE(vc_header_desc, ESP_ERR_NOT_FOUND, TAG, "Could not find UVC function with index %d", uvc_index);
-    uvc_stream->bcdUVC = vc_header_desc->bcdUVC;
+    const usb_config_desc_t *cfg_desc;
+    ESP_ERROR_CHECK(usb_host_get_active_config_descriptor(uvc_stream->dev_hdl, &cfg_desc));
 
-    // Find video streaming interface that offers the requested format
-    bool format_found = false;
-    for (int streaming_if = 0; streaming_if < vc_header_desc->bInCollection; streaming_if++) {
-        uint8_t current_bInterfaceNumber = vc_header_desc->baInterfaceNr[streaming_if];
-        if (uvc_desc_is_format_supported(uvc_stream, current_bInterfaceNumber, vs_format)) {
-            uvc_stream->bInterfaceNumber = current_bInterfaceNumber;
-            format_found = true;
-            break;
-        }
-    }
-    ESP_RETURN_ON_FALSE(format_found, ESP_ERR_NOT_FOUND, TAG, "Could not find frame format %dx%d@%dFPS", vs_format->h_res, vs_format->v_res, vs_format->fps);
+    // Find UVC USB function with desired index
+    uint16_t bcdUVC = 0;
+    uint8_t bInterfaceNumber = 0;
+
+    ESP_RETURN_ON_ERROR(
+        uvc_desc_get_streaming_interface_num(cfg_desc, uvc_index, vs_format, &bcdUVC, &bInterfaceNumber),
+        TAG, "Could not find frame format %dx%d@%dFPS",
+        vs_format->h_res, vs_format->v_res, vs_format->fps);
+
+    // Here we only save the interface number that can meet our format requirement
+    // Alternate setting is selected during interface claim
+    uvc_stream->bInterfaceNumber = bInterfaceNumber;
+    uvc_stream->bcdUVC = bcdUVC;
     return ESP_OK;
 }
 
@@ -318,8 +318,10 @@ static esp_err_t uvc_claim_interface(uvc_stream_t *uvc_stream, const usb_ep_desc
 
     const usb_intf_desc_t *intf_desc;
     const usb_ep_desc_t *ep_desc;
+    const usb_config_desc_t *cfg_desc;
+    ESP_ERROR_CHECK(usb_host_get_active_config_descriptor(uvc_stream->dev_hdl, &cfg_desc));
     ESP_RETURN_ON_ERROR(
-        uvc_desc_get_streaming_intf_and_ep(uvc_stream, uvc_stream->bInterfaceNumber, &intf_desc, &ep_desc),
+        uvc_desc_get_streaming_intf_and_ep(cfg_desc, uvc_stream->bInterfaceNumber, &intf_desc, &ep_desc),
         TAG, "Could not find Streaming interface %d", uvc_stream->bInterfaceNumber);
 
     // Save all required parameters

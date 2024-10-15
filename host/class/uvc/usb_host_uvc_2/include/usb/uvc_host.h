@@ -44,17 +44,22 @@ typedef struct {
     } data;
 } uvc_host_stream_event_data_t;
 
+/**
+ * @brief Formats supported by this driver
+ */
+enum uvc_host_stream_format {
+    UVC_VS_FORMAT_UNDEFINED = 0,
+    UVC_VS_FORMAT_MJPEG,
+    UVC_VS_FORMAT_UNCOMPRESSED,
+    UVC_VS_FORMAT_H264,
+    UVC_VS_FORMAT_H265,
+};
+
 typedef struct {
     unsigned h_res;         /**< Horizontal resolution */
     unsigned v_res;         /**< Vertical resolution */
-    unsigned fps;           /**< Frames per second */
-    enum {
-        UVC_VS_FORMAT_UNDEFINED = 0,
-        UVC_VS_FORMAT_MJPEG,
-        UVC_VS_FORMAT_UNCOMPRESSED,
-        UVC_VS_FORMAT_H264,
-        UVC_VS_FORMAT_H265,
-    } format;               /**< Frame format */
+    unsigned fps;           /**< Frames per second */ //@todo this can be float!!
+    enum uvc_host_stream_format format;  /**< Frame format */
 } uvc_host_stream_format_t;
 
 /**

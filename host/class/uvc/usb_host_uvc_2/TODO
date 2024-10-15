@@ -1,4 +1,10 @@
 - [ ] Allow external events handling
-- [ ] Allow VID and PID to be 0
+- [x] Allow VID and PID to be 0
 - [x] 1 CTRL transfer for the driver? of 1 transfer for a device?
-- [ ] Mock USB host for descriptor parsing
+- [x] Mock USB host for descriptor parsing
+- [ ] Allow floating FPS
+- [ ] Allow setting of default
+- [ ] Add descriptor printing from UVC version 1
+- [ ] Test reconnections
+- [ ] Test frequent stream pause/resume
+- [ ] Support bulk transfers

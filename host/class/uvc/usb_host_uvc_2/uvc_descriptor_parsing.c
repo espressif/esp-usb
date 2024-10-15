@@ -6,54 +6,43 @@
 
 #include <inttypes.h>
 #include <string.h> // For guid format parsing
-#include "esp_log.h"
 #include "usb/usb_helpers.h"
-#include "uvc_types_priv.h"
+#include "usb/uvc_host.h"
+#include "uvc_check_priv.h"
 #include "uvc_descriptors_priv.h"
 
-static const char *TAG = "UVC-desc";
-
-/**
- * @brief Print UVC specific descriptor in human readable form
- *
- * This is a callback function that is called from USB Host library,
- * when it wants to print full configuration descriptor to stdout.
- *
- * @param[in] _desc UVC specific descriptor
- */
-static void uvc_print_desc(const usb_standard_desc_t *_desc)
+static const uvc_vs_input_header_desc_t *uvc_desc_get_streaming_input_header(const usb_config_desc_t *cfg_desc, uint8_t bInterfaceNumber)
 {
-    //@todo
-    ESP_LOGI(TAG, "%s NOT IMPLEMENTED YET", __func__);
-}
+    UVC_CHECK(cfg_desc, NULL);
 
-void uvc_host_desc_print(uvc_host_stream_hdl_t stream_hdl)
-{
-    assert(stream_hdl);
-    uvc_stream_t *uvc_stream = (uvc_stream_t *)stream_hdl;
+    // Find Interface with alternate settings = 0. All Video Streaming descriptors should be after this descriptor.
+    int offset = 0;
+    const usb_intf_desc_t *intf_desc = usb_parse_interface_descriptor(cfg_desc, bInterfaceNumber, 0, &offset);
+    UVC_CHECK(intf_desc, NULL);
+    UVC_CHECK(intf_desc->bInterfaceClass == USB_CLASS_VIDEO, NULL);
+    UVC_CHECK(intf_desc->bInterfaceSubClass == UVC_SC_VIDEOSTREAMING, NULL);
 
-    const usb_device_desc_t *device_desc;
-    const usb_config_desc_t *config_desc;
-    ESP_ERROR_CHECK_WITHOUT_ABORT(usb_host_get_device_descriptor(uvc_stream->dev_hdl, &device_desc));
-    ESP_ERROR_CHECK_WITHOUT_ABORT(usb_host_get_active_config_descriptor(uvc_stream->dev_hdl, &config_desc));
-    usb_print_device_descriptor(device_desc);
-    usb_print_config_descriptor(config_desc, &uvc_print_desc);
+    // Find Video Input Header Descriptor
+    const usb_standard_desc_t *std_desc = usb_parse_next_descriptor_of_type((const usb_standard_desc_t *)intf_desc, cfg_desc->wTotalLength, UVC_CS_INTERFACE, &offset);
+    const uvc_vs_input_header_desc_t *input_header = (uvc_vs_input_header_desc_t *)std_desc;
+    UVC_CHECK(input_header, NULL);
+    UVC_CHECK(input_header->bDescriptorSubType == UVC_VS_DESC_SUBTYPE_INPUT_HEADER, NULL);
+    return input_header;
 }
 
 esp_err_t uvc_desc_get_streaming_intf_and_ep(
-    uvc_stream_t *uvc_stream,
+    const usb_config_desc_t *cfg_desc,
     uint8_t bInterfaceNumber,
     const usb_intf_desc_t **intf_desc_ret,
     const usb_ep_desc_t **ep_desc_ret)
 {
-    const usb_config_desc_t *cfg_desc;
+    UVC_CHECK(cfg_desc, ESP_ERR_NOT_FOUND);
+    UVC_CHECK(intf_desc_ret && ep_desc_ret, ESP_ERR_INVALID_ARG);
+
     const usb_intf_desc_t *intf_desc = NULL;
     const usb_ep_desc_t *ep_desc = NULL;
     int offset = 0;
-    usb_device_handle_t usb_dev = uvc_stream->dev_hdl;
 
-    usb_host_get_active_config_descriptor(usb_dev, &cfg_desc);
-    UVC_CHECK(cfg_desc, ESP_ERR_NOT_FOUND);
     const uint8_t num_of_alternate = usb_parse_interface_number_of_alternate(cfg_desc, bInterfaceNumber);
     uint16_t last_mps = 0; // Looking for maximum MPS: init to zero
     uint8_t last_mult = UINT8_MAX; // Looking for minimum: init to max
@@ -183,15 +172,15 @@ static bool uvc_desc_format_is_equal(const uvc_frame_desc_t *frame_desc, const u
 }
 
 esp_err_t uvc_desc_get_frame_format_by_format(
-    uvc_stream_t *uvc_stream,
+    const usb_config_desc_t *cfg_desc,
     uint8_t bInterfaceNumber,
     const uvc_host_stream_format_t *vs_format,
     const uvc_format_desc_t **format_desc_ret,
     const uvc_frame_desc_t **frame_desc_ret)
 {
-    UVC_CHECK(uvc_stream && vs_format, ESP_ERR_INVALID_ARG);
+    UVC_CHECK(cfg_desc && vs_format, ESP_ERR_INVALID_ARG);
 
-    const uvc_vs_input_header_desc_t *input_header = uvc_desc_get_streaming_input_header(uvc_stream, bInterfaceNumber);
+    const uvc_vs_input_header_desc_t *input_header = uvc_desc_get_streaming_input_header(cfg_desc, bInterfaceNumber);
     UVC_CHECK(input_header, ESP_ERR_NOT_FOUND);
 
     // Find requested Format descriptors
@@ -224,53 +213,20 @@ esp_err_t uvc_desc_get_frame_format_by_format(
     return ret;
 }
 
-bool uvc_desc_is_format_supported(
-    uvc_stream_t *uvc_stream,
+static inline bool uvc_desc_is_format_supported(
+    const usb_config_desc_t *cfg_desc,
     uint8_t bInterfaceNumber,
     const uvc_host_stream_format_t *vs_format)
 {
-    return (ESP_OK == uvc_desc_get_frame_format_by_format(uvc_stream, bInterfaceNumber, vs_format, NULL, NULL));
+    return (ESP_OK == uvc_desc_get_frame_format_by_format(cfg_desc, bInterfaceNumber, vs_format, NULL, NULL));
 }
 
-const uvc_vs_input_header_desc_t *uvc_desc_get_streaming_input_header(uvc_stream_t *uvc_stream, uint8_t bInterfaceNumber)
+static const uvc_vc_header_desc_t *uvc_desc_get_control_interface_header(const usb_config_desc_t *cfg_desc, unsigned uvc_idx)
 {
-    UVC_CHECK(uvc_stream, NULL);
-    UVC_CHECK(uvc_stream->dev_hdl, NULL);
-
-    // First get Configuration descriptor of this device
-    const usb_config_desc_t *cfg_desc;
-    usb_device_handle_t usb_dev = uvc_stream->dev_hdl;
-    usb_host_get_active_config_descriptor(usb_dev, &cfg_desc);
-    UVC_CHECK(cfg_desc, NULL);
-
-    // Find Interface with alternate settings = 0. All Video Streaming descriptors should be after this descriptor.
-    int offset = 0;
-    const usb_intf_desc_t *intf_desc = usb_parse_interface_descriptor(cfg_desc, bInterfaceNumber, 0, &offset);
-    UVC_CHECK(intf_desc, NULL);
-    UVC_CHECK(intf_desc->bInterfaceClass == USB_CLASS_VIDEO, NULL);
-    UVC_CHECK(intf_desc->bInterfaceSubClass == UVC_SC_VIDEOSTREAMING, NULL);
-
-    // Find Video Input Header Descriptor
-    const usb_standard_desc_t *std_desc = usb_parse_next_descriptor_of_type((const usb_standard_desc_t *)intf_desc, cfg_desc->wTotalLength, UVC_CS_INTERFACE, &offset);
-    const uvc_vs_input_header_desc_t *input_header = (uvc_vs_input_header_desc_t *)std_desc;
-    UVC_CHECK(input_header, NULL);
-    UVC_CHECK(input_header->bDescriptorSubType == UVC_VS_DESC_SUBTYPE_INPUT_HEADER, NULL);
-    return input_header;
-}
-
-const uvc_vc_header_desc_t *uvc_desc_get_control_interface_header(uvc_stream_t *uvc_stream, unsigned uvc_idx)
-{
-    UVC_CHECK(uvc_stream, NULL);
-    UVC_CHECK(uvc_stream->dev_hdl, NULL);
-
-    // First get Configuration descriptor of this device
-    const uvc_vc_header_desc_t *header_desc_ret = NULL;
-    const usb_config_desc_t *cfg_desc;
-    usb_device_handle_t usb_dev = uvc_stream->dev_hdl;
-    usb_host_get_active_config_descriptor(usb_dev, &cfg_desc);
     UVC_CHECK(cfg_desc, NULL);
 
     // Find IAD UVC descriptor with desired index
+    const uvc_vc_header_desc_t *header_desc_ret = NULL;
     int offset = 0;
     int uvc_iad_idx = 0;
     const usb_standard_desc_t *current_desc = (const usb_standard_desc_t *)cfg_desc;
@@ -292,19 +248,18 @@ const uvc_vc_header_desc_t *uvc_desc_get_control_interface_header(uvc_stream_t *
 }
 
 esp_err_t uvc_desc_get_frame_format_by_index(
-    uvc_stream_t *uvc_stream,
+    const usb_config_desc_t *cfg_desc,
     uint8_t bInterfaceNumber,
     uint8_t bFormatIndex,
     uint8_t bFrameIndex,
     const uvc_format_desc_t **format_desc_ret,
     const uvc_frame_desc_t **frame_desc_ret)
 {
-    ESP_LOGV(TAG, "Looking for format %d frame %d", bFormatIndex, bFrameIndex);
     UVC_CHECK(bFormatIndex > 0, ESP_ERR_INVALID_ARG); // Formats are indexed from 1
     UVC_CHECK(bFrameIndex > 0, ESP_ERR_INVALID_ARG); // Frames are indexed from 1
-    UVC_CHECK(format_desc_ret && frame_desc_ret, ESP_ERR_INVALID_ARG);
+    UVC_CHECK(format_desc_ret && frame_desc_ret && cfg_desc, ESP_ERR_INVALID_ARG);
 
-    const uvc_vs_input_header_desc_t *input_header = uvc_desc_get_streaming_input_header(uvc_stream, bInterfaceNumber);
+    const uvc_vs_input_header_desc_t *input_header = uvc_desc_get_streaming_input_header(cfg_desc, bInterfaceNumber);
     UVC_CHECK(input_header, ESP_ERR_NOT_FOUND);
     UVC_CHECK(input_header->bNumFormats >= bFormatIndex, ESP_ERR_NOT_FOUND);
 
@@ -330,6 +285,36 @@ esp_err_t uvc_desc_get_frame_format_by_index(
                 }
                 break;
             }
+        }
+    }
+    return ret;
+}
+
+esp_err_t uvc_desc_get_streaming_interface_num(
+    const usb_config_desc_t *cfg_desc,
+    uint8_t uvc_index,
+    const uvc_host_stream_format_t *vs_format,
+    uint16_t *bcdUVC,
+    uint8_t *bInterfaceNumber)
+{
+    UVC_CHECK(cfg_desc && vs_format && bcdUVC && bInterfaceNumber, ESP_ERR_INVALID_ARG);
+
+    esp_err_t ret = ESP_ERR_NOT_FOUND;
+
+    // Get Interface header with uvc_index
+    const uvc_vc_header_desc_t *vc_header_desc = uvc_desc_get_control_interface_header(cfg_desc, uvc_index);
+    if (!vc_header_desc) {
+        return ESP_ERR_NOT_FOUND;
+    }
+    *bcdUVC = vc_header_desc->bcdUVC;
+
+    // Find video streaming interface that offers the requested format
+    for (int streaming_if = 0; streaming_if < vc_header_desc->bInCollection; streaming_if++) {
+        uint8_t current_bInterfaceNumber = vc_header_desc->baInterfaceNr[streaming_if];
+        if (uvc_desc_is_format_supported(cfg_desc, current_bInterfaceNumber, vs_format)) {
+            *bInterfaceNumber = current_bInterfaceNumber;
+            ret = ESP_OK;
+            break;
         }
     }
     return ret;
