@@ -5,6 +5,7 @@
  */
 
 #include <string.h> // For memcpy
+#include <inttypes.h>
 
 #include "esp_check.h"
 #include "usb/uvc_host.h"
@@ -37,12 +38,12 @@ esp_err_t uvc_frame_allocate(uvc_stream_t *uvc_stream, int nb_of_fb, size_t fb_s
     for (int i = 0; i < nb_of_fb; i++) {
         // Allocate the frame buffer
         uvc_frame_t *this_fb = malloc(sizeof(uvc_frame_t));
-        ESP_GOTO_ON_FALSE(this_fb, ESP_ERR_NO_MEM, err, TAG, "Not enough memory for frame buffers %d", fb_size);
         uint8_t *this_data = malloc(fb_size);
-        if (!this_data) {
+        if (this_data == NULL || this_fb == NULL) {
             free(this_fb);
+            free(this_data);
             ret = ESP_ERR_NO_MEM;
-            ESP_LOGE(TAG, "Not enough memory for frame buffers %d", fb_size);
+            ESP_LOGE(TAG, "Not enough memory for frame buffers %"PRIxPTR"", fb_size);
             goto err;
         }
 
