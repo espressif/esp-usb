@@ -236,7 +236,8 @@ static esp_err_t uvc_find_and_open_usb_device(uint16_t vid, uint16_t pid, TickTy
     SLIST_FOREACH(uvc_stream, &p_uvc_obj->uvc_stream_list, list_entry) {
         const usb_device_desc_t *device_desc;
         ESP_ERROR_CHECK(usb_host_get_device_descriptor(uvc_stream->dev_hdl, &device_desc));
-        if (device_desc->idVendor == vid && device_desc->idProduct == pid) {
+        if ((vid == device_desc->idVendor || vid == 0) &&
+                (pid == device_desc->idProduct || pid == 0)) {
             // Return path 1:
             (*dev)->dev_hdl = uvc_stream->dev_hdl;
             return ESP_OK;
@@ -264,7 +265,8 @@ static esp_err_t uvc_find_and_open_usb_device(uint16_t vid, uint16_t pid, TickTy
             assert(current_device);
             const usb_device_desc_t *device_desc;
             ESP_ERROR_CHECK(usb_host_get_device_descriptor(current_device, &device_desc));
-            if (device_desc->idVendor == vid && device_desc->idProduct == pid) {
+            if ((vid == device_desc->idVendor || vid == CDC_HOST_ANY_VID) &&
+                    (pid == device_desc->idProduct || pid == CDC_HOST_ANY_PID)) {
                 // Return path 2:
                 (*dev)->dev_hdl = current_device;
                 return ESP_OK;
