@@ -6,6 +6,7 @@ from pytest_embedded_idf.dut import IdfDut
 import usb.core
 import usb.util
 from time import sleep
+from usb.backend import libusb1
 
 
 def find_interface_by_index(device, interface_index):
@@ -84,6 +85,10 @@ def test_usb_device_esp_tinyusb(dut: IdfDut) -> None:
     3. Send some data to it, check log output
     '''
     dut.run_all_single_board_cases(group='vendor')
+
+    be = libusb1.get_backend()
+    print("Backend: \n\n")
+    print(be)
 
     sleep(2)  # Wait until the device is enumerated
 
