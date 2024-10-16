@@ -66,7 +66,7 @@ def send_data_to_intf(VID, PID, interface_index):
         print("NOT found")
 
 
-#@pytest.mark.esp32s2
+@pytest.mark.esp32s2
 @pytest.mark.esp32s3
 @pytest.mark.esp32p4
 @pytest.mark.usb_device
@@ -98,9 +98,19 @@ def test_usb_device_esp_tinyusb(dut: IdfDut) -> None:
     print(backend)
     sleep(2)
 
+    found_devices = usb.core.find(find_all=True)
+    print("Found devices\n\n")
+    for device in found_devices:
+        print(device)
+
     dut.run_all_single_board_cases(group='vendor')
 
     sleep(2)  # Wait until the device is enumerated
+
+    found_devices = usb.core.find(find_all=True)
+    print("Found devices\n\n")
+    for device in found_devices:
+        print(device)
 
     VID = 0x303A  # Replace with your device's Vendor ID
     PID = 0x4040  # Replace with your device's Product ID
