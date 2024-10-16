@@ -70,8 +70,5 @@ jobs:
              apt-get update && apt-get install libusb-1.0-0-dev udev -y
              echo "ACTION==\"add\", SUBSYSTEMS==\"usb\", ATTRS{idVendor}==\"303a\", ATTRS{idProduct}==\"4040\", MODE=\"660\", TAG+=\"uaccess\"" > /etc/udev/rules.d/50-pyusb.rules
              cat /etc/udev/rules.d/50-pyusb.rules
-             service udev status
-             udevadm trigger
-             service udev status
       - name: Run USB Test App on target
         run: pytest --embedded-services esp,idf --target=${{ matrix.idf_target }} -m ${{ matrix.runner_tag }} --build-dir=build_${{ matrix.idf_target }}
