@@ -68,5 +68,9 @@ jobs:
         run: |
              pip install --only-binary cryptography pytest-embedded pytest-embedded-serial-esp pytest-embedded-idf pyserial pyusb libusb
              apt-get update && apt-get install libusb-1.0-0-dev -y
+             echo "ACTION==\"add\", SUBSYSTEMS==\"usb\", ATTRS{idVendor}==\"303a\", ATTRS{idProduct}==\"4040\", MODE=\"660\", TAG+=\"uaccess\"" > /etc/udev/rules.d/50-pyusb.rules
+             cat /etc/udev/rules.d/50-pyusb.rules
+             udevadm control --reload
+             udevadm trigger
       - name: Run USB Test App on target
         run: pytest --embedded-services esp,idf --target=${{ matrix.idf_target }} -m ${{ matrix.runner_tag }} --build-dir=build_${{ matrix.idf_target }}
