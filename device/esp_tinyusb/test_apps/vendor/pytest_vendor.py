@@ -33,6 +33,8 @@ def send_data_to_intf(VID, PID, interface_index):
 
     # Find the interface by index
     intf = find_interface_by_index(dev, interface_index)
+    print("Device\n\n")
+    print(dev)
     if intf is None:
         raise ValueError(f"Interface with index {interface_index} not found")
 
@@ -111,6 +113,8 @@ def test_usb_device_esp_tinyusb(dut: IdfDut) -> None:
     print("Found devices\n\n")
     for device in found_devices:
         print(device)
+
+    sleep(2)  # Wait until the device is enumerated
 
     VID = 0x303A  # Replace with your device's Vendor ID
     PID = 0x4040  # Replace with your device's Product ID
