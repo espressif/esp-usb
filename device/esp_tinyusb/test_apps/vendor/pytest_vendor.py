@@ -6,6 +6,8 @@ from pytest_embedded_idf.dut import IdfDut
 import usb.core
 import usb.util
 from time import sleep
+from usb.backend import libusb1
+import os
 
 
 def find_interface_by_index(device, interface_index):
@@ -31,6 +33,8 @@ def send_data_to_intf(VID, PID, interface_index):
 
     # Find the interface by index
     intf = find_interface_by_index(dev, interface_index)
+    print("Device\n\n")
+    print(dev)
     if intf is None:
         raise ValueError(f"Interface with index {interface_index} not found")
 
@@ -54,8 +58,8 @@ def send_data_to_intf(VID, PID, interface_index):
         ep_out = usb.util.find_descriptor(intf, custom_match = \
         lambda e: usb.util.endpoint_direction(e.bEndpointAddress) == usb.util.ENDPOINT_OUT)
 
-        #print(ep_in)
-        #print(ep_out)
+        print(ep_in)
+        print(ep_out)
         buf = "IF{}\n".format(interface_index).encode('utf-8')
         ep_write(bytes(buf))
 
@@ -83,7 +87,32 @@ def test_usb_device_esp_tinyusb(dut: IdfDut) -> None:
     2. Expect 2 Vendor specific interfaces in the system
     3. Send some data to it, check log output
     '''
+
+    be = libusb1.get_backend()
+    print("Backend: \n\n")
+    print(be)
+
+    os.environ['PYUSB_DEBUG'] = 'debug'
+    usb.core.find()
+
+    backend = usb.backend.libusb1.get_backend(find_library=lambda x: "/usr/lib/libusb-1.0.so")
+    print("Backend: \n\n")
+    print(backend)
+    sleep(2)
+
+    found_devices = usb.core.find(find_all=True)
+    print("Found devices\n\n")
+    for device in found_devices:
+        print(device)
+
     dut.run_all_single_board_cases(group='vendor')
+
+    sleep(2)  # Wait until the device is enumerated
+
+    found_devices = usb.core.find(find_all=True)
+    print("Found devices\n\n")
+    for device in found_devices:
+        print(device)
 
     sleep(2)  # Wait until the device is enumerated
 
