@@ -19,7 +19,7 @@ extern "C" {
 #include "Mockevent_groups.h"
 }
 
-SCENARIO("CDC-ACM Host install")
+SCENARIO("CDC-ACM Host public API unit test: cdc_acm_host_install", "[API][unit]")
 {
     // CDC-ACM Host driver config set to nullptr
     GIVEN("NO CDC-ACM Host driver config, driver not installed") {
