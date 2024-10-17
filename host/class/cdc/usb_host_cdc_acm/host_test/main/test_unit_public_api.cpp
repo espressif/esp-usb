@@ -45,7 +45,8 @@ SCENARIO("CDC-ACM Host install")
             vTaskDelete_Expect(task_handle);
 
             // Call the DUT function, expect ESP_ERR_NO_MEM
-            REQUIRE(ESP_ERR_NO_MEM == cdc_acm_host_install(nullptr));
+            esp_err_t ret = cdc_acm_host_install(nullptr);
+            REQUIRE(ESP_ERR_NO_MEM == ret);
         }
 
         // Call cdc_acm_host_install, expect to successfully install the CDC ACM host
@@ -71,7 +72,8 @@ SCENARIO("CDC-ACM Host install")
             vTaskResume_Expect(task_handle);
 
             // Call the DUT Function, expect ESP_OK
-            REQUIRE(ESP_OK == cdc_acm_host_install(nullptr));
+            esp_err_t ret = cdc_acm_host_install(nullptr);
+            REQUIRE(ESP_OK == ret);
         }
     }
 }
