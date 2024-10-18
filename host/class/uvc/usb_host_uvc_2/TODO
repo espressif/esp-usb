@@ -3,8 +3,8 @@
 - [x] 1 CTRL transfer for the driver? of 1 transfer for a device?
 - [x] Mock USB host for descriptor parsing
 - [ ] Allow floating FPS
-- [ ] Allow setting of default
-- [ ] Add descriptor printing from UVC version 1
+- [ ] Allow setting of default frame format
+- [x] Add descriptor printing from UVC version 1
 - [ ] Test reconnections
 - [ ] Test frequent stream pause/resume
 - [ ] Support bulk transfers

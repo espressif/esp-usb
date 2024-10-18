@@ -136,7 +136,7 @@ static bool uvc_desc_format_is_equal(const uvc_frame_desc_t *frame_desc, const u
         const uint32_t *dwFrameInterval;
 
         // First parse the format specific frame descriptor
-        if (frame_desc->bDescriptorSubtype == UVC_VS_DESC_SUBTYPE_FRAME_FRAME_BASED) {
+        if (frame_desc->bDescriptorSubType == UVC_VS_DESC_SUBTYPE_FRAME_FRAME_BASED) {
             bFrameIntervalType = frame_desc->frame_based.bFrameIntervalType;
             dwMinFrameInterval = frame_desc->frame_based.dwMinFrameInterval;
             dwMaxFrameInterval = frame_desc->frame_based.dwMaxFrameInterval;

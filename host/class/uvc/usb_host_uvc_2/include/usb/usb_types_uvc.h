@@ -134,7 +134,7 @@ ESP_STATIC_ASSERT(sizeof(uvc_vs_ctrl_t) == 48, "Size of uvc_vs_ctrl_t incorrect"
 typedef struct {
     uint8_t  bLength;
     uint8_t  bDescriptorType;
-    uint8_t  bDescriptorSubtype;
+    uint8_t  bDescriptorSubType;
     uint8_t  bFrameIndex;
     uint8_t  bmCapabilities;
     uint16_t wWidth;
@@ -295,3 +295,15 @@ typedef struct {
         uint8_t val;
     } bmHeaderInfo;
 } __attribute__((packed)) uvc_payload_header_t;
+
+/**
+ * @brief Class-specific VC Interrupt Endpoint Descriptor
+ *
+ * @see USB UVC specification ver 1.5, table 3-12
+ */
+typedef struct {
+    uint8_t  bLength;
+    uint8_t  bDescriptorType;
+    uint8_t  bDescriptorSubType;
+    uint16_t wMaxTransferSize;
+} __attribute__((packed)) uvc_vc_interrupt_ep_desc_t;
