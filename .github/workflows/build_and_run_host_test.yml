@@ -23,9 +23,9 @@ jobs:
         shell: bash
         run: |
           . ${IDF_PATH}/export.sh
-          pip install pytest pytest-cpp idf-build-apps==2.4.3 --upgrade
+          pip install idf-build-apps==2.4.3 --upgrade
           idf-build-apps find --target linux
           idf-build-apps build --target linux
-          pytest host/class/cdc/usb_host_cdc_acm/host_test/build_linux
-          pytest host/class/uvc/usb_host_uvc/host_test/build_linux
-          pytest host/class/hid/usb_host_hid/host_test/build_linux
+           ./host/class/cdc/usb_host_cdc_acm/host_test/build_linux
+           ./host/class/uvc/usb_host_uvc/host_test/build_linux
+           ./host/class/hid/usb_host_hid/host_test/build_linux
