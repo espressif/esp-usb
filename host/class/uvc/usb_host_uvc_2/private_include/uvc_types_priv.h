@@ -12,7 +12,6 @@
 
 #include "usb/usb_host.h"
 #include "usb/uvc_host.h"
-#include "uvc_check_priv.h"
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"

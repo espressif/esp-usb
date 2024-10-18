@@ -14,8 +14,9 @@
 #include "usb/usb_types_uvc.h"
 #include "uvc_types_priv.h"
 #include "uvc_descriptors_priv.h"
+#include "uvc_check_priv.h"
 
-static const char *TAG = "UVC-control";
+static const char *TAG = "uvc-control";
 
 static uint16_t uvc_vs_control_size(uint16_t uvc_version)
 {

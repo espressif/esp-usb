@@ -11,11 +11,12 @@
 #include "usb/uvc_host.h"
 #include "uvc_frame_priv.h"
 #include "uvc_types_priv.h"
+#include "uvc_check_priv.h"
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 
-static const char *TAG = "UVC-frame";
+static const char *TAG = "uvc-frame";
 
 esp_err_t uvc_host_frame_return(uvc_host_stream_hdl_t stream_hdl, uvc_frame_t *frame)
 {
