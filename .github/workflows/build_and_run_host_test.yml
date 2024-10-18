@@ -26,6 +26,6 @@ jobs:
           pip install idf-build-apps==2.4.3 --upgrade
           idf-build-apps find --target linux
           idf-build-apps build --target linux
-           ./host/class/cdc/usb_host_cdc_acm/host_test/build_linux
-           ./host/class/uvc/usb_host_uvc/host_test/build_linux
-           ./host/class/hid/usb_host_hid/host_test/build_linux
+           ./host/class/cdc/usb_host_cdc_acm/host_test/build_linux/host_test_usb_cdc.elf
+           ./host/class/uvc/usb_host_uvc/host_test/build_linux/host_test_usb_uvc.elf
+           ./host/class/hid/usb_host_hid/host_test/build_linux/host_test_usb_hid.elf
