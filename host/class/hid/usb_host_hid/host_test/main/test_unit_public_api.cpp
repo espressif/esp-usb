@@ -34,7 +34,7 @@ SCENARIO("HID Host install")
 
         // Call hid_host_install with hid_host_driver_config set to nullptr
         SECTION("Config is nullptr") {
-            REQUIRE(ESP_ERR_INVALID_ARG == hid_host_install(nullptr));
+            REQUIRE(ESP_OK == hid_host_install(nullptr));
         }
     }
 
