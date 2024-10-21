@@ -26,4 +26,4 @@ jobs:
           pip install idf-build-apps==2.4.3 --upgrade
           idf-build-apps find --target linux
           idf-build-apps build --target linux
-          chmod +x run_host_tests.sh && ./run_host_tests.sh
+          chmod +x $GITHUB_WORKSPACE/run_host_tests.sh && ./$GITHUB_WORKSPACE/run_host_tests.sh
