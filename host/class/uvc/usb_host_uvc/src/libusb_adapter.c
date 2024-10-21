@@ -374,7 +374,7 @@ int32_t libusb_get_device_list(struct libusb_context *ctx, libusb_device ***list
     }
 
     for (size_t i = 0; i < actual_count; i++) {
-        dev_list[i] = (libusb_device *)(uint32_t)dev_addr_list[i];
+        dev_list[i] = (libusb_device *)(uintptr_t)dev_addr_list[i];
     }
     *list = (libusb_device **)dev_list;
     return actual_count;
@@ -453,7 +453,7 @@ static esp_err_t close_device(uvc_camera_t *device)
 
 int libusb_open(libusb_device *dev, libusb_device_handle **dev_handle)
 {
-    uint8_t device_addr = (uint8_t)(uint32_t)dev;
+    uint8_t device_addr = (uint8_t)(uintptr_t)dev;
     uvc_camera_t *device;
 
     RETURN_ON_ERROR_LIBUSB( open_device_if_closed(device_addr, &device) );
@@ -672,7 +672,7 @@ int libusb_control_transfer(libusb_device_handle *dev_handle,
 
 int libusb_get_device_descriptor(libusb_device *dev, struct libusb_device_descriptor *desc)
 {
-    uint8_t device_addr = (uint8_t)(uint32_t)dev;
+    uint8_t device_addr = (uint8_t)(uintptr_t)dev;
     const usb_device_desc_t *device_desc;
     uvc_camera_t *device;
 
@@ -705,7 +705,7 @@ int libusb_get_config_descriptor(libusb_device *dev,
                                  uint8_t config_index,
                                  struct libusb_config_descriptor **config)
 {
-    uint8_t device_addr = (uint8_t)(uint32_t)dev;
+    uint8_t device_addr = (uint8_t)(uintptr_t)dev;
     const usb_config_desc_t *config_desc;
     uvc_camera_t *device;
 
@@ -835,5 +835,5 @@ int8_t libusb_get_bus_number(libusb_device *device)
 int8_t libusb_get_device_address(libusb_device *device)
 {
     // Device address is stored directly in libusb_device
-    return (uint8_t)(uint32_t)device;
+    return (uint8_t)(uintptr_t)device;
 }
