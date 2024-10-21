@@ -40,7 +40,7 @@ typedef struct {
     } type;
     union {
         int error;                         //!< Error code from USB Host
-        uvc_host_stream_hdl_t stream_hdl;         //!< Disconnection event
+        uvc_host_stream_hdl_t stream_hdl;  //!< Disconnection event
     } data;
 } uvc_host_stream_event_data_t;
 
@@ -69,10 +69,10 @@ typedef struct {
  */
 typedef struct {
     const uvc_host_stream_format_t vs_format; /**< Format of this frame buffer */
-    size_t data_buffer_len;                   /**< Max data length supported by this frame buffer*/
+    size_t data_buffer_len;                   /**< Max data length supported by this frame buffer */
     size_t data_len;                          /**< Data length of currently store frame */
     uint8_t *data;                            /**< Frame data */
-} uvc_frame_t;
+} uvc_frame_t; // @todo rename to uvc_host_frame_t?
 
 /**
  * @brief Stream event callback type
@@ -112,6 +112,7 @@ typedef struct {
         int number_of_frame_buffers; /**< Number of frame buffers. These can be very large as they must hold the full frame.*/
         size_t frame_size;           /**< 0: Use frame size from format negotiation result (might be too big).
                                           (0; SIZE_MAX>: Use user provide frame size. */
+        uint32_t frame_heap_caps;    /**< Memory capabilities for frame buffers. Directly passed to heap_caps_malloc() */
         int number_of_urbs;          /**< Number of URBs for this stream. Triple buffering scheme is recommended */
         size_t urb_size;             /**< Size in bytes of 1 URB, 10kB should be enough for start.
                                           Larger value results in less frequent interrupts at the cost of memory consumption */

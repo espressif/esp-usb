@@ -25,6 +25,7 @@ SCENARIO("Camera descriptor parsing: Trust Webcam", "[trust][webcam]")
             FORMAT_UNCOMPRESSED_30_5(320, 240),
             FORMAT_UNCOMPRESSED_30_5(176, 144),
             {1280, 1024, 5, UVC_VS_FORMAT_UNCOMPRESSED},
+            FORMAT_UNCOMPRESSED_30_5(160, 120),
         };
 
         for (uvc_host_stream_format_t this_format : formats) {

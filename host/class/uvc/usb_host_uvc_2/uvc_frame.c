@@ -8,6 +8,8 @@
 #include <inttypes.h>
 
 #include "esp_check.h"
+#include "esp_heap_caps.h"
+
 #include "usb/uvc_host.h"
 #include "uvc_frame_priv.h"
 #include "uvc_types_priv.h"
@@ -28,7 +30,7 @@ esp_err_t uvc_host_frame_return(uvc_host_stream_hdl_t stream_hdl, uvc_frame_t *f
     return ESP_OK;
 }
 
-esp_err_t uvc_frame_allocate(uvc_stream_t *uvc_stream, int nb_of_fb, size_t fb_size)
+esp_err_t uvc_frame_allocate(uvc_stream_t *uvc_stream, int nb_of_fb, size_t fb_size, uint32_t fb_caps)
 {
     UVC_CHECK(uvc_stream, ESP_ERR_INVALID_ARG);
     esp_err_t ret;
@@ -39,7 +41,10 @@ esp_err_t uvc_frame_allocate(uvc_stream_t *uvc_stream, int nb_of_fb, size_t fb_s
     for (int i = 0; i < nb_of_fb; i++) {
         // Allocate the frame buffer
         uvc_frame_t *this_fb = malloc(sizeof(uvc_frame_t));
-        uint8_t *this_data = malloc(fb_size);
+        if (fb_caps == 0) {
+            fb_caps = MALLOC_CAP_DEFAULT; // In case the user did not fill the config, set it to default
+        }
+        uint8_t *this_data = heap_caps_malloc(fb_size, fb_caps);
         if (this_data == NULL || this_fb == NULL) {
             free(this_fb);
             free(this_data);

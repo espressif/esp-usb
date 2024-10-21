@@ -527,7 +527,11 @@ esp_err_t uvc_host_stream_open(const uvc_host_stream_config_t *stream_config, in
     };
 
     ESP_GOTO_ON_ERROR(
-        uvc_frame_allocate(uvc_stream, stream_config->advanced.number_of_frame_buffers, frame_buffer_size),
+        uvc_frame_allocate(
+            uvc_stream,
+            stream_config->advanced.number_of_frame_buffers,
+            frame_buffer_size,
+            stream_config->advanced.frame_heap_caps),
         err, TAG,);
 
     // Save info
