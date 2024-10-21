@@ -84,7 +84,11 @@ int uvc_desc_parse_format(const uvc_format_desc_t *format_desc)
 
     switch (format_desc->bDescriptorSubType) {
     case UVC_VS_DESC_SUBTYPE_FORMAT_UNCOMPRESSED:
-        ret = UVC_VS_FORMAT_UNCOMPRESSED;
+        const char *guid = (const char *)(format_desc->uncompressed_frame_based.guidFormat);
+        // We do not check full guid, but only the first 4 characters that show human readable format
+        if (strncmp(guid, "YUY2", 4) == 0) {
+            ret = UVC_VS_FORMAT_YUY2;
+        }
         break;
     case UVC_VS_DESC_SUBTYPE_FORMAT_MJPEG:
         ret = UVC_VS_FORMAT_MJPEG;

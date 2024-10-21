@@ -50,7 +50,7 @@ typedef struct {
 enum uvc_host_stream_format {
     UVC_VS_FORMAT_UNDEFINED = 0,
     UVC_VS_FORMAT_MJPEG,
-    UVC_VS_FORMAT_UNCOMPRESSED,
+    UVC_VS_FORMAT_YUY2,
     UVC_VS_FORMAT_H264,
     UVC_VS_FORMAT_H265,
 };

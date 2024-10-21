@@ -34,40 +34,40 @@
     {x, y, 15, UVC_VS_FORMAT_MJPEG}
 
 /**
- * @brief Define Uncompressed formats with FPS 30-5
+ * @brief Define YUY2 formats with FPS 30-5
  */
-#define FORMAT_UNCOMPRESSED_30_5(x, y)      \
-    {x, y, 30, UVC_VS_FORMAT_UNCOMPRESSED}, \
-    {x, y, 25, UVC_VS_FORMAT_UNCOMPRESSED}, \
-    {x, y, 20, UVC_VS_FORMAT_UNCOMPRESSED}, \
-    {x, y, 15, UVC_VS_FORMAT_UNCOMPRESSED}, \
-    {x, y, 10, UVC_VS_FORMAT_UNCOMPRESSED}, \
-    {x, y, 5, UVC_VS_FORMAT_UNCOMPRESSED}
+#define FORMAT_UNCOMPRESSED_30_5(x, y) \
+    {x, y, 30, UVC_VS_FORMAT_YUY2},    \
+    {x, y, 25, UVC_VS_FORMAT_YUY2},    \
+    {x, y, 20, UVC_VS_FORMAT_YUY2},    \
+    {x, y, 15, UVC_VS_FORMAT_YUY2},    \
+    {x, y, 10, UVC_VS_FORMAT_YUY2},    \
+    {x, y, 5, UVC_VS_FORMAT_YUY2}
 
 /**
- * @brief Define Uncompressed formats with FPS 30-15
+ * @brief Define YUY2 formats with FPS 30-15
  */
-#define FORMAT_UNCOMPRESSED_30_25_15(x, y)  \
-    {x, y, 30, UVC_VS_FORMAT_UNCOMPRESSED}, \
-    {x, y, 25, UVC_VS_FORMAT_UNCOMPRESSED}, \
-    {x, y, 15, UVC_VS_FORMAT_UNCOMPRESSED}
+#define FORMAT_UNCOMPRESSED_30_25_15(x, y) \
+    {x, y, 30, UVC_VS_FORMAT_YUY2},        \
+    {x, y, 25, UVC_VS_FORMAT_YUY2},        \
+    {x, y, 15, UVC_VS_FORMAT_YUY2}
 
 /**
- * @brief Define Uncompressed formats with FPS 30-15
+ * @brief Define YUY2 formats with FPS 30-15
  */
-#define FORMAT_UNCOMPRESSED_30_20_15(x, y)  \
-    {x, y, 30, UVC_VS_FORMAT_UNCOMPRESSED}, \
-    {x, y, 20, UVC_VS_FORMAT_UNCOMPRESSED}, \
-    {x, y, 15, UVC_VS_FORMAT_UNCOMPRESSED}
+#define FORMAT_UNCOMPRESSED_30_20_15(x, y) \
+    {x, y, 30, UVC_VS_FORMAT_YUY2},        \
+    {x, y, 20, UVC_VS_FORMAT_YUY2},        \
+    {x, y, 15, UVC_VS_FORMAT_YUY2}
 
 /**
- * @brief Define Uncompressed formats with FPS 5-20
+ * @brief Define YUY2 formats with FPS 20-5
  */
-#define FORMAT_UNCOMPRESSED_20_5(x, y)     \
-    {x, y, 20, UVC_VS_FORMAT_UNCOMPRESSED}, \
-    {x, y, 15, UVC_VS_FORMAT_UNCOMPRESSED}, \
-    {x, y, 10, UVC_VS_FORMAT_UNCOMPRESSED}, \
-    {x, y, 5, UVC_VS_FORMAT_UNCOMPRESSED}
+#define FORMAT_UNCOMPRESSED_20_5(x, y) \
+    {x, y, 20, UVC_VS_FORMAT_YUY2},    \
+    {x, y, 15, UVC_VS_FORMAT_YUY2},    \
+    {x, y, 10, UVC_VS_FORMAT_YUY2},    \
+    {x, y, 5, UVC_VS_FORMAT_YUY2}
 
 /**
  * @brief Define h264 formats with FPS 30-15

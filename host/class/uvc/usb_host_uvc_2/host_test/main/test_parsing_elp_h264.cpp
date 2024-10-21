@@ -39,7 +39,7 @@ SCENARIO("Camera descriptor parsing: ELP h264", "[elp][h264]")
     GIVEN("ELP h264 Uncompressed") {
         uvc_host_stream_format_t formats[] = {
             FORMAT_UNCOMPRESSED_30_25_15(640, 480),
-            {800, 600, 15, UVC_VS_FORMAT_UNCOMPRESSED},
+            {800, 600, 15, UVC_VS_FORMAT_YUY2},
             FORMAT_UNCOMPRESSED_30_25_15(352, 288),
             FORMAT_UNCOMPRESSED_30_25_15(320, 240),
         };

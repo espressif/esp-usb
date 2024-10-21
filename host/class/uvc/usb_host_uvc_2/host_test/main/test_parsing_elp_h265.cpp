@@ -79,17 +79,17 @@ SCENARIO("Camera descriptor parsing: ELP h265", "[elp][h265]")
         uvc_host_stream_format_t formats[] = {
             FORMAT_UNCOMPRESSED_30_20_15(640, 360),
             FORMAT_UNCOMPRESSED_30_20_15(640, 480),
-            {960, 540, 15, UVC_VS_FORMAT_UNCOMPRESSED},
-            {960, 540, 10, UVC_VS_FORMAT_UNCOMPRESSED},
-            {960, 540, 5, UVC_VS_FORMAT_UNCOMPRESSED},
-            {1024, 576, 15, UVC_VS_FORMAT_UNCOMPRESSED},
-            {1024, 576, 10, UVC_VS_FORMAT_UNCOMPRESSED},
-            {1024, 576, 5, UVC_VS_FORMAT_UNCOMPRESSED},
-            {1280, 720, 10, UVC_VS_FORMAT_UNCOMPRESSED},
-            {1280, 720, 5, UVC_VS_FORMAT_UNCOMPRESSED},
-            {1280, 720, 2, UVC_VS_FORMAT_UNCOMPRESSED},
-            {1920, 1080, 5, UVC_VS_FORMAT_UNCOMPRESSED},
-            {1920, 1080, 2, UVC_VS_FORMAT_UNCOMPRESSED},
+            {960, 540, 15, UVC_VS_FORMAT_YUY2},
+            {960, 540, 10, UVC_VS_FORMAT_YUY2},
+            {960, 540, 5, UVC_VS_FORMAT_YUY2},
+            {1024, 576, 15, UVC_VS_FORMAT_YUY2},
+            {1024, 576, 10, UVC_VS_FORMAT_YUY2},
+            {1024, 576, 5, UVC_VS_FORMAT_YUY2},
+            {1280, 720, 10, UVC_VS_FORMAT_YUY2},
+            {1280, 720, 5, UVC_VS_FORMAT_YUY2},
+            {1280, 720, 2, UVC_VS_FORMAT_YUY2},
+            {1920, 1080, 5, UVC_VS_FORMAT_YUY2},
+            {1920, 1080, 2, UVC_VS_FORMAT_YUY2},
         };
 
         for (uvc_host_stream_format_t this_format : formats) {

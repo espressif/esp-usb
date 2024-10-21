@@ -9,4 +9,4 @@
 - [ ] Test reconnections
 - [ ] Test frequent stream pause/resume
 - [ ] Support bulk transfers
-- [ ] Support for different uncompressed formats
+- [ ] Support for different uncompressed formats (other than YUY2)
