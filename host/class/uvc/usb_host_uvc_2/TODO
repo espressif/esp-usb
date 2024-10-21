@@ -3,10 +3,11 @@
 - [x] 1 CTRL transfer for the driver? of 1 transfer for a device?
 - [x] Mock USB host for descriptor parsing
 - [x] Allow placing frame buffers to SPIRAM
-- [ ] Allow floating FPS
+- [ ] Allow floating point FPS
 - [ ] Allow setting of default frame format
 - [x] Add descriptor printing from UVC version 1
 - [ ] Test reconnections
 - [ ] Test frequent stream pause/resume
 - [ ] Support bulk transfers
 - [ ] Support for different uncompressed formats (other than YUY2)
+- [ ] Check if MPS fits into IN FIFO (on S2 and S3 our buffer is not big enough to hold 1 ISOC frame!)

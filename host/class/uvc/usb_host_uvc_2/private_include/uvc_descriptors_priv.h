@@ -34,9 +34,29 @@ esp_err_t uvc_desc_get_streaming_interface_num(
     uint16_t *bcdUVC,
     uint8_t *bInterfaceNumber);
 
+/**
+ * @brief Get Streaming Interface and Endpoint descriptors
+ *
+ * We go through all alternate interfaces and pick the one that offers endpoint with MPS that:
+ * * Is lower than or equal to dwMaxPayloadTransferSize
+ * * Has as few as possible extra transactions per microframe (HS only)
+ *
+ * @note The caller is responsible for dwMaxPayloadTransferSize fitting in the IN FIFO
+ *
+ * @param[in] cfg_desc                 Configuration descriptor
+ * @param[in] bInterfaceNumber         Index of Streaming interface
+ * @param[in] dwMaxPayloadTransferSize Maximum requested MPS
+ * @param[out] intf_desc_ret           Interface descriptor
+ * @param[out] ep_desc_ret             Endpoint descriptor
+ * @return
+ *     - ESP_OK: Success
+ *     - ESP_ERR_INVALID_ARG: cfg_desc, intf_desc_ret or ep_desc_ret is NULL
+ *     - ESP_ERR_NOT_FOUND: Could not find interface with required parameters
+ */
 esp_err_t uvc_desc_get_streaming_intf_and_ep(
     const usb_config_desc_t *cfg_desc,
     uint8_t bInterfaceNumber,
+    uint16_t dwMaxPayloadTransferSize,
     const usb_intf_desc_t **intf_desc_ret,
     const usb_ep_desc_t **ep_desc_ret);
 

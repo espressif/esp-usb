@@ -335,8 +335,17 @@ static esp_err_t uvc_claim_interface(uvc_stream_t *uvc_stream, const usb_ep_desc
     const usb_ep_desc_t *ep_desc;
     const usb_config_desc_t *cfg_desc;
     ESP_ERROR_CHECK(usb_host_get_active_config_descriptor(uvc_stream->dev_hdl, &cfg_desc));
+
+    // @todo fix the hard-coded number here: Should be taken from HAL FIFO config?
+#include "sdkconfig.h"
+#if (CONFIG_IDF_TARGET_ESP32P4)
+#define MAX_MPS_IN 4096
+#else
+#define MAX_MPS_IN 600
+#endif
+
     ESP_RETURN_ON_ERROR(
-        uvc_desc_get_streaming_intf_and_ep(cfg_desc, uvc_stream->bInterfaceNumber, &intf_desc, &ep_desc),
+        uvc_desc_get_streaming_intf_and_ep(cfg_desc, uvc_stream->bInterfaceNumber, MAX_MPS_IN, &intf_desc, &ep_desc),
         TAG, "Could not find Streaming interface %d", uvc_stream->bInterfaceNumber);
 
     // Save all required parameters

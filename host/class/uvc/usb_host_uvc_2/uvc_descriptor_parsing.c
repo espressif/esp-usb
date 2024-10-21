@@ -33,11 +33,11 @@ static const uvc_vs_input_header_desc_t *uvc_desc_get_streaming_input_header(con
 esp_err_t uvc_desc_get_streaming_intf_and_ep(
     const usb_config_desc_t *cfg_desc,
     uint8_t bInterfaceNumber,
+    uint16_t dwMaxPayloadTransferSize,
     const usb_intf_desc_t **intf_desc_ret,
     const usb_ep_desc_t **ep_desc_ret)
 {
-    UVC_CHECK(cfg_desc, ESP_ERR_NOT_FOUND);
-    UVC_CHECK(intf_desc_ret && ep_desc_ret, ESP_ERR_INVALID_ARG);
+    UVC_CHECK(cfg_desc && intf_desc_ret && ep_desc_ret, ESP_ERR_INVALID_ARG);
 
     const usb_intf_desc_t *intf_desc = NULL;
     const usb_ep_desc_t *ep_desc = NULL;
@@ -46,7 +46,7 @@ esp_err_t uvc_desc_get_streaming_intf_and_ep(
     const uint8_t num_of_alternate = usb_parse_interface_number_of_alternate(cfg_desc, bInterfaceNumber);
     uint16_t last_mps = 0; // Looking for maximum MPS: init to zero
     uint8_t last_mult = UINT8_MAX; // Looking for minimum: init to max
-    for (int i = 0; i < num_of_alternate + 1; i++) {
+    for (int i = 0; i <= num_of_alternate; i++) {
         // Check Interface desc
         intf_desc = usb_parse_interface_descriptor(cfg_desc, bInterfaceNumber, i, &offset);
         UVC_CHECK(intf_desc, ESP_ERR_NOT_FOUND);
@@ -62,9 +62,10 @@ esp_err_t uvc_desc_get_streaming_intf_and_ep(
         UVC_CHECK(ep_desc, ESP_ERR_NOT_FOUND);
 
         // Here we look for an interface that offers the largest MPS with minimum multiple transactions in a microframe
+        // and that is not bigger that max. requests MPS
         const uint16_t current_mps = USB_EP_DESC_GET_MPS(ep_desc);
         const uint8_t current_mult = USB_EP_DESC_GET_MULT(ep_desc);
-        if (current_mps >= last_mps && current_mult <= last_mult) {
+        if (current_mps >= last_mps && current_mult <= last_mult && current_mps <= dwMaxPayloadTransferSize) {
             last_mps = current_mps;
             last_mult = current_mult;
             *ep_desc_ret = ep_desc;

@@ -44,7 +44,7 @@ SCENARIO("Camera descriptor parsing: TinyUSB dual UVC", "[tusb][dual]")
                 REQUIRE(bInterfaceNumber == 3);
                 const usb_intf_desc_t *intf_desc = nullptr;
                 const usb_ep_desc_t *ep_desc = nullptr;
-                REQUIRE(ESP_OK == uvc_desc_get_streaming_intf_and_ep(cfg, bInterfaceNumber, &intf_desc, &ep_desc));
+                REQUIRE(ESP_OK == uvc_desc_get_streaming_intf_and_ep(cfg, bInterfaceNumber, 1024, &intf_desc, &ep_desc));
                 REQUIRE(intf_desc != nullptr);
                 REQUIRE(ep_desc != nullptr);
                 const uvc_format_desc_t *format_desc = nullptr;
