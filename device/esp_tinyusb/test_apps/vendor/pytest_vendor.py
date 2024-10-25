@@ -68,7 +68,7 @@ def send_data_to_intf(VID, PID, interface_index):
 @pytest.mark.esp32s3
 @pytest.mark.esp32p4
 @pytest.mark.usb_device
-def test_usb_device_esp_tinyusb(dut: IdfDut) -> None:
+def test_usb_device_vendor(dut: IdfDut) -> None:
     '''
     Running the test locally:
     1. Build the test app for your DUT
