@@ -19,11 +19,11 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: 'true'
-      - name: Build USB Test Application
+      - name: Build and Test
         shell: bash
         run: |
           . ${IDF_PATH}/export.sh
-          pip install pytest pytest-cpp idf-build-apps==2.4.3 --upgrade
+          pip install pytest idf-build-apps==2.4.3 --upgrade
           idf-build-apps find --target linux
           idf-build-apps build --target linux
-          pytest host/class/cdc/usb_host_cdc_acm/host_test/build_linux
+          chmod +x $GITHUB_WORKSPACE/run_host_tests.sh && $GITHUB_WORKSPACE/run_host_tests.sh
