@@ -80,7 +80,7 @@ static portMUX_TYPE msc_lock = portMUX_INITIALIZER_UNLOCKED;
 })
 
 #define DEFAULT_XFER_SIZE   (64) // Transfer size used for all transfers apart from SCSI read/write
-#define WAIT_FOR_READY_TIMEOUT_MS 3000
+#define WAIT_FOR_READY_TIMEOUT_MS 5000
 #define SCSI_COMMAND_SET    0x06
 #define BULK_ONLY_TRANSFER  0x50
 #define MSC_NO_SENSE        0x00
@@ -288,16 +288,20 @@ static esp_err_t msc_wait_for_ready_state(msc_device_t *dev, size_t timeout_ms)
 
     do {
         err = scsi_cmd_unit_ready(dev);
+        if (err == ESP_OK) {
+            return ESP_OK;
+        } else {
+            // Some MSC devices report 'NOT READY TO READY TRANSITION - MEDIA CHANGED', which isn't cleared until a REQUEST SENSE is performed.
+            MSC_RETURN_ON_ERROR( scsi_cmd_sense(dev, &sense) );
+            if (sense.key != MSC_NOT_READY &&
+                    sense.key != MSC_UNIT_ATTENTION &&
+                    sense.key != MSC_NO_SENSE) {
+                return ESP_ERR_MSC_INTERNAL;
+            }
+        }
         vTaskDelay( pdMS_TO_TICKS(100) );
     } while (trials-- && err);
-    if (err != ESP_OK) {
-        MSC_RETURN_ON_ERROR( scsi_cmd_sense(dev, &sense) );
-        if (sense.key != MSC_NOT_READY &&
-                sense.key != MSC_UNIT_ATTENTION &&
-                sense.key != MSC_NO_SENSE) {
-            return ESP_ERR_MSC_INTERNAL;
-        }
-    }
+
     return err;
 }
 
