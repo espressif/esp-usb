@@ -6,6 +6,15 @@ host/class:
   enable:
     - if: SOC_USB_OTG_SUPPORTED == 1
 
+# Host tests
 host/class/cdc/usb_host_cdc_acm/host_test:
+  enable:
+    - if: IDF_TARGET in ["linux"] and (IDF_VERSION_MAJOR >= 5 and IDF_VERSION_MINOR >= 4)
+
+host/class/hid/usb_host_hid/host_test:
+  enable:
+    - if: IDF_TARGET in ["linux"] and (IDF_VERSION_MAJOR >= 5 and IDF_VERSION_MINOR >= 4)
+
+host/class/uvc/usb_host_uvc/host_test:
   enable:
     - if: IDF_TARGET in ["linux"] and (IDF_VERSION_MAJOR >= 5 and IDF_VERSION_MINOR >= 4)
