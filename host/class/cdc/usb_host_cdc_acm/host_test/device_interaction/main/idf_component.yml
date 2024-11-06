@@ -2,4 +2,4 @@ dependencies:
   espressif/catch2: "^3.4.0"
   usb_host_cdc_acm:
     version: "*"
-    override_path: "../../"
+    override_path: "../../../"
