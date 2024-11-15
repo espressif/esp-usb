@@ -2,7 +2,7 @@ name: Build and Run USB Test Application
 
 on:
   schedule:
-    - cron: '0 0 * * SAT' # Saturday midnight
+    - cron: '0 0 * * *' # Every day at midnight
   pull_request:
     types: [opened, reopened, synchronize]
 
