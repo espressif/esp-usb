@@ -67,7 +67,7 @@ def send_data_to_intf(VID, PID, interface_index):
 @pytest.mark.esp32s2
 @pytest.mark.esp32s3
 @pytest.mark.esp32p4
-@pytest.mark.usb_device
+#@pytest.mark.usb_device                        Disable in CI, for now, not possible to run this test in Docker container
 def test_usb_device_vendor(dut: IdfDut) -> None:
     '''
     Running the test locally:

@@ -4,7 +4,7 @@
 import pytest
 from pytest_embedded_idf.dut import IdfDut
 from time import sleep
-from serial import Serial
+from serial import Serial, SerialException
 from serial.tools.list_ports import comports
 
 
@@ -32,6 +32,7 @@ def test_usb_device_cdc(dut) -> None:
     # Find devices with Espressif TinyUSB VID/PID
     s = []
     ports = comports()
+
     for port, _, hwid in ports:
         if '303A:4002' in hwid:
             s.append(port)
@@ -39,36 +40,45 @@ def test_usb_device_cdc(dut) -> None:
     if len(s) != 2:
         raise Exception('TinyUSB COM port not found')
 
-    with Serial(s[0]) as cdc0:
-        with Serial(s[1]) as cdc1:
-            # Write dummy string and check for echo
-            cdc0.write('text\r\n'.encode())
-            res = cdc0.readline()
-            assert b'text' in res
-            if b'novfs' in res:
-                novfs_cdc = cdc0
-                vfs_cdc = cdc1
+    try:
+        with Serial(s[0]) as cdc0:
+            with Serial(s[1]) as cdc1:
+                # Write dummy string and check for echo
+                cdc0.write('text\r\n'.encode())
+                res = cdc0.readline()
+                assert b'text' in res
+                if b'novfs' in res:
+                    novfs_cdc = cdc0
+                    vfs_cdc = cdc1
 
-            cdc1.write('text\r\n'.encode())
-            res = cdc1.readline()
-            assert b'text' in res
-            if b'novfs' in res:
-                novfs_cdc = cdc1
-                vfs_cdc = cdc0
+                cdc1.write('text\r\n'.encode())
+                res = cdc1.readline()
+                assert b'text' in res
+                if b'novfs' in res:
+                    novfs_cdc = cdc1
+                    vfs_cdc = cdc0
 
-            # Write more than MPS, check that the transfer is not divided
-            novfs_cdc.write(bytes(100))
-            dut.expect_exact("Intf 0, RX 100 bytes")
+                # Write more than MPS, check that the transfer is not divided
+                novfs_cdc.write(bytes(100))
+                dut.expect_exact("Intf 0, RX 100 bytes")
 
-            # Write more than RX buffer, check correct reception
-            novfs_cdc.write(bytes(600))
-            transfer_len1 = int(dut.expect(r'Intf 0, RX (\d+) bytes')[1].decode())
-            transfer_len2 = int(dut.expect(r'Intf 0, RX (\d+) bytes')[1].decode())
-            assert transfer_len1 + transfer_len2 == 600
+                # Write more than RX buffer, check correct reception
+                novfs_cdc.write(bytes(600))
+                transfer_len1 = int(dut.expect(r'Intf 0, RX (\d+) bytes')[1].decode())
+                transfer_len2 = int(dut.expect(r'Intf 0, RX (\d+) bytes')[1].decode())
+                assert transfer_len1 + transfer_len2 == 600
 
-            # The VFS is setup for CRLF RX and LF TX
-            vfs_cdc.write('text\r\n'.encode())
-            res = vfs_cdc.readline()
-            assert b'text\n' in res
+                # The VFS is setup for CRLF RX and LF TX
+                vfs_cdc.write('text\r\n'.encode())
+                res = vfs_cdc.readline()
+                assert b'text\n' in res
 
-            return
+                return
+
+    except SerialException as e:
+        print(f"SerialException occurred: {e}")
+        raise
+
+    except Exception as e:
+        print(f"An unexpected error occurred: {e}")
+        raise
