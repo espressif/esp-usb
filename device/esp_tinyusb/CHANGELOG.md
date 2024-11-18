@@ -1,3 +1,7 @@
+## 1.5.0 (Unreleased)
+
+- esp_tinyusb: Added DMA mode option to tinyusb DCD DWC2 configuration 
+
 ## 1.4.5
 
 - CDC-ACM: Fixed memory leak at VFS unregister
