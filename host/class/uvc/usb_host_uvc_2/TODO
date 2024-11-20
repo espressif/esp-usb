@@ -19,6 +19,7 @@ To-Do list:
 - [x] Add host test that checks functionality of uvc_isoc.c
 - [x] Test sudden disconnections and reconnections
 - [x] Update README.md
+- [x] Allow floating point FPS
 
 ## Future releases
 - [x] Check if MPS fits into IN FIFO (on S2 and S3 our buffer is not big enough to hold 1 ISOC frame!)
@@ -26,7 +27,6 @@ To-Do list:
 - [ ] Allow external events handling
 - [ ] Support for different uncompressed formats (other than YUY2)
 - [ ] Still image capture
-- [ ] Allow floating point FPS
 - [ ] Allow setting of default frame format and better format negotiation
 - [ ] Create private members of uvc_host_frame_t (eg. data_buffer_size and pointer to queue it belongs to). EDIT: is this safe? If the user passes the frame by copy, he will lose the private members!
 - [ ] Consider making uvc_host_stream_pause/unpause private!

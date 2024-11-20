@@ -111,7 +111,7 @@ static void frame_handling_task(void *arg)
     while (true) {
         uvc_host_stream_hdl_t uvc_stream = NULL;
 
-        ESP_LOGI(TAG, "Opening UVC device 0x%04X:0x%04X-%d\n\t%dx%d@%dFPS...",
+        ESP_LOGI(TAG, "Opening UVC device 0x%04X:0x%04X-%d\n\t%dx%d@%2.1fFPS...",
                  stream_config->usb.vid, stream_config->usb.pid, uvc_index, stream_config->vs_format.h_res, stream_config->vs_format.v_res, stream_config->vs_format.fps);
         esp_err_t err = uvc_host_stream_open(stream_config, pdMS_TO_TICKS(5000), &uvc_stream);
         if (ESP_OK != err) {
@@ -270,8 +270,6 @@ void app_init_sdcard(void)
 
 /**
  * @brief Main application
- *
- * Here we open a USB CDC device and send some data to it
  */
 void app_main(void)
 {

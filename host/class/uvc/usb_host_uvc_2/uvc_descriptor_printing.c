@@ -27,8 +27,8 @@ static void print_cs_endpoint_desc(const usb_standard_desc_t *_desc)
 {
     uvc_vc_interrupt_ep_desc_t *class_desc = (uvc_vc_interrupt_ep_desc_t *)_desc;
     printf("\t\t*** Class-specific Interrupt Endpoint Descriptor ***\n");
-    printf("\t\tbLength 0x%x\n", class_desc->bLength);
-    printf("\t\tbDescriptorType 0x%x\n", class_desc->bDescriptorType);
+    printf("\t\tbLength %u\n", class_desc->bLength);
+    printf("\t\tbDescriptorType 0x%02X\n", class_desc->bDescriptorType);
     printf("\t\tbDescriptorSubType %d\n", class_desc->bDescriptorSubType);
     printf("\t\twMaxTransferSize %d\n", class_desc->wMaxTransferSize);
 }
@@ -38,10 +38,10 @@ static void print_class_header_desc(const usb_standard_desc_t *_desc)
     if (interface_sub_class == UVC_SC_VIDEOCONTROL) {
         const uvc_vc_header_desc_t *desc = (const uvc_vc_header_desc_t *) _desc;
         printf("\t*** Class-specific VC Interface Descriptor ***\n");
-        printf("\tbLength 0x%x\n", desc->bLength);
-        printf("\tbDescriptorType 0x%x\n", desc->bDescriptorType);
-        printf("\tbDescriptorSubType %u\n", desc->bDescriptorSubType);
-        printf("\tbcdUVC %x\n", desc->bcdUVC);
+        printf("\tbLength %u\n", desc->bLength);
+        printf("\tbDescriptorType 0x%02X\n", desc->bDescriptorType);
+        printf("\tbDescriptorSubType 0x%02X\n", desc->bDescriptorSubType);
+        printf("\tbcdUVC %04x\n", desc->bcdUVC);
         printf("\twTotalLength %u\n", desc->wTotalLength);
         printf("\tdwClockFrequency %"PRIu32"\n", desc->dwClockFrequency);
         printf("\tbInCollection %u\n", desc->bInCollection);
@@ -51,20 +51,21 @@ static void print_class_header_desc(const usb_standard_desc_t *_desc)
     } else if (interface_sub_class == UVC_SC_VIDEOSTREAMING) {
         const uvc_vs_input_header_desc_t *desc = (const uvc_vs_input_header_desc_t *) _desc;
         printf("\t*** Class-specific VS Interface Descriptor ***\n");
-        printf("\tbLength 0x%x\n", desc->bLength);
-        printf("\tbDescriptorType 0x%x\n", desc->bDescriptorType);
-        printf("\tbDescriptorSubType %u\n", desc->bDescriptorSubType);
-        printf("\tbNumFormats %x\n", desc->bNumFormats);
+        printf("\tbLength %u\n", desc->bLength);
+        printf("\tbDescriptorType 0x%02X\n", desc->bDescriptorType);
+        printf("\tbDescriptorSubType 0x%02X\n", desc->bDescriptorSubType);
+        printf("\tbNumFormats 0x%X\n", desc->bNumFormats);
         printf("\twTotalLength %u\n", desc->wTotalLength);
-        printf("\tbEndpointAddress %u\n", desc->bEndpointAddress);
-        printf("\tbFunctionProtocol %u\n", desc->bFunctionProtocol);
-        printf("\tbmInfo 0x%x\n", desc->bmInfo);
+        printf("\tbEndpointAddress 0x%02X\n", desc->bEndpointAddress);
+        printf("\tbmInfo 0x%X\n", desc->bmInfo);
         printf("\tbTerminalLink %u\n", desc->bTerminalLink);
         printf("\tbStillCaptureMethod %u\n", desc->bStillCaptureMethod);
         printf("\tbTriggerSupport %u\n", desc->bTriggerSupport);
         printf("\tbTriggerUsage %u\n", desc->bTriggerUsage);
         printf("\tbControlSize %u\n", desc->bControlSize);
-        printf("\tbmaControls 0x%x\n", desc->bmaControls);
+        for (int format = 0; format < desc->bNumFormats; format++) {
+            printf("\tbmaControls[%d] 0x%X\n", format, desc->bmaControls[format * desc->bControlSize]);
+        }
     }
 }
 
@@ -82,11 +83,11 @@ static void print_vc_input_terminal_desc(const usb_standard_desc_t *_desc)
     }
 
     printf("\t*** Input Terminal Descriptor (%s) ***\n", type);
-    printf("\tbLength 0x%x\n", desc->bLength);
-    printf("\tbDescriptorType 0x%x\n", desc->bDescriptorType);
-    printf("\tbDescriptorSubType %u\n", desc->bDescriptorSubType);
-    printf("\tbTerminalID %x\n", desc->bTerminalID);
-    printf("\twTerminalType %x\n", desc->wTerminalType);
+    printf("\tbLength %u\n", desc->bLength);
+    printf("\tbDescriptorType 0x%02X\n", desc->bDescriptorType);
+    printf("\tbDescriptorSubType 0x%02X\n", desc->bDescriptorSubType);
+    printf("\tbTerminalID 0x%X\n", desc->bTerminalID);
+    printf("\twTerminalType 0x%X\n", desc->wTerminalType);
     printf("\tbAssocTerminal %u\n", desc->bAssocTerminal);
     printf("\tiTerminal %u\n", desc->iTerminal);
 
@@ -97,13 +98,16 @@ static void print_vc_input_terminal_desc(const usb_standard_desc_t *_desc)
         printf("\twObjectiveFocalLengthMax %u\n", desc->wObjectiveFocalLengthMax);
         printf("\twOcularFocalLength %u\n", desc->wOcularFocalLength);
         printf("\tbControlSize %u\n", desc->bControlSize);
-        printf("\tbmControls 0x%x\n", desc->bmControls);
+        printf("\tbmControls 0x%X 0x%X 0x%X\n",
+               desc->bmControls[0],
+               desc->bmControls[1],
+               desc->bmControls[2]);
     } else if (desc->wTerminalType == ITT_MEDIA_TRANSPORT_INPUT) {
         const uvc_input_terminal_media_desc_t *desc = (const uvc_input_terminal_media_desc_t *) _desc;
         printf("\tbControlSize %u\n", desc->bControlSize);
-        printf("\tbmControls 0x%x\n", desc->bmControls);
+        printf("\tbmControls 0x%X\n", desc->bmControls);
         printf("\tbTransportModeSize %u\n", desc->bTransportModeSize);
-        printf("\tbmTransportModes 0x%x 0x%x 0x%x 0x%x 0x%x\n",
+        printf("\tbmTransportModes 0x%X 0x%X 0x%X 0x%X 0x%X\n",
                desc->bmTransportModes[0],
                desc->bmTransportModes[1],
                desc->bmTransportModes[2],
@@ -116,11 +120,11 @@ static void print_vc_output_terminal_desc(const usb_standard_desc_t *_desc)
 {
     const uvc_output_terminal_desc_t *desc = (const uvc_output_terminal_desc_t *) _desc;
     printf("\t*** Output Terminal Descriptor ***\n");
-    printf("\tbLength 0x%x\n", desc->bLength);
-    printf("\tbDescriptorType 0x%x\n", desc->bDescriptorType);
-    printf("\tbDescriptorSubType %u\n", desc->bDescriptorSubType);
+    printf("\tbLength %u\n", desc->bLength);
+    printf("\tbDescriptorType 0x%02X\n", desc->bDescriptorType);
+    printf("\tbDescriptorSubType 0x%02X\n", desc->bDescriptorSubType);
     printf("\tbTerminalID %u\n", desc->bTerminalID);
-    printf("\twTerminalType %x\n", desc->wTerminalType);
+    printf("\twTerminalType 0x%X\n", desc->wTerminalType);
     printf("\tbAssocTerminal %u\n", desc->bAssocTerminal);
     printf("\tbSourceID %u\n", desc->bSourceID);
     printf("\tiTerminal %u\n", desc->iTerminal);
@@ -130,9 +134,9 @@ static void print_vc_selector_unit_desc(const usb_standard_desc_t *_desc)
 {
     const uvc_selector_unit_desc_t *desc = (const uvc_selector_unit_desc_t *) _desc;
     printf("\t*** Selector Unit Descriptor ***\n");
-    printf("\tbLength 0x%x\n", desc->bLength);
-    printf("\tbDescriptorType 0x%x\n", desc->bDescriptorType);
-    printf("\tbDescriptorSubType %u\n", desc->bDescriptorSubType);
+    printf("\tbLength %u\n", desc->bLength);
+    printf("\tbDescriptorType 0x%02X\n", desc->bDescriptorType);
+    printf("\tbDescriptorSubType 0x%02X\n", desc->bDescriptorSubType);
     printf("\tbUnitID %u\n", desc->bUnitID);
     printf("\tbNrInPins %u\n", desc->bNrInPins);
     printf("\tbaSourceID1 %u\n", desc->baSourceID1);
@@ -144,33 +148,36 @@ static void print_vc_processing_unit_desc(const usb_standard_desc_t *_desc)
 {
     const uvc_processing_unit_desc_t *desc = (const uvc_processing_unit_desc_t *) _desc;
     printf("\t*** Processing Unit Descriptor ***\n");
-    printf("\tbLength 0x%x\n", desc->bLength);
-    printf("\tbDescriptorType 0x%x\n", desc->bDescriptorType);
-    printf("\tbDescriptorSubType %u\n", desc->bDescriptorSubType);
+    printf("\tbLength %u\n", desc->bLength);
+    printf("\tbDescriptorType 0x%02X\n", desc->bDescriptorType);
+    printf("\tbDescriptorSubType 0x%02X\n", desc->bDescriptorSubType);
     printf("\tbUnitID %u\n", desc->bUnitID);
     printf("\tbSourceID %u\n", desc->bSourceID);
     printf("\twMaxMultiplier %u\n", desc->wMaxMultiplier);
     printf("\tbControlSize %u\n", desc->bControlSize);
-    printf("\tbmControls 0x%x\n", desc->bmControls);
+    printf("\tbmControls 0x%X 0x%X 0x%X\n",
+           desc->bmControls[0],
+           desc->bmControls[1],
+           desc->bmControls[2]);
     printf("\tiProcessing %u\n", desc->iProcessing);
-    printf("\tbmVideoStandards 0x%x\n", desc->bmVideoStandards);
+    printf("\tbmVideoStandards 0x%X\n", desc->bmVideoStandards);
 }
 
 static void print_vs_format_mjpeg_desc(const usb_standard_desc_t *_desc)
 {
     const uvc_format_desc_t *desc = (const uvc_format_desc_t *) _desc;
     printf("\t*** VS Format Descriptor ***\n");
-    printf("\tbLength 0x%x\n", desc->bLength);
-    printf("\tbDescriptorType 0x%x\n", desc->bDescriptorType);
-    printf("\tbDescriptorSubType 0x%x\n", desc->bDescriptorSubType);
-    printf("\tbFormatIndex 0x%x\n", desc->bFormatIndex);
+    printf("\tbLength %u\n", desc->bLength);
+    printf("\tbDescriptorType 0x%02X\n", desc->bDescriptorType);
+    printf("\tbDescriptorSubType 0x%02X\n", desc->bDescriptorSubType);
+    printf("\tbFormatIndex %u\n", desc->bFormatIndex);
     printf("\tbNumFrameDescriptors %u\n", desc->bNumFrameDescriptors);
 
-    printf("\tbmFlags 0x%x\n",          desc->mjpeg.bmFlags);
+    printf("\tbmFlags 0x%X\n",          desc->mjpeg.bmFlags);
     printf("\tbDefaultFrameIndex %u\n", desc->mjpeg.bDefaultFrameIndex);
     printf("\tbAspectRatioX %u\n",      desc->mjpeg.bAspectRatioX);
     printf("\tbAspectRatioY %u\n",      desc->mjpeg.bAspectRatioY);
-    printf("\tbmInterlaceFlags 0x%x\n", desc->mjpeg.bmInterlaceFlags);
+    printf("\tbmInterlaceFlags 0x%X\n", desc->mjpeg.bmInterlaceFlags);
     printf("\tbCopyProtect %u\n",       desc->mjpeg.bCopyProtect);
 }
 
@@ -183,11 +190,11 @@ static void print_vs_frame_mjpeg_desc(const usb_standard_desc_t *_desc)
 
     const uvc_frame_desc_t *desc = (const uvc_frame_desc_t *) raw_desc;
     printf("\t*** VS Frame Descriptor ***\n");
-    printf("\tbLength 0x%x\n", desc->bLength);
-    printf("\tbDescriptorType 0x%x\n", desc->bDescriptorType);
-    printf("\tbDescriptorSubType 0x%x\n", desc->bDescriptorSubType);
-    printf("\tbFrameIndex 0x%x\n", desc->bFrameIndex);
-    printf("\tbmCapabilities 0x%x\n", desc->bmCapabilities);
+    printf("\tbLength %u\n", desc->bLength);
+    printf("\tbDescriptorType 0x%02X\n", desc->bDescriptorType);
+    printf("\tbDescriptorSubType 0x%02X\n", desc->bDescriptorSubType);
+    printf("\tbFrameIndex %u\n", desc->bFrameIndex);
+    printf("\tbmCapabilities 0x%X\n", desc->bmCapabilities);
     printf("\twWidth %u\n", desc->wWidth);
     printf("\twHeigh %u\n", desc->wHeight);
     printf("\tdwMinBitRate %"PRIu32"\n", desc->dwMinBitRate);
@@ -213,16 +220,16 @@ static void print_vs_format_frame_based_desc(const usb_standard_desc_t *_desc)
 {
     const uvc_format_desc_t *desc = (const uvc_format_desc_t *) _desc;
     printf("\t*** VS Format Frame-Based Descriptor ***\n");
-    printf("\tbLength 0x%x\n", desc->bLength);
-    printf("\tbDescriptorType 0x%x\n", desc->bDescriptorType);
-    printf("\tbDescriptorSubType 0x%x\n", desc->bDescriptorSubType);
-    printf("\tbFormatIndex 0x%x\n", desc->bFormatIndex);
+    printf("\tbLength %u\n", desc->bLength);
+    printf("\tbDescriptorType 0x%02X\n", desc->bDescriptorType);
+    printf("\tbDescriptorSubType 0x%02X\n", desc->bDescriptorSubType);
+    printf("\tbFormatIndex %u\n", desc->bFormatIndex);
     printf("\tbNumFrameDescriptors %u\n", desc->bNumFrameDescriptors);
     printf("\tguidFormat %.*s\n", 16,     desc->uncompressed_frame_based.guidFormat);
     printf("\tbDefaultFrameIndex %u\n",   desc->uncompressed_frame_based.bDefaultFrameIndex);
     printf("\tbAspectRatioX %u\n",        desc->uncompressed_frame_based.bAspectRatioX);
     printf("\tbAspectRatioY %u\n",        desc->uncompressed_frame_based.bAspectRatioY);
-    printf("\tbmInterlaceFlags 0x%x\n",   desc->uncompressed_frame_based.bmInterlaceFlags);
+    printf("\tbmInterlaceFlags 0x%X\n",   desc->uncompressed_frame_based.bmInterlaceFlags);
     printf("\tbCopyProtect %u\n",         desc->uncompressed_frame_based.bCopyProtect);
 }
 
@@ -235,11 +242,11 @@ static void print_vs_frame_frame_based_desc(const usb_standard_desc_t *_desc)
 
     const uvc_frame_desc_t *desc = (const uvc_frame_desc_t *) raw_desc;
     printf("\t*** VS Frame Frame-Based Descriptor ***\n");
-    printf("\tbLength 0x%x\n", desc->bLength);
-    printf("\tbDescriptorType 0x%x\n", desc->bDescriptorType);
-    printf("\tbDescriptorSubType 0x%x\n", desc->bDescriptorSubType);
-    printf("\tbFrameIndex 0x%x\n", desc->bFrameIndex);
-    printf("\tbmCapabilities 0x%x\n", desc->bmCapabilities);
+    printf("\tbLength %u\n", desc->bLength);
+    printf("\tbDescriptorType 0x%02X\n", desc->bDescriptorType);
+    printf("\tbDescriptorSubType 0x%02X\n", desc->bDescriptorSubType);
+    printf("\tbFrameIndex %u\n", desc->bFrameIndex);
+    printf("\tbmCapabilities 0x%X\n", desc->bmCapabilities);
     printf("\twWidth %u\n", desc->wWidth);
     printf("\twHeight %u\n", desc->wHeight);
     printf("\tdwMinBitRate %"PRIu32"\n", desc->dwMinBitRate);
@@ -275,11 +282,11 @@ static void print_vs_still_frame_desc(const usb_standard_desc_t *_desc)
 {
     const uvc_still_image_frame_desc_t *desc = (const uvc_still_image_frame_desc_t *) _desc;
     printf("\t*** VS Still Format Descriptor ***\n");
-    printf("\tbLength 0x%x\n", desc->bLength);
-    printf("\tbDescriptorType 0x%x\n", desc->bDescriptorType);
-    printf("\tbDescriptorSubType 0x%x\n", desc->bDescriptorSubType);
-    printf("\tbEndpointAddress 0x%x\n", desc->bEndpointAddress);
-    printf("\tbNumImageSizePatterns 0x%x\n", desc->bNumImageSizePatterns);
+    printf("\tbLength %u\n", desc->bLength);
+    printf("\tbDescriptorType 0x%02X\n", desc->bDescriptorType);
+    printf("\tbDescriptorSubType 0x%02X\n", desc->bDescriptorSubType);
+    printf("\tbEndpointAddress 0x%02X\n", desc->bEndpointAddress);
+    printf("\tbNumImageSizePatterns 0x%X\n", desc->bNumImageSizePatterns);
 
     WidthHeight_t *wh = (WidthHeight_t *)&desc->wWidth;
     for (int i = 0; i < desc->bNumImageSizePatterns; ++i, wh++) {
@@ -295,12 +302,12 @@ static void print_vs_color_format_desc(const usb_standard_desc_t *_desc)
 {
     const uvc_color_matching_desc_t *desc = (const uvc_color_matching_desc_t *) _desc;
     printf("\t*** VS Color Format Descriptor ***\n");
-    printf("\tbLength 0x%x\n", desc->bLength);
-    printf("\tbDescriptorType 0x%x\n", desc->bDescriptorType);
-    printf("\tbDescriptorSubType 0x%x\n", desc->bDescriptorSubType);
-    printf("\tbColorPrimaries 0x%x\n", desc->bColorPrimaries);
+    printf("\tbLength %u\n", desc->bLength);
+    printf("\tbDescriptorType 0x%02X\n", desc->bDescriptorType);
+    printf("\tbDescriptorSubType 0x%02X\n", desc->bDescriptorSubType);
+    printf("\tbColorPrimaries 0x%X\n", desc->bColorPrimaries);
     printf("\tbTransferCharacteristics %u\n", desc->bTransferCharacteristics);
-    printf("\tbMatrixCoefficients 0x%x\n", desc->bMatrixCoefficients);
+    printf("\tbMatrixCoefficients 0x%X\n", desc->bMatrixCoefficients);
 }
 
 static void print_class_specific_desc(const usb_standard_desc_t *_desc)

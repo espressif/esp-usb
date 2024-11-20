@@ -16,7 +16,7 @@ The UVC driver allows video streaming from USB cameras.
 
 ### Usage
 
-Following sequence diagram represents public API usage of the UVC driver. New frames are passed to user in a callback. This design offer flexible interface upon which more complex frame processing components can be built.
+Following sequence diagram represents public API usage of the UVC driver. New frames are passed to user in a callback. This design offers flexible interface upon which more complex frame processing components can be built.
 
 ![UVC public API](docs/uvc_public_api.png)
 

@@ -59,7 +59,7 @@ static esp_err_t uvc_host_stream_control(uvc_host_stream_hdl_t stream_hdl, uvc_v
 
         vs_control->bFormatIndex    = format_desc->bFormatIndex;
         vs_control->bFrameIndex     = frame_desc->bFrameIndex;
-        vs_control->dwFrameInterval = UVC_DESC_FPS_TO_DWFRAMEINTERVAL(vs_format->fps);
+        vs_control->dwFrameInterval = UVC_DESC_FPS_TO_DWFRAMEINTERVAL(vs_format->fps); // Implicit conversion from float to uint32_t
     }
 
     // Issue CTRL request
@@ -147,7 +147,7 @@ esp_err_t uvc_host_stream_control_negotiate(uvc_host_stream_hdl_t stream_hdl, co
         }
     }
 
-    ESP_LOGD(TAG, "Frame format negotiation:\n\tRequested: %dx%d@%dFPS\n\tGot: %dx%d@%dFPS",
+    ESP_LOGD(TAG, "Frame format negotiation:\n\tRequested: %dx%d@%2.1fFPS\n\tGot: %dx%d@%2.1fFPS",
              vs_format->h_res, vs_format->v_res, vs_format->fps, set_format.h_res, set_format.v_res, set_format.fps);
 
     return uvc_host_stream_control_commit(stream_hdl, vs_result, vs_format);

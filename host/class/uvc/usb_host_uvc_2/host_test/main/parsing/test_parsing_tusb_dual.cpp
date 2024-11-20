@@ -38,7 +38,7 @@ SCENARIO("Camera descriptor parsing: TinyUSB dual UVC", "[tusb][dual]")
         for (uvc_host_stream_format_t this_format : formats) {
             // Here we test uvc_index = 1
             SECTION(std::to_string(this_format.h_res) + "x" + std::to_string(this_format.v_res) + "@" + std::to_string(this_format.fps)) {
-                uint8_t bInterfaceNumber = 0;                                                                                      \
+                uint8_t bInterfaceNumber = 0;
                 uint16_t bcdUVC = 0;
                 REQUIRE(ESP_OK == uvc_desc_get_streaming_interface_num(cfg, 1, &this_format, &bcdUVC, &bInterfaceNumber));
                 REQUIRE(bInterfaceNumber == 3);

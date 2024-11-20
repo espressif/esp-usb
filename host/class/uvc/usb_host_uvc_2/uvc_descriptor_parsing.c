@@ -5,11 +5,14 @@
  */
 
 #include <inttypes.h>
-#include <string.h> // For guid format parsing
+#include <string.h> // strncmp for guid format parsing
+#include <math.h>   // fabs for float comparison
 #include "usb/usb_helpers.h"
 #include "usb/uvc_host.h"
 #include "uvc_check_priv.h"
 #include "uvc_descriptors_priv.h"
+
+#define FLOAT_EQUAL(a, b) (fabs(a - b) < 0.0001f) // For comparing float values with acceptable difference (epsilon value)
 
 static const uvc_vs_input_header_desc_t *uvc_desc_get_streaming_input_header(const usb_config_desc_t *cfg_desc, uint8_t bInterfaceNumber)
 {
@@ -177,7 +180,7 @@ static bool uvc_desc_format_is_equal(const uvc_frame_desc_t *frame_desc, const u
                 // This stream does not support discrete Frame Interval. Check all supported intervals
                 uint32_t current_frame_interval = dwMinFrameInterval;
                 while (current_frame_interval <= dwMaxFrameInterval) {
-                    if (vs_format->fps == UVC_DESC_DWFRAMEINTERVAL_TO_FPS(current_frame_interval)) {
+                    if (FLOAT_EQUAL(vs_format->fps, UVC_DESC_DWFRAMEINTERVAL_TO_FPS(current_frame_interval))) {
                         return true;
                     }
                     current_frame_interval += dwFrameIntervalStep;
@@ -185,7 +188,7 @@ static bool uvc_desc_format_is_equal(const uvc_frame_desc_t *frame_desc, const u
             } else {
                 // This stream support discrete Frame Intervals. Check supported intervals
                 for (int i = 0; i < bFrameIntervalType; i++) {
-                    if (vs_format->fps == UVC_DESC_DWFRAMEINTERVAL_TO_FPS(frame_desc->frame_based.dwFrameInterval[i])) {
+                    if (FLOAT_EQUAL(vs_format->fps, UVC_DESC_DWFRAMEINTERVAL_TO_FPS(frame_desc->frame_based.dwFrameInterval[i]))) {
                         return true;
                     }
                 }
@@ -202,7 +205,7 @@ static bool uvc_desc_format_is_equal(const uvc_frame_desc_t *frame_desc, const u
                 // This stream does not support discrete Frame Interval. Check all supported intervals
                 uint32_t current_frame_interval = dwMinFrameInterval;
                 while (current_frame_interval <= dwMaxFrameInterval) {
-                    if (vs_format->fps == UVC_DESC_DWFRAMEINTERVAL_TO_FPS(current_frame_interval)) {
+                    if (FLOAT_EQUAL(vs_format->fps, UVC_DESC_DWFRAMEINTERVAL_TO_FPS(current_frame_interval))) {
                         return true;
                     }
                     current_frame_interval += dwFrameIntervalStep;
@@ -210,7 +213,7 @@ static bool uvc_desc_format_is_equal(const uvc_frame_desc_t *frame_desc, const u
             } else {
                 // This stream support discrete Frame Intervals. Check supported intervals
                 for (int i = 0; i < bFrameIntervalType; i++) {
-                    if (vs_format->fps == UVC_DESC_DWFRAMEINTERVAL_TO_FPS(frame_desc->mjpeg_uncompressed.dwFrameInterval[i])) {
+                    if (FLOAT_EQUAL(vs_format->fps, UVC_DESC_DWFRAMEINTERVAL_TO_FPS(frame_desc->mjpeg_uncompressed.dwFrameInterval[i]))) {
                         return true;
                     }
                 }

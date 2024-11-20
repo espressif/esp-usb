@@ -8,6 +8,9 @@
 
 #include "usb/uvc_host.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 /**
  * @brief Submit transfer to CTRL endpoint
@@ -40,3 +43,7 @@ esp_err_t uvc_host_usb_ctrl(uvc_host_stream_hdl_t stream_hdl, uint8_t bmRequestT
  * @return esp_err_t
  */
 esp_err_t uvc_host_stream_control_negotiate(uvc_host_stream_hdl_t stream_hdl, const uvc_host_stream_format_t *vs_format, uvc_vs_ctrl_t *vs_result);
+
+#ifdef __cplusplus
+}
+#endif

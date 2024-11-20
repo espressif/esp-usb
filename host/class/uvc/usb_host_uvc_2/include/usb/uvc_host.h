@@ -11,6 +11,10 @@
 #include "usb/usb_types_uvc.h"
 #include "esp_err.h"
 
+// Use this macros for opening a UVC stream with any VID or PID
+#define UVC_HOST_ANY_VID (0)
+#define UVC_HOST_ANY_PID (0)
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -56,7 +60,7 @@ typedef struct {
  * @brief Formats supported by this driver
  */
 enum uvc_host_stream_format {
-    UVC_VS_FORMAT_UNDEFINED = 0,
+    UVC_VS_FORMAT_UNDEFINED = 0, // Invalid format. Do not request this format from the camera.
     UVC_VS_FORMAT_MJPEG,
     UVC_VS_FORMAT_YUY2,
     UVC_VS_FORMAT_H264,
@@ -64,10 +68,10 @@ enum uvc_host_stream_format {
 };
 
 typedef struct {
-    unsigned h_res;         /**< Horizontal resolution */
-    unsigned v_res;         /**< Vertical resolution */
-    unsigned fps;           /**< Frames per second */ //@todo this can be float!!
-    enum uvc_host_stream_format format;  /**< Frame format */
+    unsigned h_res;                     /**< Horizontal resolution */
+    unsigned v_res;                     /**< Vertical resolution */
+    float fps;                          /**< Frames per second */
+    enum uvc_host_stream_format format; /**< Frame coding format */
 } uvc_host_stream_format_t;
 
 /**
@@ -155,7 +159,7 @@ esp_err_t uvc_host_uninstall(void);
  * @param[out] stream_hdl_ret UVC stream handle
  * @return esp_err_t
  */
-esp_err_t uvc_host_stream_open(const uvc_host_stream_config_t *dev_config, int timeout, uvc_host_stream_hdl_t *stream_hdl_ret);
+esp_err_t uvc_host_stream_open(const uvc_host_stream_config_t *stream_config, int timeout, uvc_host_stream_hdl_t *stream_hdl_ret);
 
 /**
  * @brief Start UVC stream
@@ -178,7 +182,7 @@ esp_err_t uvc_host_stream_stop(uvc_host_stream_hdl_t stream_hdl);
 /**
  * @brief Pause UVC stream
  *
- * After this call, the user will be informed about new frames by frame callback.
+ * After this call, the USB transfers are not re-submitted and the user will stop getting new frame callbacks.
  * This function does not issue any CTRL request. In only stops receiving new data from streaming endpoint.
  *
  * @param[in] stream_hdl UVC handle obtained from uvc_host_stream_open()

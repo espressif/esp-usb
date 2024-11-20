@@ -41,13 +41,13 @@ SCENARIO("Camera descriptor parsing: Customer dual", "[customer][dual]")
             FORMAT_H265_30_20_15(1280, 720),
             {1280, 720, 25, UVC_VS_FORMAT_H265},
 
-            FORMAT_H265_30_20_15(640, 480),
+            FORMAT_H265_30_20_15(1920, 1080),
             {1920, 1080, 25, UVC_VS_FORMAT_H265},
 
-            FORMAT_H265_30_20_15(640, 480),
+            FORMAT_H265_30_20_15(2560, 1440),
             {2560, 1440, 25, UVC_VS_FORMAT_H265},
 
-            FORMAT_H265_30_20_15(640, 480),
+            FORMAT_H265_30_20_15(2304, 1296),
             {2304, 1296, 25, UVC_VS_FORMAT_H265},
         };
 

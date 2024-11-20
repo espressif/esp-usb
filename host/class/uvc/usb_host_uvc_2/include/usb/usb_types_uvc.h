@@ -121,7 +121,7 @@ typedef struct {
     uint8_t  bMaxNumberOfRefFramesPlus1;
     uint16_t bmRateControlModes;
     uint8_t  bmLayoutPerStream[8];
-} __attribute__((packed)) uvc_vs_ctrl_t;
+} USB_DESC_ATTR uvc_vs_ctrl_t;
 ESP_STATIC_ASSERT(sizeof(uvc_vs_ctrl_t) == 48, "Size of uvc_vs_ctrl_t incorrect");
 
 /**
@@ -156,7 +156,7 @@ typedef struct {
                 };
                 uint32_t dwFrameInterval[3]; // We must put a fixed size here because of the union type. This is flexible size array though
             };
-        } __attribute__((packed)) mjpeg_uncompressed;
+        } USB_DESC_ATTR mjpeg_uncompressed;
         struct {
             uint32_t dwDefaultFrameInterval;
             uint8_t  bFrameIntervalType; /**< 0: Continuous frame interval, 1..255: The number of discrete frame intervals supported (n) */
@@ -169,9 +169,9 @@ typedef struct {
                 };
                 uint32_t dwFrameInterval[3]; // We must put a fixed size here because of the union type. This is flexible size array though
             };
-        } __attribute__((packed)) frame_based;
-    } __attribute__((packed));
-} __attribute__((packed)) uvc_frame_desc_t;
+        } USB_DESC_ATTR frame_based;
+    } USB_DESC_ATTR;
+} USB_DESC_ATTR uvc_frame_desc_t;
 
 /**
  * @brief Video Stream format descriptor
@@ -207,7 +207,7 @@ typedef struct {
             uint8_t bCopyProtect;
         } mjpeg;
     };
-} __attribute__((packed)) uvc_format_desc_t;
+} USB_DESC_ATTR uvc_format_desc_t;
 
 /**
  * @brief Video Control Interface Header Descriptor
@@ -223,12 +223,12 @@ typedef struct {
     uint32_t dwClockFrequency;
     uint8_t  bInCollection;
     uint8_t  baInterfaceNr[];
-} __attribute__((packed)) uvc_vc_header_desc_t;
+} USB_DESC_ATTR uvc_vc_header_desc_t;
 
 /**
- * @brief Input Terminal Descriptor
+ * @brief Input Terminal Camera Descriptor
  *
- * @see USB UVC specification ver 1.5, table 3-4
+ * @see USB UVC specification ver 1.5, table 3-6
  */
 typedef struct {
     uint8_t  bLength;
@@ -241,10 +241,15 @@ typedef struct {
     uint16_t wObjectiveFocalLengthMin;
     uint16_t wObjectiveFocalLengthMax;
     uint16_t wOcularFocalLength;
-    uint8_t  bControlSize;
-    uint16_t bmControls;
+    uint8_t  bControlSize; // Typically == 3. From UVC v1.5 must == 3
+    uint8_t  bmControls[3];
 } USB_DESC_ATTR uvc_input_terminal_camera_desc_t;
 
+/**
+ * @brief Media Transport Input Terminal Descriptor
+ *
+ * @see USB UVC Video Media Transport Terminal specification ver 1.5, table 3-1
+ */
 typedef struct {
     uint8_t  bLength;
     uint8_t  bDescriptorType;
@@ -303,8 +308,8 @@ typedef struct {
     uint8_t  bUnitID;
     uint8_t  bSourceID;
     uint16_t wMaxMultiplier;
-    uint8_t  bControlSize;
-    uint16_t bmControls;
+    uint8_t  bControlSize; // Typically == 3. From UVC v1.5 must == 3
+    uint8_t  bmControls[3];
     uint8_t  iProcessing;
     uint8_t  bmVideoStandards;
 } USB_DESC_ATTR uvc_processing_unit_desc_t;
@@ -321,15 +326,14 @@ typedef struct {
     uint8_t  bNumFormats;
     uint16_t wTotalLength;
     uint8_t  bEndpointAddress;
-    uint8_t  bFunctionProtocol;
     uint8_t  bmInfo;
     uint8_t  bTerminalLink;
     uint8_t  bStillCaptureMethod;
     uint8_t  bTriggerSupport;
     uint8_t  bTriggerUsage;
-    uint8_t  bControlSize;
-    uint8_t  bmaControls; // This field is an array with size bNumFormats x ControlSize bytes
-} __attribute__((packed)) uvc_vs_input_header_desc_t;
+    uint8_t  bControlSize;  // Typically == 1
+    uint8_t  bmaControls[]; // This field is an array with size bNumFormats x bControlSize bytes
+} USB_DESC_ATTR uvc_vs_input_header_desc_t;
 
 /**
  * @brief Still Image Frame Descriptor
@@ -413,7 +417,7 @@ typedef struct {
         };
         uint8_t val;
     } bmHeaderInfo;
-} __attribute__((packed)) uvc_payload_header_t;
+} USB_DESC_ATTR uvc_payload_header_t;
 
 /**
  * @brief Class-specific VC Interrupt Endpoint Descriptor
@@ -425,4 +429,4 @@ typedef struct {
     uint8_t  bDescriptorType;
     uint8_t  bDescriptorSubType;
     uint16_t wMaxTransferSize;
-} __attribute__((packed)) uvc_vc_interrupt_ep_desc_t;
+} USB_DESC_ATTR uvc_vc_interrupt_ep_desc_t;

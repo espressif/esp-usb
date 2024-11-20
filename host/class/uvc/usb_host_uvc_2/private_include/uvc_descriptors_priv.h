@@ -12,8 +12,8 @@
 #include "usb/usb_types_ch9.h"
 #include "usb/usb_types_uvc.h"
 
-#define UVC_DESC_FPS_TO_DWFRAMEINTERVAL(fps) (((fps) != 0) ? 10000000 / (fps) : 0)
-#define UVC_DESC_DWFRAMEINTERVAL_TO_FPS(dwFrameInterval) (((dwFrameInterval) != 0) ? 10000000 / (dwFrameInterval) : 0)
+#define UVC_DESC_FPS_TO_DWFRAMEINTERVAL(fps) (((fps) != 0) ? 10000000.0f / (fps) : 0)
+#define UVC_DESC_DWFRAMEINTERVAL_TO_FPS(dwFrameInterval) (((dwFrameInterval) != 0) ? 10000000.0f / ((float)(dwFrameInterval)) : 0)
 
 #ifdef __cplusplus
 extern "C" {

@@ -73,7 +73,9 @@ SCENARIO("Camera descriptor parsing: Logitech C270", "[logitech][c270]")
             {1024, 576, 5, UVC_VS_FORMAT_YUY2},
             {1184, 656, 10, UVC_VS_FORMAT_YUY2},
             {1184, 656, 5, UVC_VS_FORMAT_YUY2},
+            {1280, 720, 7.5f, UVC_VS_FORMAT_YUY2},
             {1280, 720, 5, UVC_VS_FORMAT_YUY2},
+            {1280, 960, 7.5f, UVC_VS_FORMAT_YUY2},
             {1280, 960, 5, UVC_VS_FORMAT_YUY2},
         };
 
