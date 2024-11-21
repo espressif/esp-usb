@@ -35,7 +35,11 @@ static const char *TAG = "cdc_acm_parsing";
 static bool cdc_parse_is_cdc_compliant(const usb_device_desc_t *device_desc, const usb_config_desc_t *config_desc, uint8_t intf_idx)
 {
     int desc_offset = 0;
-    if (device_desc->bDeviceClass == USB_CLASS_PER_INTERFACE) {
+    if (device_desc->bDeviceClass == USB_CLASS_COMM) {
+        // 0. This is a Communication Device Class: Class defined in Device descriptor
+        return true;
+    }
+    else if (device_desc->bDeviceClass == USB_CLASS_PER_INTERFACE) {
         const usb_intf_desc_t *intf_desc = usb_parse_interface_descriptor(config_desc, intf_idx, 0, NULL);
         if (intf_desc->bInterfaceClass == USB_CLASS_COMM) {
             // 1. This is a Communication Device Class: Class defined in Interface descriptor
