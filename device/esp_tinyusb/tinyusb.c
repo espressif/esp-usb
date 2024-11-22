@@ -32,6 +32,7 @@ esp_err_t tinyusb_driver_install(const tinyusb_config_t *config)
     usb_phy_config_t phy_conf = {
         .controller = USB_PHY_CTRL_OTG,
         .otg_mode = USB_OTG_MODE_DEVICE,
+        .otg_speed = (TUD_OPT_HIGH_SPEED) ? USB_PHY_SPEED_HIGH : USB_PHY_SPEED_FULL,
     };
 
     // External PHY IOs config
