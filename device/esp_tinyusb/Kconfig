@@ -7,14 +7,20 @@ menu "TinyUSB Stack"
             Specify verbosity of TinyUSB log output.
 
     choice TINYUSB_RHPORT
-        depends on IDF_TARGET_ESP32P4
-        prompt "TinyUSB PHY"
-        default TINYUSB_RHPORT_HS
+        prompt "USB Peripheral"
+        default TINYUSB_RHPORT_HS if IDF_TARGET_ESP32P4
+        default TINYUSB_RHPORT_FS
         help
-            Allows set the USB PHY Controller for TinyUSB: HS (USB OTG2.0 PHY for HighSpeed)
+            Allows set the USB Peripheral Controller for TinyUSB.
+
+            - High-speed (USB OTG2.0 Peripheral for High-, Full- and Low-speed)
+            - Full-speed (USB OTG1.1 Peripheral for Full- and Low-speed)
 
         config TINYUSB_RHPORT_HS
-            bool "HS"
+            bool "OTG2.0"
+            depends on IDF_TARGET_ESP32P4
+        config TINYUSB_RHPORT_FS
+            bool "OTG1.1"
     endchoice
 
     menu "TinyUSB DCD"
