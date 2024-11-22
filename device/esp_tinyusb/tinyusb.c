@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2020-2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2020-2025 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -32,6 +32,9 @@ esp_err_t tinyusb_driver_install(const tinyusb_config_t *config)
     usb_phy_config_t phy_conf = {
         .controller = USB_PHY_CTRL_OTG,
         .otg_mode = USB_OTG_MODE_DEVICE,
+#if (SOC_USB_OTG_PERIPH_NUM > 1)
+        .otg_speed = (TUD_OPT_HIGH_SPEED) ? USB_PHY_SPEED_HIGH : USB_PHY_SPEED_FULL,
+#endif // SOC_USB_OTG_PERIPH_NUM > 1
     };
 
     // External PHY IOs config

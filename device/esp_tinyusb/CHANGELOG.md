@@ -1,3 +1,6 @@
+## (Unreleased)
+- esp_tinyusb: Added option to select TinyUSB peripheral on esp32p4 via menuconfig 
+
 ## 1.6.0
 
 - CDC-ACM: Fixed memory leak on deinit
