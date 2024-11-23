@@ -8,9 +8,9 @@ This component contains an implementation of a USB Host UVC Class Driver that is
 The UVC driver allows video streaming from USB cameras.
 
 ### Features
-- Supports Isochronous and Bulk transfers streaming
-- Support for multiple video streams
-- Supports placing Frame buffers to PSRAM
+- Isochronous and Bulk transfers streaming
+- Multiple video streams
+- Frame buffers in PSRAM
 - Video Stream format negotiation
 - Stream overflow and underflow management
 

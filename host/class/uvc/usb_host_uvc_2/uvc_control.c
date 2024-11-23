@@ -125,7 +125,7 @@ esp_err_t uvc_host_stream_control_negotiate(uvc_host_stream_hdl_t stream_hdl, co
     This is not a 'real' negotiation as we return OK only if set the format exactly as expected.
     In future, we can make vs_format parameter inout. This way we would return the real (close enough) set VS format.
     */
-    UVC_CHECK(stream_hdl && vs_format, ESP_ERR_INVALID_ARG);
+    UVC_CHECK(stream_hdl && vs_format && vs_result, ESP_ERR_INVALID_ARG);
     esp_err_t ret = ESP_ERR_NOT_FOUND;
 
     // Try 2x. Some camera may return error on first try

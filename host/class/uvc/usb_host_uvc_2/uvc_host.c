@@ -17,6 +17,7 @@
 #include "usb/usb_host.h"
 #include "usb/uvc_host.h"
 #include "uvc_control.h"
+#include "uvc_stream.h"
 #include "uvc_types_priv.h"
 #include "uvc_frame_priv.h"
 #include "uvc_descriptors_priv.h"
@@ -242,7 +243,9 @@ static void uvc_device_remove(uvc_stream_t *uvc_stream)
  * @param[in]  pid           Product ID
  * @param[in]  timeout_ticks Connection timeout in FreeRTOS ticks
  * @param[out] dev           UVC device
- * @return esp_err_t
+ * @return
+ *     - ESP_OK: Success - device opened
+ *     - ESP_ERR_NOT_FOUND: Device not found in given timeout
  */
 static esp_err_t uvc_find_and_open_usb_device(uint16_t vid, uint16_t pid, TickType_t timeout_ticks, uvc_stream_t **dev)
 {
@@ -334,12 +337,12 @@ static esp_err_t uvc_find_streaming_intf(uvc_stream_t *uvc_stream, uint8_t uvc_i
  *
  * @param[in]  uvc_stream       UVC stream handle
  * @param[out] ep_desc_ret      Pointer of associated streaming endpoint
- * @return esp_err_t
+ * @return
+ *     - ESP_OK: Success - interface claimed
+ *     - Else: Error
  */
 static esp_err_t uvc_claim_interface(uvc_stream_t *uvc_stream, const usb_ep_desc_t **ep_desc_ret)
 {
-    UVC_CHECK(p_uvc_host_driver && uvc_stream, ESP_ERR_INVALID_STATE);
-
     const usb_intf_desc_t *intf_desc;
     const usb_ep_desc_t *ep_desc;
     const usb_config_desc_t *cfg_desc;
@@ -607,14 +610,12 @@ esp_err_t uvc_host_stream_close(uvc_host_stream_hdl_t stream_hdl)
         goto exit;
     }
 
-    if (uvc_stream->streaming) {
-        UVC_EXIT_CRITICAL();
-        ret = ESP_ERR_INVALID_STATE;
-        goto exit;
-    }
-    uvc_stream->stream_cb = NULL; // No user callbacks from this point
-    uvc_stream->frame_cb = NULL;
+    const bool streaming = uvc_stream->streaming;
     UVC_EXIT_CRITICAL();
+
+    if (streaming) {
+        uvc_host_stream_stop(stream_hdl);
+    }
 
     // @todo create a function that will wait for all frames to be returned
     if (!uvc_frame_are_all_returned(uvc_stream)) {

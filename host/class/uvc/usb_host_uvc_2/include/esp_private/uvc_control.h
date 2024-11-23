@@ -40,7 +40,11 @@ esp_err_t uvc_host_usb_ctrl(uvc_host_stream_hdl_t stream_hdl, uint8_t bmRequestT
  * @param      stream_hdl UVC stream
  * @param[in]  vs_format  Requested Video Stream format
  * @param[out] vs_result  Negotiation result
- * @return esp_err_t
+ * @return
+ *     - ESP_OK: Format negotiated and committed
+ *     - ESP_ERR_INVALID_ARG: stream_hdl, vs_result or vs_format is NULL
+ *     - ESP_ERR_NOT_FOUND: The requested format was not found
+ *     - Else: USB Control transfer error
  */
 esp_err_t uvc_host_stream_control_negotiate(uvc_host_stream_hdl_t stream_hdl, const uvc_host_stream_format_t *vs_format, uvc_vs_ctrl_t *vs_result);
 

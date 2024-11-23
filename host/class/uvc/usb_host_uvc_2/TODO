@@ -19,7 +19,11 @@ To-Do list:
 - [x] Add host test that checks functionality of uvc_isoc.c
 - [x] Test sudden disconnections and reconnections
 - [x] Update README.md
+
+## Added to first release after reviews:
 - [x] Allow floating point FPS
+- [x] Consider making uvc_host_stream_pause/unpause private!
+- [ ] Organize members of uvc_host_stream_s into dynamic/constant/mux_protected/single_thread sub-structures
 
 ## Future releases
 - [x] Check if MPS fits into IN FIFO (on S2 and S3 our buffer is not big enough to hold 1 ISOC frame!)
@@ -29,7 +33,5 @@ To-Do list:
 - [ ] Still image capture
 - [ ] Allow setting of default frame format and better format negotiation
 - [ ] Create private members of uvc_host_frame_t (eg. data_buffer_size and pointer to queue it belongs to). EDIT: is this safe? If the user passes the frame by copy, he will lose the private members!
-- [ ] Consider making uvc_host_stream_pause/unpause private!
 - [ ] Add more bulk and isoc reconstruction tests
-- [ ] Organize members of uvc_host_stream_s into dynamic/constant/mux_protected/single_thread sub-structures
 - [ ] Test frequent stream stop/resume

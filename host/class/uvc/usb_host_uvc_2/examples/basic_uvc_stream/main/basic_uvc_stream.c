@@ -27,6 +27,7 @@
 
 #include "usb/usb_host.h"
 #include "usb/uvc_host.h"
+#include "esp_private/uvc_stream.h"
 
 #define EXAMPLE_USB_HOST_PRIORITY   (15)
 #define EXAMPLE_USB_DEVICE_VID      (0x2207)
@@ -67,7 +68,7 @@ bool frame_callback(const uvc_host_frame_t *frame, void *user_ctx)
 static void handle_event(const uvc_host_stream_event_data_t *event, void *user_ctx)
 {
     switch (event->type) {
-    case UVC_HOST_ERROR:
+    case UVC_HOST_TRANSFER_ERROR:
         ESP_LOGE(TAG, "USB error has occurred, err_no = %i", event->data.error);
         break;
     case UVC_HOST_DEVICE_DISCONNECTED:

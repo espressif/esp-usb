@@ -48,7 +48,7 @@ void yuy2_to_rgb565(const uint8_t *yuy2, uint16_t *rgb565, int width, int height
 void stream_callback(const uvc_host_stream_event_data_t *event, void *user_ctx)
 {
     switch (event->type) {
-    case UVC_HOST_ERROR:
+    case UVC_HOST_TRANSFER_ERROR:
         ESP_LOGE(TAG, "USB error");
         break;
     case UVC_HOST_DEVICE_DISCONNECTED:

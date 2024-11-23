@@ -36,7 +36,7 @@ typedef struct {
  * @brief Event types of this driver
  */
 enum uvc_host_dev_event {
-    UVC_HOST_ERROR,                  /**< USB transfer error */
+    UVC_HOST_TRANSFER_ERROR,         /**< USB transfer error */
     UVC_HOST_DEVICE_DISCONNECTED,    /**< Device was suddenly disconnected. The stream is stopped. */
     UVC_HOST_FRAME_BUFFER_OVERFLOW,  /**< The received frame was discarded because it exceeded the available frame buffer space.
                                           To resolve this, increase the `frame_size` parameter in `uvc_host_stream_config_t.advanced` to allocate a larger buffer. */
@@ -51,7 +51,7 @@ enum uvc_host_dev_event {
 typedef struct {
     enum uvc_host_dev_event type;
     union {
-        int error;                         //!< Error code from USB Host
+        esp_err_t error;                   //!< Error code from USB Host
         uvc_host_stream_hdl_t stream_hdl;  //!< Disconnection event
     } data;
 } uvc_host_stream_event_data_t;
@@ -108,7 +108,6 @@ typedef bool (*uvc_host_frame_callback_t)(const uvc_host_frame_t *frame, void *u
 
 /**
  * @brief Configuration structure of UVC device
- *
  */
 typedef struct {
     uvc_host_stream_callback_t event_cb;  /**< Stream's event callback function. Can be NULL */
@@ -138,7 +137,10 @@ typedef struct {
  * - This function should be called before calling any other UVC driver functions
  *
  * @param[in] driver_config Driver configuration structure. If set to NULL, a default configuration will be used.
- * @return esp_err_t
+ * @return
+ *     - ESP_OK: Success - driver installed
+ *     - ESP_ERR_INVALID_STATE: Driver already installed or USB Host Library is not installed
+ *     - ESP_ERR_NO_MEM: Not enough free memory for the driver
  */
 esp_err_t uvc_host_install(const uvc_host_driver_config_t *driver_config);
 
@@ -147,7 +149,9 @@ esp_err_t uvc_host_install(const uvc_host_driver_config_t *driver_config);
  *
  * - User must ensure that all UVC devices must be closed via uvc_host_stream_close() before calling this function
  *
- * @return esp_err_t
+ * @return
+ *     - ESP_OK: Success - driver uninstalled
+ *     - ESP_ERR_INVALID_STATE: Driver was not installed before or not all UVC devices are closed
  */
 esp_err_t uvc_host_uninstall(void);
 
@@ -157,7 +161,12 @@ esp_err_t uvc_host_uninstall(void);
  * @param[in]  stream_config  Configuration structure of the device
  * @param[in]  timeout        Timeout in FreeRTOS ticks
  * @param[out] stream_hdl_ret UVC stream handle
- * @return esp_err_t
+ * @return
+ *     - ESP_OK: Success - stream opened
+ *     - ESP_ERR_INVALID_STATE: UVC driver is not installed
+ *     - ESP_ERR_INVALID_ARG: stream_config or stream_hdl_ret is NULL
+ *     - ESP_ERR_NO_MEM: Not enough free memory for the stream
+ *     - ESP_ERR_NOT_FOUND: UVC stream with requested configuration was not found
  */
 esp_err_t uvc_host_stream_open(const uvc_host_stream_config_t *stream_config, int timeout, uvc_host_stream_hdl_t *stream_hdl_ret);
 
@@ -167,7 +176,12 @@ esp_err_t uvc_host_stream_open(const uvc_host_stream_config_t *stream_config, in
  * After this call, the user will be informed about new frames by frame callback
  *
  * @param[in] stream_hdl UVC handle obtained from uvc_host_stream_open()
- * @return esp_err_t
+ * @return
+ *     - ESP_OK: Success - streaming started
+ *     - ESP_ERR_INVALID_ARG: stream_hdl is NULL
+ *     - ESP_ERR_INVALID_STATE: Stream already streaming
+ *     - ESP_ERR_NOT_FOUND: Format negotiation error
+ *     - Else: USB lib error
  */
 esp_err_t uvc_host_stream_start(uvc_host_stream_hdl_t stream_hdl);
 
@@ -175,48 +189,29 @@ esp_err_t uvc_host_stream_start(uvc_host_stream_hdl_t stream_hdl);
  * @brief Stop UVC stream
  *
  * @param[in] stream_hdl UVC handle obtained from uvc_host_stream_open()
- * @return esp_err_t
+ * @return
+ *     - ESP_OK: Success - streaming stopped
+ *     - ESP_ERR_INVALID_ARG: stream_hdl is NULL
+ *     - Else: USB lib error
  */
 esp_err_t uvc_host_stream_stop(uvc_host_stream_hdl_t stream_hdl);
 
 /**
- * @brief Pause UVC stream
- *
- * After this call, the USB transfers are not re-submitted and the user will stop getting new frame callbacks.
- * This function does not issue any CTRL request. In only stops receiving new data from streaming endpoint.
- *
- * @param[in] stream_hdl UVC handle obtained from uvc_host_stream_open()
- * @return esp_err_t
- */
-esp_err_t uvc_host_stream_pause(uvc_host_stream_hdl_t stream_hdl);
-
-/**
- * @brief Start UVC stream
- *
- * After this call, the user will be informed about new frames by frame callback.
- * This function does not issue any CTRL request. In only starts receiving new data from streaming endpoint.
- *
- * @param[in] stream_hdl UVC handle obtained from uvc_host_stream_open()
- * @return esp_err_t
- */
-esp_err_t uvc_host_stream_unpause(uvc_host_stream_hdl_t stream_hdl);
-
-/**
  * @brief Close UVC device and release its resources
  *
- * @note All in-flight transfers will be prematurely canceled.
  * @param[in] stream_hdl UVC handle obtained from uvc_host_stream_open()
  * @return
  *   - ESP_OK: Success - device closed
- *   - ESP_ERR_INVALID_STATE: stream_hdl is NULL or the UVC driver is not installed
+ *   - ESP_ERR_INVALID_ARG: stream_hdl is NULL
+ *   - ESP_ERR_INVALID_STATE: UVC driver is not installed or some frames were not returned
  */
 esp_err_t uvc_host_stream_close(uvc_host_stream_hdl_t stream_hdl);
 
 /**
  * @brief Return processed frame back to the driver
  *
- * In case your frame callback returns true, you MUST NOT call this function.
- * In case your frame callback returns false, you MUS call this function after you are done with processing the frame.
+ * Must not call this function if the frame callback returns true.
+ * Must call this function after the frame is processed if the frame callback returns false.
  *
  * @param[in] stream_hdl UVC handle obtained from uvc_host_stream_open()
  * @param[in] frame      Frame obtained from frame callback
