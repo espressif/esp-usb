@@ -36,16 +36,16 @@ void run_streaming_frame_reconstruction_scenario(void)
     // Variables reused in all tests
     constexpr int user_arg = 0x12345678;
     uvc_stream_t stream = {}; // Define mock stream
-    stream.cb_arg = (void *)&user_arg;
+    stream.constant.cb_arg = (void *)&user_arg;
     // @todo instead of doing this we can
     // - uvc_transfers_allocate   to allocate all transfers
     // - uvc_host_stream_unpause  to start the stream
 
-    stream.current_frame_id = 2; // Start with invalid frame ID
-    stream.stream_cb = [](const uvc_host_stream_event_data_t *event, void *user_ctx) {
+    stream.single_thread.current_frame_id = 2; // Start with invalid frame ID
+    stream.constant.stream_cb = [](const uvc_host_stream_event_data_t *event, void *user_ctx) {
         return stream_callback(event, user_ctx);
     };
-    stream.frame_cb = [](const uvc_host_frame_t *frame, void *user_ctx) -> bool {
+    stream.constant.frame_cb = [](const uvc_host_frame_t *frame, void *user_ctx) -> bool {
         // We cannot have catching lambdas here, so we must call this std::function...
         return frame_callback(frame, user_ctx);
     };
@@ -60,8 +60,8 @@ void run_streaming_frame_reconstruction_scenario(void)
     };
 
     GIVEN("Streaming enabled") {
-        stream.streaming = true;
-        stream.vs_format = {
+        stream.dynamic.streaming = true;
+        stream.constant.vs_format = {
             .h_res = 46,
             .v_res = 46,
             .fps = 15,
@@ -75,12 +75,12 @@ void run_streaming_frame_reconstruction_scenario(void)
             frame_callback = [&](const uvc_host_frame_t *frame, void *user_ctx) -> bool {
                 frame_callback_called++;
 
-                REQUIRE(user_ctx == stream.cb_arg); // Sanity check
+                REQUIRE(user_ctx == stream.constant.cb_arg); // Sanity check
                 REQUIRE(frame->data_len == logo_jpg.size());
-                REQUIRE(frame->vs_format.h_res == stream.vs_format.h_res);
-                REQUIRE(frame->vs_format.v_res == stream.vs_format.v_res);
-                REQUIRE(frame->vs_format.fps == stream.vs_format.fps);
-                REQUIRE(frame->vs_format.format == stream.vs_format.format);
+                REQUIRE(frame->vs_format.h_res == stream.constant.vs_format.h_res);
+                REQUIRE(frame->vs_format.v_res == stream.constant.vs_format.v_res);
+                REQUIRE(frame->vs_format.fps == stream.constant.vs_format.fps);
+                REQUIRE(frame->vs_format.format == stream.constant.vs_format.format);
 
                 std::vector<uint8_t> frame_data(frame->data, frame->data + frame->data_len);
                 std::vector<uint8_t> original_data(logo_jpg.begin(), logo_jpg.end());
@@ -163,7 +163,7 @@ void run_streaming_frame_reconstruction_scenario(void)
             // We expect overflow stream event
             enum uvc_host_dev_event event_type = static_cast<enum uvc_host_dev_event>(-1); // Explicitly set to invalid value
             stream_callback = [&](const uvc_host_stream_event_data_t *event, void *user_ctx) {
-                REQUIRE(user_ctx == stream.cb_arg); // Sanity check
+                REQUIRE(user_ctx == stream.constant.cb_arg); // Sanity check
                 event_type = event->type;
             };
             REQUIRE(uvc_frame_allocate(&stream, 1, logo_jpg.size() - 100, 0) == ESP_OK);
@@ -183,7 +183,7 @@ void run_streaming_frame_reconstruction_scenario(void)
             // We expect overflow stream event
             enum uvc_host_dev_event event_type = static_cast<enum uvc_host_dev_event>(-1); // Explicitly set to invalid value
             stream_callback = [&](const uvc_host_stream_event_data_t *event, void *user_ctx) {
-                REQUIRE(user_ctx == stream.cb_arg); // Sanity check
+                REQUIRE(user_ctx == stream.constant.cb_arg); // Sanity check
                 event_type = event->type;
             };
 
@@ -207,7 +207,7 @@ void run_streaming_frame_reconstruction_scenario(void)
     }
 
     GIVEN("Streaming disabled") {
-        stream.streaming = false;
+        stream.dynamic.streaming = false;
 
         WHEN("New data is received") {
             usb_transfer_t transfer = {

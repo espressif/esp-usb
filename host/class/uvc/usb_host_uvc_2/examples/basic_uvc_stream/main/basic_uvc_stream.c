@@ -107,7 +107,7 @@ static void frame_handling_task(void *arg)
 {
     const uvc_host_stream_config_t *stream_config = (const uvc_host_stream_config_t *)arg;
     QueueHandle_t frame_q = *((QueueHandle_t *)(stream_config->user_ctx));
-    const int uvc_index = stream_config->usb.uvc_function_index;
+    const int uvc_index = stream_config->usb.uvc_stream_index;
 
     while (true) {
         uvc_host_stream_hdl_t uvc_stream = NULL;
@@ -167,7 +167,7 @@ static const uvc_host_stream_config_t stream_mjpeg_config = {
     .user_ctx = &rx_frames_queue[0],
     .usb.vid = EXAMPLE_USB_DEVICE_VID,
     .usb.pid = EXAMPLE_USB_DEVICE_PID,
-    .usb.uvc_function_index = 0,
+    .usb.uvc_stream_index = 0,
     .vs_format.h_res = 720,
     .vs_format.v_res = 1280,
     .vs_format.fps = 15,
@@ -184,7 +184,7 @@ static const uvc_host_stream_config_t stream_h265_config = {
     .user_ctx = &rx_frames_queue[1],
     .usb.vid = EXAMPLE_USB_DEVICE_VID,
     .usb.pid = EXAMPLE_USB_DEVICE_PID, // Customer's device
-    .usb.uvc_function_index = 1,
+    .usb.uvc_stream_index = 1,
     .vs_format.h_res = 1280,
     .vs_format.v_res = 720,
     .vs_format.fps = 15,

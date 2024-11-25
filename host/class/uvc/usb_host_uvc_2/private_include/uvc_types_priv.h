@@ -28,31 +28,36 @@ typedef enum {
 } uvc_stream_bulk_packet_type_t;
 
 struct uvc_host_stream_s {
-    // UVC driver related members
-    uvc_host_stream_callback_t stream_cb; // User's callback for stream events
-    uvc_host_frame_callback_t frame_cb;   // User's frame callback
-    void *cb_arg;                         // Common argument for user's callbacks
     SLIST_ENTRY(uvc_host_stream_s) list_entry;
 
-    // Constant USB descriptor values
-    uint16_t bcdUVC;                      // Version of UVC specs this device implements
-    uint8_t bInterfaceNumber;             // USB Video Streaming interface claimed by this stream. Needed for ISOC Stream start and CTRL transfers
-    uint8_t bAlternateSetting;            // Alternate setting for selected interface. Needed for ISOC Stream start
-    uint8_t bEndpointAddress;             // Streaming endpoint address. Needed for BULK Stream stop
+    struct {
+        // UVC driver related members
+        uvc_host_stream_callback_t stream_cb; // User's callback for stream events
+        uvc_host_frame_callback_t frame_cb;   // User's frame callback
+        void *cb_arg;                         // Common argument for user's callbacks
+        uvc_host_stream_format_t vs_format;   // Format of the video stream (Runtime format change of opened stream is not supported)
+        QueueHandle_t empty_fb_queue;         // Queue of empty framebuffers
 
-    // USB host related members
-    usb_device_handle_t dev_hdl;          // USB device handle
-    unsigned num_of_xfers;                // Number of USB transfers
-    usb_transfer_t **xfers;               // Pointer to array of USB transfers. Accessible only by the UVC driver
+        // Constant USB descriptor values
+        uint16_t bcdUVC;                      // Version of UVC specs this device implements
+        uint8_t  bInterfaceNumber;            // USB Video Streaming interface claimed by this stream. Needed for ISOC Stream start and CTRL transfers
+        uint8_t  bAlternateSetting;           // Alternate setting for selected interface. Needed for ISOC Stream start
+        uint8_t  bEndpointAddress;            // Streaming endpoint address. Needed for BULK Stream stop
 
-    // Frame buffers
-    bool streaming;                       // Flag whether the stream is on/off
-    uvc_host_stream_format_t vs_format;   // Format of the video stream
-    QueueHandle_t empty_fb_queue;         // Queue of empty framebuffers
-    uvc_host_frame_t *current_frame;      // Frame that is being written to
-    bool skip_current_frame;              // Flag to skip this frame. An error has occurred during fetch
-    uint8_t current_frame_id;             // Current frame ID. Used for start of frame detection
+        // USB host related members
+        usb_device_handle_t dev_hdl;          // USB device handle
+        unsigned num_of_xfers;                // Number of USB transfers
+        usb_transfer_t **xfers;               // Pointer to array of USB transfers. Accessible only by the UVC driver
+    } constant; // Constant members do no change after installation thus do not require a critical section
 
-    // Bulk only
-    uvc_stream_bulk_packet_type_t next_bulk_packet; // Simple state machine: next expected packet
+    struct {
+        uvc_host_frame_t *current_frame;      // Frame that is being written to
+        bool streaming;                       // Flag whether stream is on/off
+    } dynamic; // Dynamic members require a critical section
+
+    struct {
+        uvc_stream_bulk_packet_type_t next_bulk_packet; // Bulk only: next expected packet
+        bool skip_current_frame;                        // Flag to skip current frame. An error has occurred in the stream
+        uint8_t current_frame_id;                       // Frame ID can be only 0 or 1. But we also allow setting it to invalid value = 2.
+    } single_thread; // Single thread members are only accessed from 1 thread, so they do not need protection
 };

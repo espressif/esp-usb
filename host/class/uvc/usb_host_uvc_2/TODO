@@ -23,10 +23,10 @@ To-Do list:
 ## Added to first release after reviews:
 - [x] Allow floating point FPS
 - [x] Consider making uvc_host_stream_pause/unpause private!
-- [ ] Organize members of uvc_host_stream_s into dynamic/constant/mux_protected/single_thread sub-structures
+- [x] Organize members of uvc_host_stream_s into dynamic/constant/mux_protected/single_thread sub-structures
 
 ## Future releases
-- [x] Check if MPS fits into IN FIFO (on S2 and S3 our buffer is not big enough to hold 1 ISOC frame!)
+- [x] Check if MPS fits into IN FIFO (on S2 and S3 our buffer is not big enough to hold 1 ISOC packet (1023 bytes)!)
   - [ ] Add FIFO configuration API to esp-idf!
 - [ ] Allow external events handling
 - [ ] Support for different uncompressed formats (other than YUY2)

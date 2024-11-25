@@ -215,7 +215,7 @@ void app_main(void)
         .usb = {
             .vid = 0,
             .pid = 0,
-            .uvc_function_index = 0,
+            .uvc_stream_index = 0,
         },
         .vs_format = {
             .h_res = FRAME_H_RES,

@@ -116,7 +116,7 @@ typedef struct {
     struct {
         uint16_t vid;                     /**< Device's Vendor ID. Set to 0 for any */
         uint16_t pid;                     /**< Device's Product ID. Set to 0 for any */
-        uint8_t uvc_function_index;       /**< Index of UVC function you want to use. Set to 0 to use first available UVC function */
+        uint8_t uvc_stream_index;         /**< Index of UVC function you want to use. Set to 0 to use first available UVC function */
     } usb;
     uvc_host_stream_format_t vs_format;   /**< Video Stream format. Resolution, FPS and encoding */
     struct {
