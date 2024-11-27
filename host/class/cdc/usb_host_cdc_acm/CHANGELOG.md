@@ -1,3 +1,7 @@
+## Unreleased
+
+- Fixed device opening for devices with CDC class defined in Device descriptor https://github.com/espressif/esp-usb/pull/89
+
 ## 2.0.5
 
 - Fixed CDC descriptor parsing logic, when some CDC devices could not be opened
