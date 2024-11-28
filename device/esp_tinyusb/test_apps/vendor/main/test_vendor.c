@@ -21,7 +21,11 @@
 static const char *TAG = "vendor_test";
 
 char buffer_in[64];
+#if (TUSB_VERSION_MINOR >= 17)
+void tud_vendor_rx_cb(uint8_t itf, uint8_t const *buffer, uint16_t bufsize)
+#else
 void tud_vendor_rx_cb(uint8_t itf)
+#endif // TUSB_VERSION_MINOR
 {
     ESP_LOGI(TAG, "tud_vendor_rx_cb(itf=%d)", itf);
     int available = tud_vendor_n_available(itf);
