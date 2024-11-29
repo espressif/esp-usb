@@ -108,7 +108,7 @@ static void usb_event_cb(const usb_host_client_event_msg_t *event_msg, void *arg
  */
 static void uvc_client_task(void *arg)
 {
-    vTaskSuspend(NULL); // Task will be resumed from uvc_host_install()
+    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
     uvc_host_driver_t *uvc_obj = UVC_ATOMIC_LOAD(p_uvc_host_driver); // Make local copy of the driver's handle
     assert(uvc_obj->usb_client_hdl);
 
@@ -425,7 +425,7 @@ esp_err_t uvc_host_install(const uvc_host_driver_config_t *driver_config)
     }
 
     // Everything OK: Start UVC-Driver task and return
-    vTaskResume(driver_task_h);
+    xTaskNotifyGive(driver_task_h);
     return ESP_OK;
 
 client_err:
