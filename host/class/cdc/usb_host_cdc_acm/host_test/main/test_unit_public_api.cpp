@@ -68,7 +68,7 @@ SCENARIO("CDC-ACM Host install")
             usb_host_client_register_ExpectAnyArgsAndReturn(ESP_OK);
 
             // Resume the task
-            vTaskResume_Expect(task_handle);
+            xTaskGenericNotify_ExpectAnyArgsAndReturn(pdPASS);
 
             // Call the DUT Function, expect ESP_OK
             REQUIRE(ESP_OK == cdc_acm_host_install(nullptr));
