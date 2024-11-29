@@ -158,7 +158,7 @@ static void cdc_acm_reset_in_transfer(cdc_dev_t *cdc_dev)
  */
 static void cdc_acm_client_task(void *arg)
 {
-    vTaskSuspend(NULL); // Task will be resumed from cdc_acm_host_install()
+    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
     cdc_acm_obj_t *cdc_acm_obj = p_cdc_acm_obj; // Make local copy of the driver's handle
     assert(cdc_acm_obj->cdc_acm_client_hdl);
 
@@ -411,7 +411,7 @@ esp_err_t cdc_acm_host_install(const cdc_acm_host_driver_config_t *driver_config
     CDC_ACM_EXIT_CRITICAL();
 
     // Everything OK: Start CDC-Driver task and return
-    vTaskResume(driver_task_h);
+    xTaskNotifyGive(driver_task_h);
     return ESP_OK;
 
 client_err:
