@@ -5,19 +5,20 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include "soc/soc_caps.h"
+#if SOC_USB_OTG_SUPPORTED
+
 #include "unity.h"
 #include <string.h>
 #include <unistd.h>
 #include <inttypes.h>
-#include "esp_private/usb_phy.h"
+#include "esp_idf_version.h"
 #include "esp_private/msc_scsi_bot.h"
+#include "esp_private/usb_phy.h"
 #include "usb/usb_host.h"
 #include "usb/msc_host_vfs.h"
 #include "test_common.h"
-#include "esp_idf_version.h"
 #include "../private_include/msc_common.h"
-
-#if SOC_USB_OTG_SUPPORTED
 
 static const char *TAG = "APP";
 
@@ -34,17 +35,62 @@ static SemaphoreHandle_t ready_to_deinit_usb;
 static msc_host_device_handle_t device;
 static msc_host_vfs_handle_t vfs_handle;
 static volatile bool waiting_for_sudden_disconnect;
+
+// usb_host_lib_set_root_port_power is used to force toggle connection, primary developed for esp32p4
+// esp32p4 is supported from IDF 5.3
+#if ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(5, 3, 0)
 static usb_phy_handle_t phy_hdl = NULL;
 
+// Force connection/disconnection using PHY
 static void force_conn_state(bool connected, TickType_t delay_ticks)
 {
-    TEST_ASSERT(phy_hdl);
+    TEST_ASSERT_NOT_EQUAL(NULL, phy_hdl);
     if (delay_ticks > 0) {
-        //Delay of 0 ticks causes a yield. So skip if delay_ticks is 0.
+        // Delay of 0 ticks causes a yield. So skip if delay_ticks is 0.
         vTaskDelay(delay_ticks);
     }
     ESP_ERROR_CHECK(usb_phy_action(phy_hdl, (connected) ? USB_PHY_ACTION_HOST_ALLOW_CONN : USB_PHY_ACTION_HOST_FORCE_DISCONN));
 }
+
+// Initialize the internal USB PHY to connect to the USB OTG peripheral. We manually install the USB PHY for testing
+static bool install_phy(void)
+{
+    usb_phy_config_t phy_config = {
+        .controller = USB_PHY_CTRL_OTG,
+        .target = USB_PHY_TARGET_INT,
+        .otg_mode = USB_OTG_MODE_HOST,
+        .otg_speed = USB_PHY_SPEED_UNDEFINED,   // In Host mode, the speed is determined by the connected device
+    };
+    TEST_ASSERT_EQUAL(ESP_OK, usb_new_phy(&phy_config, &phy_hdl));
+    // Return true, to skip_phy_setup during the usb_host_install()
+    return true;
+}
+
+static void delete_phy(void)
+{
+    TEST_ASSERT_EQUAL(ESP_OK, usb_del_phy(phy_hdl)); // Tear down USB PHY
+    phy_hdl = NULL;
+}
+#else // ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(5, 3, 0)
+
+// Force connection/disconnection using root port power
+static void force_conn_state(bool connected, TickType_t delay_ticks)
+{
+    if (delay_ticks > 0) {
+        // Delay of 0 ticks causes a yield. So skip if delay_ticks is 0.
+        vTaskDelay(delay_ticks);
+    }
+    ESP_ERROR_CHECK(usb_host_lib_set_root_port_power(connected));
+}
+
+static bool install_phy(void)
+{
+    // Return false, NOT to skip_phy_setup during the usb_host_install()
+    return false;
+}
+
+static void delete_phy(void) {}
+#endif // ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(5, 3, 0)
 
 static void msc_event_cb(const msc_host_event_t *event, void *arg)
 {
@@ -138,21 +184,6 @@ static void msc_task(void *args)
     vTaskDelete(NULL);
 }
 
-#if ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(5, 0, 0)
-static void check_file_content(const char *file_path, const char *expected)
-{
-    ESP_LOGI(TAG, "Reading %s:", file_path);
-    FILE *file = fopen(file_path, "r");
-    TEST_ASSERT_NOT_NULL_MESSAGE(file, "Could not open file");
-
-    char content[200];
-    size_t read_cnt = fread(content, 1, sizeof(content), file);
-    TEST_ASSERT_EQUAL_MESSAGE(strlen(expected), read_cnt, "Error in reading file");
-    TEST_ASSERT_EQUAL_STRING(content, expected);
-    fclose(file);
-}
-#endif /* ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(5, 0, 0) */
-
 static void check_sudden_disconnect(void)
 {
     uint8_t data[512];
@@ -168,7 +199,7 @@ static void check_sudden_disconnect(void)
     TEST_ASSERT_EQUAL(0, fflush(file));
 
     ESP_LOGI(TAG, "Trigger a disconnect");
-    //Trigger a disconnect
+    // Trigger a disconnect
     waiting_for_sudden_disconnect = true;
     force_conn_state(false, 0);
 
@@ -189,21 +220,12 @@ static void msc_test_init(void)
     ready_to_deinit_usb = xSemaphoreCreateBinary();
 
     TEST_ASSERT( app_queue = xQueueCreate(5, sizeof(msc_host_event_t)) );
-
-    //Initialize the internal USB PHY to connect to the USB OTG peripheral. We manually install the USB PHY for testing
-    usb_phy_config_t phy_config = {
-        .controller = USB_PHY_CTRL_OTG,
-        .target = USB_PHY_TARGET_INT,
-        .otg_mode = USB_OTG_MODE_HOST,
-        .otg_speed = USB_PHY_SPEED_UNDEFINED,   //In Host mode, the speed is determined by the connected device
-    };
-    ESP_OK_ASSERT(usb_new_phy(&phy_config, &phy_hdl));
+    const bool skip_phy_setup = install_phy();
     const usb_host_config_t host_config = {
-        .skip_phy_setup = true,
+        .skip_phy_setup = skip_phy_setup,
         .intr_flags = ESP_INTR_FLAG_LEVEL1,
     };
     ESP_OK_ASSERT( usb_host_install(&host_config) );
-
     task_created = xTaskCreatePinnedToCore(handle_usb_events, "usb_events", 2 * 2048, NULL, 2, NULL, 0);
     TEST_ASSERT(task_created);
 }
@@ -247,9 +269,7 @@ static void msc_test_deinit(void)
     vSemaphoreDelete(ready_to_deinit_usb);
     vTaskDelay(10); // Wait to finish any ongoing USB operations
     ESP_OK_ASSERT( usb_host_uninstall() );
-    //Tear down USB PHY
-    ESP_OK_ASSERT(usb_del_phy(phy_hdl));
-    phy_hdl = NULL;
+    delete_phy();
 
     vQueueDelete(app_queue);
     vTaskDelay(10); // Wait for FreeRTOS to clean up deleted tasks
@@ -269,8 +289,8 @@ static void write_read_sectors(void)
     memset(write_data, 0x55, DISK_BLOCK_SIZE);
     memset(read_data, 0, DISK_BLOCK_SIZE);
 
-    scsi_cmd_write10(device, write_data, 10, 1, DISK_BLOCK_SIZE);
-    scsi_cmd_read10(device, read_data, 10, 1, DISK_BLOCK_SIZE);
+    ESP_OK_ASSERT( scsi_cmd_write10(device, write_data, 10, 1, DISK_BLOCK_SIZE));
+    ESP_OK_ASSERT( scsi_cmd_read10(device, read_data, 10, 1, DISK_BLOCK_SIZE));
 
     TEST_ASSERT_EQUAL_MEMORY(write_data, read_data, DISK_BLOCK_SIZE);
 }
@@ -305,21 +325,6 @@ TEST_CASE("sectors_can_be_written_and_read", "[usb_msc]")
     write_read_sectors();
     msc_teardown();
 }
-
-/**
- * @brief Check README content
- *
- * This test strictly requires our implementation of USB MSC Mock device.
- * This test will fail for usualW flash drives, as they don't have README.TXT file on them.
- */
-#if ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(5, 0, 0)
-TEST_CASE("check_README_content", "[usb_msc]")
-{
-    msc_setup();
-    check_file_content("/usb/README.TXT", README_CONTENTS);
-    msc_teardown();
-}
-#endif  /* ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(5, 0, 0) */
 
 esp_err_t bot_execute_command(msc_device_t *device, uint8_t *cbw, void *data, size_t size);
 /**
@@ -539,11 +544,11 @@ TEST_CASE("mock_device_app", "[usb_msc_device][ignore]")
     device_app();
 }
 
-#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0) && SOC_SDMMC_HOST_SUPPORTED
+#if SOC_SDMMC_HOST_SUPPORTED
 TEST_CASE("mock_device_app", "[usb_msc_device_sdmmc][ignore]")
 {
     device_app_sdmmc();
 }
-#endif /* ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0) && SOC_SDMMC_HOST_SUPPORTED */
+#endif /* SOC_SDMMC_HOST_SUPPORTED */
 
 #endif /* SOC_USB_OTG_SUPPORTED */

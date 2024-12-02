@@ -9,4 +9,7 @@ It tests basic functionality of the driver like open/close/read/write operations
 
 ### Hardware Required
 
+This test requires two ESP32 development board with USB-OTG support. The development boards shall have interconnected USB peripherals,
+one acting as host running CDC-ACM host driver and another CDC-ACM device driver (tinyusb).
+
 This test expects that TinyUSB dual CDC device with VID = 0x303A and PID = 0x4002 is connected to the USB host.

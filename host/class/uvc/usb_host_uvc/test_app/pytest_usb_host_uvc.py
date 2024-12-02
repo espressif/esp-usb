@@ -7,6 +7,7 @@ from pytest_embedded_idf.dut import IdfDut
 
 @pytest.mark.esp32s2
 @pytest.mark.esp32s3
+@pytest.mark.esp32p4
 @pytest.mark.usb_host
 def test_usb_host_uvc(dut: IdfDut) -> None:
     dut.run_all_single_board_cases(group='usb_uvc')

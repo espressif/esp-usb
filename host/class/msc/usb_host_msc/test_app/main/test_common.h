@@ -1,11 +1,9 @@
 /*
- * SPDX-FileCopyrightText: 2021-2022 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2021-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
-
-#include "esp_idf_version.h"
 
 enum {
     // FatFS only allows to format disks with number of blocks greater than 128
@@ -14,9 +12,9 @@ enum {
 };
 
 void device_app(void);
-#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0) && SOC_SDMMC_HOST_SUPPORTED
+#if SOC_SDMMC_HOST_SUPPORTED
 void device_app_sdmmc(void);
-#endif /* ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0) && SOC_SDMMC_HOST_SUPPORTED */
+#endif /* SOC_SDMMC_HOST_SUPPORTED */
 
 #define README_CONTENTS \
 "This is tinyusb's MassStorage Class demo.\r\n\r\n\
