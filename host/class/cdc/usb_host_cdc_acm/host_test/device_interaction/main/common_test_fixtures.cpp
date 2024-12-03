@@ -141,11 +141,8 @@ esp_err_t mock_cdc_acm_host_install(const cdc_acm_host_driver_config_t *driver_c
 
 esp_err_t mock_cdc_acm_host_uninstall(void)
 {
-    // Call mocked function from USB Host
-    // return ESP_OK, so the client si unblocked successfully
     usb_host_client_unblock_ExpectAnyArgsAndReturn(ESP_OK);
     usb_host_client_unblock_AddCallback(usb_host_client_unblock_mock_callback);
-
 
     usb_host_client_deregister_ExpectAnyArgsAndReturn(ESP_OK);
     usb_host_client_deregister_AddCallback(usb_host_client_deregister_mock_callback);
@@ -213,7 +210,7 @@ esp_err_t mock_cdc_acm_host_open(uint8_t dev_address, uint16_t vid, uint16_t pid
     // Claim data interface
     // Make sure that the interface_idx has been claimed
     usb_host_interface_claim_ExpectAndReturn(nullptr, nullptr, interface_idx, 0, ESP_OK);
-    usb_host_interface_claim_IgnoreArg_client_hdl();        // Ignore all function parameters, except interface_number
+    usb_host_interface_claim_IgnoreArg_client_hdl();        // Ignore all function parameters, except interface_idx
     usb_host_interface_claim_IgnoreArg_dev_hdl();
     usb_host_interface_claim_IgnoreArg_bAlternateSetting();
     usb_host_transfer_submit_ExpectAnyArgsAndReturn(ESP_OK);
@@ -221,7 +218,7 @@ esp_err_t mock_cdc_acm_host_open(uint8_t dev_address, uint16_t vid, uint16_t pid
     // Claim notification interface (if supported)
     if (p_cdc_dev_expects->notif.xfer) {
         usb_host_interface_claim_ExpectAndReturn(nullptr, nullptr, interface_idx, 0, ESP_OK);
-        usb_host_interface_claim_IgnoreArg_client_hdl();    // Ignore all function parameters, except interface_number
+        usb_host_interface_claim_IgnoreArg_client_hdl();    // Ignore all function parameters, except interface_idx
         usb_host_interface_claim_IgnoreArg_dev_hdl();
         usb_host_interface_claim_IgnoreArg_bAlternateSetting();
         usb_host_transfer_submit_ExpectAnyArgsAndReturn(ESP_OK);
@@ -238,7 +235,7 @@ esp_err_t mock_cdc_acm_host_open(uint8_t dev_address, uint16_t vid, uint16_t pid
     return ret;
 }
 
-esp_err_t mock_cdc_acm_host_close(cdc_acm_dev_hdl_t *cdc_hdl, uint8_t interface_number)
+esp_err_t mock_cdc_acm_host_close(cdc_acm_dev_hdl_t *cdc_hdl, uint8_t interface_idx)
 {
     // Cancel pooling of IN endpoint -> halt, flush, clear
     _mock_cdc_acm_reset_transfer_endpoint(p_cdc_dev_expects->data.in_bEndpointAddress);
@@ -249,8 +246,8 @@ esp_err_t mock_cdc_acm_host_close(cdc_acm_dev_hdl_t *cdc_hdl, uint8_t interface_
     }
 
     // Release data interface
-    usb_host_interface_release_ExpectAndReturn(nullptr, nullptr, interface_number, ESP_OK);
-    usb_host_interface_release_IgnoreArg_client_hdl();  // Ignore all function parameters, except interface_number
+    usb_host_interface_release_ExpectAndReturn(nullptr, nullptr, interface_idx, ESP_OK);
+    usb_host_interface_release_IgnoreArg_client_hdl();  // Ignore all function parameters, except interface_idx
     usb_host_interface_release_IgnoreArg_dev_hdl();
 
 

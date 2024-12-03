@@ -1,6 +1,6 @@
 idf_component_register(SRC_DIRS .
                         REQUIRES cmock usb
-                        INCLUDE_DIRS .
+                        INCLUDE_DIRS "../../descriptors" .
                         PRIV_INCLUDE_DIRS "../../../private_include"
                         WHOLE_ARCHIVE)
 

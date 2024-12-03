@@ -7,7 +7,7 @@
 #include <stdio.h>
 #include <catch2/catch_test_macros.hpp>
 
-#include "descriptors/cdc_descriptors.hpp"
+#include "cdc_descriptors.hpp"
 #include "usb/cdc_acm_host.h"
 #include "mock_add_usb_device.h"
 #include "common_test_fixtures.hpp"
