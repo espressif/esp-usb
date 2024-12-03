@@ -70,12 +70,6 @@ static void _submit_mock_transfer(cdc_acm_dev_hdl_t *dev)
     REQUIRE(ESP_ERR_TIMEOUT == mock_cdc_acm_host_data_tx_blocking(*dev, tx_buf, sizeof(tx_buf), 200, MOCK_USB_TRANSFER_TIMEOUT));
 }
 
-static void new_dev_cb(usb_device_handle_t usb_dev)
-{
-    printf("NEW DEVICE \n\n\n");
-}
-
-
 SCENARIO("Interact with mocked USB devices")
 {
     // We will put device adding to the SECTION, to run it just once, not repeatedly for all the following SECTIONs
@@ -90,16 +84,7 @@ SCENARIO("Interact with mocked USB devices")
     GIVEN("Mocked devices are added to the device list") {
         // Install CDC-ACM driver
 
-        usb_host_client_handle_events_IgnoreAndReturn(ESP_OK);
-        usb_host_client_handle_events_StopIgnore();
-
-        cdc_acm_host_driver_config_t driver_config = {
-            .driver_task_stack_size = 2048,
-            .driver_task_priority = 11,
-            .xCoreID = 0,
-            .new_dev_cb = new_dev_cb,
-        };
-        REQUIRE(ESP_OK == mock_cdc_acm_host_install(&driver_config));
+        REQUIRE(ESP_OK == mock_cdc_acm_host_install(nullptr));
 
         cdc_acm_dev_hdl_t dev = nullptr;
         const cdc_acm_host_device_config_t dev_config = {
