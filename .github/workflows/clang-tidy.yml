@@ -24,7 +24,7 @@ jobs:
           chmod +x clang-tidy-sarif
       - name: Install pyclang
         run: |
-          . ${IDF_PATH}/export.sh
+          get_idf
           pip install pyclang~=0.2.0
       - name: Run code analysis
         shell: bash
@@ -33,7 +33,7 @@ jobs:
           IDF_TARGET: esp32s3
         working-directory: clang_tidy
         run: |
-          . ${IDF_PATH}/export.sh
+          get_idf
           idf.py reconfigure
           idf.py clang-check --include-paths $GITHUB_WORKSPACE --exclude-paths $PWD --run-clang-tidy-py run-clang-tidy
           cp warnings.txt ../
