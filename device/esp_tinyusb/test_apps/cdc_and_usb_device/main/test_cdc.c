@@ -42,9 +42,23 @@ static const tusb_desc_device_t cdc_device_descriptor = {
 static const uint16_t cdc_desc_config_len = TUD_CONFIG_DESC_LEN + CFG_TUD_CDC * TUD_CDC_DESC_LEN;
 static const uint8_t cdc_desc_configuration[] = {
     TUD_CONFIG_DESCRIPTOR(1, 4, 0, cdc_desc_config_len, TUSB_DESC_CONFIG_ATT_REMOTE_WAKEUP, 100),
-    TUD_CDC_DESCRIPTOR(0, 4, 0x81, 8, 0x02, 0x82, 64),
-    TUD_CDC_DESCRIPTOR(2, 4, 0x83, 8, 0x04, 0x84, 64),
+    TUD_CDC_DESCRIPTOR(0, 4, 0x81, 8, 0x02, 0x82, (TUD_OPT_HIGH_SPEED ? 512 : 64)),
+    TUD_CDC_DESCRIPTOR(2, 4, 0x83, 8, 0x04, 0x84, (TUD_OPT_HIGH_SPEED ? 512 : 64)),
 };
+
+#if (TUD_OPT_HIGH_SPEED)
+static const tusb_desc_device_qualifier_t device_qualifier = {
+    .bLength = sizeof(tusb_desc_device_qualifier_t),
+    .bDescriptorType = TUSB_DESC_DEVICE_QUALIFIER,
+    .bcdUSB = 0x0200,
+    .bDeviceClass = TUSB_CLASS_MISC,
+    .bDeviceSubClass = MISC_SUBCLASS_COMMON,
+    .bDeviceProtocol = MISC_PROTOCOL_IAD,
+    .bMaxPacketSize0 = CFG_TUD_ENDPOINT0_SIZE,
+    .bNumConfigurations = 0x01,
+    .bReserved = 0
+};
+#endif // TUD_OPT_HIGH_SPEED
 
 static void tinyusb_cdc_rx_callback(int itf, cdcacm_event_t *event)
 {
@@ -66,10 +80,19 @@ TEST_CASE("tinyusb_cdc", "[esp_tinyusb][cdc]")
 {
     // Install TinyUSB driver
     const tinyusb_config_t tusb_cfg = {
-        .external_phy = false,
         .device_descriptor = &cdc_device_descriptor,
-        .configuration_descriptor = cdc_desc_configuration
+        .string_descriptor = NULL,
+        .string_descriptor_count = 0,
+        .external_phy = false,
+#if (TUD_OPT_HIGH_SPEED)
+        .fs_configuration_descriptor = cdc_desc_configuration,
+        .hs_configuration_descriptor = cdc_desc_configuration,
+        .qualifier_descriptor = &device_qualifier,
+#else
+        .configuration_descriptor = cdc_desc_configuration,
+#endif // TUD_OPT_HIGH_SPEED
     };
+
     TEST_ASSERT_EQUAL(ESP_OK, tinyusb_driver_install(&tusb_cfg));
 
     tinyusb_config_cdcacm_t acm_cfg = {
