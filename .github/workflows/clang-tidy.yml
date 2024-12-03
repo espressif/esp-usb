@@ -24,7 +24,8 @@ jobs:
           chmod +x clang-tidy-sarif
       - name: Install pyclang
         run: |
-          . ${IDF_PATH}/export.sh
+          cd ${IDF_PATH}
+          . ./export.sh
           pip install pyclang~=0.2.0
       - name: Run code analysis
         shell: bash
