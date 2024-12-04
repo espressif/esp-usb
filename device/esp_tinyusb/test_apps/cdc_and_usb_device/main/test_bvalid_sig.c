@@ -58,6 +58,20 @@ static const tusb_desc_device_t test_device_descriptor = {
     .bNumConfigurations = 0x01
 };
 
+#if (TUD_OPT_HIGH_SPEED)
+static const tusb_desc_device_qualifier_t device_qualifier = {
+    .bLength = sizeof(tusb_desc_device_qualifier_t),
+    .bDescriptorType = TUSB_DESC_DEVICE_QUALIFIER,
+    .bcdUSB = 0x0200,
+    .bDeviceClass = TUSB_CLASS_MISC,
+    .bDeviceSubClass = MISC_SUBCLASS_COMMON,
+    .bDeviceProtocol = MISC_PROTOCOL_IAD,
+    .bMaxPacketSize0 = CFG_TUD_ENDPOINT0_SIZE,
+    .bNumConfigurations = 0x01,
+    .bReserved = 0
+};
+#endif // TUD_OPT_HIGH_SPEED
+
 void test_bvalid_sig_mount_cb(void)
 {
     dev_mounted++;
@@ -74,10 +88,19 @@ TEST_CASE("bvalid_signal", "[esp_tinyusb][usb_device]")
 
     // Install TinyUSB driver
     const tinyusb_config_t tusb_cfg = {
-        .external_phy = false,
         .device_descriptor = &test_device_descriptor,
+        .string_descriptor = NULL,
+        .string_descriptor_count = 0,
+        .external_phy = false,
+#if (TUD_OPT_HIGH_SPEED)
+        .fs_configuration_descriptor = test_configuration_descriptor,
+        .hs_configuration_descriptor = test_configuration_descriptor,
+        .qualifier_descriptor = &device_qualifier,
+#else
         .configuration_descriptor = test_configuration_descriptor,
+#endif // TUD_OPT_HIGH_SPEED
     };
+
     TEST_ASSERT_EQUAL(ESP_OK, tinyusb_driver_install(&tusb_cfg));
 
     dev_mounted = 0;

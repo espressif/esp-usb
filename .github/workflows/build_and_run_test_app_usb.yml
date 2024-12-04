@@ -62,10 +62,6 @@ jobs:
           - idf_ver: "release-v5.3" # TODO: enable IDF 5.3 once the docker image is updated
             idf_target: "esp32p4"
 
-          # Exclude esp32p4 for all versions when using the usb_device runner
-          - idf_target: "esp32p4"   # TODO: esp32p4 usb_device runner not built yet
-            runner_tag: "usb_device"
-
     runs-on: [self-hosted, linux, docker, "${{ matrix.idf_target }}", "${{ matrix.runner_tag }}"]
     container:
       image: python:3.11-bookworm
