@@ -90,6 +90,30 @@ extern "C" {
 #   define CFG_TUSB_RHPORT0_MODE    OPT_MODE_DEVICE | OPT_MODE_FULL_SPEED
 #endif
 
+// ------------------------------------------------------------------------
+//                              DCD DWC2 Mode
+// ------------------------------------------------------------------------
+#define CFG_TUD_DWC2_SLAVE_ENABLE   1       // Enable Slave/IRQ by default
+
+// ------------------------------------------------------------------------
+//                              DMA & Cache
+// ------------------------------------------------------------------------
+#ifdef CONFIG_TINYUSB_MODE_DMA
+// DMA Mode has a priority over Slave/IRQ mode and will be used if hardware supports it
+#define CFG_TUD_DWC2_DMA_ENABLE     1       // Enable DMA
+
+#if CONFIG_CACHE_L1_CACHE_LINE_SIZE
+// To enable the dcd_dcache clean/invalidate/clean_invalidate calls
+#   define CFG_TUD_MEM_DCACHE_ENABLE    1
+#define CFG_TUD_MEM_DCACHE_LINE_SIZE    CONFIG_CACHE_L1_CACHE_LINE_SIZE
+// NOTE: starting with esp-idf v5.3 there is specific attribute present: DRAM_DMA_ALIGNED_ATTR
+#   define CFG_TUSB_MEM_SECTION         __attribute__((aligned(CONFIG_CACHE_L1_CACHE_LINE_SIZE))) DRAM_ATTR
+#else
+#   define CFG_TUD_MEM_CACHE_ENABLE     0
+#   define CFG_TUSB_MEM_SECTION         TU_ATTR_ALIGNED(4) DRAM_ATTR
+#endif // CONFIG_CACHE_L1_CACHE_LINE_SIZE
+#endif // CONFIG_TINYUSB_MODE_DMA
+
 #define CFG_TUSB_OS                 OPT_OS_FREERTOS
 
 /* USB DMA on some MCUs can only access a specific SRAM region with restriction on alignment.

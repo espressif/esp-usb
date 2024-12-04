@@ -17,6 +17,20 @@ menu "TinyUSB Stack"
             bool "HS"
     endchoice
 
+    menu "TinyUSB DCD"
+        choice TINYUSB_MODE
+            prompt "DCD Mode"
+            default TINYUSB_MODE_DMA
+            help
+                TinyUSB DCD DWC2 Driver supports two modes: Slave mode (based on IRQ) and Buffer DMA mode.
+
+            config TINYUSB_MODE_SLAVE
+                bool "Slave/IRQ"
+            config TINYUSB_MODE_DMA
+                bool "Buffer DMA"
+        endchoice
+    endmenu # "TinyUSB DCD"
+
     menu "TinyUSB task configuration"
         config TINYUSB_NO_DEFAULT_TASK
             bool "Do not create a TinyUSB task"
@@ -71,7 +85,7 @@ menu "TinyUSB Stack"
                 This is especially useful in multicore scenarios, when we need to pin the task
                 to a specific core and, at the same time initialize TinyUSB stack
                 (i.e. install interrupts) on the same core.
-    endmenu
+    endmenu # "TinyUSB task configuration"
 
     menu "Descriptor configuration"
         comment "You can provide your custom descriptors via tinyusb_driver_install()"
@@ -151,8 +165,10 @@ menu "TinyUSB Stack"
         config TINYUSB_MSC_BUFSIZE
             depends on TINYUSB_MSC_ENABLED
             int "MSC FIFO size"
-            default 512
-            range 64 10000
+            default 512 if IDF_TARGET_ESP32S2 || IDF_TARGET_ESP32S3
+            default 8192 if IDF_TARGET_ESP32P4
+            range 64 8192 if IDF_TARGET_ESP32S2 || IDF_TARGET_ESP32S3
+            range 64 32768 if IDF_TARGET_ESP32P4
             help
                 MSC FIFO size, in bytes.
 
