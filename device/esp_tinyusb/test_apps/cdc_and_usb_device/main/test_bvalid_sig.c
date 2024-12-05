@@ -82,7 +82,7 @@ void test_bvalid_sig_umount_cb(void)
     dev_umounted++;
 }
 
-TEST_CASE("bvalid_signal", "[esp_tinyusb][usb_device]")
+TEST_CASE("bvalid_signal", "[usb_device]")
 {
     unsigned int rounds = DEVICE_DETACH_TEST_ROUNDS;
 
@@ -121,6 +121,5 @@ TEST_CASE("bvalid_signal", "[esp_tinyusb][usb_device]")
 
     // Cleanup
     TEST_ASSERT_EQUAL(ESP_OK, tinyusb_driver_uninstall());
-    TEST_ASSERT_EQUAL(ESP_OK, tusb_stop_task());
 }
 #endif // SOC_USB_OTG_SUPPORTED
