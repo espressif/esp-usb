@@ -1,4 +1,4 @@
-## 1.5.1 (Unreleased)
+## 1.6.0 (Unreleased)
 
 - esp_tinyusb: Added possibility to teardown tinyusb stack and reconfigure the tinyusb driver
 - esp_tinyusb: Added test for tinyusb driver reconfiguration
