@@ -65,7 +65,7 @@ jobs:
     runs-on: [self-hosted, linux, docker, "${{ matrix.idf_target }}", "${{ matrix.runner_tag }}"]
     container:
       image: python:3.11-bookworm
-      options: --privileged --device-cgroup-rule="c 188:* rmw" --device-cgroup-rule="c 166:* rmw" --group-add plugdev
+      options: --privileged --device-cgroup-rule="c 188:* rmw" --device-cgroup-rule="c 166:* rmw"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
