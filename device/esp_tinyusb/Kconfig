@@ -55,6 +55,7 @@ menu "TinyUSB Stack"
 
         choice TINYUSB_TASK_AFFINITY
             prompt "TinyUSB task affinity"
+            default TINYUSB_TASK_AFFINITY_CPU1 if !FREERTOS_UNICORE
             default TINYUSB_TASK_AFFINITY_NO_AFFINITY
             depends on !TINYUSB_NO_DEFAULT_TASK
             help
