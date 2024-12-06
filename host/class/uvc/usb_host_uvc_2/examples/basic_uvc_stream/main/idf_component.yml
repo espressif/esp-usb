@@ -1,0 +1,6 @@
+## IDF Component Manager Manifest File
+dependencies:
+  idf: ">=5.0"
+  usb_host_uvc_2:
+    version: "*"
+    override_path: "../../.."
