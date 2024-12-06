@@ -59,8 +59,6 @@ jobs:
             idf_target: "esp32p4"
           - idf_ver: "release-v5.2"
             idf_target: "esp32p4"
-          - idf_ver: "release-v5.3" # TODO: enable IDF 5.3 once the docker image is updated
-            idf_target: "esp32p4"
 
     runs-on: [self-hosted, linux, docker, "${{ matrix.idf_target }}", "${{ matrix.runner_tag }}"]
     container:
