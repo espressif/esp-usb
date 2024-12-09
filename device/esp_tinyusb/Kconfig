@@ -11,10 +11,14 @@ menu "TinyUSB Stack"
         prompt "TinyUSB PHY"
         default TINYUSB_RHPORT_HS
         help
-            Allows set the USB PHY Controller for TinyUSB: HS (USB OTG2.0 PHY for HighSpeed)
+            Allows set the USB PHY Controller for TinyUSB:
+            - HS (USB OTG2.0 PHY for HighSpeed)
+            - FS (USB OTG1.1 PHY for FullSpeed)
 
         config TINYUSB_RHPORT_HS
             bool "HS"
+        config TINYUSB_RHPORT_FS
+            bool "FS"
     endchoice
 
     menu "TinyUSB DCD"
