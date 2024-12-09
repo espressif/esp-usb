@@ -7,7 +7,7 @@
 #include <stdio.h>
 #include <catch2/catch_test_macros.hpp>
 
-#include "descriptors/cypress_rfa.hpp"
+#include "cypress_rfa.hpp"
 #include "test_parsing_checker.hpp"
 #include "cdc_host_descriptor_parsing.h"
 #include "usb/cdc_acm_host.h"
