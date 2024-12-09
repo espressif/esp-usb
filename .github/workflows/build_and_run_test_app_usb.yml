@@ -59,13 +59,11 @@ jobs:
             idf_target: "esp32p4"
           - idf_ver: "release-v5.2"
             idf_target: "esp32p4"
-          - idf_ver: "release-v5.3" # TODO: enable IDF 5.3 once the docker image is updated
-            idf_target: "esp32p4"
 
     runs-on: [self-hosted, linux, docker, "${{ matrix.idf_target }}", "${{ matrix.runner_tag }}"]
     container:
       image: python:3.11-bookworm
-      options: --privileged --device-cgroup-rule="c 188:* rmw" --device-cgroup-rule="c 166:* rmw" --group-add plugdev
+      options: --privileged --device-cgroup-rule="c 188:* rmw" --device-cgroup-rule="c 166:* rmw"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4

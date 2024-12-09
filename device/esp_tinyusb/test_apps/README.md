@@ -12,6 +12,8 @@ The main idea comes from this response on [stackoverflow](https://stackoverflow.
 - [`Docker tty script`](#docker-tty-script)
 - [`Logging`](#logging)
 - [`Running a docker container`](#running-a-docker-container)
+- [`GitHub CI target runner setup`](#github-ci-target-runner-setup)
+- [`GitLab CI target runner setup`](#gitlab-ci-target-runner-setup)
 
 ## UDEV rules
 
@@ -101,9 +103,31 @@ crw-rw---- 1 root dialout 166, 1 Nov 13 10:26 /dev/ttyACM1
 
 Run a Docker container with the following extra options:
 ``` sh
-docker run --device-cgroup-rule='c 188:* rmw' --device-cgroup-rule='c 166:* rmw' --group-add plugdev --privileged ..
+docker run --device-cgroup-rule='c 188:* rmw' --device-cgroup-rule='c 166:* rmw' --privileged ..
 ```
 - `--device-cgroup-rule='c 188:* rmw'`: allow access to `ttyUSBx` (Major 188, all Minors)
 - `--device-cgroup-rule='c 166:* rmw'`: allow access to `ttyACMx` (Major 166, all Minors)
-- `--group-add plugdev`: add the plugdev group
+
+## GitHub CI target runner setup
+
+To apply these changes to a GitHub target runner a `.yml` file used to run a Docker container for pytest must be modified. The Docker container is then run with the following options:
+
+``` yaml
+container:
+  image: python:3.11-bookworm
+  options: --privileged --device-cgroup-rule="c 188:* rmw" --device-cgroup-rule="c 166:* rmw"
+```
+
+## GitLab CI target runner setup
+
+To apply these changes to a GitLab runner the `config.toml` file located at `/etc/gitlab-runner/config.toml` on each GitLab target runner must be modified. 
+
+According to GitLab's [documentation](https://docs.gitlab.com/runner/configuration/advanced-configuration.html#the-runnersdocker-section) the `[runners.docker]` section of the `config.toml` file should include the `device_cgroup_rules` parameter:
+
+``` toml
+[runners.docker]
+  ...
+  device_cgroup_rules = ["c 188:* rmw", "c 166:* rmw"]
+```
+
 
