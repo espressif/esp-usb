@@ -1,3 +1,8 @@
+## 2.0.0
+
+- New version of the driver, native to Espressif's USB Host Library
+- Removed libuvc dependency
+
 ## 1.0.4
 
 - Support printf frame based descriptor

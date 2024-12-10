@@ -1,5 +1,5 @@
 dependencies:
   espressif/catch2: "^3.4.0"
-  usb_host_uvc:
+  usb_host_uvc_2:
     version: "*"
     override_path: "../../"
