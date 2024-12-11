@@ -19,17 +19,10 @@
 const static char *TAG = "TinyUSB";
 static usb_phy_handle_t phy_hdl;
 
-/**
- * @brief Teardown device/host TinyUSB stack
- *
- * @note
- *      For backward compatibility, when tusb_teardown() call is not implemented.
- */
-__attribute__ ((weak)) bool tusb_teardown(uint8_t rhport)
-{
-    ESP_LOGW(TAG, "%s has not implemented, please update tinyusb component", __FUNCTION__);
-    return true;
-}
+#ifndef tusb_teardown
+#warning "Teardown mechanism is not available, update tinyusb component"
+#   define tusb_teardown(...)
+#endif // tusb_teardown
 
 esp_err_t tinyusb_driver_install(const tinyusb_config_t *config)
 {
