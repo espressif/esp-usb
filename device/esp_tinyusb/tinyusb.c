@@ -21,7 +21,7 @@ static usb_phy_handle_t phy_hdl;
 
 // For the tinyusb component without tusb_teardown() implementation
 #ifndef tusb_teardown
-#   define tusb_teardown(...)   (false)
+#   define tusb_teardown()   (true)
 #endif // tusb_teardown
 
 esp_err_t tinyusb_driver_install(const tinyusb_config_t *config)
