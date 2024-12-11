@@ -53,7 +53,7 @@ void stream_callback(const uvc_host_stream_event_data_t *event, void *user_ctx)
         break;
     case UVC_HOST_DEVICE_DISCONNECTED:
         ESP_LOGW(TAG, "Device disconnected");
-        ESP_ERROR_CHECK(uvc_host_stream_close(event->data.stream_hdl));
+        ESP_ERROR_CHECK(uvc_host_stream_close(event->device_disconnected.stream_hdl));
         xSemaphoreGive(device_disconnected_sem);
         break;
     case UVC_HOST_FRAME_BUFFER_OVERFLOW:
@@ -155,12 +155,11 @@ static void usb_lib_task(void *arg)
         uint32_t event_flags;
         usb_host_lib_handle_events(portMAX_DELAY, &event_flags);
         if (event_flags & USB_HOST_LIB_EVENT_FLAGS_NO_CLIENTS) {
-            ESP_ERROR_CHECK(usb_host_device_free_all());
+            usb_host_device_free_all();
         }
         if (event_flags & USB_HOST_LIB_EVENT_FLAGS_ALL_FREE) {
             ESP_LOGI(TAG, "USB: All devices freed");
             // Continue handling USB events to allow device reconnection
-            // The only way this task can be stopped is by calling bsp_usb_host_stop()
         }
     }
 }

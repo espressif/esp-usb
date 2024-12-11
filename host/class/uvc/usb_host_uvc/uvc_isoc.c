@@ -9,6 +9,7 @@
 
 #include "esp_log.h"
 
+#include "uvc_stream.h" // For uvc_host_stream_pause()
 #include "uvc_types_priv.h"
 #include "uvc_check_priv.h"
 #include "uvc_frame_priv.h"
@@ -43,6 +44,12 @@ void isoc_transfer_callback(usb_transfer_t *transfer)
     ESP_LOGD(TAG, "%s", __FUNCTION__);
     uvc_stream_t *uvc_stream = (uvc_stream_t *)transfer->context;
 
+    // USB_TRANSFER_STATUS_NO_DEVICE is set in transfer->status.
+    // Other error codes are saved in status of each ISOC packet descriptor
+    if (transfer->status == USB_TRANSFER_STATUS_NO_DEVICE) {
+        ESP_ERROR_CHECK(uvc_host_stream_pause(uvc_stream)); // This should never fail
+    }
+
     if (!UVC_ATOMIC_LOAD(uvc_stream->dynamic.streaming)) {
         return; // If the streaming was turned off, we don't have to do anything
     }
@@ -57,12 +64,7 @@ void isoc_transfer_callback(usb_transfer_t *transfer)
             break;
         case USB_TRANSFER_STATUS_NO_DEVICE:
         case USB_TRANSFER_STATUS_CANCELED:
-            UVC_ENTER_CRITICAL();
-            uvc_stream->dynamic.streaming = false;
-            uvc_host_frame_t *this_frame = uvc_stream->dynamic.current_frame;
-            uvc_stream->dynamic.current_frame = NULL;
-            UVC_EXIT_CRITICAL();
-            uvc_host_frame_return(uvc_stream, this_frame);
+            ESP_ERROR_CHECK(uvc_host_stream_pause(uvc_stream)); // This should never fail
             return; // No need to process the rest
         case USB_TRANSFER_STATUS_ERROR:
         case USB_TRANSFER_STATUS_OVERFLOW:

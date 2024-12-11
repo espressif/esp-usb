@@ -36,9 +36,10 @@ static const char *TAG = "uvc";
 // UVC spinlock
 portMUX_TYPE uvc_lock = portMUX_INITIALIZER_UNLOCKED;
 
-// UVC events
-#define UVC_TEARDOWN          BIT0
-#define UVC_TEARDOWN_COMPLETE BIT1
+// UVC driver status
+#define UVC_STARTED           BIT0 // UVC driver events handling started
+#define UVC_TEARDOWN          BIT1 // UVC is being uninstalled
+#define UVC_TEARDOWN_COMPLETE BIT2 // UVC uninstall finished
 
 // Transfer callbacks
 static void ctrl_xfer_cb(usb_transfer_t *transfer);
@@ -84,7 +85,7 @@ static void usb_event_cb(const usb_host_client_event_msg_t *event_msg, void *arg
                 if (uvc_stream->constant.stream_cb) {
                     const uvc_host_stream_event_data_t disconn_event = {
                         .type = UVC_HOST_DEVICE_DISCONNECTED,
-                        .data.stream_hdl = (uvc_host_stream_hdl_t) uvc_stream,
+                        .device_disconnected.stream_hdl = (uvc_host_stream_hdl_t) uvc_stream,
                     };
                     uvc_stream->constant.stream_cb(&disconn_event, uvc_stream->constant.cb_arg);
                 }
@@ -98,32 +99,42 @@ static void usb_event_cb(const usb_host_client_event_msg_t *event_msg, void *arg
     }
 }
 
-//@todo revise this section according to MSC and HID drivers
+esp_err_t uvc_host_handle_events(unsigned long timeout)
+{
+    static bool called = false;
+    uvc_host_driver_t *uvc_obj = UVC_ATOMIC_LOAD(p_uvc_host_driver); // Make local copy of the driver's handle
+    UVC_CHECK(uvc_obj, ESP_ERR_INVALID_STATE);
+
+    // We use this static variable so we don't have to call FreeRTOS API in every handling call
+    if (!called) {
+        xEventGroupSetBits(uvc_obj->driver_status, UVC_STARTED);
+        called = true;
+    }
+
+    ESP_LOGV(TAG, "USB UVC handling");
+    esp_err_t ret = usb_host_client_handle_events(uvc_obj->usb_client_hdl, timeout);
+    EventBits_t events = xEventGroupGetBits(uvc_obj->driver_status);
+    if (events & UVC_TEARDOWN) {
+        xEventGroupSetBits(uvc_obj->driver_status, UVC_TEARDOWN_COMPLETE);
+        ret = ESP_FAIL;
+    }
+    return ret;
+}
+
 /**
  * @brief UVC driver handling task
- *
- * USB host client registration and deregistration is handled here.
  *
  * @param[in] arg User's argument. Handle of a task that started this task.
  */
 static void uvc_client_task(void *arg)
 {
     ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
-    uvc_host_driver_t *uvc_obj = UVC_ATOMIC_LOAD(p_uvc_host_driver); // Make local copy of the driver's handle
-    assert(uvc_obj->usb_client_hdl);
 
+    ESP_LOGD(TAG, "USB UVC handling start");
     // Start handling client's events
-    while (1) {
-        usb_host_client_handle_events(uvc_obj->usb_client_hdl, portMAX_DELAY);
-        EventBits_t events = xEventGroupGetBits(uvc_obj->driver_status);
-        if (events & UVC_TEARDOWN) {
-            break;
-        }
+    while (uvc_host_handle_events(portMAX_DELAY) != ESP_FAIL) {
     }
-
-    ESP_LOGD(TAG, "Deregistering client");
-    ESP_ERROR_CHECK(usb_host_client_deregister(uvc_obj->usb_client_hdl));
-    xEventGroupSetBits(uvc_obj->driver_status, UVC_TEARDOWN_COMPLETE);
+    ESP_LOGD(TAG, "USB UVC handling stop");
     vTaskDelete(NULL);
 }
 
@@ -386,11 +397,14 @@ esp_err_t uvc_host_install(const uvc_host_driver_config_t *driver_config)
     usb_transfer_t *ctrl_xfer = NULL;
     usb_host_transfer_alloc(64, 0, &ctrl_xfer); // Worst case HS MPS
     TaskHandle_t driver_task_h = NULL;
-    xTaskCreatePinnedToCore(
-        uvc_client_task, "USB-UVC", driver_config->driver_task_stack_size, NULL,
-        driver_config->driver_task_priority, &driver_task_h, driver_config->xCoreID);
 
-    if (uvc_obj == NULL || driver_task_h == NULL || driver_status == NULL ||
+    if (driver_config->create_background_task) {
+        xTaskCreatePinnedToCore(
+            uvc_client_task, "USB-UVC", driver_config->driver_task_stack_size, NULL,
+            driver_config->driver_task_priority, &driver_task_h, driver_config->xCoreID);
+    }
+
+    if (uvc_obj == NULL || (driver_task_h == NULL && driver_config->create_background_task) || driver_status == NULL ||
             mutex == NULL || ctrl_mutex == NULL || ctrl_xfer == NULL || ctrl_sem == NULL) {
         ret = ESP_ERR_NO_MEM;
         goto err;
@@ -426,7 +440,9 @@ esp_err_t uvc_host_install(const uvc_host_driver_config_t *driver_config)
     }
 
     // Everything OK: Start UVC-Driver task and return
-    xTaskNotifyGive(driver_task_h);
+    if (driver_task_h) {
+        xTaskNotifyGive(driver_task_h);
+    }
     return ESP_OK;
 
 client_err:
@@ -475,10 +491,16 @@ esp_err_t uvc_host_uninstall()
 
     // Signal to UVC task to stop, unblock it and wait for its deletion
     xEventGroupSetBits(uvc_obj->driver_status, UVC_TEARDOWN);
-    usb_host_client_unblock(uvc_obj->usb_client_hdl);
-    ESP_GOTO_ON_FALSE(
-        xEventGroupWaitBits(uvc_obj->driver_status, UVC_TEARDOWN_COMPLETE, pdFALSE, pdFALSE, pdMS_TO_TICKS(100)),
-        ESP_ERR_NOT_FINISHED, unblock, TAG,);
+    EventBits_t driver_status = xEventGroupGetBits(uvc_obj->driver_status);
+    if (driver_status & UVC_STARTED) {
+        usb_host_client_unblock(uvc_obj->usb_client_hdl);
+        ESP_GOTO_ON_FALSE(
+            xEventGroupWaitBits(uvc_obj->driver_status, UVC_TEARDOWN_COMPLETE, pdFALSE, pdFALSE, pdMS_TO_TICKS(100)),
+            ESP_ERR_NOT_FINISHED, unblock, TAG,);
+    }
+
+    ESP_LOGD(TAG, "Deregistering client");
+    ESP_ERROR_CHECK(usb_host_client_deregister(uvc_obj->usb_client_hdl));
 
     // Free remaining resources and return
     vEventGroupDelete(uvc_obj->driver_status);
@@ -695,6 +717,9 @@ esp_err_t uvc_host_stream_stop(uvc_host_stream_hdl_t stream_hdl)
 
     ESP_RETURN_ON_ERROR(uvc_host_stream_pause(stream_hdl), TAG, "Could not pause the stream");
 
+    //@todo this is not a clean solution
+    vTaskDelay(pdMS_TO_TICKS(50)); // Wait for all transfers to finish
+
     if (uvc_stream->constant.bAlternateSetting != 0) { // if (is_isoc_stream)
         // ISOC streams are stopped by setting alternate interface 0
         return uvc_set_interface(stream_hdl, false);
@@ -722,8 +747,6 @@ esp_err_t uvc_host_stream_pause(uvc_host_stream_hdl_t stream_hdl)
         uvc_host_frame_return(uvc_stream, current_frame);
     }
 
-    //@todo this is not a clean solution
-    vTaskDelay(pdMS_TO_TICKS(50)); // Wait for all transfers to finish
     return ESP_OK;
 }
 

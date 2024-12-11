@@ -134,7 +134,6 @@ esp_err_t uvc_host_stream_control_negotiate(uvc_host_stream_hdl_t stream_hdl, co
     for (int i = 0; i < 2; i++) {
         // We do this to mimic Windows driver
         uvc_host_stream_control_probe_get(stream_hdl, &vs_result, &fake_format);
-        uvc_host_stream_control_probe_set(stream_hdl, &vs_result, &fake_format);
         uvc_host_stream_control_probe_get_max(stream_hdl, &vs_result, &fake_format);
         uvc_host_stream_control_probe_get_min(stream_hdl, &vs_result, &fake_format);
 

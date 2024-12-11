@@ -9,6 +9,7 @@
 
 #include "esp_log.h"
 
+#include "uvc_stream.h" // For uvc_host_stream_pause()
 #include "uvc_types_priv.h"
 #include "uvc_check_priv.h"
 #include "uvc_frame_priv.h"
@@ -42,6 +43,25 @@ void bulk_transfer_callback(usb_transfer_t *transfer)
     ESP_LOGD(TAG, "%s", __FUNCTION__);
     uvc_stream_t *uvc_stream = (uvc_stream_t *)transfer->context;
 
+    // Check USB transfer status
+    switch (transfer->status) {
+    case USB_TRANSFER_STATUS_COMPLETED:
+        break;
+    case USB_TRANSFER_STATUS_NO_DEVICE:
+    case USB_TRANSFER_STATUS_CANCELED:
+    case USB_TRANSFER_STATUS_ERROR:
+    case USB_TRANSFER_STATUS_OVERFLOW:
+    case USB_TRANSFER_STATUS_STALL:
+        // On Bulk errors we stop the stream
+        //@todo Stall, error and overflow errors should be propagated to the user
+        ESP_ERROR_CHECK(uvc_host_stream_pause(uvc_stream)); // This should never fail
+        break;
+    case USB_TRANSFER_STATUS_TIMED_OUT:
+    case USB_TRANSFER_STATUS_SKIPPED: // Should never happen to BULK transfer
+    default:
+        assert(false);
+    }
+
     if (!UVC_ATOMIC_LOAD(uvc_stream->dynamic.streaming)) {
         return; // If the streaming was turned off, we don't have to do anything
     }
@@ -53,31 +73,6 @@ void bulk_transfer_callback(usb_transfer_t *transfer)
     const uint8_t *const payload = transfer->data_buffer;
     const uint8_t *payload_data  = payload;
     size_t payload_data_len      = transfer->actual_num_bytes;
-
-    // Check USB transfer status
-    switch (transfer->status) {
-    case USB_TRANSFER_STATUS_COMPLETED:
-        break;
-    case USB_TRANSFER_STATUS_NO_DEVICE:
-    case USB_TRANSFER_STATUS_CANCELED:
-    case USB_TRANSFER_STATUS_ERROR:
-    case USB_TRANSFER_STATUS_OVERFLOW:
-    case USB_TRANSFER_STATUS_STALL:
-        // On Bulk errors we stop the stream
-        //@todo not tested yet
-        //@todo Stall, error and overflow errors should be propagated to the user
-        UVC_ENTER_CRITICAL();
-        uvc_stream->dynamic.streaming = false;
-        uvc_host_frame_t *this_frame = uvc_stream->dynamic.current_frame;
-        uvc_stream->dynamic.current_frame = NULL;
-        UVC_EXIT_CRITICAL();
-        uvc_host_frame_return(uvc_stream, this_frame);
-        return; // No need to process the rest
-    case USB_TRANSFER_STATUS_TIMED_OUT:
-    case USB_TRANSFER_STATUS_SKIPPED: // Should never happen to BULK transfer
-    default:
-        assert(false);
-    }
 
     // Note for developers:
     // The order of SoF, Data, and EoF handling is intentional and represents a workaround for detecting EoF in the Bulk stream.

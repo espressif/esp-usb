@@ -51,9 +51,17 @@ enum uvc_host_dev_event {
 typedef struct {
     enum uvc_host_dev_event type;
     union {
-        esp_err_t error;                   //!< Error code from USB Host
-        uvc_host_stream_hdl_t stream_hdl;  //!< Disconnection event
-    } data;
+        struct {
+            esp_err_t error;               //!< Error code from USB Host
+        } transfer_error;                  // UVC_HOST_TRANSFER_ERROR
+        struct {
+            uvc_host_stream_hdl_t stream_hdl;  //!< Disconnection event
+        } device_disconnected;                 // UVC_HOST_DEVICE_DISCONNECTED
+        struct {
+        } frame_overflow; // UVC_HOST_FRAME_BUFFER_OVERFLOW
+        struct {
+        } frame_underflow; // UVC_HOST_FRAME_BUFFER_UNDERFLOW
+    };
 } uvc_host_stream_event_data_t;
 
 /**
@@ -121,7 +129,7 @@ typedef struct {
     uvc_host_stream_format_t vs_format;   /**< Video Stream format. Resolution, FPS and encoding */
     struct {
         int number_of_frame_buffers; /**< Number of frame buffers. These can be very large as they must hold the full frame.*/
-        size_t frame_size;           /**< 0: Use frame size from format negotiation result (might be too big).
+        size_t frame_size;           /**< 0: Use dwMaxVideoFrameSize from format negotiation result (might be too large).
                                           (0; SIZE_MAX>: Use user provide frame size. */
         uint32_t frame_heap_caps;    /**< Memory capabilities for frame buffers. Directly passed to heap_caps_malloc() */
         int number_of_urbs;          /**< Number of URBs for this stream. Triple buffering scheme is recommended */
@@ -154,6 +162,21 @@ esp_err_t uvc_host_install(const uvc_host_driver_config_t *driver_config);
  *     - ESP_ERR_INVALID_STATE: Driver was not installed before or not all UVC devices are closed
  */
 esp_err_t uvc_host_uninstall(void);
+
+/**
+ * @brief Handle UVC HOST events
+ *
+ * If UVC Host install was called with create_background_task=false configuration, application needs to handle USB Host events.
+ * Do not call this function if UVC host install was called with create_background_task=true configuration
+ *
+ * @param[in]  timeout  Timeout in FreeRTOS tick
+ * @return
+ *     - ESP_OK: All events handled
+ *     - ESP_ERR_INVALID_STATE: UVC driver not installed
+ *     - ESP_ERR_TIMEOUT: No events handled within the timeout
+ *     - ESP_FAIL: Event handling finished, driver uninstalled. You do not have to call this function further
+ */
+esp_err_t uvc_host_handle_events(unsigned long timeout);
 
 /**
  * @brief Open UVC compliant device
