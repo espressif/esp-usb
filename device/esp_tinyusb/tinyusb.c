@@ -25,7 +25,7 @@ static usb_phy_handle_t phy_hdl;
  * @note
  *      For backward compatibility, when tusb_teardown() call is not implemented.
  */
-__attribute__ ((weak)) bool tusb_teardown(void)
+__attribute__ ((weak)) bool tusb_teardown(uint8_t rhport)
 {
     ESP_LOGW(TAG, "%s has not implemented, please update tinyusb component", __FUNCTION__);
     return true;
