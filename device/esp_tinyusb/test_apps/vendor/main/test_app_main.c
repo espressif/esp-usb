@@ -8,6 +8,7 @@
 #include <string.h>
 #include "unity.h"
 #include "unity_test_runner.h"
+#include "unity_test_utils_memory.h"
 
 void app_main(void)
 {
@@ -43,6 +44,19 @@ void app_main(void)
     printf("  | | | |___/\\__/ / | |                            \n");
     printf("  \\_/ \\____/\\____/  \\_/                            \n");
 
-    // We don't check memory leaks here because we cannot uninstall TinyUSB yet
+    unity_utils_setup_heap_record(80);
+    unity_utils_set_leak_level(128);
     unity_run_menu();
+}
+
+/* setUp runs before every test */
+void setUp(void)
+{
+    unity_utils_record_free_mem();
+}
+
+/* tearDown runs after every test */
+void tearDown(void)
+{
+    unity_utils_evaluate_leaks();
 }

@@ -64,8 +64,10 @@ TEST_CASE("tinyusb_vendor", "[esp_tinyusb][vendor]")
 #endif // TUD_OPT_HIGH_SPEED
     };
     TEST_ASSERT_EQUAL(ESP_OK, tinyusb_driver_install(&tusb_cfg));
-
-
+    // Wait for the stack
+    vTaskDelay(pdMS_TO_TICKS(1000));
+    // Cleanup
+    TEST_ASSERT_EQUAL(ESP_OK, tinyusb_driver_uninstall());
 }
 
 #endif
