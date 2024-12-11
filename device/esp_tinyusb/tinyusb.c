@@ -21,7 +21,7 @@ static usb_phy_handle_t phy_hdl;
 
 #ifndef tusb_teardown
 #warning "Teardown mechanism is not available, update tinyusb component"
-#   define tusb_teardown(...)
+#   define tusb_teardown(...)   (false)
 #endif // tusb_teardown
 
 esp_err_t tinyusb_driver_install(const tinyusb_config_t *config)
