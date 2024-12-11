@@ -19,8 +19,8 @@
 const static char *TAG = "TinyUSB";
 static usb_phy_handle_t phy_hdl;
 
+// For the tinyusb component without tusb_teardown() implementation
 #ifndef tusb_teardown
-#warning "Teardown mechanism is not available, update tinyusb component"
 #   define tusb_teardown(...)   (false)
 #endif // tusb_teardown
 
