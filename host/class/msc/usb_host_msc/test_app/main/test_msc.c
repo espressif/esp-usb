@@ -459,6 +459,26 @@ TEST_CASE("can_be_formated", "[usb_msc]")
     mount_config.format_if_mount_failed = false;
 }
 
+/**
+ * @brief USB MSC API format testcase
+ * @attention This testcase deletes all content on the USB MSC device.
+ *            The device must be reset in order to contain the FILE_NAME again.
+ */
+TEST_CASE("can_be_formated_by_api", "[usb_msc]")
+{
+    printf("Create file on MSC device\n");
+    msc_setup();
+    write_read_file(FILE_NAME);
+
+    printf("Format storage device using msc_host_vfs_format\n");
+    esp_err_t ret = msc_host_vfs_format(device, &mount_config, vfs_handle);
+    TEST_ASSERT_EQUAL(ESP_OK, ret);
+
+    printf("Verify file does not exist after formatting\n");
+    TEST_ASSERT_FALSE(file_exists(FILE_NAME));
+    msc_teardown();
+}
+
 static void print_device_info(msc_host_device_info_t *info)
 {
     const size_t megabyte = 1024 * 1024;

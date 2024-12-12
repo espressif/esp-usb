@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2015-2023 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2015-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -15,6 +15,20 @@ extern "C" {
 #endif
 
 typedef struct msc_host_vfs *msc_host_vfs_handle_t;           /**< VFS handle to attached Mass Storage device */
+
+/**
+ * @brief Format MSC device.
+ *
+ * @param[in] device Device handle obtained from MSC callback provided upon initialization
+ * @param[in] mount_config Mount configuration
+ * @param[in] vfs_handle Handle to MSC device associated with registered VFS
+ * @return esp_err_t
+ * @return
+ *    - ESP_OK: Format completed
+ *    - ESP_ERR_INVALID_ARG: All arguments must be present and couldn't be NULL
+ *    - ESP_ERR_MSC_FORMAT_FAILED: Formatting failed
+ */
+esp_err_t msc_host_vfs_format(msc_host_device_handle_t device, const esp_vfs_fat_mount_config_t *mount_config, const msc_host_vfs_handle_t vfs_handle);
 
 /**
  * @brief Register MSC device to Virtual filesystem.

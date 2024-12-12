@@ -1,3 +1,7 @@
+## [Unreleased] 
+
+- Added public API support for formatting
+
 ## 1.1.3 
 
 - Implemented request sense, to get sense data from USB device in case of an error
