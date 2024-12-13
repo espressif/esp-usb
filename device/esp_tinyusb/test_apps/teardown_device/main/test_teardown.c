@@ -22,7 +22,6 @@
 #include "tinyusb.h"
 #include "tusb_cdc_acm.h"
 
-static const char *TAG = "teardown_test";
 static const char *TEARDOWN_CMD = "teardown";
 // DElay between device connection, required for the Host to handle device disconnection/connection without errors
 #define TEARDOWN_DELAY_MS       2000
