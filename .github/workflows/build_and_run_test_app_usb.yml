@@ -69,6 +69,10 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: usb_test_app_bin_${{ matrix.idf_ver }}
+      - name: ⚙️ Install System tools
+        run: |
+          apt update
+          apt install -y usbutils
       - name: Install Python packages
         env:
           PIP_EXTRA_INDEX_URL: "https://dl.espressif.com/pypi/"
