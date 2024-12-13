@@ -1,3 +1,6 @@
+## 1.6.0 (Unreleased)
+- esp_tinyusb: Teardown
+
 ## 1.5.0
 
 - esp_tinyusb: Added DMA mode option to tinyusb DCD DWC2 configuration 
