@@ -72,7 +72,7 @@ def teardown_device(amount):
                 else:
                     print("Error: Response does not match expected value.")
 
-        except tusb_cdc.SerialException as e:
+        except serial.SerialException as e:
             print(f"Error communicating with the serial port: {e}")
             break
 
