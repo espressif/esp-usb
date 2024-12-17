@@ -13,6 +13,7 @@
 //
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/semphr.h"
 //
 #include "esp_system.h"
 #include "esp_log.h"
@@ -22,10 +23,21 @@
 #include "tinyusb.h"
 #include "tusb_cdc_acm.h"
 
-static const char *TEARDOWN_CMD = "teardown";
-// Delay between device connection, required for the Host to handle device disconnection/connection without errors
-#define TEARDOWN_DELAY_MS       2000
-#define TEARDOWN_AMOUNT         10
+static const char *TAG = "teardown";
+
+SemaphoreHandle_t wait_mount = NULL;
+SemaphoreHandle_t wait_terminal = NULL;
+SemaphoreHandle_t wait_command = NULL;
+
+static uint8_t rx_buf[CONFIG_TINYUSB_CDC_RX_BUFSIZE + 1];
+static uint8_t tx_buf[CONFIG_TINYUSB_CDC_TX_BUFSIZE + 1] = { 0 };
+
+#define TEARDOWN_CMD_KEY                0xAA
+#define TEARDOWN_RPL_KEY                0x55
+#define TEARDOWN_CMD_RPL_SIZE           ((TUD_OPT_HIGH_SPEED ? 512 : 64))
+#define TEARDOWN_ATTACH_TIMEOUT_MS      2000
+#define TEARDOWN_COMMAND_TIMEOUT_MS     5000
+#define TEARDOWN_AMOUNT                 10
 
 static const tusb_desc_device_t cdc_device_descriptor = {
     .bLength = sizeof(cdc_device_descriptor),
@@ -46,7 +58,7 @@ static const tusb_desc_device_t cdc_device_descriptor = {
 
 static const uint16_t cdc_desc_config_len = TUD_CONFIG_DESC_LEN + CFG_TUD_CDC * TUD_CDC_DESC_LEN;
 static const uint8_t cdc_desc_configuration[] = {
-    TUD_CONFIG_DESCRIPTOR(1, 4, 0, cdc_desc_config_len, TUSB_DESC_CONFIG_ATT_REMOTE_WAKEUP, 100),
+    TUD_CONFIG_DESCRIPTOR(1, 2, 0, cdc_desc_config_len, TUSB_DESC_CONFIG_ATT_REMOTE_WAKEUP, 100),
     TUD_CDC_DESCRIPTOR(0, 4, 0x81, 8, 0x02, 0x82, (TUD_OPT_HIGH_SPEED ? 512 : 64)),
 };
 
@@ -64,30 +76,43 @@ static const tusb_desc_device_qualifier_t device_qualifier = {
 };
 #endif // TUD_OPT_HIGH_SPEED
 
-static QueueHandle_t rx_queue;
-static uint8_t rx_buf[CONFIG_TINYUSB_CDC_RX_BUFSIZE + 1];
-
-typedef struct {
-    int itf;                                          // Interface number
-    uint8_t data[CONFIG_TINYUSB_CDC_RX_BUFSIZE + 1];  // Data buffer
-    size_t len;                                       // Number of bytes received
-} rx_pkt_t;
-
-static void test_rx_enqueue_pkt(int itf, uint8_t *buf, size_t size)
-{
-    rx_pkt_t rx_pkt = {
-        .itf = itf,
-        .len = size,
-    };
-    memcpy(rx_pkt.data, buf, size);
-    xQueueSend(rx_queue, &rx_pkt, 0);
-}
-
 static void tinyusb_cdc_rx_callback(int itf, cdcacm_event_t *event)
 {
     size_t rx_size = 0;
     TEST_ASSERT_EQUAL(ESP_OK, tinyusb_cdcacm_read(itf, rx_buf, CONFIG_TINYUSB_CDC_RX_BUFSIZE, &rx_size));
-    test_rx_enqueue_pkt(itf, rx_buf, rx_size);
+    for (int i = 0; i < TEARDOWN_CMD_RPL_SIZE; i++) {
+        if (rx_buf[i] != TEARDOWN_CMD_KEY) {
+            return;
+        }
+    }
+    // Key command received
+    xSemaphoreGive(wait_command);
+}
+
+/**
+ * @brief CDC device line change callback
+ *
+ * CDC device signals, that the DTR, RTS states changed
+ *
+ * @param[in] itf   CDC device index
+ * @param[in] event CDC event type
+ */
+void tinyusb_cdc_line_state_changed_callback(int itf, cdcacm_event_t *event)
+{
+    int dtr = event->line_state_changed_data.dtr;
+    int rts = event->line_state_changed_data.rts;
+    ESP_LOGD(TAG, "Line state changed on channel %d: DTR:%d, RTS:%d", itf, dtr, rts);
+
+    // Terminal:
+    // dtr==1 && rts==1 - connected
+    // dtr==0 && rts==0 - disconnected
+    xSemaphoreGive(wait_terminal);
+}
+
+// Invoked when device is mounted
+void tud_mount_cb(void)
+{
+    xSemaphoreGive(wait_mount);
 }
 
 /**
@@ -95,10 +120,17 @@ static void tinyusb_cdc_rx_callback(int itf, cdcacm_event_t *event)
  */
 TEST_CASE("tinyusb_teardown", "[esp_tinyusb][teardown]")
 {
-    rx_pkt_t rx_pkt;
-    // Create FreeRTOS primitives
-    rx_queue = xQueueCreate(5, sizeof(rx_pkt_t));
-    TEST_ASSERT(rx_queue);
+    wait_mount = xSemaphoreCreateBinary();
+    TEST_ASSERT_NOT_EQUAL(NULL, wait_mount);
+    wait_command = xSemaphoreCreateBinary();
+    TEST_ASSERT_NOT_EQUAL(NULL, wait_command);
+    wait_terminal = xSemaphoreCreateBinary();
+    TEST_ASSERT_NOT_EQUAL(NULL, wait_terminal);
+
+    // Prep reply
+    for (int i = 0; i < TEARDOWN_CMD_RPL_SIZE; i++) {
+        tx_buf[i] = TEARDOWN_RPL_KEY;
+    }
 
     // TinyUSB driver configuration
     const tinyusb_config_t tusb_cfg = {
@@ -116,50 +148,49 @@ TEST_CASE("tinyusb_teardown", "[esp_tinyusb][teardown]")
     };
 
     // TinyUSB ACM Driver configuration
-    tinyusb_config_cdcacm_t acm_cfg = {
+    const tinyusb_config_cdcacm_t acm_cfg = {
         .usb_dev = TINYUSB_USBDEV_0,
         .cdc_port = TINYUSB_CDC_ACM_0,
         .rx_unread_buf_sz = 64,
         .callback_rx = &tinyusb_cdc_rx_callback,
         .callback_rx_wanted_char = NULL,
-        .callback_line_state_changed = NULL,
+        .callback_line_state_changed = &tinyusb_cdc_line_state_changed_callback,
         .callback_line_coding_changed = NULL
     };
+
     int attempts = TEARDOWN_AMOUNT;
-    while (1) {
-        vTaskDelay(pdMS_TO_TICKS(TEARDOWN_DELAY_MS));
+    // TODO: Run the test while attempts not 0 or the timeout occurred
+    while (attempts) {
         TEST_ASSERT_EQUAL(ESP_OK, tinyusb_driver_install(&tusb_cfg));
         // Init CDC 0
         TEST_ASSERT_FALSE(tusb_cdc_acm_initialized(TINYUSB_CDC_ACM_0));
         TEST_ASSERT_EQUAL(ESP_OK, tusb_cdc_acm_init(&acm_cfg));
         TEST_ASSERT_TRUE(tusb_cdc_acm_initialized(TINYUSB_CDC_ACM_0));
-
-        // Wait for the pytest poke
-        while (1) {
-            if (xQueueReceive(rx_queue, &rx_pkt, portMAX_DELAY)) {
-                if (rx_pkt.len) {
-                    /* echoed back */
-                    TEST_ASSERT_EQUAL(rx_pkt.len, tinyusb_cdcacm_write_queue(rx_pkt.itf, rx_pkt.data, rx_pkt.len));
-                    TEST_ASSERT_EQUAL(ESP_OK, tinyusb_cdcacm_write_flush(rx_pkt.itf, pdMS_TO_TICKS(100)));
-                    if (strncmp(TEARDOWN_CMD, (const char *) rx_pkt.data, rx_pkt.len) == 0) {
-                        // Wait for the host
-                        attempts--;
-                        break;
-                    }
-                }
-            }
-        }
-        vTaskDelay(pdMS_TO_TICKS(TEARDOWN_DELAY_MS));
+        // Wait for the usb event
+        ESP_LOGD(TAG, "wait dev mounted...");
+        TEST_ASSERT_EQUAL(pdTRUE, xSemaphoreTake(wait_mount, pdMS_TO_TICKS(TEARDOWN_ATTACH_TIMEOUT_MS)));
+        ESP_LOGD(TAG, "wait terminal connection...");
+        TEST_ASSERT_EQUAL(pdTRUE, xSemaphoreTake(wait_terminal, pdMS_TO_TICKS(TEARDOWN_ATTACH_TIMEOUT_MS)));
+        // Wait for the command
+        ESP_LOGD(TAG, "wait command...");
+        TEST_ASSERT_EQUAL(pdTRUE, xSemaphoreTake(wait_command, pdMS_TO_TICKS(TEARDOWN_COMMAND_TIMEOUT_MS)));
+        ESP_LOGD(TAG, "command received");
+        // Reply the response sequence
+        ESP_LOGD(TAG, "send response...");
+        TEST_ASSERT_EQUAL(TEARDOWN_CMD_RPL_SIZE, tinyusb_cdcacm_write_queue(TINYUSB_CDC_ACM_0, tx_buf, TEARDOWN_CMD_RPL_SIZE));
+        TEST_ASSERT_EQUAL(ESP_OK, tinyusb_cdcacm_write_flush(TINYUSB_CDC_ACM_0, pdMS_TO_TICKS(1000)));
+        ESP_LOGD(TAG, "wait for terminal disconnection");
+        TEST_ASSERT_EQUAL(pdTRUE, xSemaphoreTake(wait_terminal, pdMS_TO_TICKS(TEARDOWN_ATTACH_TIMEOUT_MS)));
+        // Teardown
+        attempts--;
         TEST_ASSERT_EQUAL(ESP_OK, tinyusb_cdcacm_unregister_callback(TINYUSB_CDC_ACM_0, CDC_EVENT_RX));
+        TEST_ASSERT_EQUAL(ESP_OK, tinyusb_cdcacm_unregister_callback(TINYUSB_CDC_ACM_0, CDC_EVENT_LINE_STATE_CHANGED));
         TEST_ASSERT_EQUAL(ESP_OK, tusb_cdc_acm_deinit(TINYUSB_CDC_ACM_0));
         TEST_ASSERT_EQUAL(ESP_OK, tinyusb_driver_uninstall());
-
-        if (attempts == 0) {
-            break;
-        }
     }
     // Remove primitives
-    vQueueDelete(rx_queue);
+    vSemaphoreDelete(wait_mount);
+    vSemaphoreDelete(wait_command);
     // All attempts should be completed
     TEST_ASSERT_EQUAL(0, attempts);
 }

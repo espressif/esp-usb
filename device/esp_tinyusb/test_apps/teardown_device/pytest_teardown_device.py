@@ -1,14 +1,11 @@
-# SPDX-FileCopyrightText: 2022-2024 Espressif Systems (Shanghai) CO LTD
+# SPDX-FileCopyrightText: 2024 Espressif Systems (Shanghai) CO LTD
 # SPDX-License-Identifier: Apache-2.0
 
 import pytest
 from pytest_embedded_idf.dut import IdfDut
 import serial
-# import serial.tools.list_ports
 from serial.tools.list_ports import comports
-# import time
-from time import sleep
-from time import time
+from time import sleep, time
 
 
 @pytest.mark.esp32s2
@@ -37,8 +34,8 @@ def teardown_device(amount):
     TUSB_PID = 0x4002  # Espressif TinyUSB VID
 
     # Command to send and expected response
-    COMMAND = "teardown"
-    EXPECTED_RESPONSE = "teardown"
+    COMMAND =  b'\xAA' * 64
+    EXPECTED_RESPONSE =  b'\x55' * 64
 
     # Number of iterations, must be equal to ITERATIONS in the test application
     ITERATIONS = amount
@@ -51,30 +48,36 @@ def teardown_device(amount):
         tusb_cdc = wait_for_tusb_cdc(TUSB_VID, TUSB_PID)
         if not tusb_cdc:
             print("Error: Device did not appear within the timeout period.")
-            break
+            assert True
 
         try:
             # Open the serial port
             with serial.Serial(port=tusb_cdc, baudrate=9600, timeout=1) as cdc:
                 print(f"Opened port: {tusb_cdc}")
+                # Send the key command
+                cdc.write(COMMAND) 
+                
+                # Wait until all data is transmitted
+                cdc.flush()         
+                print(f"Sent {len(COMMAND)}: {COMMAND.hex().upper()}")
 
-                # Send the 'teardown' command
-                cdc.write(COMMAND.encode('utf-8'))
-                print(f"Sent command: {COMMAND.strip()}")
+                # Clear buffers
+                cdc.reset_input_buffer()   # Clear input buffer
+                cdc.reset_output_buffer()  # Clear output buffe
 
                 # Wait for the response
-                res = cdc.readline().decode('utf-8').strip()
-                print(f"Received response: {res}")
+                res = cdc.readline()
+                print(f"Received {len(res)}: {res.hex().upper()}")
 
                 # Check if the response matches the expected response
                 if res == EXPECTED_RESPONSE:
                     print("Response matches expected value.")
                 else:
-                    print("Error: Response does not match expected value.")
+                    raise Exception("Error: Response does not match expected value.")
 
         except serial.SerialException as e:
             print(f"Error communicating with the serial port: {e}")
-            break
+            raise
 
         # Wait for the device to disconnect
         print("Waiting for the device to disconnect...")
