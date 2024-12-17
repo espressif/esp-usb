@@ -29,13 +29,13 @@ def wait_for_tusb_cdc(vid, pid, timeout=30):
         sleep(0.5)  # Check every 0.5 seconds
     return None  
 
-def teardown_device(amount):
+def teardown_device(ep_size, amount):
     TUSB_VID = 0x303A  # Espressif TinyUSB VID
     TUSB_PID = 0x4002  # Espressif TinyUSB VID
 
     # Command to send and expected response
-    COMMAND =  b'\xAA' * 64
-    EXPECTED_RESPONSE =  b'\x55' * 64
+    COMMAND =  b'\xAA' * ep_size
+    EXPECTED_RESPONSE =  b'\x55' * ep_size
 
     # Number of iterations, must be equal to ITERATIONS in the test application
     ITERATIONS = amount
@@ -91,5 +91,9 @@ def test_usb_teardown_device(dut) -> None:
     dut.write('[teardown]')
     dut.expect_exact('TinyUSB: TinyUSB Driver installed')
     sleep(2)            # Some time for the OS to enumerate our USB device
-    teardown_device(10) # Teardown tusb device 10 times
+    if dut.target == 'esp32p4':
+        ep_size = 512
+    else:
+        ep_size = 64
+    teardown_device(ep_size, 10) # Teardown tusb device 10 times
     
