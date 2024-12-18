@@ -74,4 +74,4 @@ jobs:
           PIP_EXTRA_INDEX_URL: "https://dl.espressif.com/pypi/"
         run: pip install --only-binary cryptography pytest-embedded pytest-embedded-serial-esp pytest-embedded-idf pyserial pyusb
       - name: Run USB Test App on target
-        run: pytest --embedded-services esp,idf --target=${{ matrix.idf_target }} -m ${{ matrix.runner_tag }} --build-dir=build_${{ matrix.idf_target }}
+        run: pytest --embedded-services esp,idf --target=${{ matrix.idf_target }} --build-dir=build_${{ matrix.idf_target }}
