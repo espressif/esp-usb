@@ -34,7 +34,7 @@ static uint8_t tx_buf[CONFIG_TINYUSB_CDC_TX_BUFSIZE + 1] = { 0 };
 
 #define TEARDOWN_CMD_KEY                0xAA
 #define TEARDOWN_RPL_KEY                0x55
-#define TEARDOWN_CMD_RPL_SIZE           ((TUD_OPT_HIGH_SPEED ? 512 : 64))
+#define TEARDOWN_CMD_RPL_SIZE           ((TUD_OPT_HIGH_SPEED ? 512 : 64) - 1)
 #define TEARDOWN_ATTACH_TIMEOUT_MS      2000
 #define TEARDOWN_COMMAND_TIMEOUT_MS     5000
 #define TEARDOWN_AMOUNT                 10
@@ -78,14 +78,7 @@ static const tusb_desc_device_qualifier_t device_qualifier = {
 
 static void tinyusb_cdc_rx_callback(int itf, cdcacm_event_t *event)
 {
-    size_t rx_size = 0;
-    TEST_ASSERT_EQUAL(ESP_OK, tinyusb_cdcacm_read(itf, rx_buf, CONFIG_TINYUSB_CDC_RX_BUFSIZE, &rx_size));
-    for (int i = 0; i < TEARDOWN_CMD_RPL_SIZE; i++) {
-        if (rx_buf[i] != TEARDOWN_CMD_KEY) {
-            return;
-        }
-    }
-    // Key command received
+    // Something was received
     xSemaphoreGive(wait_command);
 }
 
@@ -120,6 +113,8 @@ void tud_mount_cb(void)
  */
 TEST_CASE("tinyusb_teardown", "[esp_tinyusb][teardown]")
 {
+    size_t rx_size = 0;
+
     wait_mount = xSemaphoreCreateBinary();
     TEST_ASSERT_NOT_EQUAL(NULL, wait_mount);
     wait_command = xSemaphoreCreateBinary();
@@ -174,6 +169,10 @@ TEST_CASE("tinyusb_teardown", "[esp_tinyusb][teardown]")
         // Wait for the command
         ESP_LOGD(TAG, "wait command...");
         TEST_ASSERT_EQUAL(pdTRUE, xSemaphoreTake(wait_command, pdMS_TO_TICKS(TEARDOWN_COMMAND_TIMEOUT_MS)));
+        TEST_ASSERT_EQUAL(ESP_OK, tinyusb_cdcacm_read(TINYUSB_CDC_ACM_0, rx_buf, CONFIG_TINYUSB_CDC_RX_BUFSIZE, &rx_size));
+        for (int i = 0; i < TEARDOWN_CMD_RPL_SIZE; i++) {
+            TEST_ASSERT_EQUAL(TEARDOWN_CMD_KEY, rx_buf[i]);
+        }
         ESP_LOGD(TAG, "command received");
         // Reply the response sequence
         ESP_LOGD(TAG, "send response...");
