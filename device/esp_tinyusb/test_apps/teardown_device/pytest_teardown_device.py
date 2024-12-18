@@ -29,13 +29,13 @@ def wait_for_tusb_cdc(vid, pid, timeout=30):
         sleep(0.5)  # Check every 0.5 seconds
     return None  
 
-def teardown_device(ep_size, amount):
+def teardown_device(key_len, amount):
     TUSB_VID = 0x303A  # Espressif TinyUSB VID
     TUSB_PID = 0x4002  # Espressif TinyUSB VID
 
     # Command to send and expected response
-    COMMAND =  b'\xAA' * ep_size
-    EXPECTED_RESPONSE =  b'\x55' * ep_size
+    COMMAND =  b'\xAA' * key_len
+    EXPECTED_RESPONSE =  b'\x55' * key_len
 
     # Number of iterations, must be equal to ITERATIONS in the test application
     ITERATIONS = amount
@@ -55,18 +55,12 @@ def teardown_device(ep_size, amount):
             with serial.Serial(port=tusb_cdc, baudrate=9600, timeout=1) as cdc:
                 print(f"Opened port: {tusb_cdc}")
                 # Send the key command
-                cdc.write(COMMAND) 
-                
-                # Wait until all data is transmitted
-                cdc.flush()         
-                print(f"Sent {len(COMMAND)}: {COMMAND.hex().upper()}")
-
-                # Clear buffers
-                cdc.reset_input_buffer()   # Clear input buffer
-                cdc.reset_output_buffer()  # Clear output buffe
-
+                res = cdc.write(COMMAND) 
+                assert res == key_len
                 # Wait for the response
                 res = cdc.readline()
+                assert len(res) == key_len
+                print(f"Sent {len(COMMAND)}: {COMMAND.hex().upper()}")
                 print(f"Received {len(res)}: {res.hex().upper()}")
 
                 # Check if the response matches the expected response
@@ -92,8 +86,9 @@ def test_usb_teardown_device(dut) -> None:
     dut.expect_exact('TinyUSB: TinyUSB Driver installed')
     sleep(2)            # Some time for the OS to enumerate our USB device
     if dut.target == 'esp32p4':
-        ep_size = 512
+        MPS = 512
     else:
-        ep_size = 64
-    teardown_device(ep_size, 10) # Teardown tusb device 10 times
+        MPS = 64
+    MPS -= 1 # On Linux, the serial port kept opened, while len==MPS, https://github.com/pyserial/pyserial/issues/753
+    teardown_device(MPS, 10) # Teardown tusb device 10 times
     
