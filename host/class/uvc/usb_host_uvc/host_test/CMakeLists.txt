@@ -5,7 +5,6 @@ set(COMPONENTS main)
 
 list(APPEND EXTRA_COMPONENT_DIRS
      "$ENV{IDF_PATH}/tools/mocks/usb/"
-     "$ENV{IDF_PATH}/tools/mocks/freertos/"
     )
-
+add_definitions("-DCMOCK_MEM_DYNAMIC") # We need a lot of memory for our frame buffers
 project(host_test_usb_uvc)
