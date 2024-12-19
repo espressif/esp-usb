@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2020-2023 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2020-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -295,6 +295,16 @@ static esp_err_t alloc_obj(tinyusb_cdcacm_itf_t itf)
     return ESP_OK;
 }
 
+static esp_err_t obj_free(tinyusb_cdcacm_itf_t itf)
+{
+    esp_tusb_cdc_t *cdc_inst = tinyusb_cdc_get_intf(itf);
+    if (cdc_inst == NULL || cdc_inst->subclass_obj == NULL) {
+        return ESP_FAIL;
+    }
+    free(cdc_inst->subclass_obj);
+    return ESP_OK;
+}
+
 esp_err_t tusb_cdc_acm_init(const tinyusb_config_cdcacm_t *cfg)
 {
     esp_err_t ret = ESP_OK;
@@ -331,7 +341,10 @@ fail:
 
 esp_err_t tusb_cdc_acm_deinit(int itf)
 {
-    return tinyusb_cdc_deinit(itf);
+    esp_err_t ret = ESP_OK;
+    ESP_RETURN_ON_ERROR(obj_free(itf), TAG, "obj_free failed");
+    ESP_RETURN_ON_ERROR(tinyusb_cdc_deinit(itf), TAG, "tinyusb_cdc_deinit failed");
+    return ret;
 }
 
 bool tusb_cdc_acm_initialized(tinyusb_cdcacm_itf_t itf)
