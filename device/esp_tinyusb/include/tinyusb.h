@@ -68,6 +68,16 @@ typedef struct {
  */
 esp_err_t tinyusb_driver_install(const tinyusb_config_t *config);
 
+/**
+ * @brief This is an all-in-one helper function, including:
+ * 1. Stops the task to handle usb events
+ * 2. TinyUSB stack tearing down
+ * 2. Freeing resources after descriptors preparation
+ * 3. Deletes USB PHY
+ *
+ * @retval ESP_FAIL Uninstall driver or tinyusb stack failed because of internal error
+ * @retval ESP_OK Uninstall driver, tinyusb stack and USB PHY successfully
+ */
 esp_err_t tinyusb_driver_uninstall(void);
 
 #ifdef __cplusplus
