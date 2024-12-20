@@ -35,8 +35,8 @@ static uint8_t tx_buf[CONFIG_TINYUSB_CDC_TX_BUFSIZE + 1] = { 0 };
 #define TEARDOWN_CMD_KEY                0xAA
 #define TEARDOWN_RPL_KEY                0x55
 #define TEARDOWN_CMD_RPL_SIZE           ((TUD_OPT_HIGH_SPEED ? 512 : 64))
-#define TEARDOWN_ATTACH_TIMEOUT_MS      2000
-#define TEARDOWN_COMMAND_TIMEOUT_MS     3000
+#define TEARDOWN_ATTACH_TIMEOUT_MS      5000
+#define TEARDOWN_COMMAND_TIMEOUT_MS     5000
 #define TEARDOWN_AMOUNT                 4
 
 static const tusb_desc_device_t cdc_device_descriptor = {
