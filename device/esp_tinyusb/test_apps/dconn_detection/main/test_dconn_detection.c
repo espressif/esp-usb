@@ -72,17 +72,47 @@ static const tusb_desc_device_qualifier_t device_qualifier = {
 };
 #endif // TUD_OPT_HIGH_SPEED
 
-void test_bvalid_sig_mount_cb(void)
+// Invoked when device is mounted
+void tud_mount_cb(void)
 {
+    /**
+     * @attention Tests relying on this callback only pass on Linux USB Host!
+     *
+     * This callback is issued after SetConfiguration command from USB Host.
+     * However, Windows issues SetConfiguration only after a USB driver was assigned to the device.
+     * So in case you are implementing a Vendor Specific class, or your device has 0 interfaces, this callback is not issued on Windows host.
+     */
+    printf("%s\n", __FUNCTION__);
     dev_mounted++;
 }
 
-void test_bvalid_sig_umount_cb(void)
+// Invoked when device is unmounted
+void tud_umount_cb(void)
 {
+    printf("%s\n", __FUNCTION__);
     dev_umounted++;
 }
 
-TEST_CASE("bvalid_signal", "[esp_tinyusb][usb_device]")
+/**
+ * @brief TinyUSB Disconnect Detection test case
+ *
+ * This is specific artificial test for verifying the disconnection detection event.
+ * Normally, this event comes as a result of detaching USB device from the port and disappearing the VBUS voltage.
+ * In this test case, we use GPIO matrix and connect the signal to the ZERO or ONE constant inputs.
+ * Connection to constant ONE input emulates the attachment to the USB Host port (appearing VBUS).
+ * Connection to constant ZERO input emulates the detachment from the USB Host port (removing VBUS).
+ *
+ * Test logic:
+ * - Install TinyUSB Device stack without any class
+ * - In cycle:
+ *      - Emulate the detachment, get the tud_umount_cb(), increase the dev_umounted value
+ *      - Emulate the attachment, get the tud_mount_cb(), increase the dev_mounted value
+ * - Verify that dev_umounted == dev_mounted
+ * - Verify that dev_mounted == DEVICE_DETACH_TEST_ROUNDS, where DEVICE_DETACH_TEST_ROUNDS - amount of rounds
+ * - Uninstall TinyUSB Device stack
+ *
+ */
+TEST_CASE("dconn_detection", "[esp_tinyusb][dconn]")
 {
     unsigned int rounds = DEVICE_DETACH_TEST_ROUNDS;
 
