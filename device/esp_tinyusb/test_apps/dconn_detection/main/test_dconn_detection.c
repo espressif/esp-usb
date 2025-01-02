@@ -112,7 +112,7 @@ void tud_umount_cb(void)
  * - Uninstall TinyUSB Device stack
  *
  */
-TEST_CASE("dconn_detection", "[esp_tinyusb]")
+TEST_CASE("dconn_detection", "[esp_tinyusb][dconn]")
 {
     unsigned int rounds = DEVICE_DETACH_TEST_ROUNDS;
 
