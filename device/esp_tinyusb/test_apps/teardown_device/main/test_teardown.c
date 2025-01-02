@@ -5,37 +5,35 @@
  */
 
 #include "soc/soc_caps.h"
-
 #if SOC_USB_OTG_SUPPORTED
 
+//
 #include <stdio.h>
 #include <string.h>
-#include "esp_system.h"
+//
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/semphr.h"
+//
+#include "esp_system.h"
 #include "esp_log.h"
 #include "esp_err.h"
-#include "driver/gpio.h"
-#include "esp_rom_gpio.h"
-#include "soc/gpio_sig_map.h"
+//
 #include "unity.h"
 #include "tinyusb.h"
-#include "tusb_tasks.h"
+#include "tusb_cdc_acm.h"
 
-#define DEVICE_DETACH_TEST_ROUNDS       10
-#define DEVICE_DETACH_ROUND_DELAY_MS    1000
+static const char *TAG = "teardown";
 
-#if (CONFIG_IDF_TARGET_ESP32P4)
-#define USB_SRP_BVALID_IN_IDX       USB_SRP_BVALID_PAD_IN_IDX
-#endif // CONFIG_IDF_TARGET_ESP32P4
+SemaphoreHandle_t wait_mount = NULL;
 
-/* TinyUSB descriptors
-   ********************************************************************* */
-#define TUSB_DESC_TOTAL_LEN         (TUD_CONFIG_DESC_LEN)
+#define TEARDOWN_DEVICE_INIT_DELAY_MS       1000
+#define TEARDOWN_DEVICE_ATTACH_TIMEOUT_MS   1000
+#define TEARDOWN_DEVICE_DETACH_DELAY_MS     1000
 
-static unsigned int dev_mounted = 0;
-static unsigned int dev_umounted = 0;
+#define TEARDOWN_AMOUNT                     10
 
+#define TUSB_DESC_TOTAL_LEN                 (TUD_CONFIG_DESC_LEN)
 static uint8_t const test_configuration_descriptor[] = {
     // Config number, interface count, string index, total length, attribute, power in mA
     TUD_CONFIG_DESCRIPTOR(1, 0, 0, TUSB_DESC_TOTAL_LEN, TUSB_DESC_CONFIG_ATT_SELF_POWERED | TUSB_DESC_CONFIG_ATT_REMOTE_WAKEUP, 100),
@@ -72,21 +70,32 @@ static const tusb_desc_device_qualifier_t device_qualifier = {
 };
 #endif // TUD_OPT_HIGH_SPEED
 
-void test_bvalid_sig_mount_cb(void)
+// Invoked when device is mounted
+void tud_mount_cb(void)
 {
-    dev_mounted++;
+    xSemaphoreGive(wait_mount);
 }
 
-void test_bvalid_sig_umount_cb(void)
+/**
+ * @brief TinyUSB Teardown specific testcase
+ *
+ * Scenario:
+ * 1. Install TinyUSB device without any class
+ * 2. Wait SetConfiguration() (tud_mount_cb)
+ * 3. If attempts == 0 goto step 8
+ * 4.   Wait TEARDOWN_DEVICE_DETACH_DELAY_MS
+ * 5.   Uninstall TinyUSB device
+ * 6.   Wait TEARDOWN_DEVICE_INIT_DELAY_MS
+ * 7.   Decrease attempts by 1, goto step 3
+ * 8. Wait TEARDOWN_DEVICE_DETACH_DELAY_MS
+ * 9. Uninstall TinyUSB device
+ */
+TEST_CASE("tinyusb_teardown", "[esp_tinyusb][teardown]")
 {
-    dev_umounted++;
-}
+    wait_mount = xSemaphoreCreateBinary();
+    TEST_ASSERT_NOT_EQUAL(NULL, wait_mount);
 
-TEST_CASE("bvalid_signal", "[esp_tinyusb][usb_device]")
-{
-    unsigned int rounds = DEVICE_DETACH_TEST_ROUNDS;
-
-    // Install TinyUSB driver
+    // TinyUSB driver configuration
     const tinyusb_config_t tusb_cfg = {
         .device_descriptor = &test_device_descriptor,
         .string_descriptor = NULL,
@@ -102,24 +111,32 @@ TEST_CASE("bvalid_signal", "[esp_tinyusb][usb_device]")
     };
 
     TEST_ASSERT_EQUAL(ESP_OK, tinyusb_driver_install(&tusb_cfg));
+    // Wait for the usb event
+    ESP_LOGD(TAG, "wait mount...");
+    TEST_ASSERT_EQUAL(pdTRUE, xSemaphoreTake(wait_mount, pdMS_TO_TICKS(TEARDOWN_DEVICE_ATTACH_TIMEOUT_MS)));
+    ESP_LOGD(TAG, "mounted");
 
-    dev_mounted = 0;
-    dev_umounted = 0;
-
-    while (rounds--) {
-        // LOW to emulate disconnect USB device
-        esp_rom_gpio_connect_in_signal(GPIO_MATRIX_CONST_ZERO_INPUT, USB_SRP_BVALID_IN_IDX, false);
-        vTaskDelay(pdMS_TO_TICKS(DEVICE_DETACH_ROUND_DELAY_MS));
-        // HIGH to emulate connect USB device
-        esp_rom_gpio_connect_in_signal(GPIO_MATRIX_CONST_ONE_INPUT, USB_SRP_BVALID_IN_IDX, false);
-        vTaskDelay(pdMS_TO_TICKS(DEVICE_DETACH_ROUND_DELAY_MS));
+    // Teardown routine
+    int attempts = TEARDOWN_AMOUNT;
+    while (attempts--) {
+        // Keep device attached
+        vTaskDelay(pdMS_TO_TICKS(TEARDOWN_DEVICE_DETACH_DELAY_MS));
+        TEST_ASSERT_EQUAL(ESP_OK, tinyusb_driver_uninstall());
+        // Teardown
+        vTaskDelay(pdMS_TO_TICKS(TEARDOWN_DEVICE_INIT_DELAY_MS));
+        // Reconnect
+        TEST_ASSERT_EQUAL(ESP_OK, tinyusb_driver_install(&tusb_cfg));
+        // Wait for the usb event
+        ESP_LOGD(TAG, "wait mount...");
+        TEST_ASSERT_EQUAL(pdTRUE, xSemaphoreTake(wait_mount, pdMS_TO_TICKS(TEARDOWN_DEVICE_ATTACH_TIMEOUT_MS)));
+        ESP_LOGD(TAG, "mounted");
     }
 
-    // Verify
-    TEST_ASSERT_EQUAL(dev_umounted, dev_mounted);
-    TEST_ASSERT_EQUAL(DEVICE_DETACH_TEST_ROUNDS, dev_mounted);
-
-    // Cleanup
+    // Teardown
+    vTaskDelay(pdMS_TO_TICKS(TEARDOWN_DEVICE_DETACH_DELAY_MS));
     TEST_ASSERT_EQUAL(ESP_OK, tinyusb_driver_uninstall());
+    // Remove primitives
+    vSemaphoreDelete(wait_mount);
 }
-#endif // SOC_USB_OTG_SUPPORTED
+
+#endif

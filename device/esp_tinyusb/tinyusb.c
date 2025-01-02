@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2020-2023 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2020-2024 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -18,6 +18,11 @@
 
 const static char *TAG = "TinyUSB";
 static usb_phy_handle_t phy_hdl;
+
+// For the tinyusb component without tusb_teardown() implementation
+#ifndef tusb_teardown
+#   define tusb_teardown()   (true)
+#endif // tusb_teardown
 
 esp_err_t tinyusb_driver_install(const tinyusb_config_t *config)
 {
@@ -66,8 +71,18 @@ esp_err_t tinyusb_driver_install(const tinyusb_config_t *config)
     return ESP_OK;
 }
 
-esp_err_t tinyusb_driver_uninstall()
+esp_err_t tinyusb_driver_uninstall(void)
 {
+    esp_err_t ret = tusb_stop_task();
+
+    if (ret != ESP_OK) {
+        return ret;
+    }
+
+    if (!tusb_teardown()) {
+        return ESP_ERR_NOT_FINISHED;
+    }
+
     tinyusb_free_descriptors();
     return usb_del_phy(phy_hdl);
 }
