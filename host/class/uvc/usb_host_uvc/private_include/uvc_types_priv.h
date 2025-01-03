@@ -45,6 +45,7 @@ struct uvc_host_stream_s {
         uint8_t  bEndpointAddress;            // Streaming endpoint address. Needed for BULK Stream stop
 
         // USB host related members
+        uint8_t dev_addr;                     // USB device address
         usb_device_handle_t dev_hdl;          // USB device handle
         unsigned num_of_xfers;                // Number of USB transfers
         usb_transfer_t **xfers;               // Pointer to array of USB transfers. Accessible only by the UVC driver

@@ -365,7 +365,7 @@ static void print_class_specific_desc(const usb_standard_desc_t *_desc)
  *
  * @param[in] _desc UVC specific descriptor
  */
-static void uvc_print_desc(const usb_standard_desc_t *_desc)
+void uvc_print_desc(const usb_standard_desc_t *_desc)
 {
     switch (_desc->bDescriptorType) {
     case UVC_CS_INTERFACE:
