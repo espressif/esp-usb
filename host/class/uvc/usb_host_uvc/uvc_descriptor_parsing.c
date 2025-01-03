@@ -375,3 +375,19 @@ esp_err_t uvc_desc_get_streaming_interface_num(
     }
     return ret;
 }
+
+bool uvc_desc_is_uvc_device(const usb_config_desc_t *cfg_desc)
+{
+    assert(cfg_desc);
+    int offset = 0;
+    int total_len = cfg_desc->wTotalLength;
+
+    const usb_standard_desc_t *current_desc = (const usb_standard_desc_t *)cfg_desc;
+    while ((current_desc = usb_parse_next_descriptor_of_type((const usb_standard_desc_t *)current_desc, total_len, USB_B_DESCRIPTOR_TYPE_INTERFACE, &offset))) {
+        const usb_intf_desc_t *iface_desc = (const usb_intf_desc_t *)current_desc;
+        if (USB_CLASS_VIDEO == iface_desc->bInterfaceClass) {
+            return true;
+        }
+    }
+    return false;
+}

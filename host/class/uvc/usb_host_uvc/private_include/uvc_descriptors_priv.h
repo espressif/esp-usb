@@ -15,6 +15,7 @@
 #define UVC_DESC_FPS_TO_DWFRAMEINTERVAL(fps) (((fps) != 0) ? 10000000.0f / (fps) : 0)
 #define UVC_DESC_DWFRAMEINTERVAL_TO_FPS(dwFrameInterval) (((dwFrameInterval) != 0) ? 10000000.0f / ((float)(dwFrameInterval)) : 0)
 
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -74,6 +75,10 @@ esp_err_t uvc_desc_get_frame_format_by_format(
     const uvc_host_stream_format_t *vs_format,
     const uvc_format_desc_t **format_desc_ret,
     const uvc_frame_desc_t **frame_desc_ret);
+
+bool uvc_desc_is_uvc_device(const usb_config_desc_t *cfg_desc);
+
+void uvc_print_desc(const usb_standard_desc_t *_desc);
 
 #ifdef __cplusplus
 }
