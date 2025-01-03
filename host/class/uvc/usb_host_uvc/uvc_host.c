@@ -48,15 +48,89 @@ void bulk_transfer_callback(usb_transfer_t *transfer);
 
 // UVC driver object
 typedef struct {
-    usb_host_client_handle_t usb_client_hdl; /*!< USB Host handle reused for all UVC devices in the system */
-    SemaphoreHandle_t open_close_mutex;      /*!< Protects list of opened devices from concurrent access */
-    EventGroupHandle_t driver_status;        /*!< Holds status of the driver */
-    usb_transfer_t *ctrl_transfer;           /*!< CTRL (endpoint 0) transfer */
-    SemaphoreHandle_t ctrl_mutex;            /*!< CTRL mutex */
+    usb_host_client_handle_t usb_client_hdl;    /*!< USB Host handle reused for all UVC devices in the system */
+    SemaphoreHandle_t open_close_mutex;         /*!< Protects list of opened devices from concurrent access */
+    EventGroupHandle_t driver_status;           /*!< Holds status of the driver */
+    usb_transfer_t *ctrl_transfer;              /*!< CTRL (endpoint 0) transfer */
+    SemaphoreHandle_t ctrl_mutex;               /*!< CTRL mutex */
+    uvc_host_driver_event_callback_t user_cb;   /*!< Callback function to handle events */
+    void *user_ctx;
     SLIST_HEAD(list_dev, uvc_host_stream_s) uvc_stream_list;   /*!< List of open streams */
 } uvc_host_driver_t;
 
 static uvc_host_driver_t *p_uvc_host_driver = NULL;
+
+static esp_err_t uvc_host_interface_check(uint8_t addr, const usb_config_desc_t *config_desc)
+{
+    assert(config_desc);
+    size_t total_length = config_desc->wTotalLength;
+    int iface_offset = 0;
+    bool is_uvc_interface = false;
+
+    // Get first Interface descriptor
+    // Check every uac stream interface
+    const usb_standard_desc_t *current_desc = (const usb_standard_desc_t *)config_desc;
+    while ((current_desc = usb_parse_next_descriptor_of_type((const usb_standard_desc_t *)current_desc, total_length, USB_B_DESCRIPTOR_TYPE_INTERFACE, &iface_offset))) {
+        const usb_intf_desc_t *iface_desc = (const usb_intf_desc_t *)current_desc;
+        if (USB_CLASS_VIDEO == iface_desc->bInterfaceClass && UVC_SC_VIDEOSTREAMING == iface_desc->bInterfaceSubClass) {
+            // notify user about the connected Interfaces
+            is_uvc_interface = true;
+
+            if (p_uvc_host_driver->user_cb) {
+                const uvc_host_driver_event_data_t conn_event = {
+                    .type = UVC_HOST_DRIVER_EVENT_DEVICE_CONNECTED,
+                    .device_connected.dev_addr = addr,
+                    .device_connected.iface_num = iface_desc->bInterfaceNumber,
+                };
+                p_uvc_host_driver->user_cb(&conn_event, p_uvc_host_driver->user_ctx);
+            }
+
+            const usb_intf_desc_t *iface_alt_desc = GET_NEXT_INTERFACE_DESC(iface_desc, total_length, iface_offset);
+            // Skip all alternate settings belonging to the current interface
+            while (iface_alt_desc != NULL) {
+                // Check if the alternate setting is for the same interface
+                if (iface_alt_desc->bInterfaceNumber != iface_desc->bInterfaceNumber) {
+                    break;
+                }
+                iface_alt_desc = GET_NEXT_INTERFACE_DESC(iface_alt_desc, total_length, iface_offset);
+            }
+        }
+    }
+
+    return is_uvc_interface ? ESP_OK : ESP_ERR_NOT_FOUND;
+}
+
+/**
+ * @brief Handler for USB device connected event
+ *
+ * @param[in] addr   USB device physical address
+ * @return esp_err_t
+ */
+static esp_err_t uvc_host_device_connected(uint8_t addr)
+{
+    bool is_uvc_device = false;
+    usb_device_handle_t dev_hdl;
+    const usb_config_desc_t *config_desc = NULL;
+
+    if (usb_host_device_open(p_uvc_host_driver->usb_client_hdl, addr, &dev_hdl) == ESP_OK) {
+        if (usb_host_get_active_config_descriptor(dev_hdl, &config_desc) == ESP_OK) {
+            is_uvc_device = uvc_desc_is_uvc_device(config_desc);
+        }
+        ESP_RETURN_ON_ERROR(usb_host_device_close(p_uvc_host_driver->usb_client_hdl, dev_hdl), TAG, "Unable to close USB device");
+    }
+
+    // Create UAC interfaces list in RAM, connected to the particular USB dev
+    if (is_uvc_device) {
+        // TODO: add config to control it
+        usb_print_config_descriptor(config_desc, &uvc_print_desc);
+        // Create Interfaces list for a possibility to claim Interface
+        ESP_RETURN_ON_ERROR(uvc_host_interface_check(addr, config_desc), TAG, "uvc stream interface not found");
+    } else {
+        ESP_LOGW(TAG, "USB device with addr(%d) is not UVC device", addr);
+    }
+
+    return is_uvc_device ? ESP_OK : ESP_ERR_NOT_FOUND;
+}
 
 /**
  * @brief USB Host Client event callback
@@ -71,6 +145,7 @@ static void usb_event_cb(const usb_host_client_event_msg_t *event_msg, void *arg
     switch (event_msg->event) {
     case USB_HOST_CLIENT_EVENT_NEW_DEV:
         ESP_LOGD(TAG, "New device connected");
+        uvc_host_device_connected(event_msg->new_dev.address);
         break;
     case USB_HOST_CLIENT_EVENT_DEV_GONE: {
         ESP_LOGD(TAG, "Device suddenly disconnected");
@@ -247,10 +322,12 @@ static void uvc_device_remove(uvc_stream_t *uvc_stream)
  * @brief Open USB device with requested VID/PID
  *
  * This function has two regular return paths:
+ * TODO: dev_addr
  * 1. USB device with matching VID/PID is already opened by this driver: allocate new UVC device on top of the already opened USB device.
  * 2. USB device with matching VID/PID is NOT opened by this driver yet: poll USB connected devices until it is found.
  *
  * @note This function will block for timeout_ticks, if the device is not enumerated at the moment of calling this function.
+ * @param[in]  dev_addr      Device address
  * @param[in]  vid           Vendor ID
  * @param[in]  pid           Product ID
  * @param[in]  timeout_ticks Connection timeout in FreeRTOS ticks
@@ -259,7 +336,7 @@ static void uvc_device_remove(uvc_stream_t *uvc_stream)
  *     - ESP_OK: Success - device opened
  *     - ESP_ERR_NOT_FOUND: Device not found in given timeout
  */
-static esp_err_t uvc_find_and_open_usb_device(uint16_t vid, uint16_t pid, TickType_t timeout_ticks, uvc_stream_t **dev)
+static esp_err_t uvc_find_and_open_usb_device(uint8_t dev_addr, uint16_t vid, uint16_t pid, TickType_t timeout_ticks, uvc_stream_t **dev)
 {
     assert(p_uvc_host_driver);
     assert(dev);
@@ -274,11 +351,15 @@ static esp_err_t uvc_find_and_open_usb_device(uint16_t vid, uint16_t pid, TickTy
     uvc_stream_t *uvc_stream;
     SLIST_FOREACH(uvc_stream, &p_uvc_host_driver->uvc_stream_list, list_entry) {
         const usb_device_desc_t *device_desc;
+        usb_device_info_t dev_info;
+        ESP_ERROR_CHECK(usb_host_device_info(uvc_stream->constant.dev_hdl, &dev_info));
         ESP_ERROR_CHECK(usb_host_get_device_descriptor(uvc_stream->constant.dev_hdl, &device_desc));
         if ((vid == device_desc->idVendor || vid == UVC_HOST_ANY_VID) &&
-                (pid == device_desc->idProduct || pid == UVC_HOST_ANY_PID)) {
-            // Return path 1:
+            (pid == device_desc->idProduct || pid == UVC_HOST_ANY_PID) &&
+            (dev_addr == dev_info.dev_addr || dev_addr == UVC_HOST_ANY_DEV_ADDR)) {
+            // Return path 1: t
             (*dev)->constant.dev_hdl = uvc_stream->constant.dev_hdl;
+            printf("UVC device already opened by this driver\n");
             return ESP_OK;
         }
     }
@@ -297,18 +378,28 @@ static esp_err_t uvc_find_and_open_usb_device(uint16_t vid, uint16_t pid, TickTy
         // Go through device address list and find the one we are looking for
         for (int i = 0; i < num_of_devices; i++) {
             usb_device_handle_t current_device;
+            bool is_uvc_device = false;
+            const usb_config_desc_t *config_desc = NULL;
+
             // Open USB device
             if (usb_host_device_open(p_uvc_host_driver->usb_client_hdl, dev_addr_list[i], &current_device) != ESP_OK) {
                 continue; // In case we failed to open this device, continue with next one in the list
             }
-            assert(current_device);
-            const usb_device_desc_t *device_desc;
-            ESP_ERROR_CHECK(usb_host_get_device_descriptor(current_device, &device_desc));
-            if ((vid == device_desc->idVendor || vid == UVC_HOST_ANY_VID) &&
-                    (pid == device_desc->idProduct || pid == UVC_HOST_ANY_PID)) {
-                // Return path 2:
-                (*dev)->constant.dev_hdl = current_device;
-                return ESP_OK;
+            // Skip non-UVC devices
+            if (usb_host_get_active_config_descriptor(current_device, &config_desc) == ESP_OK) {
+                is_uvc_device = uvc_desc_is_uvc_device(config_desc);
+            }
+            if (is_uvc_device) {
+                assert(current_device);
+                const usb_device_desc_t *device_desc;
+                ESP_ERROR_CHECK(usb_host_get_device_descriptor(current_device, &device_desc));
+                if ((vid == device_desc->idVendor || vid == UVC_HOST_ANY_VID) &&
+                    (pid == device_desc->idProduct || pid == UVC_HOST_ANY_PID) &&
+                    (dev_addr == dev_addr_list[i] || dev_addr == UVC_HOST_ANY_DEV_ADDR)) {
+                    // Return path 2:
+                    (*dev)->constant.dev_hdl = current_device;
+                    return ESP_OK;
+                }
             }
             usb_host_device_close(p_uvc_host_driver->usb_client_hdl, current_device);
         }
@@ -453,6 +544,8 @@ esp_err_t uvc_host_install(const uvc_host_driver_config_t *driver_config)
     uvc_obj->ctrl_transfer->bEndpointAddress = 0;
     uvc_obj->ctrl_transfer->timeout_ms = 5000;
     uvc_obj->ctrl_transfer->callback = ctrl_xfer_cb;
+    uvc_obj->user_cb = driver_config->event_cb;
+    uvc_obj->user_ctx = driver_config->user_ctx;
 
     // Between 1st call of this function and following section, another task might try to install this driver:
     // Make sure that there is only one instance of this driver in the system
@@ -552,7 +645,7 @@ esp_err_t uvc_host_stream_open(const uvc_host_stream_config_t *stream_config, in
     xSemaphoreTake(p_uvc_host_driver->open_close_mutex, portMAX_DELAY);
 
     // Find underlying USB device
-    ret = uvc_find_and_open_usb_device(stream_config->usb.vid, stream_config->usb.pid, timeout, &uvc_stream);
+    ret = uvc_find_and_open_usb_device(stream_config->usb.dev_addr, stream_config->usb.vid, stream_config->usb.pid, timeout, &uvc_stream);
     if (ESP_OK != ret) {
         goto not_found;
     }

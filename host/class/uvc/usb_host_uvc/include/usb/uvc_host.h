@@ -14,12 +14,29 @@
 // Use this macros for opening a UVC stream with any VID or PID
 #define UVC_HOST_ANY_VID (0)
 #define UVC_HOST_ANY_PID (0)
+#define UVC_HOST_ANY_DEV_ADDR (0)
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 typedef struct uvc_host_stream_s *uvc_host_stream_hdl_t;
+
+enum uvc_host_driver_event {
+    UVC_HOST_DRIVER_EVENT_DEVICE_CONNECTED = 0x0,
+};
+
+typedef struct {
+    enum uvc_host_driver_event type;
+    union {
+        struct {
+            uint8_t dev_addr;
+            uint8_t iface_num;      //!< Disconnection event
+        } device_connected;         // UVC_HOST_DEVICE_DISCONNECTED
+    };
+} uvc_host_driver_event_data_t;
+
+typedef void (*uvc_host_driver_event_callback_t)(const uvc_host_driver_event_data_t *event, void *user_ctx);
 
 /**
  * @brief Configuration structure of USB Host UVC driver
@@ -30,6 +47,8 @@ typedef struct {
     int xCoreID;                   /**< Core affinity of the driver's task */
     bool create_background_task;   /**< When set to true, background task handling usb events is created.
                                         Otherwise user has to periodically call uvc_host_handle_events function */
+    uvc_host_driver_event_callback_t event_cb; /**< Callback function to handle events */
+    void *user_ctx;
 } uvc_host_driver_config_t;
 
 /**
@@ -122,6 +141,7 @@ typedef struct {
     uvc_host_frame_callback_t frame_cb;   /**< Stream's frame callback function */
     void *user_ctx;                       /**< User's argument that will be passed to the callbacks */
     struct {
+        uint8_t dev_addr;                 /**< USB address of device. Set to 0 for any. */
         uint16_t vid;                     /**< Device's Vendor ID. Set to 0 for any */
         uint16_t pid;                     /**< Device's Product ID. Set to 0 for any */
         uint8_t uvc_stream_index;         /**< Index of UVC function you want to use. Set to 0 to use first available UVC function */
