@@ -1,6 +1,7 @@
-## (Unreleased)
+## 1.6.0
 
 - CDC-ACM: Fixed memory leak on deinit
+- esp_tinyusb: Added Teardown 
 
 ## 1.5.0
 
