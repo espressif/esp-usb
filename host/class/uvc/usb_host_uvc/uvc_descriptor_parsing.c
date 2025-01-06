@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2024-2025 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -132,13 +132,14 @@ int uvc_desc_parse_format(const uvc_format_desc_t *format_desc)
 
     int ret = UVC_VS_FORMAT_UNDEFINED;
     switch (format_desc->bDescriptorSubType) {
-    case UVC_VS_DESC_SUBTYPE_FORMAT_UNCOMPRESSED:
+    case UVC_VS_DESC_SUBTYPE_FORMAT_UNCOMPRESSED: {
         const char *guid = (const char *)(format_desc->uncompressed_frame_based.guidFormat);
         // We do not check full guid, but only the first 4 characters that show human readable format
         if (strncmp(guid, "YUY2", 4) == 0) {
             ret = UVC_VS_FORMAT_YUY2;
         }
         break;
+    }
     case UVC_VS_DESC_SUBTYPE_FORMAT_MJPEG:
         ret = UVC_VS_FORMAT_MJPEG;
         break;
@@ -390,4 +391,100 @@ bool uvc_desc_is_uvc_device(const usb_config_desc_t *cfg_desc)
         }
     }
     return false;
+}
+
+esp_err_t uvc_desc_get_frame_list(const usb_config_desc_t *config_desc, uint8_t uvc_index, uvc_host_frame_info_t (*frame_info_list)[], size_t *list_size)
+{
+    esp_err_t ret = ESP_OK;
+    UVC_CHECK(config_desc && list_size, ESP_ERR_INVALID_ARG);
+    size_t frame_index = 0;
+    // Support frame number for VS Interface Header
+    size_t num_frame = 0;
+
+    const uvc_vc_header_desc_t *vc_header = uvc_desc_get_control_interface_header(config_desc, uvc_index);
+    UVC_CHECK(vc_header, ESP_ERR_NOT_FOUND);
+
+    // Find requested Format descriptors
+    const usb_standard_desc_t *current_desc = (const usb_standard_desc_t *)vc_header;
+    // Skip VC Interface Header and VC Interface Descriptor
+    int format_offset = 0;
+    const uvc_vs_input_header_desc_t *vs_header = uvc_desc_get_streaming_input_header(config_desc, vc_header->baInterfaceNr[0]);
+    current_desc = (const usb_standard_desc_t *)vs_header;
+
+    while ((current_desc = usb_parse_next_descriptor_of_type(current_desc, vs_header->wTotalLength, UVC_CS_INTERFACE, &format_offset))) {
+        if (!uvc_desc_is_format_desc(current_desc)) {
+            continue;
+        }
+
+        const uvc_format_desc_t *this_format = (const uvc_format_desc_t *)(current_desc);
+        enum uvc_host_stream_format format_type = uvc_desc_parse_format(this_format);
+        if (UVC_VS_FORMAT_UNDEFINED == format_type) {
+            continue;
+        }
+
+        num_frame += this_format->bNumFrameDescriptors;
+
+        /*!< Just Skip Skip populating `frame_info_list`. */
+        if (!frame_info_list) {
+            continue;
+        }
+
+        // We found required Format Descriptor
+        // Now we look for correct Frame Descriptors which should be directly after Format
+        while ((current_desc = usb_parse_next_descriptor_of_type(current_desc, vs_header->wTotalLength, UVC_CS_INTERFACE, &format_offset))) {
+            if (!uvc_desc_is_frame_desc(current_desc)) {
+                break;
+            }
+            uvc_frame_desc_t *this_frame = (uvc_frame_desc_t *)current_desc;
+
+            if (frame_index > *list_size - 1) {
+                break;
+            }
+            uvc_host_frame_info_t *frame_info = &(*frame_info_list)[frame_index];
+            frame_info->format = format_type;
+            frame_info->h_res = this_frame->wWidth;
+            frame_info->v_res = this_frame->wHeight;
+            switch (format_type) {
+            case UVC_VS_FORMAT_YUY2:
+            case UVC_VS_FORMAT_MJPEG:
+                frame_info->default_interval = this_frame->mjpeg_uncompressed.dwDefaultFrameInterval;
+                frame_info->interval_type = this_frame->mjpeg_uncompressed.bFrameIntervalType;
+                if (frame_info->interval_type == 0) {
+                    frame_info->interval_min = this_frame->mjpeg_uncompressed.dwMinFrameInterval;
+                    frame_info->interval_max = this_frame->mjpeg_uncompressed.dwMaxFrameInterval;
+                    frame_info->interval_step = this_frame->mjpeg_uncompressed.dwFrameIntervalStep;
+                } else {
+                    for (int i = 0; i < CONFIG_UVC_INTERVAL_ARRAY_SIZE; i ++) {
+                        frame_info->interval[i] = this_frame->mjpeg_uncompressed.dwFrameInterval[i];
+                    }
+                }
+                break;
+            case UVC_VS_FORMAT_H265:
+            case UVC_VS_FORMAT_H264:
+                frame_info->default_interval = this_frame->frame_based.dwDefaultFrameInterval;
+                frame_info->interval_type = this_frame->frame_based.bFrameIntervalType;
+                if (frame_info->interval_type == 0) {
+                    frame_info->interval_min = this_frame->frame_based.dwMinFrameInterval;
+                    frame_info->interval_max = this_frame->frame_based.dwMaxFrameInterval;
+                    frame_info->interval_step = this_frame->frame_based.dwFrameIntervalStep;
+                } else {
+                    for (int i = 0; i < CONFIG_UVC_INTERVAL_ARRAY_SIZE; i ++) {
+                        frame_info->interval[i] = this_frame->frame_based.dwFrameInterval[i];
+                    }
+                }
+                break;
+            default:
+                break;
+            }
+
+            frame_index++;
+        }
+
+        if (!current_desc) {
+            break;
+        }
+    }
+
+    *list_size = frame_info_list ? frame_index : num_frame;
+    return ret;
 }

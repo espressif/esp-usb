@@ -357,14 +357,6 @@ static void print_class_specific_desc(const usb_standard_desc_t *_desc)
     }
 }
 
-/**
- * @brief Print UVC specific descriptor in human readable form
- *
- * This is a callback function that is called from USB Host library,
- * when it wants to print full configuration descriptor to stdout.
- *
- * @param[in] _desc UVC specific descriptor
- */
 void uvc_print_desc(const usb_standard_desc_t *_desc)
 {
     switch (_desc->bDescriptorType) {
