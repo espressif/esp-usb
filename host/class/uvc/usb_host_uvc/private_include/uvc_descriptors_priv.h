@@ -76,9 +76,52 @@ esp_err_t uvc_desc_get_frame_format_by_format(
     const uvc_format_desc_t **format_desc_ret,
     const uvc_frame_desc_t **frame_desc_ret);
 
+/**
+ * @brief Check if the given USB configuration descriptor belongs to a UVC (USB Video Class) device.
+ *
+ * This function iterates through the descriptors in the provided configuration descriptor to determine
+ * if there is any interface descriptor indicating the device is a UVC device.
+ *
+ * @param[in] cfg_desc Pointer to the USB configuration descriptor.
+ *
+ * @return
+ *      - true: If the configuration descriptor contains a UVC interface.
+ *      - false: Otherwise.
+ */
 bool uvc_desc_is_uvc_device(const usb_config_desc_t *cfg_desc);
 
+/**
+ * @brief Print UVC specific descriptor in human readable form
+ *
+ * This is a callback function that is called from USB Host library,
+ * when it wants to print full configuration descriptor to stdout.
+ *
+ * @param[in] _desc UVC specific descriptor
+ */
 void uvc_print_desc(const usb_standard_desc_t *_desc);
+
+/**
+ * @brief Retrieve the list of frame descriptors for a specific streaming interface in a UVC device.
+ *
+ * This function extracts all frame descriptors associated with the given interface number
+ * and organizes them into a list of `uvc_host_frame_info_t` structures.
+ *
+ * @param[in] config_desc         Pointer to the USB configuration descriptor.
+ * @param[in] uvc_index           Index of UVC function you want to use.
+ * @param[out] frame_info_list    Pointer to a list of frame info structures (allocated dynamically).
+ * @param[inout] list_size          Pointer to store the number of frames in the list.
+ *
+ * @return
+ *      - ESP_OK: Success.
+ *      - ESP_ERR_INVALID_ARG: One or more invalid arguments.
+ *      - ESP_ERR_NOT_FOUND: Input header descriptor not found.
+ *      - ESP_ERR_NO_MEM: Memory allocation failure.
+ */
+esp_err_t uvc_desc_get_frame_list(
+    const usb_config_desc_t *config_desc,
+    uint8_t uvc_index,
+    uvc_host_frame_info_t (*frame_info_list)[],
+    size_t *list_size);
 
 #ifdef __cplusplus
 }

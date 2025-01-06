@@ -66,34 +66,33 @@ static esp_err_t uvc_host_interface_check(uint8_t addr, const usb_config_desc_t 
     size_t total_length = config_desc->wTotalLength;
     int iface_offset = 0;
     bool is_uvc_interface = false;
+    uint8_t uvc_stream_index = 0;
 
     // Get first Interface descriptor
     // Check every uac stream interface
     const usb_standard_desc_t *current_desc = (const usb_standard_desc_t *)config_desc;
     while ((current_desc = usb_parse_next_descriptor_of_type((const usb_standard_desc_t *)current_desc, total_length, USB_B_DESCRIPTOR_TYPE_INTERFACE, &iface_offset))) {
         const usb_intf_desc_t *iface_desc = (const usb_intf_desc_t *)current_desc;
-        if (USB_CLASS_VIDEO == iface_desc->bInterfaceClass && UVC_SC_VIDEOSTREAMING == iface_desc->bInterfaceSubClass) {
+        if (USB_CLASS_VIDEO == iface_desc->bInterfaceClass && UVC_SC_VIDEOCONTROL == iface_desc->bInterfaceSubClass) {
             // notify user about the connected Interfaces
             is_uvc_interface = true;
 
             if (p_uvc_host_driver->user_cb) {
+                size_t frame_info_num = 0;
+                if (uvc_desc_get_frame_list(config_desc, uvc_stream_index, NULL, &frame_info_num) != ESP_OK) {
+                    ESP_LOGE(TAG, "Failed to get frame list for uvc_stream_index %d", uvc_stream_index);
+                    return ESP_FAIL;
+                }
+
                 const uvc_host_driver_event_data_t conn_event = {
                     .type = UVC_HOST_DRIVER_EVENT_DEVICE_CONNECTED,
                     .device_connected.dev_addr = addr,
-                    .device_connected.iface_num = iface_desc->bInterfaceNumber,
+                    .device_connected.uvc_stream_index = uvc_stream_index,
+                    .device_connected.frame_info_num = frame_info_num
                 };
                 p_uvc_host_driver->user_cb(&conn_event, p_uvc_host_driver->user_ctx);
             }
-
-            const usb_intf_desc_t *iface_alt_desc = GET_NEXT_INTERFACE_DESC(iface_desc, total_length, iface_offset);
-            // Skip all alternate settings belonging to the current interface
-            while (iface_alt_desc != NULL) {
-                // Check if the alternate setting is for the same interface
-                if (iface_alt_desc->bInterfaceNumber != iface_desc->bInterfaceNumber) {
-                    break;
-                }
-                iface_alt_desc = GET_NEXT_INTERFACE_DESC(iface_alt_desc, total_length, iface_offset);
-            }
+            uvc_stream_index++;
         }
     }
 
@@ -121,8 +120,9 @@ static esp_err_t uvc_host_device_connected(uint8_t addr)
 
     // Create UAC interfaces list in RAM, connected to the particular USB dev
     if (is_uvc_device) {
-        // TODO: add config to control it
+#ifdef CONFIG_PRINTF_UVC_CONFIGURATION_DESCRIPTOR
         usb_print_config_descriptor(config_desc, &uvc_print_desc);
+#endif
         // Create Interfaces list for a possibility to claim Interface
         ESP_RETURN_ON_ERROR(uvc_host_interface_check(addr, config_desc), TAG, "uvc stream interface not found");
     } else {
@@ -322,9 +322,8 @@ static void uvc_device_remove(uvc_stream_t *uvc_stream)
  * @brief Open USB device with requested VID/PID
  *
  * This function has two regular return paths:
- * TODO: dev_addr
- * 1. USB device with matching VID/PID is already opened by this driver: allocate new UVC device on top of the already opened USB device.
- * 2. USB device with matching VID/PID is NOT opened by this driver yet: poll USB connected devices until it is found.
+ * 1. USB device with matching VID/PID/dev_addr is already opened by this driver: allocate new UVC device on top of the already opened USB device.
+ * 2. USB device with matching VID/PID/dev_addr is NOT opened by this driver yet: poll USB connected devices until it is found.
  *
  * @note This function will block for timeout_ticks, if the device is not enumerated at the moment of calling this function.
  * @param[in]  dev_addr      Device address
@@ -355,11 +354,10 @@ static esp_err_t uvc_find_and_open_usb_device(uint8_t dev_addr, uint16_t vid, ui
         ESP_ERROR_CHECK(usb_host_device_info(uvc_stream->constant.dev_hdl, &dev_info));
         ESP_ERROR_CHECK(usb_host_get_device_descriptor(uvc_stream->constant.dev_hdl, &device_desc));
         if ((vid == device_desc->idVendor || vid == UVC_HOST_ANY_VID) &&
-            (pid == device_desc->idProduct || pid == UVC_HOST_ANY_PID) &&
-            (dev_addr == dev_info.dev_addr || dev_addr == UVC_HOST_ANY_DEV_ADDR)) {
+                (pid == device_desc->idProduct || pid == UVC_HOST_ANY_PID) &&
+                (dev_addr == dev_info.dev_addr || dev_addr == UVC_HOST_ANY_DEV_ADDR)) {
             // Return path 1: t
             (*dev)->constant.dev_hdl = uvc_stream->constant.dev_hdl;
-            printf("UVC device already opened by this driver\n");
             return ESP_OK;
         }
     }
@@ -394,8 +392,8 @@ static esp_err_t uvc_find_and_open_usb_device(uint8_t dev_addr, uint16_t vid, ui
                 const usb_device_desc_t *device_desc;
                 ESP_ERROR_CHECK(usb_host_get_device_descriptor(current_device, &device_desc));
                 if ((vid == device_desc->idVendor || vid == UVC_HOST_ANY_VID) &&
-                    (pid == device_desc->idProduct || pid == UVC_HOST_ANY_PID) &&
-                    (dev_addr == dev_addr_list[i] || dev_addr == UVC_HOST_ANY_DEV_ADDR)) {
+                        (pid == device_desc->idProduct || pid == UVC_HOST_ANY_PID) &&
+                        (dev_addr == dev_addr_list[i] || dev_addr == UVC_HOST_ANY_DEV_ADDR)) {
                     // Return path 2:
                     (*dev)->constant.dev_hdl = current_device;
                     return ESP_OK;
@@ -944,4 +942,18 @@ esp_err_t uvc_host_usb_ctrl(uvc_host_stream_hdl_t stream_hdl, uint8_t bmRequestT
 unblock:
     xSemaphoreGive(p_uvc_host_driver->ctrl_mutex);
     return ret;
+}
+
+esp_err_t uvc_host_get_frame_list(uint8_t dev_addr, uint8_t uvc_stream_index, uvc_host_frame_info_t (*frame_info_list)[], size_t *list_size)
+{
+    UVC_CHECK(list_size, ESP_ERR_INVALID_ARG);
+
+    usb_device_handle_t dev_hdl;
+    const usb_config_desc_t *config_desc = NULL;
+    if (usb_host_device_open(p_uvc_host_driver->usb_client_hdl, dev_addr, &dev_hdl) == ESP_OK) {
+        usb_host_get_active_config_descriptor(dev_hdl, &config_desc);
+        ESP_RETURN_ON_ERROR(usb_host_device_close(p_uvc_host_driver->usb_client_hdl, dev_hdl), TAG, "Unable to close USB device");
+    }
+
+    return uvc_desc_get_frame_list(config_desc, uvc_stream_index, frame_info_list, list_size);
 }
