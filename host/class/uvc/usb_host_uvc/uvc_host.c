@@ -66,6 +66,7 @@ static esp_err_t uvc_host_interface_check(uint8_t addr, const usb_config_desc_t 
     size_t total_length = config_desc->wTotalLength;
     int iface_offset = 0;
     bool is_uvc_interface = false;
+    uint8_t uvc_stream_index = 0;
 
     // Get first Interface descriptor
     // Check every uac stream interface
@@ -75,24 +76,25 @@ static esp_err_t uvc_host_interface_check(uint8_t addr, const usb_config_desc_t 
         if (USB_CLASS_VIDEO == iface_desc->bInterfaceClass && UVC_SC_VIDEOSTREAMING == iface_desc->bInterfaceSubClass) {
             // notify user about the connected Interfaces
             is_uvc_interface = true;
+            uvc_stream_index++;
 
             if (p_uvc_host_driver->user_cb) {
+                uvc_host_frame_info_t *frame_info = NULL;
+                size_t frame_info_num = 0;
+                if (uvc_desc_get_frame_list(config_desc, iface_desc->bInterfaceNumber, &frame_info, &frame_info_num) != ESP_OK) {
+                    ESP_LOGE(TAG, "Failed to get frame list for interface %d", iface_desc->bInterfaceNumber);
+                    return ESP_FAIL;
+                }
+
                 const uvc_host_driver_event_data_t conn_event = {
                     .type = UVC_HOST_DRIVER_EVENT_DEVICE_CONNECTED,
                     .device_connected.dev_addr = addr,
-                    .device_connected.iface_num = iface_desc->bInterfaceNumber,
+                    .device_connected.uvc_stream_index = uvc_stream_index,
+                    .device_connected.frame_info = frame_info,
+                    .device_connected.frame_info_num = frame_info_num
                 };
                 p_uvc_host_driver->user_cb(&conn_event, p_uvc_host_driver->user_ctx);
-            }
-
-            const usb_intf_desc_t *iface_alt_desc = GET_NEXT_INTERFACE_DESC(iface_desc, total_length, iface_offset);
-            // Skip all alternate settings belonging to the current interface
-            while (iface_alt_desc != NULL) {
-                // Check if the alternate setting is for the same interface
-                if (iface_alt_desc->bInterfaceNumber != iface_desc->bInterfaceNumber) {
-                    break;
-                }
-                iface_alt_desc = GET_NEXT_INTERFACE_DESC(iface_alt_desc, total_length, iface_offset);
+                free(frame_info);
             }
         }
     }

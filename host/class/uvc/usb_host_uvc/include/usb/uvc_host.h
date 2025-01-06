@@ -26,16 +26,55 @@ enum uvc_host_driver_event {
     UVC_HOST_DRIVER_EVENT_DEVICE_CONNECTED = 0x0,
 };
 
+/**
+ * @brief Formats supported by this driver
+ */
+enum uvc_host_stream_format {
+    UVC_VS_FORMAT_UNDEFINED = 0, // Invalid format. Do not request this format from the camera.
+    UVC_VS_FORMAT_MJPEG,
+    UVC_VS_FORMAT_YUY2,
+    UVC_VS_FORMAT_H264,
+    UVC_VS_FORMAT_H265,
+};
+
+/**
+ * @brief Frame information
+ *
+ */
 typedef struct {
-    enum uvc_host_driver_event type;
+    enum uvc_host_stream_format format;       /**< Format of this frame buffer */
+    unsigned h_res;                           /**< Horizontal resolution */
+    unsigned v_res;                           /**< Vertical resolution */
+    uint32_t default_interval;                /**< Default frame interval */
+    uint8_t  interval_type;                   /**< 0: Continuous frame interval, 1..255: The number of discrete frame intervals supported (n) */
     union {
         struct {
-            uint8_t dev_addr;
-            uint8_t iface_num;      //!< Disconnection event
-        } device_connected;         // UVC_HOST_DEVICE_DISCONNECTED
+            uint32_t interval_min;            /**< Minimum frame interval */
+            uint32_t interval_max;            /**< Maximum frame interval */
+            uint32_t interval_step;           /**< Frame interval step */
+        };
+        uint32_t interval[3];                 /**< We must put a fixed size here because of the union type. This is flexible size array though */
+    };
+} uvc_host_frame_info_t;
+
+typedef struct {
+    enum uvc_host_driver_event type;      /**< Event type */
+    union {
+        struct {
+            uint8_t dev_addr;             /**< Device address */
+            uint8_t uvc_stream_index;     /**< Index of UVC function you want to use. Set to 0 to use first available UVC function */
+            uvc_host_frame_info_t *frame_info; /**< Frame information list, it points to the first element of the array, which resides in a contiguous block of memory.*/
+            size_t frame_info_num;        /**< Number of frame information list */
+        } device_connected;               /**< UVC_HOST_DEVICE_CONNECTED event */
     };
 } uvc_host_driver_event_data_t;
 
+/**
+ * @brief USB Host UVC driver event callback function
+ *
+ * @param[out] event    Event structure
+ * @param[out] user_ctx User's argument passed to open function
+ */
 typedef void (*uvc_host_driver_event_callback_t)(const uvc_host_driver_event_data_t *event, void *user_ctx);
 
 /**
@@ -82,17 +121,6 @@ typedef struct {
         } frame_underflow; // UVC_HOST_FRAME_BUFFER_UNDERFLOW
     };
 } uvc_host_stream_event_data_t;
-
-/**
- * @brief Formats supported by this driver
- */
-enum uvc_host_stream_format {
-    UVC_VS_FORMAT_UNDEFINED = 0, // Invalid format. Do not request this format from the camera.
-    UVC_VS_FORMAT_MJPEG,
-    UVC_VS_FORMAT_YUY2,
-    UVC_VS_FORMAT_H264,
-    UVC_VS_FORMAT_H265,
-};
 
 typedef struct {
     unsigned h_res;                     /**< Horizontal resolution */
