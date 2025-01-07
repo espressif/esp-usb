@@ -1,14 +1,18 @@
 /*
- * SPDX-FileCopyrightText: 2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2024-2025 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
 
 #include <stdio.h>
 #include <string.h>
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "unity.h"
 #include "unity_test_runner.h"
 #include "unity_test_utils_memory.h"
+
+#include "test_vbus_monitor.h"
 
 void app_main(void)
 {
@@ -53,10 +57,16 @@ void app_main(void)
 void setUp(void)
 {
     unity_utils_record_free_mem();
+    test_device_event_queue_setup();
+    test_vbus_monitor_control_setup();
 }
 
 /* tearDown runs after every test */
 void tearDown(void)
 {
+    // Short delay to allow task to be cleaned up
+    vTaskDelay(10);
+    test_vbus_monitor_control_teardown();
+    test_device_event_queue_teardown();
     unity_utils_evaluate_leaks();
 }
