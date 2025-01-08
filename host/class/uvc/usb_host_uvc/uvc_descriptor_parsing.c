@@ -375,3 +375,101 @@ esp_err_t uvc_desc_get_streaming_interface_num(
     }
     return ret;
 }
+
+bool uvc_desc_is_uvc_device(const usb_config_desc_t *cfg_desc)
+{
+    assert(cfg_desc);
+    int offset = 0;
+    int total_len = cfg_desc->wTotalLength;
+
+    const usb_standard_desc_t *current_desc = (const usb_standard_desc_t *)cfg_desc;
+    while ((current_desc = usb_parse_next_descriptor_of_type((const usb_standard_desc_t *)current_desc, total_len, USB_B_DESCRIPTOR_TYPE_INTERFACE, &offset))) {
+        const usb_intf_desc_t *iface_desc = (const usb_intf_desc_t *)current_desc;
+        if (USB_CLASS_VIDEO == iface_desc->bInterfaceClass) {
+            return true;
+        }
+    }
+    return false;
+}
+
+esp_err_t uvc_desc_get_frame_list(const usb_config_desc_t *config_desc, uint8_t bInterfaceNumber, uvc_host_frame_info_t **frame_info_list, size_t *list_size)
+{
+    esp_err_t ret = ESP_OK;
+    UVC_CHECK(config_desc && frame_info_list && list_size, ESP_ERR_INVALID_ARG);
+    uvc_host_frame_info_t *new_frame_info = NULL;
+    size_t num_frame = 0;
+    *list_size = 0;
+    const uvc_vs_input_header_desc_t *input_header = uvc_desc_get_streaming_input_header(config_desc, bInterfaceNumber);
+    UVC_CHECK(input_header, ESP_ERR_NOT_FOUND);
+
+    // Find requested Format descriptors
+    int format_offset = 0;
+    const usb_standard_desc_t *current_desc = (const usb_standard_desc_t *)input_header;
+    while ((current_desc = usb_parse_next_descriptor_of_type(current_desc, input_header->wTotalLength, UVC_CS_INTERFACE, &format_offset))) {
+        if (!uvc_desc_is_format_desc(current_desc)) {
+            continue;
+        }
+
+        const uvc_format_desc_t *this_format = (const uvc_format_desc_t *)(current_desc);
+        enum uvc_host_stream_format format_type = uvc_desc_parse_format(this_format);
+        if (UVC_VS_FORMAT_UNDEFINED == format_type) {
+            continue;
+        }
+
+        num_frame = this_format->bNumFrameDescriptors;
+        new_frame_info = calloc(num_frame, sizeof(uvc_host_frame_info_t));
+        UVC_CHECK(new_frame_info != NULL, ESP_ERR_NO_MEM);
+
+        // We found required Format Descriptor
+        // Now we look for correct Frame Descriptors which should be directly after Format
+        while ((current_desc = usb_parse_next_descriptor_of_type(current_desc, input_header->wTotalLength, UVC_CS_INTERFACE, &format_offset))) {
+            if (!uvc_desc_is_frame_desc(current_desc)) {
+                break;
+            }
+            uvc_frame_desc_t *this_frame = (uvc_frame_desc_t *)current_desc;
+
+            uvc_host_frame_info_t *frame_info = &(new_frame_info)[*list_size];
+            frame_info->format = format_type;
+            frame_info->h_res = this_frame->wWidth;
+            frame_info->v_res = this_frame->wHeight;
+            switch (format_type) {
+                case UVC_VS_FORMAT_MJPEG:
+                    frame_info->default_interval = this_frame->mjpeg_uncompressed.dwDefaultFrameInterval;
+                    frame_info->interval_type = this_frame->mjpeg_uncompressed.bFrameIntervalType;
+                    if (frame_info->interval_type == 0) {
+                        frame_info->interval_min = this_frame->mjpeg_uncompressed.dwMinFrameInterval;
+                        frame_info->interval_max = this_frame->mjpeg_uncompressed.dwMaxFrameInterval;
+                        frame_info->interval_step = this_frame->mjpeg_uncompressed.dwFrameIntervalStep;
+                    } else {
+                        // TODO: make 3 can be configured
+                        for (int i = 0; i < 3; i ++) {
+                            frame_info->interval[i] = this_frame->mjpeg_uncompressed.dwFrameInterval[i];
+                        }
+                    }
+                    break;
+                case UVC_VS_FORMAT_H265:
+                case UVC_VS_FORMAT_H264:
+                    frame_info->default_interval = this_frame->frame_based.dwDefaultFrameInterval;
+                    frame_info->interval_type = this_frame->frame_based.bFrameIntervalType;
+                    if (frame_info->interval_type == 0) {
+                        frame_info->interval_min = this_frame->frame_based.dwMinFrameInterval;
+                        frame_info->interval_max = this_frame->frame_based.dwMaxFrameInterval;
+                        frame_info->interval_step = this_frame->frame_based.dwFrameIntervalStep;
+                    } else {
+                        // TODO: make 3 can be configured
+                        for (int i = 0; i < 3; i ++) {
+                            frame_info->interval[i] = this_frame->frame_based.dwFrameInterval[i];
+                        }
+                    }
+                    break;
+                default:
+                    break;
+            }
+
+            (*list_size)++;
+        }
+    }
+    *frame_info_list = new_frame_info;
+    assert(*list_size == num_frame);
+    return ret;
+}
