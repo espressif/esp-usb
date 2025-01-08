@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2023 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2023-2025 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -35,8 +35,8 @@ typedef struct {
     };
     esp_err_t (*mount)(BYTE pdrv);
     esp_err_t (*unmount)(void);
-    uint32_t (*sector_count)(void);
-    uint32_t (*sector_size)(void);
+    uint32_t sector_count;
+    uint32_t sector_size;
     esp_err_t (*read)(size_t sector_size, uint32_t lba, uint32_t offset, size_t size, void *dest);
     esp_err_t (*write)(size_t sector_size, size_t addr, uint32_t lba, uint32_t offset, size_t size, const void *src);
     tusb_msc_callback_t callback_mount_changed;
@@ -364,13 +364,13 @@ esp_err_t tinyusb_msc_storage_unmount(void)
 uint32_t tinyusb_msc_storage_get_sector_count(void)
 {
     assert(s_storage_handle);
-    return (s_storage_handle->sector_count)();
+    return (s_storage_handle->sector_count);
 }
 
 uint32_t tinyusb_msc_storage_get_sector_size(void)
 {
     assert(s_storage_handle);
-    return (s_storage_handle->sector_size)();
+    return (s_storage_handle->sector_size);
 }
 
 esp_err_t tinyusb_msc_storage_init_spiflash(const tinyusb_msc_spiflash_config_t *config)
@@ -380,13 +380,13 @@ esp_err_t tinyusb_msc_storage_init_spiflash(const tinyusb_msc_spiflash_config_t 
     ESP_RETURN_ON_FALSE(s_storage_handle, ESP_ERR_NO_MEM, TAG, "could not allocate new handle for storage");
     s_storage_handle->mount = &_mount_spiflash;
     s_storage_handle->unmount = &_unmount_spiflash;
-    s_storage_handle->sector_count = &_get_sector_count_spiflash;
-    s_storage_handle->sector_size = &_get_sector_size_spiflash;
+    s_storage_handle->wl_handle = config->wl_handle;
+    s_storage_handle->sector_count = _get_sector_count_spiflash();
+    s_storage_handle->sector_size = _get_sector_size_spiflash();
     s_storage_handle->read = &_read_sector_spiflash;
     s_storage_handle->write = &_write_sector_spiflash;
     s_storage_handle->is_fat_mounted = false;
     s_storage_handle->base_path = NULL;
-    s_storage_handle->wl_handle = config->wl_handle;
     // In case the user does not set mount_config.max_files
     // and for backward compatibility with versions <1.4.2
     // max_files is set to 2
@@ -416,13 +416,13 @@ esp_err_t tinyusb_msc_storage_init_sdmmc(const tinyusb_msc_sdmmc_config_t *confi
     ESP_RETURN_ON_FALSE(s_storage_handle, ESP_ERR_NO_MEM, TAG, "could not allocate new handle for storage");
     s_storage_handle->mount = &_mount_sdmmc;
     s_storage_handle->unmount = &_unmount_sdmmc;
-    s_storage_handle->sector_count = &_get_sector_count_sdmmc;
-    s_storage_handle->sector_size = &_get_sector_size_sdmmc;
+    s_storage_handle->card = config->card;
+    s_storage_handle->sector_count = _get_sector_count_sdmmc();
+    s_storage_handle->sector_size = _get_sector_size_sdmmc();
     s_storage_handle->read = &_read_sector_sdmmc;
     s_storage_handle->write = &_write_sector_sdmmc;
     s_storage_handle->is_fat_mounted = false;
     s_storage_handle->base_path = NULL;
-    s_storage_handle->card = config->card;
     // In case the user does not set mount_config.max_files
     // and for backward compatibility with versions <1.4.2
     // max_files is set to 2
