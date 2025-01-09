@@ -285,6 +285,51 @@ menu "TinyUSB Stack"
             config TINYUSB_NET_MODE_NONE
                 bool "None"
         endchoice
+
+        config TINYUSB_NCM_OUT_NTB_BUFFS_COUNT
+            int "Number of NCM NTB buffers for reception side"
+            depends on TINYUSB_NET_MODE_NCM
+            default 3
+            range 1 6
+            help
+                Number of NTB buffers for reception side.
+                Can be increased to improve performance and stability with the cost of additional RAM requirements.
+                Helps to mitigate "tud_network_can_xmit: request blocked" warning message when running NCM device.
+
+        config TINYUSB_NCM_IN_NTB_BUFFS_COUNT
+            int "Number of NCM NTB buffers for transmission side"
+            depends on TINYUSB_NET_MODE_NCM
+            default 3
+            range 1 6
+            help
+                Number of NTB buffers for transmission side.
+                Can be increased to improve performance and stability with the cost of additional RAM requirements.
+                Helps to mitigate "tud_network_can_xmit: request blocked" warning message when running NCM device.
+
+        config TINYUSB_NCM_OUT_NTB_BUFF_MAX_SIZE
+            int "NCM NTB Buffer size for reception size"
+            depends on TINYUSB_NET_MODE_NCM
+            default 8192
+            range 1600 10240
+            help
+              Size of NTB buffers on the reception side. The minimum size used by Linux is 2048 bytes.
+              NTB buffer size must be significantly larger than the MTU (Maximum Transmission Unit).
+              The typical default MTU size for Ethernet is 1500 bytes, plus an additional packet overhead.
+              To improve performance, the NTB buffer size should be large enough to fit multiple MTU-sized
+              frames in a single NTB buffer and it's length should be multiple of 4.
+
+        config TINYUSB_NCM_IN_NTB_BUFF_MAX_SIZE
+            int "NCM NTB Buffer size for transmission size"
+            depends on TINYUSB_NET_MODE_NCM
+            default 8192
+            range 1600 10240
+            help
+              Size of NTB buffers on the transmission side. The minimum size used by Linux is 2048 bytes.
+              NTB buffer size must be significantly larger than the MTU (Maximum Transmission Unit).
+              The typical default MTU size for Ethernet is 1500 bytes, plus an additional packet overhead.
+              To improve performance, the NTB buffer size should be large enough to fit multiple MTU-sized
+              frames in a single NTB buffer and it's length should be multiple of 4.
+
     endmenu # "Network driver (ECM/NCM/RNDIS)"
 
     menu "Vendor Specific Interface"
