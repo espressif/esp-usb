@@ -285,6 +285,41 @@ menu "TinyUSB Stack"
             config TINYUSB_NET_MODE_NONE
                 bool "None"
         endchoice
+
+        config TINYUSB_NCM_OUT_NTB_BUFFS_COUNT
+            int "Number of NCM NTB buffers for reception side"
+            depends on TINYUSB_NET_MODE_NCM
+            default 2
+            range 1 4
+            help
+                Number of NTB buffers for reception side.
+                Can be increased to improve performance with the cost of additional RAM requirements.
+
+        config TINYUSB_NCM_IN_NTB_BUFFS_COUNT
+            int "Number of NCM NTB buffers for transmission side"
+            depends on TINYUSB_NET_MODE_NCM
+            default 2
+            range 1 4
+            help
+                Number of NTB buffers for transmission side.
+                Can be increased to improve performance with the cost of additional RAM requirements.
+
+        config TINYUSB_NCM_OUT_NTB_BUFF_MAX_SIZE
+            int "NCM NTB Buffer size for reception size"
+            depends on TINYUSB_NET_MODE_NCM
+            default 3200
+            range 2048 4096
+            help
+              Size of NTB buffers for reception side. Linux uses 2048 as minimal size.
+
+        config TINYUSB_NCM_IN_NTB_BUFF_MAX_SIZE
+            int "NCM NTB Buffer size for transmission size"
+            depends on TINYUSB_NET_MODE_NCM
+            default 3200
+            range 2048 4096
+            help
+              Size of NTB buffers for transmission side. Linux uses 2048 as minimal size.
+
     endmenu # "Network driver (ECM/NCM/RNDIS)"
 
     menu "Vendor Specific Interface"

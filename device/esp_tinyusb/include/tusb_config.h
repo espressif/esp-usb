@@ -1,6 +1,6 @@
 /*
  * SPDX-FileCopyrightText: 2019 Ha Thach (tinyusb.org),
- * SPDX-FileContributor: 2020-2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileContributor: 2020-2025 Espressif Systems (Shanghai) CO LTD
  * SPDX-License-Identifier: MIT
  *
  * Copyright (c) 2019 Ha Thach (tinyusb.org),
@@ -172,6 +172,12 @@ extern "C" {
 #define CFG_TUD_DFU                 CONFIG_TINYUSB_DFU_MODE_DFU
 #define CFG_TUD_DFU_RUNTIME         CONFIG_TINYUSB_DFU_MODE_DFU_RUNTIME
 #define CFG_TUD_BTH                 CONFIG_TINYUSB_BTH_ENABLED
+
+// NCM NET Mode NTB buffers configuration
+#define CFG_TUD_NCM_OUT_NTB_N         CONFIG_TINYUSB_NCM_OUT_NTB_BUFFS_COUNT
+#define CFG_TUD_NCM_IN_NTB_N          CONFIG_TINYUSB_NCM_IN_NTB_BUFFS_COUNT
+#define CFG_TUD_NCM_OUT_NTB_MAX_SIZE  CONFIG_TINYUSB_NCM_OUT_NTB_BUFF_MAX_SIZE
+#define CFG_TUD_NCM_IN_NTB_MAX_SIZE   CONFIG_TINYUSB_NCM_IN_NTB_BUFF_MAX_SIZE
 
 #ifdef __cplusplus
 }
