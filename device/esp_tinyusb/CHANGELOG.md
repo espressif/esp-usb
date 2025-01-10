@@ -1,3 +1,7 @@
+## [Unreleased]
+
+- esp_tinyusb: Added possibility to configure NCM Transfer Blocks (NTB) via menuconfig
+
 ## 1.6.0
 
 - CDC-ACM: Fixed memory leak on deinit
