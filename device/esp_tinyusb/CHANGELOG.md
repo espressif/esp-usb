@@ -1,6 +1,6 @@
 ## [Unreleased]
 
-- esp_tinyusb: Added configuration for NCM device NTB buffers
+- esp_tinyusb: Added possibility to configure NCM Transfer Blocks (NTB) via menuconfig
 
 ## 1.6.0
 
