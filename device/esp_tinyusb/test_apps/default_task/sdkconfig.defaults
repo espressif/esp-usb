@@ -1,6 +1,6 @@
 # Configure TinyUSB, it will be used to mock USB devices
-CONFIG_TINYUSB_NO_DEFAULT_TASK=n
-CONFIG_TINYUSB_INIT_IN_DEFAULT_TASK=n
+CONFIG_TINYUSB_DEFAULT_TASK=y
+CONFIG_TINYUSB_INIT_IN_TASK=n
 
 # Disable watchdogs, they'd get triggered during unity interactive menu
 CONFIG_ESP_INT_WDT=n

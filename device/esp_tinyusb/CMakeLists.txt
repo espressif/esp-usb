@@ -4,9 +4,9 @@ set(srcs
     "usb_descriptors.c"
     )
 
-if(NOT CONFIG_TINYUSB_NO_DEFAULT_TASK)
+if(CONFIG_TINYUSB_DEFAULT_TASK)
     list(APPEND srcs "tusb_tasks.c")
-endif() # CONFIG_TINYUSB_NO_DEFAULT_TASK
+endif() # CONFIG_TINYUSB_DEFAULT_TASK
 
 if(CONFIG_TINYUSB_CDC_ENABLED)
     list(APPEND srcs

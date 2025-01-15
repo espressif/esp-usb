@@ -1,4 +1,4 @@
-menu "TinyUSB Stack"
+menu "ESP TinyUSB"
     config TINYUSB_DEBUG_LEVEL
         int "TinyUSB log level (0-3)"
         default 1
@@ -48,39 +48,31 @@ menu "TinyUSB Stack"
         endchoice
     endmenu # "TinyUSB DCD"
 
-    menu "TinyUSB task configuration"
-        config TINYUSB_NO_DEFAULT_TASK
-            bool "Do not create a TinyUSB task"
-            default n
-            help
-                This option allows to not create the FreeRTOS task during the driver initialization.
-                User will have to handle TinyUSB events manually.
+    config TINYUSB_DEFAULT_TASK
+        bool "Create TinyUSB task"
+        default y
+        help
+            To handle USB event, TinyUSB task tud_task() should be implemented. This option allows create the FreeRTOS task during the driver initialization with default parameters.
 
-        config TINYUSB_TASK_PRIORITY
-            int "TinyUSB task priority"
-            default 5
-            depends on !TINYUSB_NO_DEFAULT_TASK
-            help
-                Set the priority of the default TinyUSB main task.
+            Enable - FreeRTOS TinyUSB task (tud_task()) is implemented by the current component.
+            Disable - FreeRTOS TinyUSB task (tud_task()) must be implemented outside of the current component.
 
-        config TINYUSB_TASK_STACK_SIZE
-            int "TinyUSB task stack size (bytes)"
-            default 4096
-            depends on !TINYUSB_NO_DEFAULT_TASK
-            help
-                Set the stack size of the default TinyUSB main task.
+            Enabled by default.
 
+    menu "Task configuration"
+    depends on TINYUSB_DEFAULT_TASK
         choice TINYUSB_TASK_AFFINITY
-            prompt "TinyUSB task affinity"
+            prompt "CPU affinity"
             default TINYUSB_TASK_AFFINITY_CPU1 if !FREERTOS_UNICORE
             default TINYUSB_TASK_AFFINITY_NO_AFFINITY
-            depends on !TINYUSB_NO_DEFAULT_TASK
             help
                 Allows setting TinyUSB tasks affinity, i.e. whether the task is pinned to
                 CPU0, pinned to CPU1, or allowed to run on any CPU.
 
+                Default value: No affinity for unicore systems, pinned to CPU1 for multicore.
+
             config TINYUSB_TASK_AFFINITY_NO_AFFINITY
-                bool "No affinity"
+                bool "None"
             config TINYUSB_TASK_AFFINITY_CPU0
                 bool "CPU0"
             config TINYUSB_TASK_AFFINITY_CPU1
@@ -88,21 +80,42 @@ menu "TinyUSB Stack"
                 depends on !FREERTOS_UNICORE
         endchoice
 
+        config TINYUSB_INIT_IN_TASK
+            bool "Init in task"
+            default n if TINYUSB_DEFAULT_TASK
+            default y
+            depends on !TINYUSB_TASK_AFFINITY_NO_AFFINITY
+            help
+                Run TinyUSB stack initialization just after starting the default TinyUSB task.
+                This is especially useful in multicore scenarios, when we need to pin the task
+                to a specific core and, at the same time initialize TinyUSB stack
+                (i.e. install interrupts) on the same core.
+
+                Disabled by default, when TINYUSB_DEFAULT_TASK is enabled.
+                Enabled by default, when TINYUSB_DEFAULT_TASK is disabled.  
+
+        config TINYUSB_TASK_PRIORITY
+            int "Priority"
+            default 5
+            help
+                Set the priority of the default TinyUSB main task.
+
+                Default value: 5.
+
+        config TINYUSB_TASK_STACK_SIZE
+            int "Stack size (bytes)"
+            default 4096
+            help
+                Set the stack size of the default TinyUSB main task.
+
+                Default value: 4096 bytes.
+
         config TINYUSB_TASK_AFFINITY
             hex
             default FREERTOS_NO_AFFINITY if TINYUSB_TASK_AFFINITY_NO_AFFINITY
             default 0x0 if TINYUSB_TASK_AFFINITY_CPU0
             default 0x1 if TINYUSB_TASK_AFFINITY_CPU1
 
-        config TINYUSB_INIT_IN_DEFAULT_TASK
-            bool "Initialize TinyUSB stack within the default TinyUSB task"
-            default n
-            depends on !TINYUSB_NO_DEFAULT_TASK
-            help
-                Run TinyUSB stack initialization just after starting the default TinyUSB task.
-                This is especially useful in multicore scenarios, when we need to pin the task
-                to a specific core and, at the same time initialize TinyUSB stack
-                (i.e. install interrupts) on the same core.
     endmenu # "TinyUSB task configuration"
 
     menu "Descriptor configuration"

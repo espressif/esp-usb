@@ -64,10 +64,10 @@ esp_err_t tinyusb_driver_install(const tinyusb_config_t *config)
     ESP_RETURN_ON_ERROR(tinyusb_set_descriptors(config), TAG, "Descriptors config failed");
 
     // Init
-#if !CONFIG_TINYUSB_INIT_IN_DEFAULT_TASK
+#if !CONFIG_TINYUSB_INIT_IN_TASK
     ESP_RETURN_ON_FALSE(tusb_init(), ESP_FAIL, TAG, "Init TinyUSB stack failed");
 #endif
-#if !CONFIG_TINYUSB_NO_DEFAULT_TASK
+#if CONFIG_TINYUSB_DEFAULT_TASK
     ESP_RETURN_ON_ERROR(tusb_run_task(), TAG, "Run TinyUSB task failed");
 #endif
     ESP_LOGI(TAG, "TinyUSB Driver installed");
@@ -76,9 +76,9 @@ esp_err_t tinyusb_driver_install(const tinyusb_config_t *config)
 
 esp_err_t tinyusb_driver_uninstall(void)
 {
-#if !CONFIG_TINYUSB_NO_DEFAULT_TASK
+#if CONFIG_TINYUSB_DEFAULT_TASK
     ESP_RETURN_ON_ERROR(tusb_stop_task(), TAG, "Unable to stop TinyUSB task");
-#endif // !CONFIG_TINYUSB_NO_DEFAULT_TASK
+#endif // CONFIG_TINYUSB_DEFAULT_TASK
     ESP_RETURN_ON_FALSE(tusb_teardown(), ESP_ERR_NOT_FINISHED, TAG, "Unable to teardown TinyUSB");
     tinyusb_free_descriptors();
     ESP_RETURN_ON_ERROR(usb_del_phy(phy_hdl), TAG, "Unable to delete PHY");
