@@ -76,16 +76,11 @@ esp_err_t tinyusb_driver_install(const tinyusb_config_t *config)
 
 esp_err_t tinyusb_driver_uninstall(void)
 {
-    esp_err_t ret = tusb_stop_task();
-
-    if (ret != ESP_OK) {
-        return ret;
-    }
-
-    if (!tusb_teardown()) {
-        return ESP_ERR_NOT_FINISHED;
-    }
-
+#if !CONFIG_TINYUSB_NO_DEFAULT_TASK
+    ESP_RETURN_ON_ERROR(tusb_stop_task(), TAG, "Unable to stop TinyUSB task");
+#endif // !CONFIG_TINYUSB_NO_DEFAULT_TASK
+    ESP_RETURN_ON_FALSE(tusb_teardown(), ESP_ERR_NOT_FINISHED, TAG, "Unable to teardown TinyUSB");
     tinyusb_free_descriptors();
-    return usb_del_phy(phy_hdl);
+    ESP_RETURN_ON_ERROR(usb_del_phy(phy_hdl), TAG, "Unable to delete PHY");
+    return ESP_OK;
 }
