@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2015-2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2015-2025 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -709,7 +709,7 @@ TEST_CASE("tx_timeout", "[cdc_acm]")
 
     // TX some data with timeout_ms=0. This will cause a timeout
     TEST_ASSERT_EQUAL(ESP_ERR_TIMEOUT, cdc_acm_host_data_tx_blocking(cdc_dev, tx_buf, sizeof(tx_buf), 0));
-    vTaskDelay(100); // Wait before trying new TX
+    vTaskDelay(50); // Wait before trying new TX
 
     // TX some data again with greater timeout. This will check normal operation
     TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_data_tx_blocking(cdc_dev, tx_buf, sizeof(tx_buf), 1000));
