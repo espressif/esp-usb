@@ -2,7 +2,7 @@ name: Build and Run USB Test Application
 
 on:
   schedule:
-    - cron: '0 0 * * *' # Every day at midnight
+    - cron: '0 0 * * 0' # Every Sunday at midnight
   pull_request:
     types: [opened, reopened, synchronize]
 
@@ -10,7 +10,6 @@ jobs:
   build:
     name: Build USB TestApps
     strategy:
-      fail-fast: false
       matrix:
         idf_ver: ["release-v5.0", "release-v5.1", "release-v5.2", "release-v5.3", "release-v5.4", "latest"]
     runs-on: ubuntu-20.04
@@ -46,7 +45,6 @@ jobs:
     if: ${{ github.repository_owner == 'espressif' }}
     needs: build
     strategy:
-      fail-fast: false
       matrix:
         idf_ver: ["release-v5.0", "release-v5.1", "release-v5.2", "release-v5.3", "release-v5.4", "latest"]
         idf_target: ["esp32s2", "esp32p4"]
