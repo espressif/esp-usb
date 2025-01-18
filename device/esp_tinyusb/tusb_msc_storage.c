@@ -47,6 +47,38 @@ typedef struct {
 /* handle of tinyusb driver connected to application */
 static tinyusb_msc_storage_handle_s *s_storage_handle;
 
+#define MSC_WRITE_BUFFER_SIZE CONFIG_TINYUSB_MSC_BUFSIZE /*!< Size of the buffer, configured via menuconfig (MSC FIFO size) */
+
+/**
+ * @brief Structure representing a single write buffer for MSC operations.
+ */
+typedef struct {
+    uint8_t data_buffer[MSC_WRITE_BUFFER_SIZE]; /*!< Buffer to store write data. The size is defined by MSC_WRITE_BUFFER_SIZE. */
+    uint32_t lba;                          /*!< Logical Block Address for the current WRITE10 operation. */
+    uint32_t offset;                       /*!< Offset within the specified LBA for the current write operation. */
+    uint32_t bufsize;                      /*!< Number of bytes to be written in this operation. */
+    volatile bool is_data_pending;         /*!< Indicates whether the buffer contains data waiting to be processed. */
+} msc_write_buffer_t;
+
+/**
+ * @brief Structure managing dual write buffers and associated metadata.
+ *
+ * This structure supports a ping-pong buffering mechanism for MSC operations,
+ * allowing concurrent data processing and reception.
+ */
+typedef struct {
+    msc_write_buffer_t buffers[2]; /*!< Array of two write buffers used for ping-pong buffering. */
+    volatile msc_write_buffer_t *p_write_buffer; /*!< Pointer to the active write buffer. */
+    volatile msc_write_buffer_t *p_read_buffer;  /*!< Pointer to the active read buffer. */
+
+    // Task-specific variables
+    volatile bool was_task_terminated; /*!< Flag to indicate whether the associated task has been terminated. */
+    TaskHandle_t task_handle;          /*!< Task handle for processing write operations asynchronously. */
+} msc_write_buffer_handle_t;
+
+
+static msc_write_buffer_handle_t *write_buffer;
+
 static esp_err_t _mount_spiflash(BYTE pdrv)
 {
     return ff_diskio_register_wl_partition(pdrv, s_storage_handle->wl_handle);
@@ -249,6 +281,75 @@ fail:
     return ret;
 }
 
+static void switch_buffers(void)
+{
+    msc_write_buffer_t *temp = (msc_write_buffer_t *)write_buffer->p_read_buffer;
+    write_buffer->p_read_buffer = write_buffer->p_write_buffer;
+    write_buffer->p_write_buffer = temp;
+}
+
+static void write_task(void *param)
+{
+    while (1) {
+        // Wait for notification from the callback
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+
+        // terminating task (when deinit is called)
+        if (write_buffer->was_task_terminated) {
+            vTaskDelete(NULL);
+        }
+
+        // Process the data in write_buffer
+        if (write_buffer->p_read_buffer->is_data_pending) {
+            //ESP_LOGE(TAG, "temp write task called");
+            esp_err_t err = msc_storage_write_sector(
+                                write_buffer->p_read_buffer->lba,
+                                write_buffer->p_read_buffer->offset,
+                                write_buffer->p_read_buffer->bufsize,
+                                (const void *)write_buffer->p_read_buffer->data_buffer
+                            );
+            write_buffer->p_read_buffer->is_data_pending = false;
+            switch_buffers();
+            if (err != ESP_OK) {
+                ESP_LOGE(TAG, "Write operation failed: 0x%x", err);
+            }
+        }
+    }
+}
+
+static esp_err_t init_write_buffer(void)
+{
+    assert(!write_buffer);
+    write_buffer = (msc_write_buffer_handle_t *)malloc(sizeof(msc_write_buffer_handle_t));
+    ESP_RETURN_ON_FALSE(write_buffer, ESP_ERR_NO_MEM, TAG, "could not allocate write buffer");
+
+    memset(write_buffer, 0, sizeof(msc_write_buffer_handle_t));
+
+    write_buffer->p_write_buffer = &write_buffer->buffers[0];
+    write_buffer->p_read_buffer = &write_buffer->buffers[1];
+
+    // Create the write processing task
+    BaseType_t task_created = xTaskCreate(write_task, "write_task", 4096, NULL, configMAX_PRIORITIES - 1, &write_buffer->task_handle);
+    ESP_RETURN_ON_FALSE(task_created == pdPASS, ESP_FAIL, TAG, "Failed to create write buffer task");
+
+    return ESP_OK;
+}
+
+static void free_write_buffer(void)
+{
+    if (write_buffer) {
+        write_buffer->was_task_terminated = true;
+        if (write_buffer->task_handle) {
+            xTaskNotifyGive(write_buffer->task_handle);
+            while (eTaskGetState(write_buffer->task_handle) != eDeleted) {
+                vTaskDelay(pdMS_TO_TICKS(10)); // waiting for terminating the task
+            }
+        }
+        free(write_buffer);
+        write_buffer = NULL;
+    }
+}
+
 esp_err_t tinyusb_msc_storage_mount(const char *base_path)
 {
     esp_err_t ret = ESP_OK;
@@ -405,7 +506,7 @@ esp_err_t tinyusb_msc_storage_init_spiflash(const tinyusb_msc_spiflash_config_t 
         tinyusb_msc_unregister_callback(TINYUSB_MSC_EVENT_PREMOUNT_CHANGED);
     }
 
-    return ESP_OK;
+    return init_write_buffer();
 }
 
 #if SOC_SDMMC_HOST_SUPPORTED
@@ -441,15 +542,17 @@ esp_err_t tinyusb_msc_storage_init_sdmmc(const tinyusb_msc_sdmmc_config_t *confi
         tinyusb_msc_unregister_callback(TINYUSB_MSC_EVENT_PREMOUNT_CHANGED);
     }
 
-    return ESP_OK;
+    return init_write_buffer();
 }
 #endif
 
 void tinyusb_msc_storage_deinit(void)
 {
-    assert(s_storage_handle);
-    free(s_storage_handle);
-    s_storage_handle = NULL;
+    free_write_buffer();
+    if (s_storage_handle) {
+        free(s_storage_handle);
+        s_storage_handle = NULL;
+    }
 }
 
 esp_err_t tinyusb_msc_register_callback(tinyusb_msc_event_type_t event_type,
@@ -580,11 +683,37 @@ int32_t tud_msc_read10_cb(uint8_t lun, uint32_t lba, uint32_t offset, void *buff
 // - Application write data from buffer to address contents (up to bufsize) and return number of written byte.
 int32_t tud_msc_write10_cb(uint8_t lun, uint32_t lba, uint32_t offset, uint8_t *buffer, uint32_t bufsize)
 {
-    esp_err_t err = msc_storage_write_sector(lba, offset, bufsize, buffer);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "msc_storage_write_sector failed: 0x%x", err);
+    // Ensure the buffer can accommodate the incoming data
+    if (bufsize > MSC_WRITE_BUFFER_SIZE) {
+        ESP_LOGE(TAG, "Buffer overflow: incoming data size %lu exceeds buffer size %u", bufsize, MSC_WRITE_BUFFER_SIZE);
         return 0;
     }
+
+    // check if previous data are still processed
+    if (write_buffer->p_write_buffer->is_data_pending) {
+        ESP_LOGE(TAG,
+                 "Buffer conflict: previous write operation not completed (LBA=%lu, Offset=%lu, Size=%lu). ",
+                 write_buffer->p_write_buffer->lba,
+                 write_buffer->p_write_buffer->offset,
+                 write_buffer->p_write_buffer->bufsize);
+        return 0;
+    }
+    // Copy data to the buffer
+    memcpy((void *)write_buffer->p_write_buffer->data_buffer, buffer, bufsize);
+    write_buffer->p_write_buffer->lba = lba;
+    write_buffer->p_write_buffer->offset = offset;
+    write_buffer->p_write_buffer->bufsize = bufsize;
+
+    // Notify the write task
+    write_buffer->p_write_buffer->is_data_pending = true;
+    if (write_buffer->task_handle != NULL) {
+        xTaskNotifyGive(write_buffer->task_handle);
+    } else {
+        ESP_LOGE(TAG, "Write task handle is NULL");
+        return 0;
+    }
+
+    // Return the number of bytes accepted
     return bufsize;
 }
 
