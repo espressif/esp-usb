@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2020-2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2020-2025 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -10,6 +10,7 @@
 #include "esp_err.h"
 #include "tusb.h"
 #include "tinyusb_types.h"
+#include "tinyusb_task.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -24,13 +25,26 @@ extern "C" {
  * The comparator thresholds should be set with hysteresis: 4.35V (falling edge) and 4.75V (raising edge).
  */
 typedef struct {
+    // USB Peripheral Settings
+    bool external_phy;                          /*!< Should USB use an external PHY */
+    tinyusb_periph_t periph;                    /*!< USB Peripheral hardware. Used to specify the peripheral when hardware has several. Default (0): High-speed (when available), otherwise Full-speed */
+    tinyusb_speed_t speed;                      /*!< USB Peripheral speed. */
+
+    // USB Device - Task configuration
+    tinyusb_task_config_t task_config;          /*!< USB Device Task configuration. */
+    tinyusb_task_type_t task_type;              /*!< USB Device Task type. When TASK_TYPE_EXTERNAL, tud_task() should be implemented in the application logic. */
+
+    // USB Device VBUS monitoring
+    bool self_powered;                          /*!< This is a self-powered USB device. USB VBUS must be monitored. */
+    int vbus_monitor_io;                        /*!< GPIO for VBUS monitoring. Ignored if not self_powered. */
+
+    // USB Device Descriptors and configuration
     union {
         const tusb_desc_device_t *device_descriptor; /*!< Pointer to a device descriptor. If set to NULL, the TinyUSB device will use a default device descriptor whose values are set in Kconfig */
         const tusb_desc_device_t *descriptor  __attribute__((deprecated)); /*!< Alias to `device_descriptor` for backward compatibility */
     };
-    const char **string_descriptor;            /*!< Pointer to array of string descriptors. If set to NULL, TinyUSB device will use a default string descriptors whose values are set in Kconfig */
-    int string_descriptor_count;               /*!< Number of descriptors in above array */
-    bool external_phy;                         /*!< Should USB use an external PHY */
+    const char **string_descriptor;             /*!< Pointer to array of string descriptors. If set to NULL, TinyUSB device will use a default string descriptors whose values are set in Kconfig */
+    int string_descriptor_count;                /*!< Number of descriptors in above array */
     union {
         struct {
             const uint8_t *configuration_descriptor;            /*!< Pointer to a configuration descriptor. If set to NULL, TinyUSB device will use a default configuration descriptor whose values are set in Kconfig */
@@ -45,8 +59,6 @@ typedef struct {
 #else
     };
 #endif // TUD_OPT_HIGH_SPEED
-    bool self_powered;                         /*!< This is a self-powered USB device. USB VBUS must be monitored. */
-    int vbus_monitor_io;                       /*!< GPIO for VBUS monitoring. Ignored if not self_powered. */
 } tinyusb_config_t;
 
 /**
