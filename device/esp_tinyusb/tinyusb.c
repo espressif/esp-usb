@@ -13,9 +13,11 @@
 #include "tinyusb.h"
 #include "descriptors_control.h"
 #include "tusb.h"
-#include "tusb_tasks.h"
 
 const static char *TAG = "TinyUSB";
+
+// Tinyusb supports only one instance of the driver per peripheral
+// Otherwise, the next parameters could be stored in the context
 static usb_phy_handle_t phy_hdl;
 
 // For the tinyusb component without tusb_teardown() implementation
@@ -23,9 +25,27 @@ static usb_phy_handle_t phy_hdl;
 #   define tusb_teardown()   (true)
 #endif // tusb_teardown
 
-esp_err_t tinyusb_driver_install(const tinyusb_config_t *config)
+/**
+ * @brief Check the TinyUSB configuration
+ */
+static esp_err_t tinyusb_check_config(const tinyusb_config_t *config)
 {
     ESP_RETURN_ON_FALSE(config, ESP_ERR_INVALID_ARG, TAG, "Config can't be NULL");
+    ESP_RETURN_ON_FALSE(config->port < TINYUSB_PORT_MAX, ESP_ERR_INVALID_ARG, TAG, "Port number should be supported by the hardware");
+#if (CONFIG_IDF_TARGET_ESP32P4)
+#ifndef USB_PHY_SUPPORTS_P4_OTG11
+    ESP_RETURN_ON_FALSE(config->port != TINYUSB_PORT_0, ESP_ERR_INVALID_ARG, TAG, "USB PHY support for OTG1.1 has not been implemented, please update your esp-idf");
+#endif // ESP-IDF supports OTG1.1 peripheral
+#endif // CONFIG_IDF_TARGET_ESP32P4
+    return ESP_OK;
+}
+
+esp_err_t tinyusb_driver_install(const tinyusb_config_t *config)
+{
+    ESP_RETURN_ON_ERROR(tinyusb_check_config(config), TAG, "TinyUSB configuration check failed");
+    ESP_RETURN_ON_ERROR(tinyusb_task_check_config(&config->task), TAG, "TinyUSB task configuration check failed");
+
+    esp_err_t ret;
 
     if (!config->skip_phy_setup) {
         // Configure USB PHY
@@ -33,13 +53,8 @@ esp_err_t tinyusb_driver_install(const tinyusb_config_t *config)
             .controller = USB_PHY_CTRL_OTG,
             .target = USB_PHY_TARGET_INT,
             .otg_mode = USB_OTG_MODE_DEVICE,
-#if (USB_PHY_SUPPORTS_P4_OTG11)
-            .otg_speed = (TUD_OPT_HIGH_SPEED) ? USB_PHY_SPEED_HIGH : USB_PHY_SPEED_FULL,
-#else
-#if (CONFIG_IDF_TARGET_ESP32P4 && CONFIG_TINYUSB_RHPORT_FS)
-#error "USB PHY for OTG1.1 is not supported, please update your esp-idf."
-#endif // IDF_TARGET_ESP32P4 && CONFIG_TINYUSB_RHPORT_FS
-#endif // USB_PHY_SUPPORTS_P4_OTG11
+            // OTG speed selects the PHY indirectly
+            .otg_speed = (config->port == TINYUSB_PORT_0) ? USB_PHY_SPEED_FULL : USB_PHY_SPEED_HIGH,
         };
 
         // OTG IOs config
@@ -51,25 +66,25 @@ esp_err_t tinyusb_driver_install(const tinyusb_config_t *config)
     }
 
     // Descriptors config
-    ESP_RETURN_ON_ERROR(tinyusb_set_descriptors(config), TAG, "Descriptors config failed");
+    ESP_GOTO_ON_ERROR(tinyusb_set_descriptors(config), del_phy, TAG, "Descriptors config failed");
+    // Init TinyUSB stack in task
+    ESP_GOTO_ON_ERROR(tinyusb_task_start(config->port, &config->task), free_desc, TAG, "Init TinyUSB task failed");
 
-    // Init
-#if !CONFIG_TINYUSB_INIT_IN_DEFAULT_TASK
-    ESP_RETURN_ON_FALSE(tusb_init(), ESP_FAIL, TAG, "Init TinyUSB stack failed");
-#endif
-#if !CONFIG_TINYUSB_NO_DEFAULT_TASK
-    ESP_RETURN_ON_ERROR(tusb_run_task(), TAG, "Run TinyUSB task failed");
-#endif
-    ESP_LOGI(TAG, "TinyUSB Driver installed");
+    ESP_LOGI(TAG, "TinyUSB Driver installed on port %d", config->port);
     return ESP_OK;
+
+free_desc:
+    tinyusb_free_descriptors();
+del_phy:
+    if (!config->skip_phy_setup) {
+        usb_del_phy(phy_hdl);
+    }
+    return ret;
 }
 
 esp_err_t tinyusb_driver_uninstall(void)
 {
-#if !CONFIG_TINYUSB_NO_DEFAULT_TASK
-    ESP_RETURN_ON_ERROR(tusb_stop_task(), TAG, "Unable to stop TinyUSB task");
-#endif // !CONFIG_TINYUSB_NO_DEFAULT_TASK
-    ESP_RETURN_ON_FALSE(tusb_teardown(), ESP_ERR_NOT_FINISHED, TAG, "Unable to teardown TinyUSB");
+    ESP_RETURN_ON_ERROR(tinyusb_task_stop(), TAG, "Deinit TinyUSB task failed");
     tinyusb_free_descriptors();
     ESP_RETURN_ON_ERROR(usb_del_phy(phy_hdl), TAG, "Unable to delete PHY");
     return ESP_OK;
