@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2020-2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2020-2025 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -16,6 +16,27 @@ extern "C" {
 #endif
 
 /**
+ * @brief TinyUSB Task affinity mask
+ */
+typedef enum {
+    TUSB_TASK_AFFINITY_NONE = 0,
+    TUSB_TASK_AFFINITY_CPU1,
+#if !CONFIG_FREERTOS_UNICORE
+    TUSB_TASK_AFFINITY_CPU2
+#endif // !CONFIG_FREERTOS_UNICORE
+} tusb_task_affinity_mask_t;
+
+/**
+ * @brief TinyUSB Task configuration
+ */
+typedef struct {
+    bool init;                                  /*!< USB Device Task stack initialization place. When selected, stack will be initialized in the same task which handles the tud_task(). Useful, when affinity mask is set. */
+    uint8_t size;                               /*!< USB Device Task size. */
+    uint8_t priority;                           /*!< USB Device Task priority. */
+    tusb_affinity_mask_t affinity;              /*!< USB Device Task affinity. */
+} tusb_task_config_t;
+
+/**
  * @brief Configuration structure of the TinyUSB core
  *
  * USB specification mandates self-powered devices to monitor USB VBUS to detect connection/disconnection events.
@@ -24,13 +45,25 @@ extern "C" {
  * The comparator thresholds should be set with hysteresis: 4.35V (falling edge) and 4.75V (raising edge).
  */
 typedef struct {
+    // USB Peripheral Settings
+    bool external_phy;                          /*!< Should USB use an external PHY */
+    uint8_t rhport;                             /*!< USB Peripheral hardware port number. Available when hardware has several available peripherals. */
+
+    // USB Device - Task configuration
+    bool create_backgound_task;                 /*!< USB Device Task is handled internally. If set to true, tud_task() should be implemented in the application logic. */
+    tusb_task_config_t task_config;             /*!< USB Device Task configuration. */
+
+    // USB Device VBUS monitoring
+    bool self_powered;                          /*!< This is a self-powered USB device. USB VBUS must be monitored. */
+    int vbus_monitor_io;                        /*!< GPIO for VBUS monitoring. Ignored if not self_powered. */
+
+    // USB Device Descriptors and configuration
     union {
         const tusb_desc_device_t *device_descriptor; /*!< Pointer to a device descriptor. If set to NULL, the TinyUSB device will use a default device descriptor whose values are set in Kconfig */
         const tusb_desc_device_t *descriptor  __attribute__((deprecated)); /*!< Alias to `device_descriptor` for backward compatibility */
     };
-    const char **string_descriptor;            /*!< Pointer to array of string descriptors. If set to NULL, TinyUSB device will use a default string descriptors whose values are set in Kconfig */
-    int string_descriptor_count;               /*!< Number of descriptors in above array */
-    bool external_phy;                         /*!< Should USB use an external PHY */
+    const char **string_descriptor;             /*!< Pointer to array of string descriptors. If set to NULL, TinyUSB device will use a default string descriptors whose values are set in Kconfig */
+    int string_descriptor_count;                /*!< Number of descriptors in above array */
     union {
         struct {
             const uint8_t *configuration_descriptor;            /*!< Pointer to a configuration descriptor. If set to NULL, TinyUSB device will use a default configuration descriptor whose values are set in Kconfig */
@@ -45,8 +78,6 @@ typedef struct {
 #else
     };
 #endif // TUD_OPT_HIGH_SPEED
-    bool self_powered;                         /*!< This is a self-powered USB device. USB VBUS must be monitored. */
-    int vbus_monitor_io;                       /*!< GPIO for VBUS monitoring. Ignored if not self_powered. */
 } tinyusb_config_t;
 
 /**
@@ -68,16 +99,6 @@ typedef struct {
  */
 esp_err_t tinyusb_driver_install(const tinyusb_config_t *config);
 
-/**
- * @brief This is an all-in-one helper function, including:
- * 1. Stops the task to handle usb events
- * 2. TinyUSB stack tearing down
- * 2. Freeing resources after descriptors preparation
- * 3. Deletes USB PHY
- *
- * @retval ESP_FAIL Uninstall driver or tinyusb stack failed because of internal error
- * @retval ESP_OK Uninstall driver, tinyusb stack and USB PHY successfully
- */
 esp_err_t tinyusb_driver_uninstall(void);
 
 #ifdef __cplusplus
