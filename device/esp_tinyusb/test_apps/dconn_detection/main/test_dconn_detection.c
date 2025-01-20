@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2024-2025 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -22,8 +22,11 @@
 #include "tinyusb.h"
 #include "tusb_tasks.h"
 
-#define DEVICE_DETACH_TEST_ROUNDS       10
-#define DEVICE_DETACH_ROUND_DELAY_MS    1000
+static const char *TAG = "dconn_detection";
+
+#define DEVICE_DETACH_TEST_ROUNDS           10
+#define DEVICE_DETACH_ROUND_DELAY_MS        10
+#define TEARDOWN_DEVICE_ATTACH_TIMEOUT_MS   1000
 
 #if (CONFIG_IDF_TARGET_ESP32P4)
 #define USB_SRP_BVALID_IN_IDX       USB_SRP_BVALID_PAD_IN_IDX
@@ -33,8 +36,10 @@
    ********************************************************************* */
 #define TUSB_DESC_TOTAL_LEN         (TUD_CONFIG_DESC_LEN)
 
+SemaphoreHandle_t wait_dev_stage_change = NULL;
 static unsigned int dev_mounted = 0;
 static unsigned int dev_umounted = 0;
+
 
 static uint8_t const test_configuration_descriptor[] = {
     // Config number, interface count, string index, total length, attribute, power in mA
@@ -82,15 +87,17 @@ void tud_mount_cb(void)
      * However, Windows issues SetConfiguration only after a USB driver was assigned to the device.
      * So in case you are implementing a Vendor Specific class, or your device has 0 interfaces, this callback is not issued on Windows host.
      */
-    printf("%s\n", __FUNCTION__);
+    ESP_LOGD(TAG, "%s", __FUNCTION__);
     dev_mounted++;
+    xSemaphoreGive(wait_dev_stage_change);
 }
 
 // Invoked when device is unmounted
 void tud_umount_cb(void)
 {
-    printf("%s\n", __FUNCTION__);
+    ESP_LOGD(TAG, "%s", __FUNCTION__);
     dev_umounted++;
+    xSemaphoreGive(wait_dev_stage_change);
 }
 
 /**
@@ -114,7 +121,7 @@ void tud_umount_cb(void)
  */
 TEST_CASE("dconn_detection", "[esp_tinyusb][dconn]")
 {
-    unsigned int rounds = DEVICE_DETACH_TEST_ROUNDS;
+    wait_dev_stage_change = xSemaphoreCreateBinary();
 
     // Install TinyUSB driver
     const tinyusb_config_t tusb_cfg = {
@@ -129,27 +136,35 @@ TEST_CASE("dconn_detection", "[esp_tinyusb][dconn]")
 #else
         .configuration_descriptor = test_configuration_descriptor,
 #endif // TUD_OPT_HIGH_SPEED
+        .self_powered = true,
+        .vbus_monitor_io = 0, // Doesn't matter in the current test scenario, as the connection and disconnection events are emulated by multiplexing bvalid signal
     };
 
     TEST_ASSERT_EQUAL(ESP_OK, tinyusb_driver_install(&tusb_cfg));
+    TEST_ASSERT_EQUAL(pdTRUE, xSemaphoreTake(wait_dev_stage_change, pdMS_TO_TICKS(TEARDOWN_DEVICE_ATTACH_TIMEOUT_MS)));
 
+    //
+
+    unsigned int rounds = DEVICE_DETACH_TEST_ROUNDS;
     dev_mounted = 0;
     dev_umounted = 0;
 
     while (rounds--) {
-        // LOW to emulate disconnect USB device
+        // HIGH to emulate disconnect USB device
+        ESP_LOGD(TAG, "bvalid(0)");
         esp_rom_gpio_connect_in_signal(GPIO_MATRIX_CONST_ZERO_INPUT, USB_SRP_BVALID_IN_IDX, false);
-        vTaskDelay(pdMS_TO_TICKS(DEVICE_DETACH_ROUND_DELAY_MS));
+        TEST_ASSERT_EQUAL(pdTRUE, xSemaphoreTake(wait_dev_stage_change, pdMS_TO_TICKS(TEARDOWN_DEVICE_ATTACH_TIMEOUT_MS)));
         // HIGH to emulate connect USB device
+        ESP_LOGD(TAG, "bvalid(1)");
         esp_rom_gpio_connect_in_signal(GPIO_MATRIX_CONST_ONE_INPUT, USB_SRP_BVALID_IN_IDX, false);
-        vTaskDelay(pdMS_TO_TICKS(DEVICE_DETACH_ROUND_DELAY_MS));
+        TEST_ASSERT_EQUAL(pdTRUE, xSemaphoreTake(wait_dev_stage_change, pdMS_TO_TICKS(TEARDOWN_DEVICE_ATTACH_TIMEOUT_MS)));
     }
+    // Cleanup
+    TEST_ASSERT_EQUAL(ESP_OK, tinyusb_driver_uninstall());
 
-    // Verify
+    // Verify test results
     TEST_ASSERT_EQUAL(dev_umounted, dev_mounted);
     TEST_ASSERT_EQUAL(DEVICE_DETACH_TEST_ROUNDS, dev_mounted);
 
-    // Cleanup
-    TEST_ASSERT_EQUAL(ESP_OK, tinyusb_driver_uninstall());
 }
 #endif // SOC_USB_OTG_SUPPORTED
