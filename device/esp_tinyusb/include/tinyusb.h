@@ -33,7 +33,7 @@ typedef struct {
     bool init;                                  /*!< USB Device Task stack initialization place. When selected, stack will be initialized in the same task which handles the tud_task(). Useful, when affinity mask is set. */
     uint8_t size;                               /*!< USB Device Task size. */
     uint8_t priority;                           /*!< USB Device Task priority. */
-    tusb_affinity_mask_t affinity;              /*!< USB Device Task affinity. */
+    tusb_task_affinity_mask_t affinity;              /*!< USB Device Task affinity. */
 } tusb_task_config_t;
 
 /**
