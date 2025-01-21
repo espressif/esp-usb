@@ -1,4 +1,4 @@
-name: Build ESP-IDF USB examples
+name: ESP-IDF Examples
 
 on:
   schedule:
@@ -11,18 +11,38 @@ jobs:
     strategy:
       matrix:
         idf_ver: ["release-v5.0", "release-v5.1", "release-v5.2", "release-v5.3", "release-v5.4", "latest"]
+        target: ["esp32s2", "esp32s3", "esp32p4"]
+        example:
+          - { name: "USB Device", path: "examples/peripherals/usb/device", manifest_path: "examples/peripherals"}
+          - { name: "Network", path: "examples/network", manifest_path: "examples/network" }
+        exclude: 
+          # Exclude esp32p4 for releases before IDF 5.3 (esp32p4 support starts in IDF 5.3)
+          - idf_ver: "release-v5.0"
+            target: "esp32p4"
+          - idf_ver: "release-v5.1"
+            target: "esp32p4"
+          - idf_ver: "release-v5.2"
+            target: "esp32p4"
+          # Exclude esp32p4 for Network examples
+          - target: "esp32p4"
+            example: { name: "Network", path: "examples/network", manifest_path: "examples/network" }
+          # Exclude Network examples for releases IDF 5.0 and 5.1
+          - example: { name: "Network", path: "examples/network", manifest_path: "examples/network" }
+            idf_ver: "release-v5.0"
+          - example: { name: "Network", path: "examples/network", manifest_path: "examples/network" }
+            idf_ver: "release-v5.1"
     runs-on: ubuntu-20.04
     container: espressif/idf:${{ matrix.idf_ver }}
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: 'true'
-      - name: Build ESP-IDF USB examples
+      - name: Build 
         shell: bash
         run: |
           . ${IDF_PATH}/export.sh
           pip install idf-component-manager==1.5.2 idf-build-apps==2.4.3 --upgrade
-          python .github/ci/override_managed_component.py esp_tinyusb device/esp_tinyusb ${IDF_PATH}/examples/peripherals/usb/device/tusb_*
+          python .github/ci/override_managed_component.py esp_tinyusb device/esp_tinyusb ${IDF_PATH}/${{ matrix.example.path }}/*
           cd ${IDF_PATH}
-          idf-build-apps find --path examples/peripherals/usb/device/ --recursive --target all --manifest-file examples/peripherals/.build-test-rules.yml --build-dir build_@t_@w --work-dir @f_@t_@w
-          idf-build-apps build --path examples/peripherals/usb/device/ --recursive --target all --manifest-file examples/peripherals/.build-test-rules.yml --build-dir build_@t_@w --work-dir @f_@t_@w
+          idf-build-apps find --path  ${{ matrix.example.path }} --recursive --target ${{ matrix.target }} --manifest-file ${{ matrix.example.manifest_path }}/.build-test-rules.yml --build-dir build_@t_@w --work-dir @f_@t_@w
+          idf-build-apps build --path ${{ matrix.example.path }} --recursive --target ${{ matrix.target }} --manifest-file ${{ matrix.example.manifest_path }}/.build-test-rules.yml --build-dir build_@t_@w --work-dir @f_@t_@w
