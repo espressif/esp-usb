@@ -315,7 +315,7 @@ menu "TinyUSB Stack"
         config TINYUSB_NCM_OUT_NTB_BUFF_MAX_SIZE
             int "NCM NTB Buffer size for reception size"
             depends on TINYUSB_NET_MODE_NCM
-            default 8192
+            default 3200
             range 1600 10240
             help
               Size of NTB buffers on the reception side. The minimum size used by Linux is 2048 bytes.
@@ -327,7 +327,7 @@ menu "TinyUSB Stack"
         config TINYUSB_NCM_IN_NTB_BUFF_MAX_SIZE
             int "NCM NTB Buffer size for transmission size"
             depends on TINYUSB_NET_MODE_NCM
-            default 8192
+            default 3200
             range 1600 10240
             help
               Size of NTB buffers on the transmission side. The minimum size used by Linux is 2048 bytes.
