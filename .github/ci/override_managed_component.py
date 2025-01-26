@@ -1,12 +1,13 @@
 #!/usr/bin/env python
 #
-# SPDX-FileCopyrightText: 2024 Espressif Systems (Shanghai) CO LTD
+# SPDX-FileCopyrightText: 2024-2025 Espressif Systems (Shanghai) CO LTD
 # SPDX-License-Identifier: Apache-2.0
 
 import sys
 import argparse
 from pathlib import Path
 from glob import glob
+from os import path
 from idf_component_tools.manifest import ManifestManager
 
 
@@ -47,6 +48,11 @@ def override_with_local_component_all(component, local_path, apps):
 
     # Go through all collected apps
     for app in apps_with_glob:
+        # Verify that the app is a valid directory
+        if not path.isdir(app):
+            print(f"[Warning] Skipping app '{app}' as it is not a valid directory.")
+            continue  # Skip to the next app
+        # Process the app if it's a directory
         try:
             override_with_local_component(component, local_path, app)
         except:
