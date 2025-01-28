@@ -5,9 +5,10 @@
 
 import sys
 import argparse
+import yaml
 from pathlib import Path
 from glob import glob
-from idf_component_tools.manifest import ManifestManager
+from idf_component_tools.manager import ManifestManager
 
 
 def override_with_local_component(component, local_path, app):
@@ -28,16 +29,16 @@ def override_with_local_component(component, local_path, app):
         component_with_namespace = 'espressif/' + component
 
     try:
-        manager.manifest_tree['dependencies'][component_with_namespace] = {
+        manifest_tree = yaml.safe_load(Path(manager.path).read_text())
+        manifest_tree['dependencies'][component_with_namespace] = {
             'version': '*',
             'override_path': str(absolute_local_path)
-            }
+        }
+        with open(manager.path, 'w') as f:
+            yaml.dump(manifest_tree, f, allow_unicode=True, Dumper=yaml.SafeDumper)
     except KeyError:
         print('[Error] {} app does not depend on {}'.format(app, component_with_namespace))
         raise KeyError
-
-    manager.dump()
-
 
 def override_with_local_component_all(component, local_path, apps):
     # Process wildcard, e.g. "app_prefix_*"
