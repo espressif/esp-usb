@@ -6,13 +6,13 @@
 
 #include <inttypes.h>
 #include <string.h> // strncmp for guid format parsing
-#include <math.h>   // fabs for float comparison
+#include <math.h>   // fabsf for float comparison
 #include "usb/usb_helpers.h"
 #include "usb/uvc_host.h"
 #include "uvc_check_priv.h"
 #include "uvc_descriptors_priv.h"
 
-#define FLOAT_EQUAL(a, b) (fabs(a - b) < 0.0001f) // For comparing float values with acceptable difference (epsilon value)
+#define FLOAT_EQUAL(a, b) (fabsf(a - b) < 0.0001f) // For comparing float values with acceptable difference (epsilon value)
 
 static const uvc_vs_input_header_desc_t *uvc_desc_get_streaming_input_header(const usb_config_desc_t *cfg_desc, uint8_t bInterfaceNumber)
 {

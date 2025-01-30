@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2024-2025 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -321,11 +321,49 @@ static esp_err_t uvc_find_and_open_usb_device(uint16_t vid, uint16_t pid, TickTy
     return ESP_ERR_NOT_FOUND;
 }
 
-static esp_err_t uvc_find_streaming_intf(uvc_stream_t *uvc_stream, uint8_t uvc_index, const uvc_host_stream_format_t *vs_format)
+/**
+ * @brief Send SetInterface USB command to the camera
+ *
+ * @note Only for ISOC streams
+ * @param[in] stream_hdl UVC stream handle
+ * @param[in] stream_on  true: Set streaming alternate interface. false: Set alternative setting to 0
+ * @return
+ *     - ESP_OK: Success
+ *     - Other:  CTRL transfer error
+ */
+static esp_err_t uvc_set_interface(uvc_host_stream_hdl_t stream_hdl, bool stream_on)
 {
-    UVC_CHECK(uvc_stream && vs_format, ESP_ERR_INVALID_ARG);
+    uvc_stream_t *uvc_stream = (uvc_stream_t *)stream_hdl;
+    return uvc_host_usb_ctrl(
+               stream_hdl,
+               USB_BM_REQUEST_TYPE_DIR_OUT | USB_BM_REQUEST_TYPE_TYPE_STANDARD | USB_BM_REQUEST_TYPE_RECIP_INTERFACE,
+               USB_B_REQUEST_SET_INTERFACE,
+               stream_on ? uvc_stream->constant.bAlternateSetting : 0,
+               uvc_stream->constant.bInterfaceNumber,
+               0,
+               NULL);
+}
+
+/**
+ * @brief Find and claim interface for selected frame format
+ *
+ * @param[in]  uvc_stream  Pointer to UVC stream
+ * @param[in]  uvc_index   Index of UVC function you want to use
+ * @param[in]  vs_format   Desired frame format
+ * @param[out] ep_desc_ret EP descriptor for this stream
+ * @return
+ *     - ESP_OK:              Success, interface found and claimed
+ *     - ESP_ERR_INVALID_ARG: Input parameter is NULL
+ *     - ESP_ERR_NOT_FOUND:   Selected format was not found
+ *     - Other:               Error during interface claim
+ */
+static esp_err_t uvc_claim_interface(uvc_stream_t *uvc_stream, uint8_t uvc_index, const uvc_host_stream_format_t *vs_format, const usb_ep_desc_t **ep_desc_ret)
+{
+    UVC_CHECK(uvc_stream && vs_format && ep_desc_ret, ESP_ERR_INVALID_ARG);
 
     const usb_config_desc_t *cfg_desc;
+    const usb_intf_desc_t *intf_desc;
+    const usb_ep_desc_t *ep_desc;
     ESP_ERROR_CHECK(usb_host_get_active_config_descriptor(uvc_stream->constant.dev_hdl, &cfg_desc));
 
     // Find UVC USB function with desired index
@@ -337,39 +375,23 @@ static esp_err_t uvc_find_streaming_intf(uvc_stream_t *uvc_stream, uint8_t uvc_i
         TAG, "Could not find frame format %dx%d@%2.1fFPS",
         vs_format->h_res, vs_format->v_res, vs_format->fps);
 
-    // Here we only save the interface number that can meet our format requirement
-    // bAlternateSetting and bEndpointAddress are saved during interface claim
-    uvc_stream->constant.bInterfaceNumber = bInterfaceNumber;
-    uvc_stream->constant.bcdUVC = bcdUVC;
-    return ESP_OK;
-}
-
-/**
- * @brief Claim streaming interface
- *
- * @param[in]  uvc_stream       UVC stream handle
- * @param[out] ep_desc_ret      Pointer of associated streaming endpoint
- * @return
- *     - ESP_OK: Success - interface claimed
- *     - Else: Error
- */
-static esp_err_t uvc_claim_interface(uvc_stream_t *uvc_stream, const usb_ep_desc_t **ep_desc_ret)
-{
-    const usb_intf_desc_t *intf_desc;
-    const usb_ep_desc_t *ep_desc;
-    const usb_config_desc_t *cfg_desc;
-    ESP_ERROR_CHECK(usb_host_get_active_config_descriptor(uvc_stream->constant.dev_hdl, &cfg_desc));
-
     ESP_RETURN_ON_ERROR(
-        uvc_desc_get_streaming_intf_and_ep(cfg_desc, uvc_stream->constant.bInterfaceNumber, MAX_MPS_IN, &intf_desc, &ep_desc),
-        TAG, "Could not find Streaming interface %d", uvc_stream->constant.bInterfaceNumber);
+        uvc_desc_get_streaming_intf_and_ep(cfg_desc, bInterfaceNumber, MAX_MPS_IN, &intf_desc, &ep_desc),
+        TAG, "Could not find Streaming interface %d", bInterfaceNumber);
 
-    // Save all required parameters
+    // Save all constant information about the UVC stream
+    uvc_stream->constant.bInterfaceNumber  = bInterfaceNumber;
+    uvc_stream->constant.bcdUVC            = bcdUVC;
     uvc_stream->constant.bAlternateSetting = intf_desc->bAlternateSetting;
     uvc_stream->constant.bEndpointAddress  = ep_desc->bEndpointAddress;
-    *ep_desc_ret = ep_desc;
+    *ep_desc_ret                           = ep_desc;
 
-    return usb_host_interface_claim(p_uvc_host_driver->usb_client_hdl, uvc_stream->constant.dev_hdl, intf_desc->bInterfaceNumber, intf_desc->bAlternateSetting);
+    // Claim the interface in USB Host Lib
+    return usb_host_interface_claim(
+               p_uvc_host_driver->usb_client_hdl,
+               uvc_stream->constant.dev_hdl,
+               intf_desc->bInterfaceNumber,
+               intf_desc->bAlternateSetting);
 }
 
 esp_err_t uvc_host_install(const uvc_host_driver_config_t *driver_config)
@@ -535,23 +557,28 @@ esp_err_t uvc_host_stream_open(const uvc_host_stream_config_t *stream_config, in
         goto not_found;
     }
 
-    // Find the streaming interface
+    // Find the streaming interface and endpoint and claim it
+    const usb_ep_desc_t *ep_desc;
     ESP_GOTO_ON_ERROR(
-        uvc_find_streaming_intf(uvc_stream, stream_config->usb.uvc_stream_index, &stream_config->vs_format),
-        err, TAG, "Could not find streaming interface");
+        uvc_claim_interface(uvc_stream, stream_config->usb.uvc_stream_index, &stream_config->vs_format, &ep_desc),
+        claim_err, TAG, "Could not find/claim streaming interface");
+    ESP_LOGD(TAG, "Claimed interface index %d with MPS %d", uvc_stream->constant.bInterfaceNumber, USB_EP_DESC_GET_MPS(ep_desc));
+
+    /*
+    * Although not strictly required by the UVC specification, some UVC ISOC
+    * cameras require explicitly entering the NOT STREAMING state by setting
+    * the interface's Alternate Setting to 0.
+    */
+    if (uvc_stream->constant.bAlternateSetting != 0) {
+        // We do not check return code here on purpose. We can silently continue
+        uvc_set_interface(uvc_stream, false);
+    }
 
     // Negotiate the frame format
     uvc_vs_ctrl_t vs_result;
     ESP_GOTO_ON_ERROR(
         uvc_host_stream_control_negotiate(uvc_stream, &stream_config->vs_format, &vs_result),
         err, TAG, "Failed to negotiate requested Video Stream format");
-
-    // Claim Video Streaming interface
-    const usb_ep_desc_t *ep_desc;
-    ESP_GOTO_ON_ERROR(
-        uvc_claim_interface(uvc_stream, &ep_desc),
-        claim_err, TAG, "Could not claim Streaming interface");
-    ESP_LOGD(TAG, "Claimed interface index %d with MPS %d", uvc_stream->constant.bInterfaceNumber, USB_EP_DESC_GET_MPS(ep_desc));
 
     // Allocate USB transfers
     ESP_GOTO_ON_ERROR(
@@ -652,19 +679,6 @@ exit:
     return ret;
 }
 
-static esp_err_t uvc_set_interface(uvc_host_stream_hdl_t stream_hdl, bool stream_on)
-{
-    uvc_stream_t *uvc_stream = (uvc_stream_t *)stream_hdl;
-    return uvc_host_usb_ctrl(
-               stream_hdl,
-               USB_BM_REQUEST_TYPE_DIR_OUT | USB_BM_REQUEST_TYPE_TYPE_STANDARD | USB_BM_REQUEST_TYPE_RECIP_INTERFACE,
-               USB_B_REQUEST_SET_INTERFACE,
-               stream_on ? uvc_stream->constant.bAlternateSetting : 0,
-               uvc_stream->constant.bInterfaceNumber,
-               0,
-               NULL);
-}
-
 static esp_err_t uvc_clear_endpoint_feature(uvc_host_stream_hdl_t stream_hdl)
 {
     uvc_stream_t *uvc_stream = (uvc_stream_t *)stream_hdl;
@@ -718,7 +732,8 @@ esp_err_t uvc_host_stream_stop(uvc_host_stream_hdl_t stream_hdl)
     ESP_RETURN_ON_ERROR(uvc_host_stream_pause(stream_hdl), TAG, "Could not pause the stream");
 
     //@todo this is not a clean solution
-    vTaskDelay(pdMS_TO_TICKS(50)); // Wait for all transfers to finish
+    // Note: Increased from 50ms to 100ms until proper fix is implemented
+    vTaskDelay(pdMS_TO_TICKS(100)); // Wait for all transfers to finish
 
     if (uvc_stream->constant.bAlternateSetting != 0) { // if (is_isoc_stream)
         // ISOC streams are stopped by setting alternate interface 0

@@ -1,11 +1,12 @@
 /*
- * SPDX-FileCopyrightText: 2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2024-2025 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
 // This file will contain all Class-Specific request from USB UVC specification chapter 4
 
 #include <string.h> // For memset
+#include <math.h>   // fabsf for float comparison
 
 #include "esp_check.h"
 
@@ -15,6 +16,8 @@
 #include "uvc_types_priv.h"
 #include "uvc_descriptors_priv.h"
 #include "uvc_check_priv.h"
+
+#define FLOAT_EQUAL(a, b) (fabsf(a - b) < 0.0001f) // For comparing float values with acceptable difference (epsilon value)
 
 static const char *TAG = "uvc-control";
 
@@ -112,7 +115,7 @@ static inline bool uvc_is_vs_format_equal(const uvc_host_stream_format_t *a, con
 {
     if (a->h_res == b->h_res &&
             a->v_res == b->v_res &&
-            a->fps == b->fps &&
+            FLOAT_EQUAL(a->fps, b->fps) &&
             a->format == b->format) {
         return true;
     }
@@ -128,27 +131,35 @@ esp_err_t uvc_host_stream_control_negotiate(uvc_host_stream_hdl_t stream_hdl, co
     UVC_CHECK(stream_hdl && vs_format, ESP_ERR_INVALID_ARG);
     esp_err_t ret = ESP_ERR_NOT_FOUND;
     uvc_vs_ctrl_t vs_result = {0};
+    uvc_vs_ctrl_t vs_result_ignored = {0};
+    uvc_host_stream_format_t format_set, format_ignored;
 
     // Try 2x. Some camera may return error on first try
-    uvc_host_stream_format_t set_format, fake_format;
     for (int i = 0; i < 2; i++) {
-        // We do this to mimic Windows driver
-        uvc_host_stream_control_probe_get(stream_hdl, &vs_result, &fake_format);
-        uvc_host_stream_control_probe_get_max(stream_hdl, &vs_result, &fake_format);
-        uvc_host_stream_control_probe_get_min(stream_hdl, &vs_result, &fake_format);
+        // Notes: Some cameras require 'probe_get' to be the 1st negotiation call
+        // It returns 'default' format and frame settings. It is ignored for now.
+        // We can reuse the returned value, if we wanted to implement 'negotiate default frame format' feature.
+        uvc_host_stream_control_probe_get(stream_hdl, &vs_result, &format_ignored);
+        uvc_host_stream_control_probe_set(stream_hdl, &vs_result, vs_format);       // Set the desired frame format
+        uvc_host_stream_control_probe_get(stream_hdl, &vs_result, &format_ignored); // Get back the format (not checked yet)
 
-        // The real negotiation starts here. Zeroize the vs_result struct and start over
-        memset(&vs_result, 0, sizeof(uvc_vs_ctrl_t));
+        // We do this to mimic Windows driver: The Min/Max values are ignored by this driver.
+        // These values can be used if we wanted to negotiate advanced parameters, such as wCompQuality to select JPEG encoding quality
+        uvc_host_stream_control_probe_get_max(stream_hdl, &vs_result_ignored, &format_ignored);
+        uvc_host_stream_control_probe_get_min(stream_hdl, &vs_result_ignored, &format_ignored);
+
+        // Probe that the camera accepts our format before committing
         ret = uvc_host_stream_control_probe_set(stream_hdl, &vs_result, vs_format);
-        ret |= uvc_host_stream_control_probe_get(stream_hdl, &vs_result, &set_format);
+        ret |= uvc_host_stream_control_probe_get(stream_hdl, &vs_result, &format_set);
         UVC_CHECK(ret == ESP_OK, ret);
-        if (uvc_is_vs_format_equal(&set_format, vs_format)) {
+        if (uvc_is_vs_format_equal(&format_set, vs_format)) {
+            // If the 'set format' equals 'get format', the camera accepts our format and we can commit it
             break;
         }
     }
 
     ESP_LOGD(TAG, "Frame format negotiation:\n\tRequested: %dx%d@%2.1fFPS\n\tGot: %dx%d@%2.1fFPS",
-             vs_format->h_res, vs_format->v_res, vs_format->fps, set_format.h_res, set_format.v_res, set_format.fps);
+             vs_format->h_res, vs_format->v_res, vs_format->fps, format_set.h_res, format_set.v_res, format_set.fps);
 
     // Commit the negotiated format
     ret = uvc_host_stream_control_commit(stream_hdl, &vs_result, vs_format);
