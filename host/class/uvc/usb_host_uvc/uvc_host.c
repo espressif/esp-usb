@@ -338,7 +338,7 @@ static esp_err_t uvc_set_interface(uvc_host_stream_hdl_t stream_hdl, bool stream
                stream_hdl,
                USB_BM_REQUEST_TYPE_DIR_OUT | USB_BM_REQUEST_TYPE_TYPE_STANDARD | USB_BM_REQUEST_TYPE_RECIP_INTERFACE,
                USB_B_REQUEST_SET_INTERFACE,
-               stream_on ? uvc_stream->constant.bAlternateSetting : 0,
+               stream_on ? 3 : 0,
                uvc_stream->constant.bInterfaceNumber,
                0,
                NULL);
