@@ -88,6 +88,12 @@ static esp_err_t uvc_host_stream_control(uvc_host_stream_hdl_t stream_hdl, uvc_v
 
 static inline esp_err_t uvc_host_stream_control_probe_set(uvc_host_stream_hdl_t stream_hdl, uvc_vs_ctrl_t *vs_control, const uvc_host_stream_format_t *vs_format)
 {
+    vs_control->dwMaxPayloadTransferSize = 512;
+    vs_control->bmHint = 1;
+    vs_control->wKeyFrameRate = 0;
+    vs_control->wPFrameRate = 0;
+    vs_control->wCompQuality = 0;
+    vs_control->wCompWindowSize = 0;
     return uvc_host_stream_control(stream_hdl, vs_control, (uvc_host_stream_format_t *)vs_format, UVC_SET_CUR, false);
 }
 
@@ -108,6 +114,12 @@ static inline esp_err_t uvc_host_stream_control_probe_get_min(uvc_host_stream_hd
 
 static inline esp_err_t uvc_host_stream_control_commit(uvc_host_stream_hdl_t stream_hdl, uvc_vs_ctrl_t *vs_control, const uvc_host_stream_format_t *vs_format)
 {
+    vs_control->dwMaxPayloadTransferSize = 512;
+    vs_control->bmHint = 1;
+    vs_control->wKeyFrameRate = 0;
+    vs_control->wPFrameRate = 0;
+    vs_control->wCompQuality = 0;
+    vs_control->wCompWindowSize = 0;
     return uvc_host_stream_control(stream_hdl, vs_control, (uvc_host_stream_format_t *)vs_format, UVC_SET_CUR, true);
 }
 
