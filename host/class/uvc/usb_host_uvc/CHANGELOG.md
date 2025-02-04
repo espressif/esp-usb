@@ -1,3 +1,7 @@
+## 2.0.1
+
+- Fixed negotiation for some non-conforming UVC devices (https://github.com/espressif/esp-idf/issues/9868)
+
 ## 2.0.0
 
 - New version of the driver, native to Espressif's USB Host Library
