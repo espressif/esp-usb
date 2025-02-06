@@ -137,6 +137,7 @@ extern "C" {
 
 // Debug Level
 #define CFG_TUSB_DEBUG              CONFIG_TINYUSB_DEBUG_LEVEL
+#define CFG_TUSB_DEBUG_PRINTF       esp_rom_printf // TinyUSB can print logs from ISR, so we must use esp_rom_printf()
 
 // CDC FIFO size of TX and RX
 #define CFG_TUD_CDC_RX_BUFSIZE      CONFIG_TINYUSB_CDC_RX_BUFSIZE
