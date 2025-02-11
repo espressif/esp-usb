@@ -1,3 +1,7 @@
+## [Unreleased]
+
+- esp_tinyusb: Fixed crash on logging from ISR
+
 ## 1.7.1
 
 - NCM: Changed default NTB config to decrease DRAM memory usage (fix for DRAM overflow on ESP32S2)
