@@ -294,6 +294,7 @@ static void _write_func(void *param)
 {
     s_storage_handle->write_in_progress = true;
     // Process the data in storage_buffer
+    ESP_LOGI(TAG, "called write func");
     esp_err_t err = _msc_storage_write_sector(
                         s_storage_handle->storage_buffer.lba,
                         s_storage_handle->storage_buffer.offset,
@@ -703,6 +704,7 @@ int32_t tud_msc_scsi_cb(uint8_t lun, uint8_t const scsi_cmd[16], void *buffer, u
 // Invoked when device is unmounted
 void tud_umount_cb(void)
 {
+    ESP_LOGI(TAG, "called unmount func");
     if (tinyusb_msc_storage_mount(s_storage_handle->base_path) != ESP_OK) {
         ESP_LOGW(TAG, "tud_umount_cb() mount Fails");
     }
