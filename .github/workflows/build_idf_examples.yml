@@ -19,7 +19,7 @@ jobs:
             "release-v5.4",
             "latest",
           ]
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-latest
     container: espressif/idf:${{ matrix.idf_ver }}
     steps:
       - uses: actions/checkout@v4
