@@ -1,3 +1,8 @@
+## 2.1.0
+
+- support get frame list when device insert
+- support dual camera with hub
+
 ## 2.0.1
 
 - Fixed negotiation for some non-conforming UVC devices (https://github.com/espressif/esp-idf/issues/9868)

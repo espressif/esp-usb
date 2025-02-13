@@ -14,12 +14,67 @@
 // Use this macros for opening a UVC stream with any VID or PID
 #define UVC_HOST_ANY_VID (0)
 #define UVC_HOST_ANY_PID (0)
+#define UVC_HOST_ANY_DEV_ADDR (0)
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 typedef struct uvc_host_stream_s *uvc_host_stream_hdl_t;
+
+enum uvc_host_driver_event {
+    UVC_HOST_DRIVER_EVENT_DEVICE_CONNECTED = 0x0,
+};
+
+/**
+ * @brief Formats supported by this driver
+ */
+enum uvc_host_stream_format {
+    UVC_VS_FORMAT_UNDEFINED = 0, // Invalid format. Do not request this format from the camera.
+    UVC_VS_FORMAT_MJPEG,
+    UVC_VS_FORMAT_YUY2,
+    UVC_VS_FORMAT_H264,
+    UVC_VS_FORMAT_H265,
+};
+
+/**
+ * @brief Frame information
+ *
+ */
+typedef struct {
+    enum uvc_host_stream_format format;       /**< Format of this frame buffer */
+    unsigned h_res;                           /**< Horizontal resolution */
+    unsigned v_res;                           /**< Vertical resolution */
+    uint32_t default_interval;                /**< Default frame interval */
+    uint8_t  interval_type;                   /**< 0: Continuous frame interval, 1..255: The number of discrete frame intervals supported (n) */
+    union {
+        struct {
+            uint32_t interval_min;            /**< Minimum frame interval */
+            uint32_t interval_max;            /**< Maximum frame interval */
+            uint32_t interval_step;           /**< Frame interval step */
+        };
+        uint32_t interval[CONFIG_UVC_INTERVAL_ARRAY_SIZE]; /**< We must put a fixed size here because of the union type. This is flexible size array though */
+    };
+} uvc_host_frame_info_t;
+
+typedef struct {
+    enum uvc_host_driver_event type;      /**< Event type */
+    union {
+        struct {
+            uint8_t dev_addr;             /**< Device address */
+            uint8_t uvc_stream_index;     /**< Index of UVC function for this uvc stream. */
+            size_t frame_info_num;        /**< Number of frame information list */
+        } device_connected;               /**< UVC_HOST_DEVICE_CONNECTED event */
+    };
+} uvc_host_driver_event_data_t;
+
+/**
+ * @brief USB Host UVC driver event callback function
+ *
+ * @param[out] event    Event structure
+ * @param[out] user_ctx User's argument passed to open function
+ */
+typedef void (*uvc_host_driver_event_callback_t)(const uvc_host_driver_event_data_t *event, void *user_ctx);
 
 /**
  * @brief Configuration structure of USB Host UVC driver
@@ -30,6 +85,8 @@ typedef struct {
     int xCoreID;                   /**< Core affinity of the driver's task */
     bool create_background_task;   /**< When set to true, background task handling usb events is created.
                                         Otherwise user has to periodically call uvc_host_handle_events function */
+    uvc_host_driver_event_callback_t event_cb; /**< Callback function to handle events */
+    void *user_ctx;
 } uvc_host_driver_config_t;
 
 /**
@@ -63,17 +120,6 @@ typedef struct {
         } frame_underflow; // UVC_HOST_FRAME_BUFFER_UNDERFLOW
     };
 } uvc_host_stream_event_data_t;
-
-/**
- * @brief Formats supported by this driver
- */
-enum uvc_host_stream_format {
-    UVC_VS_FORMAT_UNDEFINED = 0, // Invalid format. Do not request this format from the camera.
-    UVC_VS_FORMAT_MJPEG,
-    UVC_VS_FORMAT_YUY2,
-    UVC_VS_FORMAT_H264,
-    UVC_VS_FORMAT_H265,
-};
 
 typedef struct {
     unsigned h_res;                     /**< Horizontal resolution */
@@ -122,6 +168,7 @@ typedef struct {
     uvc_host_frame_callback_t frame_cb;   /**< Stream's frame callback function */
     void *user_ctx;                       /**< User's argument that will be passed to the callbacks */
     struct {
+        uint8_t dev_addr;                 /**< USB address of device. Set to 0 for any. */
         uint16_t vid;                     /**< Device's Vendor ID. Set to 0 for any */
         uint16_t pid;                     /**< Device's Product ID. Set to 0 for any */
         uint8_t uvc_stream_index;         /**< Index of UVC function you want to use. Set to 0 to use first available UVC function */
@@ -253,6 +300,27 @@ esp_err_t uvc_host_frame_return(uvc_host_stream_hdl_t stream_hdl, uvc_host_frame
  * @param stream_hdl UVC handle obtained from uvc_host_stream_open()
  */
 void uvc_host_desc_print(uvc_host_stream_hdl_t stream_hdl);
+
+/**
+ * @brief Retrieve the list of frame descriptors for a specific streaming interface in a UVC device.
+ *
+ * This function extracts all frame descriptors associated with the given interface number
+ * and organizes them into a list of `uvc_host_frame_info_t` structures.
+ *
+ * If only `list_size` is passed, the length of the frame under uvc_stream_index can be obtained.
+ *
+ * @param[in] dev_addr the usb device address, can get it from uvc_host_driver_event_callback_t
+ * @param[in] uvc_stream_index the uvc stream index, can get it from uvc_host_driver_event_callback_t, Set to 0 to use first available UVC function
+ * @param[out] frame_info_list pointer to array of uvc_host_frame_info_t, must be allocated by the caller
+ * @param[inout] list_size size of the list, to avoid out-of-boundaries array access
+ *
+ * @return
+ *      - ESP_OK: Success.
+ *      - ESP_ERR_INVALID_ARG: One or more invalid arguments.
+ *      - ESP_ERR_NOT_FOUND: Input header descriptor not found.
+ *      - ESP_ERR_NO_MEM: frame_info_list num is smaller than actual frame num.
+ */
+esp_err_t uvc_host_get_frame_list(uint8_t dev_addr, uint8_t uvc_stream_index, uvc_host_frame_info_t (*frame_info_list)[], size_t *list_size);
 
 #ifdef __cplusplus
 }
