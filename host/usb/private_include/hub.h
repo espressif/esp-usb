@@ -192,66 +192,67 @@ esp_err_t hub_root_mark_resume(void);
 /**
  * @brief Indicate to the Hub driver that a device's port can be recycled
  *
- * The device connected to the port has been freed. The Hub driver can now recycled the port
+ * The device connected to the port has been freed.
+ * The Hub driver can now recycle the port, related to the node.
  *
  * @note This function should only be called from the Host Library task
  *
- * @param[in] parent_dev_hdl    Parent device handle (is used to get the External Hub handle)
- * @param[in] parent_port_num   Parent number (is used to specify the External Port)
- * @param[in] dev_uid Device's unique ID
+ * @param[in] node_uid  Device's node unique ID
  *
  * @return
- *    - ESP_OK: device's port can be recycled
+ *    - ESP_OK: Device's port can be recycled
  *    - ESP_ERR_INVALID_STATE: Hub driver is not installed
  *    - ESP_ERR_NOT_SUPPORTED: Recycling External Port is not available (External Hub support disabled),
  *      or ext hub port error
+ *    - ESP_ERR_NOT_FOUND: Device's node is not found
  */
-esp_err_t hub_port_recycle(usb_device_handle_t parent_dev_hdl, uint8_t parent_port_num, unsigned int dev_uid);
+esp_err_t hub_node_recycle(unsigned int node_uid);
 
 /**
- * @brief Reset the port
+ * @brief Reset the device in the port, related to the specific Device Tree node
  *
  * @note This function should only be called from the Host Library task
  *
- * @param[in] parent_dev_hdl    Parent device handle (is used to get the External Hub handle)
- * @param[in] parent_port_num   Parent number (is used to specify the External Port)
+ * @param[in] node_uid  Device's node unique ID
+ *
  * @return
- *    - ESP_OK: Port reset successful
+ *    - ESP_OK: If port reset was successful
  *    - ESP_ERR_INVALID_STATE: Hub driver is not installed
  *    - ESP_ERR_NOT_SUPPORTED: Resetting External Port is not available (External Hub support disabled),
  *      or ext hub port error
+ *    - ESP_ERR_NOT_FOUND: Device's node is not found
  */
-esp_err_t hub_port_reset(usb_device_handle_t parent_dev_hdl, uint8_t parent_port_num);
+esp_err_t hub_node_reset(unsigned int node_uid);
 
 /**
- * @brief Activate the port
+ * @brief Port, related to the specific Device Tree node, has an active device
  *
  * @note This function should only be called from the Host Library task
  *
- * @param[in] parent_dev_hdl    Parent device handle (is used to get the External Hub handle)
- * @param[in] parent_port_num   Parent number (is used to specify the External Port)
+ * @param[in] node_uid  Device's node unique ID
  *
  * @return
- *    - ESP_OK: Port activated successfully
- *    - ESP_ERR_NOT_SUPPORTED: Activating External Port is not available (External Hub support disabled),
- *      or ext hub port error
+ *    - ESP_OK: If Port, related to the Device Tree node was activated successfully
+ *    - ESP_ERR_NOT_SUPPORTED: If activating Port is not available (External Hub support disabled),
+*      or ext hub port error
+ *    - ESP_ERR_NOT_FOUND: If Device's node is not found
  */
-esp_err_t hub_port_active(usb_device_handle_t parent_dev_hdl, uint8_t parent_port_num);
+esp_err_t hub_node_active(unsigned int node_uid);
 
 /**
- * @brief Disable the port
+ * @brief Disable the port, related to the specific Device Tree node
  *
  * @note This function should only be called from the Host Library task
  *
- * @param[in] parent_dev_hdl    Parent device handle (is used to get the External Hub handle)
- * @param[in] parent_port_num   Parent number (is used to specify the External Port)
+ * @param[in] node_uid  Device's node unique ID
  *
  * @return
  *    - ESP_OK:                  Port has been disabled without error
  *    - ESP_ERR_INVALID_STATE:   Port can't be disabled in current state
- *    - ESP_ERR_NOT_SUPPORTED:   This function is not support by the selected port
+ *    - ESP_ERR_NOT_SUPPORTED:   This function is not supported by the selected port
+ *    - ESP_ERR_NOT_FOUND:       Device's node is not found
  */
-esp_err_t hub_port_disable(usb_device_handle_t parent_dev_hdl, uint8_t parent_port_num);
+esp_err_t hub_node_disable(unsigned int node_uid);
 
 /**
  * @brief Notify Hub driver that new device has been attached
