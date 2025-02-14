@@ -145,6 +145,20 @@ static bool root_port_callback(hcd_port_handle_t port_hdl, hcd_port_event_t port
 
 // ---------------------- Internal Logic ------------------------
 
+dev_tree_node_t *dev_tree_node_get_by_uid(unsigned int node_uid)
+{
+    dev_tree_node_t *dev_tree_node = NULL;
+    dev_tree_node_t *dev_tree_iter;
+    // Search the device tree nodes list for a device node with the specified parent
+    TAILQ_FOREACH(dev_tree_iter, &p_hub_driver_obj->single_thread.dev_nodes_tailq, tailq_entry) {
+        if (dev_tree_iter->uid == node_uid) {
+            dev_tree_node = dev_tree_iter;
+            break;
+        }
+    }
+    return dev_tree_node;
+}
+
 /**
  * @brief Creates new device tree node and propagate HUB_EVENT_CONNECTED event
  *
@@ -667,20 +681,23 @@ esp_err_t hub_root_stop(void)
     return ret;
 }
 
-esp_err_t hub_port_recycle(usb_device_handle_t parent_dev_hdl, uint8_t parent_port_num, unsigned int dev_uid)
+esp_err_t hub_node_recycle(unsigned int node_uid)
 {
     HUB_DRIVER_ENTER_CRITICAL();
     HUB_DRIVER_CHECK_FROM_CRIT(p_hub_driver_obj != NULL, ESP_ERR_INVALID_STATE);
     HUB_DRIVER_EXIT_CRITICAL();
     esp_err_t ret;
 
-    if (parent_port_num == 0) {
+    dev_tree_node_t *dev_tree_node = dev_tree_node_get_by_uid(node_uid);
+    HUB_DRIVER_CHECK(dev_tree_node != NULL, ESP_ERR_NOT_FOUND);
+
+    if (dev_tree_node->parent_dev_hdl == NULL) {
         ret = root_port_recycle();
     } else {
 #if ENABLE_USB_HUBS
         ext_hub_handle_t ext_hub_hdl = NULL;
-        ext_hub_get_handle(parent_dev_hdl, &ext_hub_hdl);
-        ret = ext_hub_port_recycle(ext_hub_hdl, parent_port_num);
+        ext_hub_get_handle(dev_tree_node->parent_dev_hdl, &ext_hub_hdl);
+        ret = ext_hub_port_recycle(ext_hub_hdl, dev_tree_node->parent_port_num);
         if (ret != ESP_OK) {
             ESP_LOGE(HUB_DRIVER_TAG, "Ext hub port recycle error: %s", esp_err_to_name(ret));
         }
@@ -691,20 +708,23 @@ esp_err_t hub_port_recycle(usb_device_handle_t parent_dev_hdl, uint8_t parent_po
     }
 
     if (ret == ESP_OK) {
-        ESP_ERROR_CHECK(dev_tree_node_remove_by_parent(parent_dev_hdl, parent_port_num));
+        ESP_ERROR_CHECK(dev_tree_node_remove_by_parent(dev_tree_node->parent_dev_hdl, dev_tree_node->parent_port_num));
     }
 
     return ret;
 }
 
-esp_err_t hub_port_reset(usb_device_handle_t parent_dev_hdl, uint8_t parent_port_num)
+esp_err_t hub_node_reset(unsigned int node_uid)
 {
     HUB_DRIVER_ENTER_CRITICAL();
     HUB_DRIVER_CHECK_FROM_CRIT(p_hub_driver_obj != NULL, ESP_ERR_INVALID_STATE);
     HUB_DRIVER_EXIT_CRITICAL();
     esp_err_t ret;
 
-    if (parent_port_num == 0) {
+    dev_tree_node_t *dev_tree_node = dev_tree_node_get_by_uid(node_uid);
+    HUB_DRIVER_CHECK(dev_tree_node != NULL, ESP_ERR_NOT_FOUND);
+
+    if (dev_tree_node->parent_dev_hdl == NULL) {
         ret = hcd_port_command(p_hub_driver_obj->constant.root_port_hdl, HCD_PORT_CMD_RESET);
         if (ret != ESP_OK) {
             ESP_LOGE(HUB_DRIVER_TAG, "Failed to issue root port reset");
@@ -714,8 +734,8 @@ esp_err_t hub_port_reset(usb_device_handle_t parent_dev_hdl, uint8_t parent_port
     } else {
 #if ENABLE_USB_HUBS
         ext_hub_handle_t ext_hub_hdl = NULL;
-        ext_hub_get_handle(parent_dev_hdl, &ext_hub_hdl);
-        ret = ext_hub_port_reset(ext_hub_hdl, parent_port_num);
+        ext_hub_get_handle(dev_tree_node->parent_dev_hdl, &ext_hub_hdl);
+        ret = ext_hub_port_reset(ext_hub_hdl, dev_tree_node->parent_port_num);
         if (ret != ESP_OK) {
             ESP_LOGE(HUB_DRIVER_TAG, "Ext hub port reset error: %s", esp_err_to_name(ret));
         }
@@ -727,19 +747,22 @@ esp_err_t hub_port_reset(usb_device_handle_t parent_dev_hdl, uint8_t parent_port
     return ret;
 }
 
-esp_err_t hub_port_active(usb_device_handle_t parent_dev_hdl, uint8_t parent_port_num)
+esp_err_t hub_node_active(unsigned int node_uid)
 {
     esp_err_t ret;
 
-    if (parent_port_num == 0) {
+    dev_tree_node_t *dev_tree_node = dev_tree_node_get_by_uid(node_uid);
+    HUB_DRIVER_CHECK(dev_tree_node != NULL, ESP_ERR_NOT_FOUND);
+
+    if (dev_tree_node->parent_dev_hdl == NULL) {
         // Root port no need to be activated
         ret = ESP_OK;
     } else {
 #if ENABLE_USB_HUBS
         // External Hub port
         ext_hub_handle_t ext_hub_hdl = NULL;
-        ext_hub_get_handle(parent_dev_hdl, &ext_hub_hdl);
-        ret = ext_hub_port_active(ext_hub_hdl, parent_port_num);
+        ext_hub_get_handle(dev_tree_node->parent_dev_hdl, &ext_hub_hdl);
+        ret = ext_hub_port_active(ext_hub_hdl, dev_tree_node->parent_port_num);
         if (ret != ESP_OK) {
             ESP_LOGE(HUB_DRIVER_TAG, "Ext hub port activation error: %s", esp_err_to_name(ret));
         }
@@ -751,20 +774,23 @@ esp_err_t hub_port_active(usb_device_handle_t parent_dev_hdl, uint8_t parent_por
     return ret;
 }
 
-esp_err_t hub_port_disable(usb_device_handle_t parent_dev_hdl, uint8_t parent_port_num)
+esp_err_t hub_node_disable(unsigned int node_uid)
 {
     esp_err_t ret;
 
-    if (parent_port_num == 0) {
+    dev_tree_node_t *dev_tree_node = dev_tree_node_get_by_uid(node_uid);
+    HUB_DRIVER_CHECK(dev_tree_node != NULL, ESP_ERR_NOT_FOUND);
+
+    if (dev_tree_node->parent_dev_hdl == NULL) {
         ret = root_port_disable();
     } else {
 #if ENABLE_USB_HUBS
         // External Hub port
         ext_hub_handle_t ext_hub_hdl = NULL;
-        ext_hub_get_handle(parent_dev_hdl, &ext_hub_hdl);
-        ret = ext_hub_port_disable(ext_hub_hdl, parent_port_num);
+        ext_hub_get_handle(dev_tree_node->parent_dev_hdl, &ext_hub_hdl);
+        ret = ext_hub_port_disable(ext_hub_hdl, dev_tree_node->parent_port_num);
 #else
-        ESP_LOGW(HUB_DRIVER_TAG, "Activating External Port is not available (External Hub support disabled)");
+        ESP_LOGW(HUB_DRIVER_TAG, "Disabling External Port is not available (External Hub support disabled)");
         ret = ESP_ERR_NOT_SUPPORTED;
 #endif // ENABLE_USB_HUBS
     }
