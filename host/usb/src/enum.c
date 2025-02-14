@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2023-2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2023-2025 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -132,12 +132,8 @@ typedef struct {
 typedef struct {
     struct {
         // Device related objects, initialized at start of a particular enumeration
-        unsigned int dev_uid;                       /**< Unique device ID being enumerated */
+        unsigned int node_uid;                      /**< Unique node ID of device being enumerated */
         usb_device_handle_t dev_hdl;                /**< Handle of device being enumerated */
-        // Parent info for optimization and more clean debug output
-        usb_device_handle_t parent_dev_hdl;         /**< Device's parent handle */
-        uint8_t parent_dev_addr;                    /**< Device's parent address */
-        uint8_t parent_port_num;                    /**< Device's parent port number */
         // Parameters, updated during enumeration
         enum_stage_t stage;                         /**< Current enumeration stage */
         enum_device_params_t dev_params;            /**< Parameters of device under enumeration */
@@ -253,12 +249,11 @@ static esp_err_t select_active_configuration(void)
 
     // User's request NOT to enumerate the USB device
     if (!enum_proceed) {
-        ESP_LOGW(ENUM_TAG, "[%d:%d] Abort request of enumeration process (%#x:%#x)",
-                 p_enum_driver->single_thread.parent_dev_addr,
-                 p_enum_driver->single_thread.parent_port_num,
+        ESP_LOGW(ENUM_TAG, "Canceled enumeration of the device %#x:%#x, configuration value=%d",
                  dev_desc->idProduct,
-                 dev_desc->idVendor);
-        enum_cancel(p_enum_driver->single_thread.dev_uid);
+                 dev_desc->idVendor,
+                 bConfigurationValue);
+        enum_cancel(p_enum_driver->single_thread.node_uid);
         return ESP_OK;
     }
 
@@ -279,13 +274,9 @@ static esp_err_t second_reset_request(void)
     // Notify USB Host
     enum_event_data_t event_data = {
         .event = ENUM_EVENT_RESET_REQUIRED,
-        .reset_req = {
-            .parent_dev_hdl = p_enum_driver->single_thread.parent_dev_hdl,
-            .parent_port_num = p_enum_driver->single_thread.parent_port_num,
-        },
+        .node_uid = p_enum_driver->single_thread.node_uid,
     };
     p_enum_driver->constant.enum_event_cb(&event_data, p_enum_driver->constant.enum_event_cb_arg);
-
     return ESP_OK;
 }
 
@@ -739,10 +730,8 @@ static esp_err_t control_request(enum_stage_t stage)
 
     ret = usbh_dev_submit_ctrl_urb(p_enum_driver->single_thread.dev_hdl, p_enum_driver->constant.urb);
     if (ret != ESP_OK) {
-        ESP_LOGE(ENUM_TAG, "[%d:%d] Control transfer submit error (%#x), stage '%s'",
-                 p_enum_driver->single_thread.parent_dev_addr,
-                 p_enum_driver->single_thread.parent_port_num,
-                 ret,
+        ESP_LOGE(ENUM_TAG, "Control transfer submit error %s, stage '%s'",
+                 esp_err_to_name(ret),
                  enum_stage_strings[stage]);
     }
 
@@ -781,9 +770,7 @@ static esp_err_t control_response_handling(enum_stage_t stage)
 
     // Check Control IN transfer returned the expected correct number of bytes
     if (expected_num_bytes != 0 && expected_num_bytes != ctrl_xfer->actual_num_bytes) {
-        ESP_LOGW(ENUM_TAG, "[%d:%d] Unexpected (%d) device response length (expected %d)",
-                 p_enum_driver->single_thread.parent_dev_addr,
-                 p_enum_driver->single_thread.parent_port_num,
+        ESP_LOGW(ENUM_TAG, "Unexpected (%d) device response length (expected %d)",
                  ctrl_xfer->actual_num_bytes,
                  expected_num_bytes);
         if (ctrl_xfer->actual_num_bytes < expected_num_bytes) {
@@ -847,9 +834,8 @@ exit:
 static esp_err_t stage_cancel(void)
 {
     // There should be device under enumeration
+    const unsigned int node_uid = p_enum_driver->single_thread.node_uid;
     usb_device_handle_t dev_hdl = p_enum_driver->single_thread.dev_hdl;
-    usb_device_handle_t parent_dev_hdl = p_enum_driver->single_thread.parent_dev_hdl;
-    uint8_t parent_port_num = p_enum_driver->single_thread.parent_port_num;
 
     if (dev_hdl) {
         ESP_ERROR_CHECK(usbh_dev_enum_unlock(dev_hdl));
@@ -857,21 +843,15 @@ static esp_err_t stage_cancel(void)
     }
 
     // Clean up variables device from enumerator
-    p_enum_driver->single_thread.dev_uid = 0;
+    p_enum_driver->single_thread.node_uid = 0;
     p_enum_driver->single_thread.dev_hdl = NULL;
-    p_enum_driver->single_thread.parent_dev_hdl = NULL;
-    p_enum_driver->single_thread.parent_dev_addr = 0;
-    p_enum_driver->single_thread.parent_port_num = 0;
 
     p_enum_driver->constant.urb->transfer.context = NULL;
 
     // Propagate the event
     enum_event_data_t event_data = {
         .event = ENUM_EVENT_CANCELED,
-        .canceled = {
-            .parent_dev_hdl = parent_dev_hdl,
-            .parent_port_num = parent_port_num,
-        },
+        .node_uid = node_uid,
     };
     p_enum_driver->constant.enum_event_cb(&event_data, p_enum_driver->constant.enum_event_cb_arg);
     return ESP_OK;
@@ -884,10 +864,8 @@ static esp_err_t stage_cancel(void)
  */
 static esp_err_t stage_complete(void)
 {
+    unsigned int node_uid = p_enum_driver->single_thread.node_uid;
     usb_device_handle_t dev_hdl = p_enum_driver->single_thread.dev_hdl;
-    usb_device_handle_t parent_dev_hdl = p_enum_driver->single_thread.parent_dev_hdl;
-    uint8_t parent_dev_addr = p_enum_driver->single_thread.parent_dev_addr;
-    uint8_t parent_port_num = p_enum_driver->single_thread.parent_port_num;
     uint8_t dev_addr = 0;
     ESP_ERROR_CHECK(usbh_dev_get_addr(dev_hdl, &dev_addr));
 
@@ -896,11 +874,8 @@ static esp_err_t stage_complete(void)
     ESP_ERROR_CHECK(usbh_dev_close(dev_hdl));
 
     // Release device from enumerator
-    p_enum_driver->single_thread.dev_uid = 0;
+    p_enum_driver->single_thread.node_uid = 0;
     p_enum_driver->single_thread.dev_hdl = NULL;
-    p_enum_driver->single_thread.parent_dev_hdl = NULL;
-    p_enum_driver->single_thread.parent_dev_addr = 0;
-    p_enum_driver->single_thread.parent_port_num = 0;
 
     // Release device from enumerator
     p_enum_driver->constant.urb->transfer.context = NULL;
@@ -912,19 +887,12 @@ static esp_err_t stage_complete(void)
     // Increase device address to use new value during the next enumeration process
     get_next_dev_addr();
 
-    ESP_LOGD(ENUM_TAG, "[%d:%d] Processing complete, new device address %d",
-             parent_dev_addr,
-             parent_port_num,
-             dev_addr);
+    ESP_LOGD(ENUM_TAG, "Processing complete, new device address %d", dev_addr);
 
     enum_event_data_t event_data = {
         .event = ENUM_EVENT_COMPLETED,
-        .complete = {
-            .dev_hdl = dev_hdl,
-            .dev_addr = dev_addr,
-            .parent_dev_hdl = parent_dev_hdl,
-            .parent_port_num = parent_port_num,
-        },
+        .node_uid = node_uid,
+        .dev_hdl = dev_hdl,
     };
     p_enum_driver->constant.enum_event_cb(&event_data, p_enum_driver->constant.enum_event_cb_arg);
     return ESP_OK;
@@ -1005,10 +973,7 @@ static bool set_next_stage(bool last_stage_pass)
         // Find the next stage
         if (last_stage_pass) {
             // Last stage was successful
-            ESP_LOGD(ENUM_TAG, "[%d:%d] %s OK",
-                     p_enum_driver->single_thread.parent_dev_addr,
-                     p_enum_driver->single_thread.parent_port_num,
-                     enum_stage_strings[last_stage]);
+            ESP_LOGD(ENUM_TAG, "%s OK", enum_stage_strings[last_stage]);
             // Get next stage
             if (last_stage == ENUM_STAGE_COMPLETE ||
                     last_stage == ENUM_STAGE_CANCEL) {
@@ -1055,10 +1020,7 @@ static bool set_next_stage(bool last_stage_pass)
                 break;
             default:
                 // Stage is not allowed to failed. Cancel enumeration.
-                ESP_LOGE(ENUM_TAG, "[%d:%d] %s FAILED",
-                         p_enum_driver->single_thread.parent_dev_addr,
-                         p_enum_driver->single_thread.parent_port_num,
-                         enum_stage_strings[last_stage]);
+                ESP_LOGE(ENUM_TAG, "%s FAILED", enum_stage_strings[last_stage]);
                 next_stage = ENUM_STAGE_CANCEL;
                 break;
             }
@@ -1211,25 +1173,14 @@ esp_err_t enum_start(unsigned int uid)
 
     // Get device info
     usb_device_info_t dev_info;
-    uint8_t parent_dev_addr = 0;
     ESP_ERROR_CHECK(usbh_dev_get_info(dev_hdl, &dev_info));
 
-    if (dev_info.parent.dev_hdl) {
-        ESP_ERROR_CHECK(usbh_dev_get_addr(dev_info.parent.dev_hdl, &parent_dev_addr));
-    }
-
     // Stage ENUM_STAGE_GET_SHORT_DEV_DESC
-    ESP_LOGD(ENUM_TAG, "[%d:%d] Start processing, device address %d",
-             parent_dev_addr,
-             dev_info.parent.port_num,
-             0);
+    ESP_LOGD(ENUM_TAG, "Start processing device with address %d", 0);
 
     p_enum_driver->single_thread.stage = ENUM_STAGE_GET_SHORT_DEV_DESC;
-    p_enum_driver->single_thread.dev_uid = uid;
+    p_enum_driver->single_thread.node_uid = uid;
     p_enum_driver->single_thread.dev_hdl = dev_hdl;
-    p_enum_driver->single_thread.parent_dev_hdl = dev_info.parent.dev_hdl;
-    p_enum_driver->single_thread.parent_dev_addr = parent_dev_addr;
-    p_enum_driver->single_thread.parent_port_num = dev_info.parent.port_num;
     // Save device handle to the URB transfer context
     p_enum_driver->constant.urb->transfer.context = (void *) dev_hdl;
     // Device params
@@ -1241,14 +1192,9 @@ esp_err_t enum_start(unsigned int uid)
     // Notify USB Host about starting enumeration process
     enum_event_data_t event_data = {
         .event = ENUM_EVENT_STARTED,
-        .started = {
-            .uid = uid,
-            .parent_dev_hdl = dev_info.parent.dev_hdl,
-            .parent_port_num = dev_info.parent.port_num,
-        },
+        .node_uid = uid,
     };
     p_enum_driver->constant.enum_event_cb(&event_data, p_enum_driver->constant.enum_event_cb_arg);
-
     // Request processing
     p_enum_driver->constant.proc_req_cb(USB_PROC_REQ_SOURCE_ENUM, false, p_enum_driver->constant.proc_req_cb_arg);
     return ret;
@@ -1276,10 +1222,7 @@ esp_err_t enum_cancel(unsigned int uid)
 
     p_enum_driver->single_thread.stage = ENUM_STAGE_CANCEL;
 
-    ESP_LOGV(ENUM_TAG, "[%d:%d] Cancel at %s",
-             p_enum_driver->single_thread.parent_dev_addr,
-             p_enum_driver->single_thread.parent_port_num,
-             enum_stage_strings[old_stage]);
+    ESP_LOGV(ENUM_TAG, "Cancel at %s", enum_stage_strings[old_stage]);
 
     if (stage_need_process(old_stage)) {
         // These stages are required to trigger processing in the enum_process()
