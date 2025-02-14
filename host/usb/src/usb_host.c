@@ -344,11 +344,9 @@ static void usbh_event_callback(usbh_event_data_t *event_data, void *arg)
         break;
     }
     case USBH_EVENT_DEV_FREE: {
-        // Let the Hub driver know that the device is free and its port can be recycled
-        // Port could be absent, no need to verify
-        hub_port_recycle(event_data->dev_free_data.parent_dev_hdl,
-                         event_data->dev_free_data.port_num,
-                         event_data->dev_free_data.dev_uid);
+        // Let the Hub driver know that the device is free and its node can be free and port re-enabled
+        // Node could be already freed on device disconnect (when clients still holding the device opened), no need to verify result
+        hub_node_recycle(event_data->dev_free_data.dev_uid);
         break;
     }
     case USBH_EVENT_ALL_FREE: {
@@ -397,16 +395,16 @@ static void enum_event_callback(enum_event_data_t *event_data, void *arg)
         break;
     case ENUM_EVENT_RESET_REQUIRED:
         // Device may be gone, don't need to verify result
-        hub_port_reset(event_data->reset_req.parent_dev_hdl, event_data->reset_req.parent_port_num);
+        hub_node_reset(event_data->node_uid);
         break;
     case ENUM_EVENT_COMPLETED:
         // Notify port that device completed enumeration
-        hub_port_active(event_data->complete.parent_dev_hdl, event_data->complete.parent_port_num);
+        hub_node_active(event_data->node_uid);
         // Propagate a new device event
-        ESP_ERROR_CHECK(usbh_devs_new_dev_event(event_data->complete.dev_hdl));
+        ESP_ERROR_CHECK(usbh_devs_new_dev_event(event_data->dev_hdl));
         break;
     case ENUM_EVENT_CANCELED:
-        hub_port_disable(event_data->canceled.parent_dev_hdl, event_data->canceled.parent_port_num);
+        hub_node_disable(event_data->node_uid);
         break;
     default:
         abort();    // Should never occur
