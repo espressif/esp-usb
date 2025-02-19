@@ -14,7 +14,7 @@ MSC driver allows access to USB flash drivers using the BOT (Bulk-Only Transport
   However, in order to save RAM, an already existing task can also be used to call `usb_host_lib_handle_events`.
 - Mass Storage Class driver is installed by calling `usb_msc_install` function along side with configuration.
 - Supplied configuration contains user provided callback function invoked whenever MSC device is connected/disconnected
-  and optional parameters for creating background task handling MSC related events. 
+  and optional parameters for creating background task handling MSC related events.
   Alternatively, user can call `usb_msc_handle_events` function from already existing task.
 - After receiving `MSC_DEVICE_CONNECTED` event, user has to install device with `usb_msc_install_device` function,
   obtaining MSC device handle.

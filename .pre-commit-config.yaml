@@ -21,11 +21,11 @@ repos:
     rev: v4.3.0
     hooks:
     -   id: trailing-whitespace
-        types_or: [c, c++]
+        exclude: '.*\.uxf'
     -   id: end-of-file-fixer
-        types_or: [c, c++]
+        exclude: '.*\.uxf'
     -   id: check-merge-conflict
     -   id: mixed-line-ending
-        types_or: [c, c++]
         args: ['--fix=lf']
         description: Forces to replace line ending by the UNIX 'lf' character
+        exclude: '.*\.uxf'
