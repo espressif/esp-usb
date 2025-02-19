@@ -15,11 +15,11 @@
 ## 1.6.0
 
 - CDC-ACM: Fixed memory leak on deinit
-- esp_tinyusb: Added Teardown 
+- esp_tinyusb: Added Teardown
 
 ## 1.5.0
 
-- esp_tinyusb: Added DMA mode option to tinyusb DCD DWC2 configuration 
+- esp_tinyusb: Added DMA mode option to tinyusb DCD DWC2 configuration
 - esp_tinyusb: Changed the default affinity mask of the task to CPU1
 
 ## 1.4.5

@@ -5,7 +5,7 @@
 
 ## MSC driver
 
-Basic functionality such as MSC device install/uninstall, file operations, 
+Basic functionality such as MSC device install/uninstall, file operations,
 raw access to MSC device and sudden disconnect is tested.
 
 ### Hardware Required

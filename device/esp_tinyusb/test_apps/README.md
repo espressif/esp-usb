@@ -82,12 +82,12 @@ USB event: removed /dev/ttyACM1 166 1
 
 ### Check Major and Minor numbers of connected devices
 
-Check the Major and Minor numbers assigned by the Linux kernel to devices that you want the Docker container to access. 
+Check the Major and Minor numbers assigned by the Linux kernel to devices that you want the Docker container to access.
 In our case, we want to access `/dev/ttyUSB0`, `/dev/ttyACM0` and `/dev/ttyACM1`
 
 `/dev/ttyUSB0`: Major 188, Minor 0
 ``` sh
-peter@BrnoRPIG007:~ $ ls -l /dev/ttyUSB0 
+peter@BrnoRPIG007:~ $ ls -l /dev/ttyUSB0
 crw-rw-rw- 1 root dialout 188, 0 Nov 12 11:08 /dev/ttyUSB0
 ```
 
@@ -120,7 +120,7 @@ container:
 
 ## GitLab CI target runner setup
 
-To apply these changes to a GitLab runner the `config.toml` file located at `/etc/gitlab-runner/config.toml` on each GitLab target runner must be modified. 
+To apply these changes to a GitLab runner the `config.toml` file located at `/etc/gitlab-runner/config.toml` on each GitLab target runner must be modified.
 
 According to GitLab's [documentation](https://docs.gitlab.com/runner/configuration/advanced-configuration.html#the-runnersdocker-section) the `[runners.docker]` section of the `config.toml` file should include the `device_cgroup_rules` parameter:
 
@@ -129,5 +129,3 @@ According to GitLab's [documentation](https://docs.gitlab.com/runner/configurati
   ...
   device_cgroup_rules = ["c 188:* rmw", "c 166:* rmw"]
 ```
-
-

@@ -7,7 +7,7 @@
 This component extends [esp_modem](https://components.espressif.com/component/espressif/esp_modem) with USB DTE.
 
 ## Examples
-For example usage see esp_modem examples: 
+For example usage see esp_modem examples:
  * [console example](https://github.com/espressif/esp-protocols/tree/master/components/esp_modem/examples/modem_console)
  * [PPPoS example](https://github.com/espressif/esp-protocols/tree/master/components/esp_modem/examples/pppos_client)
 

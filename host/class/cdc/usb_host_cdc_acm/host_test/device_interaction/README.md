@@ -11,7 +11,7 @@ Tests are written using [Catch2](https://github.com/catchorg/Catch2) test framew
 This test directory uses freertos as real component
 # Build
 
-Tests build regularly like an idf project. Currently only working on Linux machines. 
+Tests build regularly like an idf project. Currently only working on Linux machines.
 
 ```
 idf.py --preview set-target linux
@@ -20,7 +20,7 @@ idf.py build
 
 # Run
 
-The build produces an executable in the build folder. 
+The build produces an executable in the build folder.
 
 Just run:
 
@@ -28,4 +28,4 @@ Just run:
 ./build/host_test_usb_cdc.elf
 ```
 
-The test executable have some options provided by the test framework. 
+The test executable have some options provided by the test framework.

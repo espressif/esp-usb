@@ -35,12 +35,12 @@ def wait_tusb_dev_removed(vid, pid, timeout):
             return True
         if time() - start_time > timeout:
             raise DeviceNotFoundError(f"Device with VID: 0x{vid:04x}, PID: 0x{pid:04x} wasn't removed within {timeout} seconds.")
-        sleep(0.5)       
+        sleep(0.5)
 
 def tusb_device_teardown(iterations, timeout):
     TUSB_VID = "303a"  # Espressif TinyUSB VID
     TUSB_PID = "4002"  # Espressif TinyUSB VID
-    
+
     for i in range(iterations):
         # Wait until the device is present
         print(f"Waiting for device ...")

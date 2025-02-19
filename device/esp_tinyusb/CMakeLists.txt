@@ -37,7 +37,7 @@ idf_component_register(SRCS ${srcs}
                        INCLUDE_DIRS "include"
                        PRIV_INCLUDE_DIRS "include_private"
                        PRIV_REQUIRES usb
-                       REQUIRES fatfs vfs                 
+                       REQUIRES fatfs vfs
                        )
 
 # Determine whether tinyusb is fetched from component registry or from local path
