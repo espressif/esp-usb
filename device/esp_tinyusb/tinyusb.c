@@ -10,7 +10,7 @@
 #include "esp_err.h"
 #include "esp_private/periph_ctrl.h"
 #include "esp_private/usb_phy.h"
-#include "soc/usb_pins.h"
+#include "soc/usb_pins.h" // TODO: Will be removed in IDF v6.0 IDF-9029
 #include "tinyusb.h"
 #include "descriptors_control.h"
 #include "tusb.h"
@@ -41,18 +41,36 @@ esp_err_t tinyusb_driver_install(const tinyusb_config_t *config)
 #endif // USB_PHY_SUPPORTS_P4_OTG11
     };
 
-    // External PHY IOs config
-    usb_phy_ext_io_conf_t ext_io_conf = {
-        .vp_io_num = USBPHY_VP_NUM,
-        .vm_io_num = USBPHY_VM_NUM,
-        .rcv_io_num = USBPHY_RCV_NUM,
-        .oen_io_num = USBPHY_OEN_NUM,
-        .vpo_io_num = USBPHY_VPO_NUM,
-        .vmo_io_num = USBPHY_VMO_NUM,
-    };
+    /*
+    In IDF v5.5 there were 2 signals added to usb_phy_ext_io_conf_t:
+      - suspend_n_io_num
+      - fs_edge_sel_io_num
+
+    Zero initialization of the config structure cannot be used, because the signals would be
+    mapped to GPIO_0.
+    To maintain backward compatibility, the config structure is initialized to -1 (GPIO_NC).
+    */
+    usb_phy_ext_io_conf_t ext_io_conf; // External PHY IOs config
+    memset(&ext_io_conf, 0xFF, sizeof(ext_io_conf)); // int type uses 2's complement, so 0xFF is -1
+
+    // These macros ill be removed in IDF v6.0
+    ext_io_conf.vp_io_num  = USBPHY_VP_NUM;
+    ext_io_conf.vm_io_num  = USBPHY_VM_NUM;
+    ext_io_conf.rcv_io_num = USBPHY_RCV_NUM;
+    ext_io_conf.oen_io_num = USBPHY_OEN_NUM;
+    ext_io_conf.vpo_io_num = USBPHY_VPO_NUM;
+    ext_io_conf.vmo_io_num = USBPHY_VMO_NUM;
+
     if (config->external_phy) {
         phy_conf.target = USB_PHY_TARGET_EXT;
         phy_conf.ext_io_conf = &ext_io_conf;
+
+        /*
+        There is a bug in esp-idf that does not allow device speed selection
+        when External PHY is used.
+        Remove this when proper fix is implemented IDF-11144
+        */
+        phy_conf.otg_speed = USB_PHY_SPEED_UNDEFINED;
     } else {
         phy_conf.target = USB_PHY_TARGET_INT;
     }
