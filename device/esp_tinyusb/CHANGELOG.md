@@ -1,4 +1,4 @@
-## [Unreleased]
+## 1.7.2
 
 - esp_tinyusb: Fixed crash on logging from ISR
 - PHY: Fixed crash with external_phy=true configuration
