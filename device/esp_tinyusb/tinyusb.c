@@ -10,7 +10,7 @@
 #include "esp_err.h"
 #include "esp_private/periph_ctrl.h"
 #include "esp_private/usb_phy.h"
-#include "soc/usb_pins.h"
+#include "soc/usb_pins.h" // TODO: Will be removed in IDF v6.0 IDF-9029
 #include "tinyusb.h"
 #include "descriptors_control.h"
 #include "tusb.h"
@@ -53,6 +53,13 @@ esp_err_t tinyusb_driver_install(const tinyusb_config_t *config)
     if (config->external_phy) {
         phy_conf.target = USB_PHY_TARGET_EXT;
         phy_conf.ext_io_conf = &ext_io_conf;
+
+        /*
+        There is a bug in esp-idf that does not allow device speed selection
+        when External PHY is used.
+        Remove this when proper fix is implemented in IDF-11144
+        */
+        phy_conf.otg_speed = USB_PHY_SPEED_UNDEFINED;
     } else {
         phy_conf.target = USB_PHY_TARGET_INT;
     }
