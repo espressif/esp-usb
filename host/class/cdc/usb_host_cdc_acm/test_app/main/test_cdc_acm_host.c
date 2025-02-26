@@ -197,6 +197,7 @@ static void new_dev_cb(usb_device_handle_t usb_dev)
 /* Basic test to check CDC communication:
  * open/read/write/close device
  * CDC-ACM specific commands: set/get_line_coding, set_control_line_state */
+#define NUM_ITERATIONS 10
 TEST_CASE("read_write", "[cdc_acm]")
 {
     nb_of_responses = 0;
@@ -217,12 +218,12 @@ TEST_CASE("read_write", "[cdc_acm]")
     TEST_ASSERT_NOT_NULL(cdc_dev);
     vTaskDelay(10);
 
-    TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_data_tx_blocking(cdc_dev, tx_buf, sizeof(tx_buf), 1000));
-    TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_data_tx_blocking(cdc_dev, tx_buf, sizeof(tx_buf), 1000));
-    vTaskDelay(100); // Wait until responses are processed
+    for (int i = 0; i < NUM_ITERATIONS; i++) {
+        TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_data_tx_blocking(cdc_dev, tx_buf, sizeof(tx_buf), 1000));
+    }
+    vTaskDelay(10); // Wait until responses are processed
 
-    // We sent two messages, should get two responses
-    TEST_ASSERT_EQUAL(2, nb_of_responses);
+    TEST_ASSERT_EQUAL(NUM_ITERATIONS, nb_of_responses);
 
     // Clean-up
     TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_close(cdc_dev));
@@ -316,7 +317,7 @@ TEST_CASE("multiple_devices", "[cdc_acm]")
     TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_data_tx_blocking(cdc_dev1, tx_buf, sizeof(tx_buf), 1000));
     TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_data_tx_blocking(cdc_dev2, tx_buf2, sizeof(tx_buf2), 1000));
 
-    vTaskDelay(100); // Wait for RX callbacks
+    vTaskDelay(10); // Wait for RX callbacks
 
     // We sent two messages, should get two responses
     TEST_ASSERT_EQUAL(1, nb_of_responses);
@@ -709,11 +710,11 @@ TEST_CASE("tx_timeout", "[cdc_acm]")
 
     // TX some data with timeout_ms=0. This will cause a timeout
     TEST_ASSERT_EQUAL(ESP_ERR_TIMEOUT, cdc_acm_host_data_tx_blocking(cdc_dev, tx_buf, sizeof(tx_buf), 0));
-    vTaskDelay(50); // Wait before trying new TX
+    vTaskDelay(10); // Wait before trying new TX
 
     // TX some data again with greater timeout. This will check normal operation
     TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_data_tx_blocking(cdc_dev, tx_buf, sizeof(tx_buf), 1000));
-    vTaskDelay(100);
+    vTaskDelay(10);
 
     // Clean-up
     TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_close(cdc_dev));
