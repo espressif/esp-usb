@@ -126,7 +126,6 @@ static void storage_init(void)
         .device_descriptor = &descriptor_config,
         .string_descriptor = string_desc_arr,
         .string_descriptor_count = sizeof(string_desc_arr) / sizeof(string_desc_arr[0]),
-        .external_phy = false,
 #if (TUD_OPT_HIGH_SPEED)
         .fs_configuration_descriptor = msc_fs_desc_configuration,
         .hs_configuration_descriptor = msc_hs_desc_configuration,
