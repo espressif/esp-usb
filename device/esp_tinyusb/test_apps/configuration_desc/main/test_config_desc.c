@@ -179,7 +179,6 @@ void tud_mount_cb(void)
 TEST_CASE("descriptors_config_all_default", "[esp_tinyusb][usb_device][config]")
 {
     const tinyusb_config_t tusb_cfg = {
-        .external_phy = false,
         .device_descriptor = NULL,
         .configuration_descriptor = NULL,
 #if (CONFIG_TINYUSB_RHPORT_HS)
@@ -200,7 +199,6 @@ TEST_CASE("descriptors_config_all_default", "[esp_tinyusb][usb_device][config]")
 TEST_CASE("descriptors_config_device", "[esp_tinyusb][usb_device][config]")
 {
     const tinyusb_config_t tusb_cfg = {
-        .external_phy = false,
         .device_descriptor = &test_device_descriptor,
         .configuration_descriptor = NULL,
 #if (CONFIG_TINYUSB_RHPORT_HS)
@@ -224,7 +222,6 @@ TEST_CASE("descriptors_config_device", "[esp_tinyusb][usb_device][config]")
 TEST_CASE("descriptors_config_device_and_config", "[esp_tinyusb][usb_device][config]")
 {
     const tinyusb_config_t tusb_cfg = {
-        .external_phy = false,
         .device_descriptor = &test_device_descriptor,
         .configuration_descriptor = test_fs_configuration_descriptor,
 #if (CONFIG_TINYUSB_RHPORT_HS)
@@ -246,7 +243,6 @@ TEST_CASE("descriptors_config_device_and_config", "[esp_tinyusb][usb_device][con
 TEST_CASE("descriptors_config_device_and_hs_config_only", "[esp_tinyusb][usb_device][config]")
 {
     const tinyusb_config_t tusb_cfg = {
-        .external_phy = false,
         .device_descriptor = &test_device_descriptor,
         .configuration_descriptor = NULL,
         .hs_configuration_descriptor = test_hs_configuration_descriptor,
@@ -264,7 +260,6 @@ TEST_CASE("descriptors_config_device_and_hs_config_only", "[esp_tinyusb][usb_dev
 TEST_CASE("descriptors_config_all_configured", "[esp_tinyusb][usb_device][config]")
 {
     const tinyusb_config_t tusb_cfg = {
-        .external_phy = false,
         .device_descriptor = &test_device_descriptor,
         .fs_configuration_descriptor = test_fs_configuration_descriptor,
         .hs_configuration_descriptor = test_hs_configuration_descriptor,
