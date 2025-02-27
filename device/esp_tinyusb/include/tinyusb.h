@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2020-2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2020-2025 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -17,11 +17,6 @@ extern "C" {
 
 /**
  * @brief Configuration structure of the TinyUSB core
- *
- * USB specification mandates self-powered devices to monitor USB VBUS to detect connection/disconnection events.
- * If you want to use this feature, connected VBUS to any free GPIO through a voltage divider or voltage comparator.
- * The voltage divider output should be (0.75 * Vdd) if VBUS is 4.4V (lowest valid voltage at device port).
- * The comparator thresholds should be set with hysteresis: 4.35V (falling edge) and 4.75V (raising edge).
  */
 typedef struct {
     union {
@@ -30,7 +25,10 @@ typedef struct {
     };
     const char **string_descriptor;            /*!< Pointer to array of string descriptors. If set to NULL, TinyUSB device will use a default string descriptors whose values are set in Kconfig */
     int string_descriptor_count;               /*!< Number of descriptors in above array */
-    bool external_phy;                         /*!< Should USB use an external PHY */
+    bool skip_phy_setup;                       /*!< If set, the esp_tinyusb will not configure the USB PHY thus allowing
+                                                    the user to manually configure the USB PHY before calling tinyusb_driver_install().
+                                                    Users should set this if they want to use an external USB PHY. Otherwise,
+                                                    the esp_tinyusb will automatically configure the internal USB PHY */
     union {
         struct {
             const uint8_t *configuration_descriptor;            /*!< Pointer to a configuration descriptor. If set to NULL, TinyUSB device will use a default configuration descriptor whose values are set in Kconfig */
@@ -45,8 +43,11 @@ typedef struct {
 #else
     };
 #endif // TUD_OPT_HIGH_SPEED
-    bool self_powered;                         /*!< This is a self-powered USB device. USB VBUS must be monitored. */
-    int vbus_monitor_io;                       /*!< GPIO for VBUS monitoring. Ignored if not self_powered. */
+    bool self_powered;                        /*!< USB specification mandates self-powered devices to monitor USB VBUS to detect connection/disconnection events.
+                                                   If you want to use this feature, connected VBUS to any free GPIO through a voltage divider or voltage comparator.
+                                                   The voltage divider output should be (0.75 * Vdd) if VBUS is 4.4V (lowest valid voltage at device port).
+                                                   The comparator thresholds should be set with hysteresis: 4.35V (falling edge) and 4.75V (raising edge). */
+    int vbus_monitor_io;                      /*!< GPIO for VBUS monitoring. Ignored if not self_powered. */
 } tinyusb_config_t;
 
 /**

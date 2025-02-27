@@ -1,3 +1,9 @@
+## 2.0.0 [Unreleased]
+
+### Breaking changes
+- phy: esp_tinyusb will no longer initialize external PHY. If external PHY is required, it must be explicitly initialized by user and esp_tinyusb must be configured with `skip_phy_setup = true`
+
+
 ## 1.7.4~1
 
 - esp_tinyusb: Claim forward compatibility with IDF 6.0

@@ -109,7 +109,6 @@ TEST_CASE("tinyusb_external_task", "[esp_tinyusb][tusb_task]")
         .device_descriptor = &test_device_descriptor,
         .string_descriptor = NULL,
         .string_descriptor_count = 0,
-        .external_phy = false,
 #if (TUD_OPT_HIGH_SPEED)
         .fs_configuration_descriptor = test_configuration_descriptor,
         .hs_configuration_descriptor = test_configuration_descriptor,
