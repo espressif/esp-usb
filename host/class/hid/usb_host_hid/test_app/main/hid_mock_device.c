@@ -198,7 +198,6 @@ void hid_mock_device(tusb_iface_count_t iface_count)
         .device_descriptor = NULL,
         .string_descriptor = hid_string_descriptor,
         .string_descriptor_count = sizeof(hid_string_descriptor) / sizeof(hid_string_descriptor[0]),
-        .external_phy = false,
 #if (TUD_OPT_HIGH_SPEED)
         .fs_configuration_descriptor = hid_configuration_descriptor_list[tusb_iface_count],
         .hs_configuration_descriptor = hid_configuration_descriptor_list[tusb_iface_count],
