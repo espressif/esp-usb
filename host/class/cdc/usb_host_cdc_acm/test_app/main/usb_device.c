@@ -70,7 +70,6 @@ void run_usb_dual_cdc_device(void)
         .device_descriptor = &cdc_device_descriptor,
         .string_descriptor = NULL,
         .string_descriptor_count = 0,
-        .external_phy = false,
 #if (TUD_OPT_HIGH_SPEED)
         .fs_configuration_descriptor = cdc_fs_desc_configuration,
         .hs_configuration_descriptor = cdc_hs_desc_configuration,

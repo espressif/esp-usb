@@ -1,3 +1,8 @@
+## 2.0.0 [Unreleased]
+
+### Breaking changes
+- phy: esp_tinyusb will no longer initialize external PHY. If external PHY is required, it must be explicitly initialized by user and esp_tinyusb must be configured with `skip_phy_setup = true`
+
 ## 1.7.2
 
 - esp_tinyusb: Fixed crash on logging from ISR
