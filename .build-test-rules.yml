@@ -26,3 +26,8 @@ host/class/uvc/usb_host_uvc/host_test:
   enable:
     - if: IDF_TARGET in ["linux"] and (IDF_VERSION_MAJOR >= 5 and IDF_VERSION_MINOR >= 5)
       reason: USB mocks are run only for the latest version of IDF
+
+host/class/uac/usb_host_uac/host_test:
+  enable:
+    - if: IDF_TARGET in ["linux"] and (IDF_VERSION_MAJOR >= 5 and IDF_VERSION_MINOR >= 5)
+      reason: USB mocks are run only for the latest version of IDF
