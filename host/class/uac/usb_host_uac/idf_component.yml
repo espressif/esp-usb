@@ -5,7 +5,3 @@ url: https://github.com/espressif/esp-usb/tree/master/host/class/uac/usb_host_ua
 dependencies:
   idf: ">=4.4"
   cmake_utilities: "0.5.*"
-targets:
-  - esp32s2
-  - esp32s3
-  - esp32p4

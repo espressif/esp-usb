@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2024-2025 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -149,7 +149,7 @@ static void print_ac_feature_desc(const uint8_t *buff)
     printf("\tbUnitID %d\n", desc->bUnitID);
     printf("\tbSourceID %d\n", desc->bSourceID);
     printf("\tbControlSize %d\n", desc->bControlSize);
-    for (size_t i = 0; i < (desc->bLength - 7) / desc->bControlSize; i += desc->bControlSize) {
+    for (int i = 0; i < (desc->bLength - 7) / desc->bControlSize; i += desc->bControlSize) {
         printf("\tbmaControls[ch%d] 0x%x\n", i, desc->bmaControls[i]);
     }
     printf("\tiFeature %d\n", desc->iFeature);
@@ -164,7 +164,7 @@ static void print_ac_mix_desc(const uint8_t *buff)
     printf("\tbDescriptorSubtype 0x%x\n", desc->bDescriptorSubtype);
     printf("\tbUnitID %d\n", desc->bUnitID);
     printf("\tbNrInPins %d\n", desc->bNrInPins);
-    for (size_t i = 0; i < desc->bNrInPins; ++i) {
+    for (int i = 0; i < desc->bNrInPins; ++i) {
         printf("\tbSourceID[%d] %d\n", i, desc->baSourceID[i]);
     }
     printf("\tbNrChannels %d\n", buff[5 + desc->bNrInPins]);
@@ -183,7 +183,7 @@ static void print_ac_selector_desc(const uint8_t *buff)
     printf("\tbDescriptorSubtype 0x%x\n", desc->bDescriptorSubtype);
     printf("\tbUnitID %d\n", desc->bUnitID);
     printf("\tbNrInPins %d\n", desc->bNrInPins);
-    for (size_t i = 0; i < desc->bNrInPins; ++i) {
+    for (int i = 0; i < desc->bNrInPins; ++i) {
         printf("\tbSourceID[%d] %d\n", i, desc->baSourceID[i]);
     }
     printf("\tiSelector %d\n", buff[5 + desc->bNrInPins]);
@@ -248,14 +248,14 @@ static void print_unknown_desc(const uac_desc_header_t *desc)
     printf("\tbDescriptorSubtype 0x%x\n", desc->bDescriptorSubtype);
 }
 
-static void print_uac_class_descriptors(const usb_standard_desc_t *desc, uint8_t class, uint8_t subclass, uint8_t protocol)
+static void print_uac_class_descriptors(const usb_standard_desc_t *desc, iface_params_t *iface_params)
 {
-    if (class != USB_CLASS_AUDIO) {
+    if (iface_params->bClass != USB_CLASS_AUDIO) {
         return;
     }
     const uint8_t *buff = (const uint8_t *)desc;
     uac_desc_header_t *header = (uac_desc_header_t *)desc;
-    if (subclass == UAC_SUBCLASS_AUDIOCONTROL) {
+    if (iface_params->bSubclass == UAC_SUBCLASS_AUDIOCONTROL) {
         switch (header->bDescriptorSubtype) {
         case UAC_AC_HEADER:
             print_ac_header_desc(buff);
@@ -279,7 +279,7 @@ static void print_uac_class_descriptors(const usb_standard_desc_t *desc, uint8_t
             goto unknown;
             break;
         }
-    } else if (subclass == UAC_SUBCLASS_AUDIOSTREAMING && desc->bDescriptorType == UAC_CS_INTERFACE) {
+    } else if (iface_params->bSubclass == UAC_SUBCLASS_AUDIOSTREAMING && desc->bDescriptorType == UAC_CS_INTERFACE) {
         switch (header->bDescriptorSubtype) {
         case UAC_AS_GENERAL:
             parse_as_general_desc(buff);
@@ -291,7 +291,7 @@ static void print_uac_class_descriptors(const usb_standard_desc_t *desc, uint8_t
             goto unknown;
             break;
         }
-    } else if (subclass == UAC_SUBCLASS_AUDIOSTREAMING && desc->bDescriptorType == UAC_CS_ENDPOINT) {
+    } else if (iface_params->bSubclass == UAC_SUBCLASS_AUDIOSTREAMING && desc->bDescriptorType == UAC_CS_ENDPOINT) {
         switch (header->bDescriptorSubtype) {
         case UAC_EP_GENERAL:
             parse_as_ep_general_desc(buff);
@@ -300,7 +300,7 @@ static void print_uac_class_descriptors(const usb_standard_desc_t *desc, uint8_t
             break;
         }
     } else {
-        printf("\tUnknown subclass 0x%x\n", subclass);
+        printf("\tUnknown subclass 0x%x\n", iface_params->bSubclass);
         goto unknown;
     }
     return;
@@ -309,16 +309,14 @@ unknown:
 }
 
 // Print the configuration descriptor and all its sub-descriptors with the given class-specific callback
-// The subclass and protocol are passed to the class_specific_cb to allow it to interpret the descriptors more accurately
+// The Interface subclass and protocol are passed to the class_specific_cb to allow it to interpret the descriptors more accurately
 // This function better be added to usb_helpers.c
 static void usb_print_config_descriptor_with_context(const usb_config_desc_t *cfg_desc, print_class_descriptor_with_context_cb class_specific_cb)
 {
     int offset = 0;
     uint16_t wTotalLength = cfg_desc->wTotalLength;
     const usb_standard_desc_t *next_desc = (const usb_standard_desc_t *)cfg_desc;
-    uint8_t class = 0;
-    uint8_t subclass = 0;
-    uint8_t protocol = 0;
+    iface_params_t iface_params = {};
 
     do {
         switch (next_desc->bDescriptorType) {
@@ -328,9 +326,9 @@ static void usb_print_config_descriptor_with_context(const usb_config_desc_t *cf
         case USB_B_DESCRIPTOR_TYPE_INTERFACE: {
             const usb_intf_desc_t *intf_desc = (const usb_intf_desc_t *)next_desc;
             usbh_print_intf_desc(intf_desc);
-            class = intf_desc->bInterfaceClass;
-            subclass = intf_desc->bInterfaceSubClass;
-            protocol = intf_desc->bInterfaceProtocol;
+            iface_params.bClass = intf_desc->bInterfaceClass;
+            iface_params.bSubclass = intf_desc->bInterfaceSubClass;
+            iface_params.bProtocol = intf_desc->bInterfaceProtocol;
             break;
         }
         case USB_B_DESCRIPTOR_TYPE_ENDPOINT:
@@ -341,7 +339,7 @@ static void usb_print_config_descriptor_with_context(const usb_config_desc_t *cf
             break;
         default:
             if (class_specific_cb) {
-                class_specific_cb(next_desc, class, subclass, protocol);
+                class_specific_cb(next_desc, &iface_params);
             }
             break;
         }

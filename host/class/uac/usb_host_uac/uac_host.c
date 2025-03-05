@@ -2162,7 +2162,7 @@ fail:
     return ret;
 }
 
-esp_err_t uac_host_handle_events(uint32_t timeout)
+esp_err_t uac_host_handle_events(TickType_t timeout)
 {
     UAC_RETURN_ON_FALSE(s_uac_driver != NULL, ESP_ERR_INVALID_STATE, "UAC Driver is not installed");
     s_uac_driver->event_handling_started = true;
