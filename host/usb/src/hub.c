@@ -355,11 +355,10 @@ static void ext_port_event_callback(ext_port_hdl_t port_hdl, ext_port_event_data
             goto new_ds_dev_err;
         }
 
-        // TODO: IDF-10023 Move responsibility of parent-child tree building to Hub Driver instead of USBH
-        usb_device_info_t parent_dev_info;
-        ESP_ERROR_CHECK(usbh_dev_get_info(event_data->connected.parent_dev_hdl, &parent_dev_info));
-        if (parent_dev_info.speed == USB_SPEED_HIGH) {
-            if (port_speed != parent_dev_info.speed) {
+        usb_speed_t parent_speed;
+        ESP_ERROR_CHECK(ext_hub_get_speed(ext_hub_hdl, &parent_speed));
+        if (parent_speed == USB_SPEED_HIGH) {
+            if (port_speed != parent_speed) {
                 ESP_LOGE(HUB_DRIVER_TAG, "Connected device is %s, transaction translator (TT) is not supported",
                 (char *[]) {
                     "LS", "FS", "HS"
