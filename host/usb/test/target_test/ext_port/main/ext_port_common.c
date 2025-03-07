@@ -74,6 +74,11 @@ const char *const ext_port_event_string[] = {
 
 typedef struct {
     ext_port_hdl_t port_hdl;
+    ext_port_event_t event;
+} ext_port_event_msg_t;
+
+typedef struct {
+    ext_port_hdl_t port_hdl;
     ext_port_parent_request_data_t data;
 } ext_port_hub_request_msg_t;
 
@@ -89,10 +94,13 @@ static void test_ext_port_callback(void *user_arg)
     xSemaphoreGive(process_req_cb);
 }
 
-static void test_ext_port_event_callback(ext_port_hdl_t port_hdl, ext_port_event_data_t *event_data, void *arg)
+static void test_ext_port_event_callback(ext_port_hdl_t port_hdl, ext_port_event_t event, void *arg)
 {
     QueueHandle_t ext_port_event_queue = (QueueHandle_t)arg;
-    ext_port_event_data_t msg = *event_data;
+    ext_port_event_msg_t msg = {
+        .port_hdl = port_hdl,
+        .event = event,
+    };
     xQueueSend(ext_port_event_queue, &msg, portMAX_DELAY);
 }
 
@@ -118,17 +126,20 @@ static void test_wait_ext_port_process_request(void)
     TEST_ASSERT_EQUAL(pdTRUE, xSemaphoreTake(_process_cd_req, pdMS_TO_TICKS(EXT_PORT_PROC_CB_TIMEOUT_MS)));
 }
 
-static void test_wait_ext_port_event(ext_port_event_t event)
+static void test_wait_ext_port_event(ext_port_hdl_t port_hdl, ext_port_event_t event)
 {
+    uint8_t port_num;
     // Get the port event queue from the port's context variable
     QueueHandle_t ext_port_evt_queue = _ext_port_event_queue;
     TEST_ASSERT_NOT_NULL(ext_port_evt_queue);
     // Wait for port callback to send an event message
-    ext_port_event_data_t msg;
+    ext_port_event_msg_t msg;
     BaseType_t ret = xQueueReceive(ext_port_evt_queue, &msg, pdMS_TO_TICKS(EXT_PORT_EVENT_TIMEOUT_MS));
     TEST_ASSERT_EQUAL_MESSAGE(pdPASS, ret, "External Hub port event not generated on time");
+    TEST_ASSERT_EQUAL_MESSAGE(ESP_OK, ext_port_get_port_num(port_hdl, &port_num), "Port number not equal");
     // Check the contents of that event message
-    printf("\tHub port event: %s\n", ext_port_event_string[msg.event]);
+    printf("\tHub port %d event: %s\n", port_num, ext_port_event_string[msg.event]);
+    TEST_ASSERT_EQUAL_MESSAGE(port_hdl, msg.port_hdl, "Unexpected External Hub port handle");
     TEST_ASSERT_EQUAL_MESSAGE(event, msg.event, "Unexpected External Hub port event");
 }
 
@@ -175,7 +186,7 @@ void test_ext_port_setup(void)
     _ext_port_hub_req_queue = xQueueCreate(TEST_EXT_PORT_QUEUE_LEN, sizeof(ext_port_hub_request_msg_t));
     TEST_ASSERT_NOT_NULL(_ext_port_hub_req_queue);
     // Create a queue for ext port event
-    _ext_port_event_queue = xQueueCreate(TEST_EXT_PORT_QUEUE_LEN, sizeof(ext_port_event_data_t));
+    _ext_port_event_queue = xQueueCreate(TEST_EXT_PORT_QUEUE_LEN, sizeof(ext_port_event_msg_t));
     TEST_ASSERT_NOT_NULL(_ext_port_event_queue);
     // Install External Port driver
     ext_port_driver_config_t ext_port_config = {
@@ -379,7 +390,7 @@ usb_speed_t test_ext_port_connected(uint8_t port1, ext_port_hdl_t port_hdl)
     // Process the port
     TEST_ASSERT_EQUAL(ESP_OK, ext_port_process());
     // Processing the port after clear reset should generate the connection event
-    test_wait_ext_port_event(EXT_PORT_CONNECTED);
+    test_wait_ext_port_event(port_hdl, EXT_PORT_CONNECTED);
     // Get device speed
     usb_speed_t dev_speed;
     TEST_ASSERT_EQUAL(ESP_OK, port_api->get_speed(port_hdl, &dev_speed));
@@ -440,7 +451,7 @@ void test_ext_port_imitate_disconnection(uint8_t port1, ext_port_hdl_t port_hdl)
     // Process the port
     TEST_ASSERT_EQUAL(ESP_OK, ext_port_process());
     // The External Port driver should indicate that device has been disconnected and port disconnected
-    test_wait_ext_port_event(EXT_PORT_DISCONNECTED);
+    test_wait_ext_port_event(port_hdl, EXT_PORT_DISCONNECTED);
 }
 
 void test_ext_port_disable(uint8_t port1, ext_port_hdl_t port_hdl)
@@ -463,7 +474,7 @@ void test_ext_port_disable(uint8_t port1, ext_port_hdl_t port_hdl)
                                                              EXT_PORT_PARENT_REQ_CONTROL,
                                                              USB_B_REQUEST_HUB_CLEAR_FEATURE));
     // When port is not gone, it should create a DISCONNECTION event
-    test_wait_ext_port_event(EXT_PORT_DISCONNECTED);
+    test_wait_ext_port_event(port_hdl, EXT_PORT_DISCONNECTED);
     // Disable the port
     hub_port_disable(port1);
     // After completion, trigger the port processing
@@ -500,7 +511,7 @@ void test_ext_port_gone(ext_port_hdl_t port_hdl, test_gone_flag_t flag)
         // Port is enabled, port gone returns ESP_ERR_NOT_FINISHED
         TEST_ASSERT_EQUAL(ESP_ERR_NOT_FINISHED, port_api->gone(port_hdl));
         // Mark the connected port as gone should trigger disconnect event if the port has a device
-        test_wait_ext_port_event(EXT_PORT_DISCONNECTED);
+        test_wait_ext_port_event(port_hdl, EXT_PORT_DISCONNECTED);
         return;
     }
     // Port doesn't have a device, port gone returns ESP_OK
