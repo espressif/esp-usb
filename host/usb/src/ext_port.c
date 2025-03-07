@@ -411,29 +411,7 @@ static void port_stop_handling(ext_port_t *ext_port)
  */
 static void port_event(ext_port_t *ext_port, ext_port_event_t event)
 {
-    ext_port_event_data_t event_data = {
-        .event = event,
-    };
-    switch (event) {
-    case EXT_PORT_CONNECTED:
-        event_data.connected.parent_dev_hdl = ext_port->constant.parent_dev_hdl;
-        event_data.connected.parent_port_num = ext_port->constant.port_num;
-        break;
-    case EXT_PORT_RESET_COMPLETED:
-        event_data.reset_completed.parent_dev_hdl = ext_port->constant.parent_dev_hdl;
-        event_data.reset_completed.parent_port_num = ext_port->constant.port_num;
-        break;
-    case EXT_PORT_DISCONNECTED:
-        event_data.disconnected.parent_dev_hdl = ext_port->constant.parent_dev_hdl;
-        event_data.disconnected.parent_port_num = ext_port->constant.port_num;
-        break;
-    default:
-        // Should never occur
-        abort();
-        break;
-    }
-
-    p_ext_port_driver->constant.event_cb((ext_port_hdl_t)ext_port, &event_data, p_ext_port_driver->constant.event_cb_arg);
+    p_ext_port_driver->constant.event_cb((ext_port_hdl_t)ext_port, event, p_ext_port_driver->constant.event_cb_arg);
 }
 
 /**
