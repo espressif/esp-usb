@@ -1298,6 +1298,18 @@ esp_err_t ext_hub_get_speed(ext_hub_handle_t ext_hub_hdl, usb_speed_t *speed)
     return ESP_OK;
 }
 
+esp_err_t ext_hub_get_dev_addr(ext_hub_handle_t ext_hub_hdl, uint8_t *addr)
+{
+    EXT_HUB_ENTER_CRITICAL();
+    EXT_HUB_CHECK_FROM_CRIT(p_ext_hub_driver != NULL, ESP_ERR_NOT_ALLOWED);
+    EXT_HUB_EXIT_CRITICAL();
+    EXT_HUB_CHECK(ext_hub_hdl != NULL && addr != NULL, ESP_ERR_INVALID_ARG);
+    EXT_HUB_CHECK(dev_is_in_list(ext_hub_hdl), ESP_ERR_NOT_FOUND);
+    ext_hub_dev_t *ext_hub_dev = (ext_hub_dev_t *)ext_hub_hdl;
+    *addr = ext_hub_dev->constant.dev_addr;
+    return ESP_OK;
+}
+
 esp_err_t ext_hub_new_dev(uint8_t dev_addr)
 {
     EXT_HUB_ENTER_CRITICAL();
