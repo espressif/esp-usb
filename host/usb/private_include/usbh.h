@@ -62,8 +62,6 @@ typedef struct {
         } dev_gone_data;
         struct {
             unsigned int dev_uid;
-            usb_device_handle_t parent_dev_hdl;
-            uint8_t port_num;
         } dev_free_data;
         struct {
             uint8_t dev_addr;
@@ -156,8 +154,6 @@ typedef struct {
     unsigned int uid;                       /**< Unique ID assigned to the device */
     usb_speed_t speed;                      /**< Device's speed */
     hcd_port_handle_t root_port_hdl;        /**< Handle of the port that the device is connected to */
-    usb_device_handle_t parent_dev_hdl;     /**< Parent's device handle */
-    uint8_t parent_port_num;                /**< Parent's port number */
 } usbh_dev_params_t;
 
 // ---------------------- USBH Processing Functions ----------------------------

@@ -194,9 +194,6 @@ static esp_err_t dev_tree_node_new(ext_hub_handle_t parent, uint8_t port_num, us
         .uid = dev_tree_node->uid,
         .speed = speed,
         .root_port_hdl = p_hub_driver_obj->constant.root_port_hdl, // Always the same for all devices
-        // TODO: IDF-10023 Move parent-child tree management responsibility to Hub Driver
-        .parent_dev_hdl = NULL,
-        .parent_port_num = port_num,
     };
 
     ret = usbh_devs_add(&params);
