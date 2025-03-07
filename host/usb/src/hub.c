@@ -972,6 +972,28 @@ esp_err_t hub_node_disable(unsigned int node_uid)
     return ret;
 }
 
+esp_err_t hub_node_get_info(unsigned int node_uid, usb_parent_dev_info_t *parent_info)
+{
+    HUB_DRIVER_ENTER_CRITICAL();
+    HUB_DRIVER_CHECK_FROM_CRIT(p_hub_driver_obj != NULL, ESP_ERR_INVALID_STATE);
+    HUB_DRIVER_EXIT_CRITICAL();
+    HUB_DRIVER_CHECK(parent_info != NULL, ESP_ERR_INVALID_ARG);
+
+    dev_tree_node_t *dev_tree_node = dev_tree_node_get_by_uid(node_uid);
+    HUB_DRIVER_CHECK(dev_tree_node != NULL, ESP_ERR_NOT_FOUND);
+    uint8_t parent_dev_addr = 0;
+#if (ENABLE_USB_HUBS)
+    if (dev_tree_node->parent) {
+        ESP_ERROR_CHECK(ext_hub_get_dev_addr((ext_hub_handle_t) dev_tree_node->parent, &parent_dev_addr));
+    }
+#endif  // ENABLE_USB_HUBS
+
+    memset(parent_info, 0, sizeof(usb_parent_dev_info_t));
+    parent_info->dev_addr = parent_dev_addr;
+    parent_info->port_num = dev_tree_node->port_num;
+    return ESP_OK;
+}
+
 esp_err_t hub_dev_new(uint8_t dev_addr)
 {
     HUB_DRIVER_ENTER_CRITICAL();

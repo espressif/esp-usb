@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2015-2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2015-2025 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -74,8 +74,10 @@ typedef bool (*usb_host_enum_filter_cb_t)(const usb_device_desc_t *dev_desc, uin
  * @brief Parent device information
 */
 typedef struct {
-    usb_device_handle_t dev_hdl;                    /**< Device's parent handle */
-    uint8_t port_num;                               /**< Device's parent port number */
+    // IDF-12502: Remove the parent dev_hdl from parent_info structure (breaking change)
+    usb_device_handle_t dev_hdl __attribute__((deprecated)); /**< Device's parent handle: Deprecated, as dev_hdl only valid when device was opened via usbh_devs_open() */
+    uint8_t dev_addr;                                        /**< Device's parent bus address */
+    uint8_t port_num;                                        /**< Device's parent port number */
 } usb_parent_dev_info_t;
 
 /**

@@ -1000,27 +1000,6 @@ exit:
     return ret;
 }
 
-esp_err_t usbh_devs_get_parent_info(unsigned int uid, usb_parent_dev_info_t *parent_info)
-{
-    USBH_CHECK(parent_info, ESP_ERR_INVALID_ARG);
-    esp_err_t ret = ESP_FAIL;
-    device_t *dev_obj = NULL;
-
-    USBH_ENTER_CRITICAL();
-    dev_obj = _find_dev_from_uid(uid);
-    if (dev_obj == NULL) {
-        ret = ESP_ERR_NOT_FOUND;
-        goto exit;
-    } else {
-        parent_info->dev_hdl = dev_obj->constant.parent_dev_hdl;
-        parent_info->port_num = dev_obj->constant.parent_port_num;
-        ret = ESP_OK;
-    }
-exit:
-    USBH_EXIT_CRITICAL();
-    return ret;
-}
-
 esp_err_t usbh_devs_mark_all_free(void)
 {
     USBH_ENTER_CRITICAL();
@@ -1214,6 +1193,18 @@ esp_err_t usbh_dev_close(usb_device_handle_t dev_hdl)
 // ---------------------------- Getters ----------------------------------------
 // -----------------------------------------------------------------------------
 
+esp_err_t usbh_dev_get_uid(usb_device_handle_t dev_hdl, unsigned int *uid)
+{
+    USBH_CHECK(dev_hdl != NULL && uid != NULL, ESP_ERR_INVALID_ARG);
+    device_t *dev_obj = (device_t *)dev_hdl;
+
+    USBH_ENTER_CRITICAL();
+    *uid = dev_obj->constant.uid;
+    USBH_EXIT_CRITICAL();
+
+    return ESP_OK;
+}
+
 esp_err_t usbh_dev_get_addr(usb_device_handle_t dev_hdl, uint8_t *dev_addr)
 {
     USBH_CHECK(dev_hdl != NULL && dev_addr != NULL, ESP_ERR_INVALID_ARG);
@@ -1231,8 +1222,6 @@ esp_err_t usbh_dev_get_info(usb_device_handle_t dev_hdl, usb_device_info_t *dev_
     USBH_CHECK(dev_hdl != NULL && dev_info != NULL, ESP_ERR_INVALID_ARG);
     device_t *dev_obj = (device_t *)dev_hdl;
 
-    dev_info->parent.dev_hdl = dev_obj->constant.parent_dev_hdl;
-    dev_info->parent.port_num = dev_obj->constant.parent_port_num;
     dev_info->speed = dev_obj->constant.speed;
     dev_info->dev_addr = dev_obj->constant.address;
     // Device descriptor might not have been set yet
