@@ -79,8 +79,6 @@ struct device_s {
         // Assigned on device allocation and remain constant for the device's lifetime
         hcd_pipe_handle_t default_pipe;             /**< Pipe handle for Control EP0 */
         hcd_port_handle_t port_hdl;                 /**< HCD port handle */
-        usb_device_handle_t parent_dev_hdl;         /**< Device's parent device handle. NULL if device is connected to the root port */
-        uint8_t parent_port_num;                           /**< Device's parent port number. 0 if device connected to the root port */
         usb_speed_t speed;                          /**< Device's speed */
         unsigned int uid;                           /**< Device's Unique ID */
         /*
@@ -388,8 +386,6 @@ static esp_err_t device_alloc(usbh_dev_params_t *params, device_t **dev_obj_ret)
     dev_obj->dynamic.state = USB_DEVICE_STATE_DEFAULT;
     dev_obj->constant.default_pipe = default_pipe_hdl;
     dev_obj->constant.port_hdl = params->root_port_hdl;
-    dev_obj->constant.parent_dev_hdl = params->parent_dev_hdl;
-    dev_obj->constant.parent_port_num = params->parent_port_num;
     dev_obj->constant.speed = params->speed;
     dev_obj->constant.uid = params->uid;
     // Note: Enumeration related dev_obj->constant fields are initialized later using usbh_dev_set_...() functions
@@ -587,8 +583,6 @@ static inline void handle_free(device_t *dev_obj)
 {
     // Cache a copy of the device's address as we are about to free the device object
     const unsigned int dev_uid = dev_obj->constant.uid;
-    usb_device_handle_t parent_dev_hdl = dev_obj->constant.parent_dev_hdl;
-    const uint8_t parent_port_num = dev_obj->constant.parent_port_num;
     bool all_free;
     ESP_LOGD(USBH_TAG, "Freeing device %d", dev_obj->constant.address);
 
@@ -613,8 +607,6 @@ static inline void handle_free(device_t *dev_obj)
         .event = USBH_EVENT_DEV_FREE,
         .dev_free_data = {
             .dev_uid = dev_uid,
-            .parent_dev_hdl = parent_dev_hdl,
-            .port_num = parent_port_num,
         }
     };
     p_usbh_obj->constant.event_cb(&event_data, p_usbh_obj->constant.event_cb_arg);
