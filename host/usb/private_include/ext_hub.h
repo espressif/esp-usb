@@ -83,19 +83,6 @@ void *ext_hub_get_client(void);
 // -------------------------- External Hub API ---------------------------------
 
 /**
- * @brief Get External Hub device handle by USBH device handle
- *
- * @param[in] dev_hdl       USBH device handle
- * @param[out] ext_hub_hdl  External Hub device handle
- *
- * @return
- *    - ESP_OK: External Hub device handle successfully obtained
- *    - ESP_ERR_INVALID_STATE: External Hub driver is not installed
- *    - ESP_ERR_NOT_FOUND: Device not found
- */
-esp_err_t ext_hub_get_handle(usb_device_handle_t dev_hdl, ext_hub_handle_t *ext_hub_hdl);
-
-/**
  * @brief Add new device
  *
  * After attaching new device:
