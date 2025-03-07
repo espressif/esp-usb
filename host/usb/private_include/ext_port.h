@@ -47,29 +47,6 @@ typedef enum {
     EXT_PORT_DISCONNECTED,          /**< Port has a device disconnection event */
 } ext_port_event_t;
 
-/**
- * @brief Event data object for External Port driver events
- */
-typedef struct {
-    ext_port_event_t event;
-    union {
-        struct {
-            usb_device_handle_t parent_dev_hdl; /**< Ports' parent device handle */
-            uint8_t parent_port_num;            /**< Ports' parent port number */
-        } connected;                            /**< EXT_PORT_CONNECTED event specific data */
-
-        struct {
-            usb_device_handle_t parent_dev_hdl; /**< Ports' parent device handle */
-            uint8_t parent_port_num;            /**< Ports' parent port number */
-        } reset_completed;                      /**< EXT_PORT_RESET_COMPLETED event specific data */
-
-        struct {
-            usb_device_handle_t parent_dev_hdl; /**< Ports' parent device handle */
-            uint8_t parent_port_num;            /**< Ports' parent port number */
-        } disconnected;                         /**< EXT_PORT_DISCONNECTED event specific data */
-    };
-} ext_port_event_data_t;
-
 typedef enum {
     EXT_PORT_PARENT_REQ_CONTROL = 0x01,     /** Port requires action from the parent Hub */
     EXT_PORT_PARENT_REQ_PROC_COMPLETED      /** All ports were handled */
@@ -101,7 +78,7 @@ typedef void (*ext_port_cb_t)(void *user_arg);
  *
  * @note For the Hub Driver only
  */
-typedef void (*ext_port_event_cb_t)(ext_port_hdl_t port_hdl, ext_port_event_data_t *event_data, void *arg);
+typedef void (*ext_port_event_cb_t)(ext_port_hdl_t port_hdl, ext_port_event_t event, void *arg);
 
 /**
  * @brief Callback used to indicate that the External Port driver requires a Hub class specific request
