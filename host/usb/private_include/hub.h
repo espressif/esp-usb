@@ -194,6 +194,22 @@ esp_err_t hub_node_active(unsigned int node_uid);
 esp_err_t hub_node_disable(unsigned int node_uid);
 
 /**
+ * @brief Get the node information of the device
+ *
+ * @note This function should only be called from the Host Library task
+ *
+ * @param[in] node_uid  Device's node unique ID
+ * @param[out] info     Device information
+ *
+ * @return
+ *    - ESP_ERR_NOT_ALLOWED if the Hub driver is not installed
+ *    - ESP_ERR_INVALID_ARG if the info pointer is NULL
+ *    - ESP_ERR_NOT_FOUND if the device node is not found
+ *    - ESP_OK if Device's information obtained successfully
+ */
+esp_err_t hub_node_get_info(unsigned int node_uid, usb_parent_dev_info_t *info);
+
+/**
  * @brief Notify Hub driver that new device has been attached
  *
  * If device is has a HUB class, then it will be added as External Hub to Hub Driver.

@@ -70,7 +70,7 @@ typedef enum {
 struct dev_tree_node_s {
     TAILQ_ENTRY(dev_tree_node_s) tailq_entry;   /**< Entry for the device tree node object tailq */
     unsigned int uid;                           /**< Device's unique ID */
-    void* parent;                               /**< Device's parent context */
+    void *parent;                               /**< Device's parent context */
     uint8_t port_num;                           /**< Device's parent port number */
 };
 
@@ -164,7 +164,7 @@ static dev_tree_node_t *dev_tree_node_get_by_uid(unsigned int node_uid)
  *
  * @return esp_err_t
  */
-static esp_err_t dev_tree_node_new(void* parent, uint8_t port_num, usb_speed_t speed)
+static esp_err_t dev_tree_node_new(void *parent, uint8_t port_num, usb_speed_t speed)
 {
     esp_err_t ret;
     // Allocate memory for a new device tree node
@@ -220,7 +220,7 @@ fail:
     return ret;
 }
 
-static esp_err_t dev_tree_node_reset_completed(void* parent, uint8_t port_num)
+static esp_err_t dev_tree_node_reset_completed(void *parent, uint8_t port_num)
 {
     dev_tree_node_t *dev_tree_node = NULL;
     dev_tree_node_t *dev_tree_iter;
@@ -248,7 +248,7 @@ static esp_err_t dev_tree_node_reset_completed(void* parent, uint8_t port_num)
     return ESP_OK;
 }
 
-static esp_err_t dev_tree_node_dev_gone(void* parent, uint8_t port_num)
+static esp_err_t dev_tree_node_dev_gone(void *parent, uint8_t port_num)
 {
     dev_tree_node_t *dev_tree_node = NULL;
     dev_tree_node_t *dev_tree_iter;
@@ -284,7 +284,7 @@ static esp_err_t dev_tree_node_dev_gone(void* parent, uint8_t port_num)
  *
  * @return esp_err_t
  */
-static esp_err_t dev_tree_node_remove_by_parent(void* parent, uint8_t port_num)
+static esp_err_t dev_tree_node_remove_by_parent(void *parent, uint8_t port_num)
 {
     dev_tree_node_t *dev_tree_node = NULL;
     dev_tree_node_t *dev_tree_iter;
@@ -793,6 +793,28 @@ esp_err_t hub_node_disable(unsigned int node_uid)
 #endif // ENABLE_USB_HUBS
     }
     return ret;
+}
+
+esp_err_t hub_node_get_info(unsigned int node_uid, usb_parent_dev_info_t *parent_info)
+{
+    HUB_DRIVER_ENTER_CRITICAL();
+    HUB_DRIVER_CHECK_FROM_CRIT(p_hub_driver_obj != NULL, ESP_ERR_NOT_ALLOWED);
+    HUB_DRIVER_EXIT_CRITICAL();
+    HUB_DRIVER_CHECK(parent_info != NULL, ESP_ERR_INVALID_ARG);
+
+    dev_tree_node_t *dev_tree_node = dev_tree_node_get_by_uid(node_uid);
+    HUB_DRIVER_CHECK(dev_tree_node != NULL, ESP_ERR_NOT_FOUND);
+    uint8_t parent_dev_addr = 0;
+#if (ENABLE_USB_HUBS)
+    if (dev_tree_node->parent) {
+        ESP_ERROR_CHECK(ext_hub_get_dev_addr((ext_hub_handle_t) dev_tree_node->parent, &parent_dev_addr));
+    }
+#endif  // ENABLE_USB_HUBS
+
+    memset(parent_info, 0, sizeof(usb_parent_dev_info_t));
+    parent_info->dev_addr = parent_dev_addr;
+    parent_info->port_num = dev_tree_node->port_num;
+    return ESP_OK;
 }
 
 esp_err_t hub_dev_new(uint8_t dev_addr)

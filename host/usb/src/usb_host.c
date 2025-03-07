@@ -1093,7 +1093,16 @@ esp_err_t usb_host_device_addr_list_fill(int list_len, uint8_t *dev_addr_list, i
 
 esp_err_t usb_host_device_info(usb_device_handle_t dev_hdl, usb_device_info_t *dev_info)
 {
+    unsigned int uid;
     HOST_CHECK(dev_hdl != NULL && dev_info != NULL, ESP_ERR_INVALID_ARG);
+    esp_err_t ret;
+
+    HOST_CHECK(usbh_dev_get_uid(dev_hdl, &uid) == ESP_OK, ESP_ERR_INVALID_STATE); // Should never fail
+    ret = hub_node_get_info(uid, &dev_info->parent);
+    if (ret != ESP_OK) {
+        ESP_LOGE(USB_HOST_TAG, "Unable to get dev tree node info, parent information not available");
+        return ret;
+    }
     return usbh_dev_get_info(dev_hdl, dev_info);
 }
 
