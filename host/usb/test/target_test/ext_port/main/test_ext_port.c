@@ -92,9 +92,8 @@ TEST_CASE("Port: disconnected", "[low_speed][full_speed][high_speed]")
     TEST_ASSERT_TRUE(TEST_PORT_NUM_EMPTY <= port_num);
     // Create External Port
     ext_port_config_t port_config = {
-        .context = (void *) hub_get_context() /* use any before IDF-10023 */,
-        .parent_dev_hdl = (void *) hub_get_context() /* use any before IDF-10023 */,
-        .parent_port_num = TEST_PORT_NUM_EMPTY,
+        .context = (void *) hub_get_context(),
+        .port_num = TEST_PORT_NUM_EMPTY,
         .port_power_delay_ms = hub_get_port_poweron_delay_ms(),
     };
     ext_port_hdl_t port_hdl = test_ext_port_new(&port_config);
@@ -136,9 +135,8 @@ TEST_CASE("Port: enumerate child device Low-speed", "[ext_port][low_speed]")
     TEST_ASSERT_TRUE(TEST_PORT_NUM_DEVICE_LS <= port_num);
     // Create External Port
     ext_port_config_t port_config = {
-        .context = (void *) hub_get_context() /* use any before IDF-10023 */,
-        .parent_dev_hdl = (void *) hub_get_context() /* use any before IDF-10023 */,
-        .parent_port_num = TEST_PORT_NUM_DEVICE_LS,
+        .context = (void *) hub_get_context(),
+        .port_num = TEST_PORT_NUM_DEVICE_LS,
         .port_power_delay_ms = hub_get_port_poweron_delay_ms(),
     };
     ext_port_hdl_t port_hdl = test_ext_port_new(&port_config);
@@ -193,9 +191,8 @@ TEST_CASE("Port: enumerate child device Full-speed", "[ext_port][full_speed]")
     TEST_ASSERT_TRUE(TEST_PORT_NUM_DEVICE_FSHS <= port_num);
     // Create External Port
     ext_port_config_t port_config = {
-        .context = (void *) hub_get_context() /* use any before IDF-10023 */,
-        .parent_dev_hdl = (void *) hub_get_context() /* use any before IDF-10023 */,
-        .parent_port_num = TEST_PORT_NUM_DEVICE_FSHS,
+        .context = (void *) hub_get_context(),
+        .port_num = TEST_PORT_NUM_DEVICE_FSHS,
         .port_power_delay_ms = hub_get_port_poweron_delay_ms(),
     };
     ext_port_hdl_t port_hdl = test_ext_port_new(&port_config);
@@ -250,9 +247,8 @@ TEST_CASE("Port: enumerate child device High-speed", "[ext_port][high_speed]")
     TEST_ASSERT_TRUE(TEST_PORT_NUM_DEVICE_FSHS <= port_num);
     // Create External Port
     ext_port_config_t port_config = {
-        .context = (void *) hub_get_context() /* use any before IDF-10023 */,
-        .parent_dev_hdl = (void *) hub_get_context() /* use any before IDF-10023 */,
-        .parent_port_num = TEST_PORT_NUM_DEVICE_FSHS,
+        .context = (void *) hub_get_context(),
+        .port_num = TEST_PORT_NUM_DEVICE_FSHS,
         .port_power_delay_ms = hub_get_port_poweron_delay_ms(),
     };
     ext_port_hdl_t port_hdl = test_ext_port_new(&port_config);
@@ -307,9 +303,8 @@ TEST_CASE("Port: recycle", "[ext_port][full_speed][high_speed]")
     TEST_ASSERT_TRUE(TEST_PORT_NUM_DEVICE_FSHS <= port_num);
     // Create External Port
     ext_port_config_t port_config = {
-        .context = (void *) hub_get_context() /* use any before IDF-10023 */,
-        .parent_dev_hdl = (void *) hub_get_context() /* use any before IDF-10023 */,
-        .parent_port_num = TEST_PORT_NUM_DEVICE_FSHS,
+        .context = (void *) hub_get_context(),
+        .port_num = TEST_PORT_NUM_DEVICE_FSHS,
         .port_power_delay_ms = hub_get_port_poweron_delay_ms(),
     };
     ext_port_hdl_t port_hdl = test_ext_port_new(&port_config);
@@ -352,9 +347,8 @@ TEST_CASE("Port: recycle when port is gone", "[ext_port][low_speed][full_speed][
     TEST_ASSERT_TRUE(TEST_PORT_NUM_DEVICE_FSHS <= port_num);
     // Create External Port
     ext_port_config_t port_config = {
-        .context = (void *) hub_get_context() /* use any before IDF-10023 */,
-        .parent_dev_hdl = (void *) hub_get_context() /* use any before IDF-10023 */,
-        .parent_port_num = TEST_PORT_NUM_DEVICE_FSHS,
+        .context = (void *) hub_get_context(),
+        .port_num = TEST_PORT_NUM_DEVICE_FSHS,
         .port_power_delay_ms = hub_get_port_poweron_delay_ms(),
     };
     ext_port_hdl_t port_hdl = test_ext_port_new(&port_config);
@@ -397,9 +391,8 @@ TEST_CASE("Port: disable", "[ext_port][full_speed][high_speed]")
     TEST_ASSERT_TRUE(TEST_PORT_NUM_DEVICE_FSHS <= port_num);
     // Create External Port
     ext_port_config_t port_config = {
-        .context = (void *) hub_get_context() /* use any before IDF-10023 */,
-        .parent_dev_hdl = (void *) hub_get_context() /* use any before IDF-10023 */,
-        .parent_port_num = TEST_PORT_NUM_DEVICE_FSHS,
+        .context = (void *) hub_get_context(),
+        .port_num = TEST_PORT_NUM_DEVICE_FSHS,
         .port_power_delay_ms = hub_get_port_poweron_delay_ms(),
     };
     ext_port_hdl_t port_hdl = test_ext_port_new(&port_config);
@@ -440,9 +433,8 @@ TEST_CASE("Port: gone in state - powered on", "[ext_port][full_speed][high_speed
     TEST_ASSERT_TRUE(TEST_PORT_NUM_DEVICE_FSHS <= port_num);
     // Create External Port
     ext_port_config_t port_config = {
-        .context = (void *) hub_get_context() /* use any before IDF-10023 */,
-        .parent_dev_hdl = (void *) hub_get_context() /* use any before IDF-10023 */,
-        .parent_port_num = TEST_PORT_NUM_DEVICE_FSHS,
+        .context = (void *) hub_get_context(),
+        .port_num = TEST_PORT_NUM_DEVICE_FSHS,
         .port_power_delay_ms = hub_get_port_poweron_delay_ms(),
     };
     ext_port_hdl_t port_hdl = test_ext_port_new(&port_config);
@@ -478,9 +470,8 @@ TEST_CASE("Port: gone in state - enabled", "[ext_port][full_speed][high_speed]")
     TEST_ASSERT_TRUE(TEST_PORT_NUM_DEVICE_FSHS <= port_num);
     // Create External Port
     ext_port_config_t port_config = {
-        .context = (void *) hub_get_context() /* use any before IDF-10023 */,
-        .parent_dev_hdl = (void *) hub_get_context() /* use any before IDF-10023 */,
-        .parent_port_num = TEST_PORT_NUM_DEVICE_FSHS,
+        .context = (void *) hub_get_context(),
+        .port_num = TEST_PORT_NUM_DEVICE_FSHS,
         .port_power_delay_ms = hub_get_port_poweron_delay_ms(),
     };
     ext_port_hdl_t port_hdl = test_ext_port_new(&port_config);
