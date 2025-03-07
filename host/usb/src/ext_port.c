@@ -74,9 +74,6 @@ struct ext_port_s {
     uint8_t dev_reset_attempts;             /**< Ports' device reset failure */
 
     struct {
-        // Ports' parent info for optimisation and better debug output
-        usb_device_handle_t parent_dev_hdl;     /**< Ports' parent device handle */
-        uint8_t parent_dev_addr;                /**< Ports' parent device bus address */
         // Port related constant members
         void *context;                          /**< Ports' parent External Hub handle */
         uint8_t port_num;                       /**< Ports' parent External Hub Port number */
@@ -388,8 +385,7 @@ static void port_stop_handling(ext_port_t *ext_port)
     }
     if (ext_port->action_flags) {
         // Port should be freed but has actions
-        ESP_LOGD(EXT_PORT_TAG, "[%d:%d] Port stop handling. Dropped actions 0x%"PRIx32"",
-                 ext_port->constant.parent_dev_addr,
+        ESP_LOGD(EXT_PORT_TAG, "Port%d stop handling. Dropped actions 0x%"PRIx32"",
                  ext_port->constant.port_num,
                  ext_port->action_flags);
     }
@@ -430,61 +426,6 @@ static ext_port_t *get_port_from_pending_list(void)
 }
 
 /**
- * @brief Allocates port object
- *
- * Allocates new por object with following parameters:
- * - Port state:         USB_PORT_STATE_NOT_CONFIGURED
- * - Port device status: PORT_DEV_NOT_PRESENT
- *
- * @param[in] context           Ports' parent hub handle
- * @param[in] parent_dev_hdl    Ports' parent device handle
- * @param[in] parent_port_num   Ports' parent port number
- * @param[in] port_delay_ms     Ports' Power on time to Power Good, ms
- * @param[out] port_obj         Port objects' pointer
- * @return
- *    - ESP_ERR_INVALID_ARG:    Unable to allocate the port object: parent hub handle and parent device handle must be not NULL
- *    - ESP_ERR_NO_MEM:         Unable to allocate the port object: no memory
- *    - ESP_ERR_NOT_FINISHED:   Unable to allocate the port object: parent device is not available
- *    - ESP_OK:                 Port object created successfully
- */
-static esp_err_t port_alloc(void *context, usb_device_handle_t parent_dev_hdl, uint8_t parent_port_num, uint16_t port_delay_ms, ext_port_t **port_obj)
-{
-    uint8_t parent_dev_addr = 0;
-    EXT_PORT_CHECK(context != NULL && parent_dev_hdl != NULL, ESP_ERR_INVALID_ARG);
-    // This is the one exception from the requirement to use only the Ext Hub Driver API.
-    // TODO: IDF-10023 Move responsibility of parent-child tree building to Hub Driver instead of USBH
-    EXT_PORT_CHECK(usbh_dev_get_addr(parent_dev_hdl, &parent_dev_addr) == ESP_OK, ESP_ERR_NOT_FINISHED);
-
-    ext_port_t *ext_port = heap_caps_calloc(1, sizeof(ext_port_t), MALLOC_CAP_DEFAULT);
-    if (ext_port == NULL) {
-        return ESP_ERR_NO_MEM;
-    }
-
-    ext_port->constant.parent_dev_hdl = parent_dev_hdl;
-    ext_port->constant.parent_dev_addr = parent_dev_addr;
-    ext_port->constant.context = context;
-    ext_port->constant.port_num = parent_port_num;
-#if (EXT_PORT_POWER_ON_CUSTOM_DELAY)
-    ext_port->constant.power_on_delay_ms = EXT_PORT_POWER_ON_CUSTOM_DELAY_MS;
-#else
-    // We don't need any additional delay in case port_delay_ms == 0, because this usually means
-    // that parent Hub device has no power switches
-    ext_port->constant.power_on_delay_ms = port_delay_ms;
-#endif // EXT_PORT_POWER_ON_CUSTOM_DELAY
-
-    ext_port->state = USB_PORT_STATE_NOT_CONFIGURED;
-    ext_port->dev_state = PORT_DEV_NOT_PRESENT;
-
-    ESP_LOGD(EXT_PORT_TAG, "[%d:%d] Port has been added (PwrOn2PwrGood=%d ms)",
-             ext_port->constant.parent_dev_addr,
-             ext_port->constant.port_num,
-             ext_port->constant.power_on_delay_ms);
-
-    *port_obj = ext_port;
-    return ESP_OK;
-}
-
-/**
  * @brief Port object handling complete
  *
  * @note This is the final stage of port object handling.
@@ -503,8 +444,7 @@ static esp_err_t handle_complete(ext_port_t *ext_port)
     bool all_ports_were_handled = true;
     bool has_pending_ports = false;
 
-    ESP_LOGD(EXT_PORT_TAG, "[%d:%d] Port is %s",
-             ext_port->constant.parent_dev_addr,
+    ESP_LOGD(EXT_PORT_TAG, "Port%d is %s",
              ext_port->constant.port_num,
              ext_port->flags.is_gone ? "gone" :
              (ext_port->dev_state == PORT_DEV_PRESENT) ? "active" : "idle");
@@ -571,9 +511,7 @@ static bool handle_port_status(ext_port_t *ext_port)
 {
     bool need_processing = false;
     if (port_is_in_reset(ext_port)) {
-        ESP_LOGD(EXT_PORT_TAG, "[%d:%d] Port still in reset, wait and repeat get status...",
-                 ext_port->constant.parent_dev_addr,
-                 ext_port->constant.port_num);
+        ESP_LOGD(EXT_PORT_TAG, "Port%d still in reset, wait and repeat get status...", ext_port->constant.port_num);
         port_request_status(ext_port);
         need_processing = true;
     }
@@ -601,9 +539,7 @@ static void handle_port_connection(ext_port_t *ext_port)
     case USB_PORT_STATE_DISABLED:
         if (port_has_connection(ext_port)) {
             if (ext_port->dev_state == PORT_DEV_PRESENT) {
-                ESP_LOGE(EXT_PORT_TAG, "[%d:%d] Mismatch port state and device status",
-                         ext_port->constant.parent_dev_addr,
-                         ext_port->constant.port_num);
+                ESP_LOGE(EXT_PORT_TAG, "Port%d mismatch state and device status", ext_port->constant.port_num);
                 has_device = true;
             } else {
                 // New device connected, flush reset attempts
@@ -617,9 +553,7 @@ static void handle_port_connection(ext_port_t *ext_port)
     case USB_PORT_STATE_RESETTING:
         if (!port_has_connection(ext_port)) {
             if (ext_port->dev_state == PORT_DEV_PRESENT) {
-                ESP_LOGE(EXT_PORT_TAG, "[%d:%d] Failed to issue downstream port reset",
-                         ext_port->constant.parent_dev_addr,
-                         ext_port->constant.port_num);
+                ESP_LOGE(EXT_PORT_TAG, "Port%d failed to issue reset", ext_port->constant.port_num);
                 has_device = true;
             } else {
                 ext_port->state = USB_PORT_STATE_DISCONNECTED;
@@ -662,8 +596,7 @@ static bool handle_port_changes(ext_port_t *ext_port)
         need_processing = true;
     } else if (port_has_changed_from_enable(ext_port)) {
         // For more information, refer to section 11.8.1 Port Error of usb_2.0 specification
-        ESP_LOGE(EXT_PORT_TAG, "[%d:%d] Error on port (state=%d, dev=%d)",
-                 ext_port->constant.parent_dev_addr,
+        ESP_LOGE(EXT_PORT_TAG, "Port%d error: state=%d, dev=%d",
                  ext_port->constant.port_num,
                  ext_port->state,
                  ext_port->dev_state == PORT_DEV_PRESENT);
@@ -711,9 +644,7 @@ static void handle_port_state(ext_port_t *ext_port)
                 port_set_feature(ext_port, USB_FEATURE_PORT_RESET);
                 need_handling = true;
             } else {
-                ESP_LOGE(EXT_PORT_TAG, "[%d:%d] Unable to reset the device",
-                         ext_port->constant.parent_dev_addr,
-                         ext_port->constant.port_num);
+                ESP_LOGE(EXT_PORT_TAG, "Port%d unable to reset the device", ext_port->constant.port_num);
             }
         }
         break;
@@ -744,9 +675,7 @@ static void handle_port_state(ext_port_t *ext_port)
         } else {
             // Port in resetting state and doesn't have connection
             // Error case, could be, when device was removed during port reset
-            ESP_LOGE(EXT_PORT_TAG, "[%d:%d] Device gone during port reset, recover port",
-                     ext_port->constant.parent_dev_addr,
-                     ext_port->constant.port_num);
+            ESP_LOGE(EXT_PORT_TAG, "Port%d device gone during reset, recover port", ext_port->constant.port_num);
             new_state = USB_PORT_STATE_DISCONNECTED;
         }
         break;
@@ -772,9 +701,7 @@ static void handle_port_state(ext_port_t *ext_port)
                 }
                 need_handling = true;
             } else {
-                ESP_LOGE(EXT_PORT_TAG, "[%d:%d] Enabled, but doesn't have connection",
-                         ext_port->constant.parent_dev_addr,
-                         ext_port->constant.port_num);
+                ESP_LOGE(EXT_PORT_TAG, "Port%d enabled, but doesn't have connection", ext_port->constant.port_num);
             }
         } else {
             // If port was enabled, there should be an active device
@@ -784,9 +711,7 @@ static void handle_port_state(ext_port_t *ext_port)
                 ext_port->flags.waiting_recycle = 1;
             } else {
                 // Error state
-                ESP_LOGE(EXT_PORT_TAG, "[%d:%d] Enabled, but doesn't have a device",
-                         ext_port->constant.parent_dev_addr,
-                         ext_port->constant.port_num);
+                ESP_LOGE(EXT_PORT_TAG, "Port%d enabled, but doesn't have a device", ext_port->constant.port_num);
                 new_state = USB_PORT_STATE_DISCONNECTED;
             }
         }
@@ -798,7 +723,7 @@ static void handle_port_state(ext_port_t *ext_port)
     }
 
     if (curr_state != new_state) {
-        ESP_LOGD(EXT_PORT_TAG, "New state: %d", new_state);
+        ESP_LOGD(EXT_PORT_TAG, "Port%d state change: %d->%d", ext_port->constant.port_num, curr_state, new_state);
         ext_port->state = new_state;
     }
 
@@ -821,11 +746,10 @@ static void handle_port_state(ext_port_t *ext_port)
  */
 static void handle_port(ext_port_t *ext_port)
 {
-    ESP_LOGD(EXT_PORT_TAG, "[%d:%d] change=0x%04x, status=0x%04x, state=%d",
-             ext_port->constant.parent_dev_addr,
+    ESP_LOGD(EXT_PORT_TAG, "Port%d [%04x.%04x], state=%d",
              ext_port->constant.port_num,
-             ext_port->status.wPortChange.val,
              ext_port->status.wPortStatus.val,
+             ext_port->status.wPortChange.val,
              ext_port->state);
 
     if (handle_port_changes(ext_port)) {
@@ -850,8 +774,7 @@ static void handle_recycle(ext_port_t *ext_port)
 {
     assert(ext_port->flags.waiting_recycle == 1);
 
-    ESP_LOGD(EXT_PORT_TAG, "[%d:%d] Port recycle (state=%d, dev=%d)",
-             ext_port->constant.parent_dev_addr,
+    ESP_LOGD(EXT_PORT_TAG, "Port%d recycle (state=%d, dev=%d)",
              ext_port->constant.port_num,
              ext_port->state,
              ext_port->dev_state);
@@ -890,8 +813,7 @@ static void handle_recycle(ext_port_t *ext_port)
  */
 static void handle_disable(ext_port_t *ext_port)
 {
-    ESP_LOGD(EXT_PORT_TAG, "[%d:%d] Disable (state=%d, dev=%d)",
-             ext_port->constant.parent_dev_addr,
+    ESP_LOGD(EXT_PORT_TAG, "Port%d disable (state=%d, dev=%d)",
              ext_port->constant.port_num,
              ext_port->state,
              ext_port->dev_state);
@@ -902,8 +824,7 @@ static void handle_disable(ext_port_t *ext_port)
 
     if (ext_port->state == USB_PORT_STATE_ENABLED) {
         if (port_has_connection(ext_port)) {
-            ESP_LOGE(EXT_PORT_TAG, "[%d:%d] Port disabled, reset attempts=%d",
-                     ext_port->constant.parent_dev_addr,
+            ESP_LOGE(EXT_PORT_TAG, "Port%d disabled, reset attempts=%d",
                      ext_port->constant.port_num,
                      ext_port->dev_reset_attempts);
 
@@ -939,34 +860,45 @@ static void handle_disable(ext_port_t *ext_port)
  * @param[in] port_cfg              Port configuration
  * @param[out] port_hdl             Port object handle
  * @return
- *    - ESP_ERR_INVALID_STATE:      The External Port Driver has not been installed
- *    - ESP_ERR_INVALID_ARG:        Unable to create the port, arguments couldn't be NULL
- *    - ESP_ERR_NO_MEM:             Unable to allocate the port object: no memory
- *    - ESP_ERR_NOT_FINISHED:       Unable to allocate the port object: parent device is not available
- *    - ESP_OK:                     Port has been created and added to the pending list
+ *    - ESP_ERR_INVALID_STATE if the External Port Driver has not been installed
+ *    - ESP_ERR_INVALID_ARG if unable to create the port, arguments couldn't be NULL
+ *    - ESP_ERR_NO_MEM if unable to allocate the port object: no memory
+ *    - ESP_OK if Port has been created and added to the pending list
  */
 static esp_err_t port_new(void *port_cfg, void **port_hdl)
 {
     EXT_PORT_CHECK(p_ext_port_driver != NULL, ESP_ERR_INVALID_STATE);
     EXT_PORT_CHECK(port_cfg != NULL && port_hdl != NULL, ESP_ERR_INVALID_ARG);
 
-    ext_port_t *port = NULL;
     ext_port_config_t *config = (ext_port_config_t *)port_cfg;
-    esp_err_t ret = port_alloc(config->context,
-                               config->parent_dev_hdl,
-                               config->parent_port_num,
-                               config->port_power_delay_ms,
-                               &port);
+    // For the external port, context is a parent hub handle, cannot be NULL
+    EXT_PORT_CHECK(config->context != NULL, ESP_ERR_INVALID_ARG);
 
-    if (ret != ESP_OK) {
-        *port_hdl = NULL;
-        goto exit;
+    ext_port_t *ext_port = heap_caps_calloc(1, sizeof(ext_port_t), MALLOC_CAP_DEFAULT);
+    if (ext_port == NULL) {
+        return ESP_ERR_NO_MEM;
     }
 
-    port_set_actions(port, PORT_ACTION_HANDLE);
-    *port_hdl = (ext_port_hdl_t) port;
-exit:
-    return ret;
+    ext_port->constant.context = config->context;
+    ext_port->constant.port_num = config->port_num;
+#if (EXT_PORT_POWER_ON_CUSTOM_DELAY)
+    ext_port->constant.power_on_delay_ms = EXT_PORT_POWER_ON_CUSTOM_DELAY_MS;
+#else
+    // We don't need any additional delay in case port_power_delay_ms == 0, because this usually means
+    // that parent Hub device has no power switches
+    ext_port->constant.power_on_delay_ms = config->port_power_delay_ms;
+#endif // EXT_PORT_POWER_ON_CUSTOM_DELAY
+
+    ext_port->state = USB_PORT_STATE_NOT_CONFIGURED;
+    ext_port->dev_state = PORT_DEV_NOT_PRESENT;
+
+    ESP_LOGD(EXT_PORT_TAG, "Port%d has been added (PwrOn2PwrGood=%d ms)",
+             ext_port->constant.port_num,
+             ext_port->constant.power_on_delay_ms);
+
+    port_set_actions(ext_port, PORT_ACTION_HANDLE);
+    *port_hdl = (ext_port_hdl_t) ext_port;
+    return ESP_OK;
 }
 
 /**
@@ -1016,9 +948,7 @@ static esp_err_t port_reset(void *port_hdl)
 
     EXT_PORT_CHECK(port_has_connection(ext_port), ESP_ERR_INVALID_STATE);
 
-    ESP_LOGD(EXT_PORT_TAG, "[%d:%d] Port reset request",
-             ext_port->constant.parent_dev_addr,
-             ext_port->constant.port_num);
+    ESP_LOGD(EXT_PORT_TAG, "Port%d reset request", ext_port->constant.port_num);
 
     // Reset can be triggered only when port is enabled
     EXT_PORT_CHECK(ext_port->state == USB_PORT_STATE_ENABLED, ESP_ERR_INVALID_STATE);
@@ -1084,9 +1014,7 @@ static esp_err_t port_active(void *port_hdl)
     EXT_PORT_CHECK(port_hdl != NULL, ESP_ERR_INVALID_ARG);
     ext_port_t *ext_port = (ext_port_t *) port_hdl;
 
-    ESP_LOGD(EXT_PORT_TAG, "[%d:%d] Port has an enumerated device",
-             ext_port->constant.parent_dev_addr,
-             ext_port->constant.port_num);
+    ESP_LOGD(EXT_PORT_TAG, "Port%d has an enumerated device", ext_port->constant.port_num);
 
     ext_port->flags.has_enum_device = 1;
 
@@ -1111,9 +1039,7 @@ static esp_err_t port_disable(void *port_hdl)
     EXT_PORT_CHECK(port_hdl != NULL, ESP_ERR_INVALID_ARG);
     ext_port_t *ext_port = (ext_port_t *) port_hdl;
 
-    ESP_LOGD(EXT_PORT_TAG, "[%d:%d] Disable",
-             ext_port->constant.parent_dev_addr,
-             ext_port->constant.port_num);
+    ESP_LOGD(EXT_PORT_TAG, "Port%d disable", ext_port->constant.port_num);
 
     EXT_PORT_CHECK(ext_port->state == USB_PORT_STATE_ENABLED, ESP_ERR_INVALID_STATE);
 
@@ -1141,9 +1067,7 @@ static esp_err_t port_delete(void *port_hdl)
     assert(ext_port->dev_state == PORT_DEV_NOT_PRESENT);    // Port should not have a device
     assert(ext_port->flags.in_pending_list == 0);           // Port should not be in pending list
 
-    ESP_LOGD(EXT_PORT_TAG, "[%d:%d] Freeing",
-             ext_port->constant.parent_dev_addr,
-             ext_port->constant.port_num);
+    ESP_LOGD(EXT_PORT_TAG, "Port%d freeing", ext_port->constant.port_num);
 
     heap_caps_free(ext_port);
 
@@ -1168,8 +1092,7 @@ static esp_err_t port_gone(void *port_hdl)
     EXT_PORT_CHECK(port_hdl != NULL, ESP_ERR_INVALID_ARG);
     ext_port_t *ext_port = (ext_port_t *)port_hdl;
 
-    ESP_LOGD(EXT_PORT_TAG, "[%d:%d] Port is gone (state=%d, dev=%d)",
-             ext_port->constant.parent_dev_addr,
+    ESP_LOGD(EXT_PORT_TAG, "Port%d is gone (state=%d, dev=%d)",
              ext_port->constant.port_num,
              ext_port->state,
              ext_port->dev_state);
@@ -1368,10 +1291,7 @@ esp_err_t ext_port_process(void)
 
     while (action_flags) {
         // Keep processing until all port's action have been handled
-        ESP_LOGD(EXT_PORT_TAG, "[%d:%d] Processing actions 0x%"PRIx32"",
-                 ext_port->constant.parent_dev_addr,
-                 ext_port->constant.port_num,
-                 action_flags);
+        ESP_LOGD(EXT_PORT_TAG, "Port%d actions 0x%"PRIx32"", ext_port->constant.port_num, action_flags);
 
         if (action_flags & PORT_ACTION_HANDLE) {
             handle_port(ext_port);
