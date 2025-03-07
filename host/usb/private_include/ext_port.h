@@ -106,8 +106,7 @@ typedef struct {
  */
 typedef struct {
     void *context;                              /**< Ports' parent external Hub handle */
-    usb_device_handle_t parent_dev_hdl;         /**< Ports' parent device handle */
-    uint8_t parent_port_num;                    /**< Ports' parent port number */
+    uint8_t port_num;                    /**< Ports' parent port number */
     uint16_t port_power_delay_ms;               /**< Ports' Power on time to Power Good, ms */
 } ext_port_config_t;
 
