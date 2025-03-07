@@ -337,18 +337,18 @@ static void ext_port_callback(void *user_arg)
     p_hub_driver_obj->constant.proc_req_cb(USB_PROC_REQ_SOURCE_HUB, false, p_hub_driver_obj->constant.proc_req_cb_arg);
 }
 
-static void ext_port_event_callback(ext_port_hdl_t port_hdl, ext_port_event_data_t *event_data, void *arg)
+static void ext_port_event_callback(ext_port_hdl_t port_hdl, ext_port_event_t event, void *arg)
 {
+    uint8_t port_num;
     ext_hub_handle_t ext_hub_hdl = (ext_hub_handle_t) ext_port_get_context(port_hdl);
+    ESP_ERROR_CHECK(ext_port_get_port_num(port_hdl, &port_num));
 
-    switch (event_data->event) {
+    switch (event) {
     case EXT_PORT_CONNECTED:
         // First reset is done by ext_port logic
         usb_speed_t port_speed;
 
-        if (ext_hub_port_get_speed(ext_hub_hdl,
-                                   event_data->connected.parent_port_num,
-                                   &port_speed) != ESP_OK) {
+        if (ext_hub_port_get_speed(ext_hub_hdl, port_num, &port_speed) != ESP_OK) {
             goto new_ds_dev_err;
         }
 
@@ -364,20 +364,20 @@ static void ext_port_event_callback(ext_port_hdl_t port_hdl, ext_port_event_data
             }
         }
 
-        if (dev_tree_node_new(ext_hub_hdl, event_data->connected.parent_port_num, port_speed) != ESP_OK) {
+        if (dev_tree_node_new(ext_hub_hdl, port_num, port_speed) != ESP_OK) {
             ESP_LOGE(HUB_DRIVER_TAG, "Failed to add new downstream device");
             goto new_ds_dev_err;
         }
         break;
 new_ds_dev_err:
-        ext_hub_port_disable(ext_hub_hdl, event_data->connected.parent_port_num);
+        ext_hub_port_disable(ext_hub_hdl, port_num);
         break;
     case EXT_PORT_RESET_COMPLETED:
-        ESP_ERROR_CHECK(dev_tree_node_reset_completed(ext_hub_hdl, event_data->reset_completed.parent_port_num));
+        ESP_ERROR_CHECK(dev_tree_node_reset_completed(ext_hub_hdl, port_num));
         break;
     case EXT_PORT_DISCONNECTED:
         // The node could be freed by now, no need to verify the result here
-        dev_tree_node_dev_gone(ext_hub_hdl, event_data->disconnected.parent_port_num);
+        dev_tree_node_dev_gone(ext_hub_hdl, port_num);
         break;
     default:
         // Should never occur
