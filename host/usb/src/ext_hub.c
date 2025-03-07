@@ -1215,14 +1215,6 @@ void *ext_hub_get_client(void)
 // -------------------------- External Hub API ---------------------------------
 // -----------------------------------------------------------------------------
 
-esp_err_t ext_hub_get_handle(usb_device_handle_t dev_hdl, ext_hub_handle_t *ext_hub_hdl)
-{
-    EXT_HUB_ENTER_CRITICAL();
-    EXT_HUB_CHECK_FROM_CRIT(p_ext_hub_driver != NULL, ESP_ERR_INVALID_STATE);
-    EXT_HUB_EXIT_CRITICAL();
-    return get_dev_by_hdl(dev_hdl, ext_hub_hdl);
-}
-
 static esp_err_t find_first_intf_desc(const usb_config_desc_t *config_desc, device_config_t *hub_config)
 {
     bool iface_found = false;
