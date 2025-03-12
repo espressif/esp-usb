@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2024-2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2025 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -7,8 +7,28 @@
 #include <stdio.h>
 #include <string.h>
 #include "unity.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "unity_test_runner.h"
 #include "unity_test_utils_memory.h"
+#include "test_device.h"
+
+/* setUp runs before every test */
+void setUp(void)
+{
+    unity_utils_record_free_mem();
+    test_device_setup();
+}
+
+/* tearDown runs after every test */
+void tearDown(void)
+{
+    // Short delay to allow task to be cleaned up
+    vTaskDelay(10);
+    test_device_release();
+    unity_utils_evaluate_leaks();
+}
+
 
 void app_main(void)
 {
@@ -47,16 +67,4 @@ void app_main(void)
     unity_utils_setup_heap_record(80);
     unity_utils_set_leak_level(128);
     unity_run_menu();
-}
-
-/* setUp runs before every test */
-void setUp(void)
-{
-    unity_utils_record_free_mem();
-}
-
-/* tearDown runs after every test */
-void tearDown(void)
-{
-    unity_utils_evaluate_leaks();
 }
