@@ -42,6 +42,7 @@ esp_err_t uvc_desc_get_streaming_intf_and_ep(
 {
     UVC_CHECK(cfg_desc && intf_desc_ret && ep_desc_ret, ESP_ERR_INVALID_ARG);
 
+    esp_err_t ret = ESP_ERR_NOT_FOUND; // Default to error, in case we don't find and endpoint with supported MPS
     const usb_intf_desc_t *intf_desc = NULL;
     const usb_ep_desc_t *ep_desc = NULL;
     int offset = 0;
@@ -73,12 +74,13 @@ esp_err_t uvc_desc_get_streaming_intf_and_ep(
             last_mult = current_mult;
             *ep_desc_ret = ep_desc;
             *intf_desc_ret = intf_desc;
+            ret = ESP_OK;
         } else {
             break;
         }
     }
 
-    return ESP_OK;
+    return ret;
 }
 
 /**

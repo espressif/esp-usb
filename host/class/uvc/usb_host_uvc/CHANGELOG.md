@@ -1,6 +1,7 @@
 ## [Unreleased]
 
 - Added `uvc_host_stream_format_select()` function that allows change of format of an opened stream
+- Fixed crash on opening a UVC stream with MPS greater than supported (limitation on ESP32-S2 and ESP32-S3)
 
 ## 2.1.0
 
