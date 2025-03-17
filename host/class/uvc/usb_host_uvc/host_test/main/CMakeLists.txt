@@ -1,6 +1,6 @@
-idf_component_register(SRC_DIRS . parsing streaming
+idf_component_register(SRC_DIRS . parsing streaming opening
                         REQUIRES cmock usb
-                        INCLUDE_DIRS . parsing streaming
+                        INCLUDE_DIRS . parsing streaming opening
                         PRIV_INCLUDE_DIRS "../../private_include"
                         WHOLE_ARCHIVE)
 
