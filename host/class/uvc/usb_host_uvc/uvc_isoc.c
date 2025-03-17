@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2024-2025 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -164,7 +164,6 @@ void isoc_transfer_callback(usb_transfer_t *transfer)
             UVC_EXIT_CRITICAL();
 
             if (invoke_fb_callback) {
-                memcpy((uvc_host_stream_format_t *)&this_frame->vs_format, &uvc_stream->constant.vs_format, sizeof(uvc_host_stream_format_t));
                 return_frame = uvc_stream->constant.frame_cb(this_frame, uvc_stream->constant.cb_arg);
             }
             if (return_frame) {

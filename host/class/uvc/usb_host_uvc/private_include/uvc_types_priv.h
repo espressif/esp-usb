@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2024-2025 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -35,7 +35,6 @@ struct uvc_host_stream_s {
         uvc_host_stream_callback_t stream_cb; // User's callback for stream events
         uvc_host_frame_callback_t frame_cb;   // User's frame callback
         void *cb_arg;                         // Common argument for user's callbacks
-        uvc_host_stream_format_t vs_format;   // Format of the video stream (Runtime format change of opened stream is not supported)
         QueueHandle_t empty_fb_queue;         // Queue of empty framebuffers
 
         // Constant USB descriptor values
@@ -51,6 +50,7 @@ struct uvc_host_stream_s {
     } constant; // Constant members do no change after installation thus do not require a critical section
 
     struct {
+        uvc_host_stream_format_t vs_format;   // Format of the video stream
         uvc_host_frame_t *current_frame;      // Frame that is being written to
         bool streaming;                       // Flag whether stream is on/off
     } dynamic; // Dynamic members require a critical section

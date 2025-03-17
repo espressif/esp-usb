@@ -420,15 +420,14 @@ static esp_err_t uvc_find_and_open_usb_device(uint8_t dev_addr, uint16_t vid, ui
  *     - ESP_OK: Success
  *     - Other:  CTRL transfer error
  */
-static esp_err_t uvc_set_interface(uvc_host_stream_hdl_t stream_hdl, bool stream_on)
+static inline esp_err_t uvc_set_interface(uvc_host_stream_hdl_t stream_hdl, bool stream_on)
 {
-    uvc_stream_t *uvc_stream = (uvc_stream_t *)stream_hdl;
     return uvc_host_usb_ctrl(
                stream_hdl,
                USB_BM_REQUEST_TYPE_DIR_OUT | USB_BM_REQUEST_TYPE_TYPE_STANDARD | USB_BM_REQUEST_TYPE_RECIP_INTERFACE,
                USB_B_REQUEST_SET_INTERFACE,
-               stream_on ? uvc_stream->constant.bAlternateSetting : 0,
-               uvc_stream->constant.bInterfaceNumber,
+               stream_on ? stream_hdl->constant.bAlternateSetting : 0,
+               stream_hdl->constant.bInterfaceNumber,
                0,
                NULL);
 }
@@ -632,6 +631,25 @@ unblock:
     return ret;
 }
 
+/**
+ * @brief Saves format to stream handle and all its frame buffers
+ *
+ * @param[in] uvc_stream Stream handle
+ * @param[in] vs_format  Format to save
+ */
+static void uvc_format_save(uvc_stream_t *uvc_stream, const uvc_host_stream_format_t *vs_format)
+{
+    assert(uvc_stream && vs_format);
+
+    UVC_ENTER_CRITICAL();
+    // Save to video format to this stream
+    memcpy((uvc_host_stream_format_t *)&uvc_stream->dynamic.vs_format, vs_format, sizeof(uvc_host_stream_format_t));
+    UVC_EXIT_CRITICAL();
+
+    // Save to all frame buffers
+    assert(uvc_frame_are_all_returned(uvc_stream));
+    uvc_frame_format_update(uvc_stream, vs_format);
+}
 esp_err_t uvc_host_stream_open(const uvc_host_stream_config_t *stream_config, int timeout, uvc_host_stream_hdl_t *stream_hdl_ret)
 {
     esp_err_t ret;
@@ -693,7 +711,7 @@ esp_err_t uvc_host_stream_open(const uvc_host_stream_config_t *stream_config, in
         err, TAG,);
 
     // Save info
-    memcpy((uvc_host_stream_format_t *)&uvc_stream->constant.vs_format, &stream_config->vs_format, sizeof(uvc_host_stream_format_t));
+    uvc_format_save(uvc_stream, &stream_config->vs_format);
     uvc_stream->constant.stream_cb = stream_config->event_cb;
     uvc_stream->constant.frame_cb = stream_config->frame_cb;
     uvc_stream->constant.cb_arg = stream_config->user_ctx;
@@ -746,7 +764,6 @@ esp_err_t uvc_host_stream_close(uvc_host_stream_hdl_t stream_hdl)
         uvc_host_stream_stop(stream_hdl);
     }
 
-    // @todo create a function that will wait for all frames to be returned
     if (!uvc_frame_are_all_returned(uvc_stream)) {
         vTaskDelay(pdMS_TO_TICKS(70)); // Wait 70ms so the user can return all frames
         if (!uvc_frame_are_all_returned(uvc_stream)) {
@@ -772,16 +789,15 @@ exit:
 
 static esp_err_t uvc_clear_endpoint_feature(uvc_host_stream_hdl_t stream_hdl)
 {
-    uvc_stream_t *uvc_stream = (uvc_stream_t *)stream_hdl;
-    usb_host_endpoint_halt(uvc_stream->constant.dev_hdl, uvc_stream->constant.bEndpointAddress);
-    usb_host_endpoint_flush(uvc_stream->constant.dev_hdl, uvc_stream->constant.bEndpointAddress);
-    usb_host_endpoint_clear(uvc_stream->constant.dev_hdl, uvc_stream->constant.bEndpointAddress);
+    usb_host_endpoint_halt(stream_hdl->constant.dev_hdl, stream_hdl->constant.bEndpointAddress);
+    usb_host_endpoint_flush(stream_hdl->constant.dev_hdl, stream_hdl->constant.bEndpointAddress);
+    usb_host_endpoint_clear(stream_hdl->constant.dev_hdl, stream_hdl->constant.bEndpointAddress);
     return uvc_host_usb_ctrl(
                stream_hdl,
                USB_BM_REQUEST_TYPE_DIR_OUT | USB_BM_REQUEST_TYPE_TYPE_STANDARD | USB_BM_REQUEST_TYPE_RECIP_ENDPOINT,
                USB_B_REQUEST_CLEAR_FEATURE,
                0, // 0 means HALT
-               uvc_stream->constant.bEndpointAddress,
+               stream_hdl->constant.bEndpointAddress,
                0,
                NULL);
 }
@@ -789,22 +805,23 @@ static esp_err_t uvc_clear_endpoint_feature(uvc_host_stream_hdl_t stream_hdl)
 esp_err_t uvc_host_stream_start(uvc_host_stream_hdl_t stream_hdl)
 {
     UVC_CHECK(stream_hdl, ESP_ERR_INVALID_ARG);
-    UVC_CHECK(UVC_ATOMIC_LOAD(stream_hdl->dynamic.streaming) == false, ESP_ERR_INVALID_STATE);
-
-    uvc_stream_t *uvc_stream = (uvc_stream_t *)stream_hdl;
+    UVC_ENTER_CRITICAL();
+    UVC_CHECK_FROM_CRIT(stream_hdl->dynamic.streaming == false, ESP_ERR_INVALID_STATE);
+    const uvc_host_stream_format_t format = stream_hdl->dynamic.vs_format;
+    UVC_EXIT_CRITICAL();
 
     // 1. Negotiate the frame format
     // @see USB UVC specification ver 1.5, figure 4-1
     ESP_RETURN_ON_ERROR(
-        uvc_host_stream_control_negotiate(uvc_stream, &uvc_stream->constant.vs_format, NULL),
+        uvc_host_stream_control_negotiate(stream_hdl, &format, NULL),
         TAG, "Failed to negotiate requested Video Stream format");
     vTaskDelay(pdMS_TO_TICKS(10)); // Some cameras need delay between format Commit and SetInterface
 
     // 2. Send command to the camera to start streaming: ISOC only
-    if (uvc_stream->constant.bAlternateSetting != 0) {
+    if (stream_hdl->constant.bAlternateSetting != 0) {
         ESP_RETURN_ON_ERROR(
             uvc_set_interface(stream_hdl, true),
-            TAG, "Could not Set Interface %d-%d", uvc_stream->constant.bInterfaceNumber, uvc_stream->constant.bAlternateSetting);
+            TAG, "Could not Set Interface %d-%d", stream_hdl->constant.bInterfaceNumber, stream_hdl->constant.bAlternateSetting);
     }
 
     // 3. Unpause: Submit all URBs
@@ -815,10 +832,31 @@ esp_err_t uvc_host_stream_start(uvc_host_stream_hdl_t stream_hdl)
     return ESP_OK;
 }
 
+esp_err_t uvc_host_stream_format_select(uvc_host_stream_hdl_t stream_hdl, uvc_host_stream_format_t *format)
+{
+    esp_err_t ret = ESP_OK;
+    UVC_CHECK(stream_hdl && format, ESP_ERR_INVALID_ARG);
+
+    // In case the stream is streaming when format change is requested,
+    // we must stop the stream, reconfigure it and restart again
+    const bool restart_required = UVC_ATOMIC_LOAD(stream_hdl->dynamic.streaming);
+    if (restart_required) {
+        ret = uvc_host_stream_stop(stream_hdl);
+        if (ret != ESP_OK) {
+            return ret;
+        }
+    }
+
+    uvc_format_save(stream_hdl, format);
+    if (restart_required) {
+        ret = uvc_host_stream_start(stream_hdl);
+    }
+    return ret;
+}
+
 esp_err_t uvc_host_stream_stop(uvc_host_stream_hdl_t stream_hdl)
 {
     UVC_CHECK(stream_hdl, ESP_ERR_INVALID_ARG);
-    uvc_stream_t *uvc_stream = (uvc_stream_t *)stream_hdl;
 
     ESP_RETURN_ON_ERROR(uvc_host_stream_pause(stream_hdl), TAG, "Could not pause the stream");
 
@@ -826,7 +864,7 @@ esp_err_t uvc_host_stream_stop(uvc_host_stream_hdl_t stream_hdl)
     // Note: Increased from 50ms to 100ms until proper fix is implemented
     vTaskDelay(pdMS_TO_TICKS(100)); // Wait for all transfers to finish
 
-    if (uvc_stream->constant.bAlternateSetting != 0) { // if (is_isoc_stream)
+    if (stream_hdl->constant.bAlternateSetting != 0) { // if (is_isoc_stream)
         // ISOC streams are stopped by setting alternate interface 0
         return uvc_set_interface(stream_hdl, false);
     } else {
@@ -838,19 +876,18 @@ esp_err_t uvc_host_stream_stop(uvc_host_stream_hdl_t stream_hdl)
 esp_err_t uvc_host_stream_pause(uvc_host_stream_hdl_t stream_hdl)
 {
     UVC_CHECK(stream_hdl, ESP_ERR_INVALID_ARG);
-    uvc_stream_t *uvc_stream = (uvc_stream_t *)stream_hdl;
 
     // We do not cancel the ongoing transfers here, it is not supported by USB Host Library
-    // By setting uvc_stream->dynamic.streaming = false; no frame callbacks will be called and the transfer can gracefully finish
+    // By setting stream_hdl->dynamic.streaming = false; no frame callbacks will be called and the transfer can gracefully finish
     UVC_ENTER_CRITICAL();
-    UVC_CHECK_FROM_CRIT(uvc_stream->dynamic.streaming, ESP_OK); // Return immediately if already paused
-    uvc_stream->dynamic.streaming = false;
-    uvc_host_frame_t *current_frame = uvc_stream->dynamic.current_frame;
-    uvc_stream->dynamic.current_frame = NULL;
+    UVC_CHECK_FROM_CRIT(stream_hdl->dynamic.streaming, ESP_OK); // Return immediately if already paused
+    stream_hdl->dynamic.streaming = false;
+    uvc_host_frame_t *current_frame = stream_hdl->dynamic.current_frame;
+    stream_hdl->dynamic.current_frame = NULL;
     UVC_EXIT_CRITICAL();
 
     if (current_frame) {
-        uvc_host_frame_return(uvc_stream, current_frame);
+        uvc_host_frame_return(stream_hdl, current_frame);
     }
 
     return ESP_OK;
@@ -859,21 +896,20 @@ esp_err_t uvc_host_stream_pause(uvc_host_stream_hdl_t stream_hdl)
 esp_err_t uvc_host_stream_unpause(uvc_host_stream_hdl_t stream_hdl)
 {
     UVC_CHECK(stream_hdl, ESP_ERR_INVALID_ARG);
-    uvc_stream_t *uvc_stream = (uvc_stream_t *)stream_hdl;
     esp_err_t ret = ESP_OK;
 
     UVC_ENTER_CRITICAL();
-    UVC_CHECK_FROM_CRIT(!uvc_stream->dynamic.streaming, ESP_ERR_INVALID_STATE);
-    uvc_stream->dynamic.streaming = true;
+    UVC_CHECK_FROM_CRIT(!stream_hdl->dynamic.streaming, ESP_ERR_INVALID_STATE);
+    stream_hdl->dynamic.streaming = true;
     // Start of Frame is detected when received FrameID != current_frame_id
     // We set current_frame_id to illegal value (FrameID can be 0 or 1) so we catch SoF of the very first frame
-    uvc_stream->single_thread.current_frame_id = 2;
-    uvc_stream->single_thread.next_bulk_packet = UVC_STREAM_BULK_PACKET_SOF;
+    stream_hdl->single_thread.current_frame_id = 2;
+    stream_hdl->single_thread.next_bulk_packet = UVC_STREAM_BULK_PACKET_SOF;
     UVC_EXIT_CRITICAL();
 
-    for (int i = 0; i < uvc_stream->constant.num_of_xfers; i++) {
+    for (int i = 0; i < stream_hdl->constant.num_of_xfers; i++) {
         ESP_GOTO_ON_ERROR(
-            usb_host_transfer_submit(uvc_stream->constant.xfers[i]),
+            usb_host_transfer_submit(stream_hdl->constant.xfers[i]),
             stop_stream, TAG, "Could not submit transfer %d", i);
     }
     return ret;
@@ -893,7 +929,6 @@ static void ctrl_xfer_cb(usb_transfer_t *transfer)
 esp_err_t uvc_host_usb_ctrl(uvc_host_stream_hdl_t stream_hdl, uint8_t bmRequestType, uint8_t bRequest, uint16_t wValue, uint16_t wIndex, uint16_t wLength, uint8_t *data)
 {
     UVC_CHECK(stream_hdl, ESP_ERR_INVALID_ARG);
-    uvc_stream_t *uvc_stream = (uvc_stream_t *)stream_hdl;
     if (wLength > 0) {
         UVC_CHECK(data, ESP_ERR_INVALID_ARG);
     }
@@ -915,7 +950,7 @@ esp_err_t uvc_host_usb_ctrl(uvc_host_stream_hdl_t stream_hdl, uint8_t bmRequestT
     req->wLength = wLength;
 
     // Bind the transfer and the device
-    p_uvc_host_driver->ctrl_transfer->device_handle = uvc_stream->constant.dev_hdl;
+    p_uvc_host_driver->ctrl_transfer->device_handle = stream_hdl->constant.dev_hdl;
     p_uvc_host_driver->ctrl_transfer->num_bytes = wLength + sizeof(usb_setup_packet_t);
 
     // For IN transfers we must transfer data ownership to the driver

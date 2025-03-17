@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2024-2025 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -10,6 +10,7 @@
 
 #include "usb/usb_types_stack.h"
 #include "usb/uvc_host.h"
+#include "esp_private/uvc_stream.h"
 #include "uvc_types_priv.h"
 #include "uvc_frame_priv.h"
 
@@ -37,11 +38,7 @@ void run_streaming_frame_reconstruction_scenario(void)
     constexpr int user_arg = 0x12345678;
     uvc_stream_t stream = {}; // Define mock stream
     stream.constant.cb_arg = (void *)&user_arg;
-    // @todo instead of doing this we can
-    // - uvc_transfers_allocate   to allocate all transfers
-    // - uvc_host_stream_unpause  to start the stream
 
-    stream.single_thread.current_frame_id = 2; // Start with invalid frame ID
     stream.constant.stream_cb = [](const uvc_host_stream_event_data_t *event, void *user_ctx) {
         return stream_callback(event, user_ctx);
     };
@@ -50,7 +47,7 @@ void run_streaming_frame_reconstruction_scenario(void)
         return frame_callback(frame, user_ctx);
     };
 
-    // We don't expect any stream events or frames be default
+    // We don't expect any stream events or frames by default
     stream_callback = [&](const uvc_host_stream_event_data_t *event, void *user_ctx) {
         FAIL("Unexpected event " + std::to_string(event->type));
     };
@@ -60,8 +57,8 @@ void run_streaming_frame_reconstruction_scenario(void)
     };
 
     GIVEN("Streaming enabled") {
-        stream.dynamic.streaming = true;
-        stream.constant.vs_format = {
+        REQUIRE(uvc_host_stream_unpause(&stream) == ESP_OK);
+        const uvc_host_stream_format_t format = {
             .h_res = 46,
             .v_res = 46,
             .fps = 15,
@@ -77,10 +74,10 @@ void run_streaming_frame_reconstruction_scenario(void)
 
                 REQUIRE(user_ctx == stream.constant.cb_arg); // Sanity check
                 REQUIRE(frame->data_len == logo_jpg.size());
-                REQUIRE(frame->vs_format.h_res == stream.constant.vs_format.h_res);
-                REQUIRE(frame->vs_format.v_res == stream.constant.vs_format.v_res);
-                REQUIRE(frame->vs_format.fps == stream.constant.vs_format.fps);
-                REQUIRE(frame->vs_format.format == stream.constant.vs_format.format);
+                REQUIRE(frame->vs_format.h_res == format.h_res);
+                REQUIRE(frame->vs_format.v_res == format.v_res);
+                REQUIRE(frame->vs_format.fps == format.fps);
+                REQUIRE(frame->vs_format.format == format.format);
 
                 std::vector<uint8_t> frame_data(frame->data, frame->data + frame->data_len);
                 std::vector<uint8_t> original_data(logo_jpg.begin(), logo_jpg.end());
@@ -90,6 +87,7 @@ void run_streaming_frame_reconstruction_scenario(void)
             };
 
             REQUIRE(uvc_frame_allocate(&stream, 1, 100 * 1024, 0) == ESP_OK);
+            uvc_frame_format_update(&stream, &format);
 
             // Test
             for (size_t transfer_size = 512; transfer_size <= 8192; transfer_size += 512) {
@@ -207,8 +205,6 @@ void run_streaming_frame_reconstruction_scenario(void)
     }
 
     GIVEN("Streaming disabled") {
-        stream.dynamic.streaming = false;
-
         WHEN("New data is received") {
             usb_transfer_t transfer = {
                 .data_buffer = nullptr,
