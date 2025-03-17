@@ -53,6 +53,10 @@ TEST_CASE("tinyusb_vendor", "[esp_tinyusb][vendor]")
 {
     // Install TinyUSB driver
     const tinyusb_config_t tusb_cfg = {
+        .task_config = {
+            .size = 4096, /* default */
+            .priority = 5, /* default */
+        },
         .external_phy = false,
         .device_descriptor = NULL,
 #if (TUD_OPT_HIGH_SPEED)
