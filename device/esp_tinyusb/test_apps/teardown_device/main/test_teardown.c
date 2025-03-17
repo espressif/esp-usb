@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2024-2025 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -21,6 +21,7 @@
 //
 #include "unity.h"
 #include "tinyusb.h"
+#include "tinyusb_default_configs.h"
 #include "tusb_cdc_acm.h"
 
 static const char *TAG = "teardown";
@@ -96,18 +97,15 @@ TEST_CASE("tinyusb_teardown", "[esp_tinyusb][teardown]")
     TEST_ASSERT_NOT_EQUAL(NULL, wait_mount);
 
     // TinyUSB driver configuration
-    const tinyusb_config_t tusb_cfg = {
-        .device_descriptor = &test_device_descriptor,
-        .string_descriptor = NULL,
-        .string_descriptor_count = 0,
+    tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG();
+    tusb_cfg.device_descriptor = &test_device_descriptor;
 #if (TUD_OPT_HIGH_SPEED)
-        .fs_configuration_descriptor = test_configuration_descriptor,
-        .hs_configuration_descriptor = test_configuration_descriptor,
-        .qualifier_descriptor = &device_qualifier,
+    tusb_cfg.qualifier_descriptor = &device_qualifier;
+    tusb_cfg.fs_configuration_descriptor = test_configuration_descriptor;
+    tusb_cfg.hs_configuration_descriptor = test_configuration_descriptor;
 #else
-        .configuration_descriptor = test_configuration_descriptor,
+    tusb_cfg.configuration_descriptor = test_configuration_descriptor;
 #endif // TUD_OPT_HIGH_SPEED
-    };
 
     TEST_ASSERT_EQUAL(ESP_OK, tinyusb_driver_install(&tusb_cfg));
     // Wait for the usb event

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2023-2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2023-2025 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -17,6 +17,7 @@
 
 #include "unity.h"
 #include "tinyusb.h"
+#include "tinyusb_default_configs.h"
 #include "tusb_cdc_acm.h"
 #include "vfs_tinyusb.h"
 
@@ -79,18 +80,15 @@ static void tinyusb_cdc_rx_callback(int itf, cdcacm_event_t *event)
 TEST_CASE("tinyusb_cdc", "[esp_tinyusb][cdc]")
 {
     // Install TinyUSB driver
-    const tinyusb_config_t tusb_cfg = {
-        .device_descriptor = &cdc_device_descriptor,
-        .string_descriptor = NULL,
-        .string_descriptor_count = 0,
+    tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG();
+    tusb_cfg.device_descriptor = &cdc_device_descriptor;
 #if (TUD_OPT_HIGH_SPEED)
-        .fs_configuration_descriptor = cdc_desc_configuration,
-        .hs_configuration_descriptor = cdc_desc_configuration,
-        .qualifier_descriptor = &device_qualifier,
+    tusb_cfg.qualifier_descriptor = &device_qualifier;
+    tusb_cfg.fs_configuration_descriptor = cdc_desc_configuration;
+    tusb_cfg.hs_configuration_descriptor = cdc_desc_configuration;
 #else
-        .configuration_descriptor = cdc_desc_configuration,
+    tusb_cfg.configuration_descriptor = cdc_desc_configuration;
 #endif // TUD_OPT_HIGH_SPEED
-    };
 
     TEST_ASSERT_EQUAL(ESP_OK, tinyusb_driver_install(&tusb_cfg));
 

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2024-2025 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -20,7 +20,7 @@
 #include "soc/gpio_sig_map.h"
 #include "unity.h"
 #include "tinyusb.h"
-#include "tusb_tasks.h"
+#include "tinyusb_default_configs.h"
 
 #define DEVICE_DETACH_TEST_ROUNDS       10
 #define DEVICE_DETACH_ROUND_DELAY_MS    1000
@@ -117,18 +117,15 @@ TEST_CASE("dconn_detection", "[esp_tinyusb][dconn]")
     unsigned int rounds = DEVICE_DETACH_TEST_ROUNDS;
 
     // Install TinyUSB driver
-    const tinyusb_config_t tusb_cfg = {
-        .device_descriptor = &test_device_descriptor,
-        .string_descriptor = NULL,
-        .string_descriptor_count = 0,
+    tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG();
+    tusb_cfg.device_descriptor = &test_device_descriptor;
 #if (TUD_OPT_HIGH_SPEED)
-        .fs_configuration_descriptor = test_configuration_descriptor,
-        .hs_configuration_descriptor = test_configuration_descriptor,
-        .qualifier_descriptor = &device_qualifier,
+    tusb_cfg.qualifier_descriptor = &device_qualifier;
+    tusb_cfg.fs_configuration_descriptor = test_configuration_descriptor;
+    tusb_cfg.hs_configuration_descriptor = test_configuration_descriptor;
 #else
-        .configuration_descriptor = test_configuration_descriptor,
+    tusb_cfg.configuration_descriptor = test_configuration_descriptor,
 #endif // TUD_OPT_HIGH_SPEED
-    };
 
     TEST_ASSERT_EQUAL(ESP_OK, tinyusb_driver_install(&tusb_cfg));
 
