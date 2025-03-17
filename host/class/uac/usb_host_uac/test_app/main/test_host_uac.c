@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2024-2025 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -62,18 +62,60 @@ static const uint8_t UAC_DEV_SPK_IFACE_SAMPLE_FREQ_TPYE_ALT[UAC_DEV_SPK_IFACE_AL
 static const uint32_t UAC_DEV_SPK_IFACE_SAMPLE_FREQ_ALT[UAC_DEV_SPK_IFACE_ALT_NUM][UAC_DEV_SPK_IFACE_ALT_1_SAMPLE_FREQ_TYPE] = {{UAC_DEV_SPK_IFACE_ALT_1_SAMPLE_FREQ_1}};
 
 
+// usb_host_lib_set_root_port_power is used to force toggle connection, primary developed for esp32p4
+// esp32p4 is supported from IDF 5.3
+#if ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(5, 3, 0)
+static usb_phy_handle_t phy_hdl = NULL;
+
 static void force_conn_state(bool connected, TickType_t delay_ticks)
 {
-    if (!phy_hdl) {
-        // P4 currently not support phy operation
-        return;
-    }
+    TEST_ASSERT_NOT_EQUAL(NULL, phy_hdl);
     if (delay_ticks > 0) {
-        //Delay of 0 ticks causes a yield. So skip if delay_ticks is 0.
+        // Delay of 0 ticks causes a yield. So skip if delay_ticks is 0.
         vTaskDelay(delay_ticks);
     }
-    TEST_ASSERT_EQUAL(ESP_OK, usb_phy_action(phy_hdl, (connected) ? USB_PHY_ACTION_HOST_ALLOW_CONN : USB_PHY_ACTION_HOST_FORCE_DISCONN));
+    ESP_ERROR_CHECK(usb_phy_action(phy_hdl, (connected) ? USB_PHY_ACTION_HOST_ALLOW_CONN : USB_PHY_ACTION_HOST_FORCE_DISCONN));
 }
+
+// Initialize the internal USB PHY to connect to the USB OTG peripheral. We manually install the USB PHY for testing
+static bool install_phy(void)
+{
+    usb_phy_config_t phy_config = {
+        .controller = USB_PHY_CTRL_OTG,
+        .target = USB_PHY_TARGET_INT,
+        .otg_mode = USB_OTG_MODE_HOST,
+        .otg_speed = USB_PHY_SPEED_UNDEFINED,   // In Host mode, the speed is determined by the connected device
+    };
+    TEST_ASSERT_EQUAL(ESP_OK, usb_new_phy(&phy_config, &phy_hdl));
+    // Return true, to skip_phy_setup during the usb_host_install()
+    return true;
+}
+
+static void delete_phy(void)
+{
+    TEST_ASSERT_EQUAL(ESP_OK, usb_del_phy(phy_hdl)); // Tear down USB PHY
+    phy_hdl = NULL;
+}
+#else // ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(5, 3, 0)
+
+// Force connection/disconnection using root port power
+static void force_conn_state(bool connected, TickType_t delay_ticks)
+{
+    if (delay_ticks > 0) {
+        // Delay of 0 ticks causes a yield. So skip if delay_ticks is 0.
+        vTaskDelay(delay_ticks);
+    }
+    ESP_ERROR_CHECK(usb_host_lib_set_root_port_power(connected));
+}
+
+static bool install_phy(void)
+{
+    // Return false, NOT to skip_phy_setup during the usb_host_install()
+    return false;
+}
+
+static void delete_phy(void) {}
+#endif // ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(5, 3, 0)
 
 typedef enum {
     APP_EVENT = 0,
@@ -142,16 +184,9 @@ static void usb_lib_task(void *arg)
 {
     // Initialize the internal USB PHY to connect to the USB OTG peripheral.
     // We manually install the USB PHY for testing
-    usb_phy_config_t phy_config = {
-        .controller = USB_PHY_CTRL_OTG,
-        .target = USB_PHY_TARGET_INT,
-        .otg_mode = USB_OTG_MODE_HOST,
-        .otg_speed = USB_PHY_SPEED_UNDEFINED,   //In Host mode, the speed is determined by the connected device
-    };
-    TEST_ASSERT_EQUAL(ESP_OK, usb_new_phy(&phy_config, &phy_hdl));
-
+    const bool skip_phy_setup = install_phy();
     const usb_host_config_t host_config = {
-        .skip_phy_setup = true,
+        .skip_phy_setup = skip_phy_setup,
         .intr_flags = ESP_INTR_FLAG_LEVEL1,
     };
 
@@ -180,7 +215,7 @@ static void usb_lib_task(void *arg)
     // Clean up USB Host
     vTaskDelay(10); // Short delay to allow clients clean-up
     TEST_ASSERT_EQUAL(ESP_OK, usb_host_uninstall());
-    TEST_ASSERT_EQUAL(ESP_OK, usb_del_phy(phy_hdl)); //Tear down USB PHY
+    delete_phy();
     phy_hdl = NULL;
     // set bit BIT0_USB_HOST_DRIVER_REMOVED to notify driver removed
     xEventGroupSetBits(s_evt_handle, BIT0_USB_HOST_DRIVER_REMOVED);
