@@ -1,7 +1,7 @@
 # USB Host UVC Class Driver
 
 [![Component Registry](https://components.espressif.com/components/espressif/usb_host_uvc/badge.svg)](https://components.espressif.com/components/espressif/usb_host_uvc)
-![maintenance-status](https://img.shields.io/badge/maintenance-experimental-blue.svg)
+![maintenance-status](https://img.shields.io/badge/maintenance-actively--developed-brightgreen.svg)
 
 This component contains an implementation of a USB Host UVC Class Driver that is implemented on top of the [USB Host Library](https://docs.espressif.com/projects/esp-idf/en/latest/esp32s2/api-reference/peripherals/usb_host.html).
 
@@ -13,6 +13,7 @@ The UVC driver allows video streaming from USB cameras.
 - Frame buffers in PSRAM
 - Video Stream format negotiation
 - Stream overflow and underflow management
+- Dynamic resolution change
 
 ### Usage
 
