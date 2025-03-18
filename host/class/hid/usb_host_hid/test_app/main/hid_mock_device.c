@@ -195,6 +195,10 @@ void hid_mock_device(tusb_iface_count_t iface_count)
     tusb_iface_count = iface_count;
 
     const tinyusb_config_t tusb_cfg = {
+        .task_config = {
+            .size = 4096, /* default */
+            .priority = 5, /* default */
+        },
         .device_descriptor = NULL,
         .string_descriptor = hid_string_descriptor,
         .string_descriptor_count = sizeof(hid_string_descriptor) / sizeof(hid_string_descriptor[0]),
