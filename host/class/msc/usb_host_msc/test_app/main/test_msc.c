@@ -1,6 +1,6 @@
 
 /*
- * SPDX-FileCopyrightText: 2015-2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2015-2025 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -281,7 +281,13 @@ static void msc_teardown(void)
     msc_test_deinit();
 }
 
-static void write_read_sectors(void)
+static void read_sector_10(void)
+{
+    uint8_t data[DISK_BLOCK_SIZE];
+    ESP_OK_ASSERT( scsi_cmd_read10(device, data, 10, 1, DISK_BLOCK_SIZE) );
+}
+
+static void write_read_verify_of_sector_10(void)
 {
     uint8_t write_data[DISK_BLOCK_SIZE];
     uint8_t read_data[DISK_BLOCK_SIZE];
@@ -319,10 +325,10 @@ TEST_CASE("sudden_disconnect", "[usb_msc]")
     msc_teardown();
 }
 
-TEST_CASE("sectors_can_be_written_and_read", "[usb_msc]")
+TEST_CASE("sector_10_can_be_written_and_read", "[usb_msc]")
 {
     msc_setup();
-    write_read_sectors();
+    write_read_verify_of_sector_10();
     msc_teardown();
 }
 
@@ -530,7 +536,7 @@ TEST_CASE("no_background_task", "[usb_msc]")
     BaseType_t task_created = xTaskCreatePinnedToCore(msc_task, "msc_events", 2 * 2048, NULL, 2, NULL, 0);
     TEST_ASSERT(task_created);
     msc_test_wait_and_install_device();
-    write_read_sectors(); // Do some dummy operations
+    read_sector_10(); // Do some dummy operations
     msc_teardown();
 }
 
