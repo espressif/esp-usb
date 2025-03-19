@@ -1,7 +1,11 @@
+## [Unreleased]
+
+- Added `uvc_host_stream_format_select()` function that allows change of format of an opened stream
+
 ## 2.1.0
 
-- support get frame list when device insert
-- support dual camera with hub
+- Added callback for list of supported formats upon device connection
+- Fixed issues with multiple camera with HUB
 
 ## 2.0.1
 

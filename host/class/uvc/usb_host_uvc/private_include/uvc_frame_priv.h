@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2024-2025 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -73,7 +73,21 @@ esp_err_t uvc_frame_add_data(uvc_host_frame_t *frame, const uint8_t *data, size_
  *
  * @param[in] frame Frame buffer
  */
-void uvc_frame_reset(uvc_host_frame_t *frame);
+static inline void uvc_frame_reset(uvc_host_frame_t *frame)
+{
+    assert(frame);
+    frame->data_len = 0;
+}
+
+/**
+ * @brief Saves format to all frame buffers
+ *
+ * All frames must be returned when this function is called
+ *
+ * @param[in] uvc_stream UVC stream
+ * @param[in] vs_format  VS format to save to frame buffers
+ */
+void uvc_frame_format_update(uvc_stream_t *uvc_stream, const uvc_host_stream_format_t *vs_format);
 
 #ifdef __cplusplus
 }

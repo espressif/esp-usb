@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2024-2025 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -120,8 +120,16 @@ esp_err_t uvc_frame_add_data(uvc_host_frame_t *frame, const uint8_t *data, size_
     return ESP_OK;
 }
 
-void uvc_frame_reset(uvc_host_frame_t *frame)
+void uvc_frame_format_update(uvc_stream_t *uvc_stream, const uvc_host_stream_format_t *vs_format)
 {
-    assert(frame);
-    frame->data_len = 0;
+    uvc_host_frame_t *this_frame = uvc_frame_get_empty(uvc_stream);
+    if (this_frame == NULL) {
+        return;
+    }
+    memcpy((uvc_host_stream_format_t *)&this_frame->vs_format, vs_format, sizeof(uvc_host_stream_format_t));
+
+    // Attention: recursive call!
+    // The recursive loop is broken once we run out of empty frame buffers
+    uvc_frame_format_update(uvc_stream, vs_format);
+    uvc_host_frame_return(uvc_stream, this_frame);
 }
