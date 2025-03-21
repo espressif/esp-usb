@@ -80,6 +80,10 @@ TEST_CASE("tinyusb_cdc", "[esp_tinyusb][cdc]")
 {
     // Install TinyUSB driver
     const tinyusb_config_t tusb_cfg = {
+        .task_config = {
+            .size = 4096, /* default */
+            .priority = 5, /* default */
+        },
         .device_descriptor = &cdc_device_descriptor,
         .string_descriptor = NULL,
         .string_descriptor_count = 0,

@@ -123,6 +123,10 @@ static void storage_init(void)
     ESP_LOGI(TAG, "USB MSC initialization");
 
     const tinyusb_config_t tusb_cfg = {
+        .task_config = {
+            .size = 4096, /* default */
+            .priority = 5, /* default */
+        },
         .device_descriptor = &descriptor_config,
         .string_descriptor = string_desc_arr,
         .string_descriptor_count = sizeof(string_desc_arr) / sizeof(string_desc_arr[0]),

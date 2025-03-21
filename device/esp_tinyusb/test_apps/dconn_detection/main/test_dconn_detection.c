@@ -20,7 +20,6 @@
 #include "soc/gpio_sig_map.h"
 #include "unity.h"
 #include "tinyusb.h"
-#include "tusb_tasks.h"
 
 #define DEVICE_DETACH_TEST_ROUNDS       10
 #define DEVICE_DETACH_ROUND_DELAY_MS    1000
@@ -118,6 +117,10 @@ TEST_CASE("dconn_detection", "[esp_tinyusb][dconn]")
 
     // Install TinyUSB driver
     const tinyusb_config_t tusb_cfg = {
+        .task_config = {
+            .size = 4096, /* default */
+            .priority = 5, /* default */
+        },
         .device_descriptor = &test_device_descriptor,
         .string_descriptor = NULL,
         .string_descriptor_count = 0,
