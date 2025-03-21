@@ -683,12 +683,6 @@ esp_err_t uvc_host_stream_open(const uvc_host_stream_config_t *stream_config, in
         uvc_set_interface(uvc_stream, false);
     }
 
-    // Negotiate the frame format
-    uvc_vs_ctrl_t vs_result;
-    ESP_GOTO_ON_ERROR(
-        uvc_host_stream_control_negotiate(uvc_stream, &stream_config->vs_format, &vs_result),
-        err, TAG, "Failed to negotiate requested Video Stream format");
-
     // Allocate USB transfers
     ESP_GOTO_ON_ERROR(
         uvc_transfers_allocate(uvc_stream, stream_config->advanced.number_of_urbs, stream_config->advanced.urb_size, ep_desc),
@@ -697,8 +691,23 @@ esp_err_t uvc_host_stream_open(const uvc_host_stream_config_t *stream_config, in
     // Allocate Frame buffers
     size_t frame_buffer_size;
     if (stream_config->advanced.frame_size != 0) {
-        frame_buffer_size = stream_config->advanced.frame_size; // If user provided custom frame size, use it
+        // A custom frame size has been specified in the advanced configuration.
+        // Use this user-defined value as the frame buffer size.
+        frame_buffer_size = stream_config->advanced.frame_size;
     } else {
+        // No custom frame size is defined, so we need to determine the frame size based on the camera's capability.
+        // Note: The maximum frame size (dwMaxVideoFrameSize) is not provided in the device descriptors.
+        // Instead, it is retrieved via a negotiation process that involves:
+        //   1. Setting the desired video format on the camera.
+        //   2. Receiving the negotiation result, which includes the maximum supported frame size (dwMaxVideoFrameSize).
+        //
+        // Important: This negotiation only computes the potential maximum frame size.
+        // The selected video frame format is not committed until uvc_host_stream_start() is executed.
+        // Negotiate the frame format
+        uvc_vs_ctrl_t vs_result;
+        ESP_GOTO_ON_ERROR(
+            uvc_host_stream_control_probe(uvc_stream, &stream_config->vs_format, &vs_result),
+            err, TAG, "Failed to negotiate requested Video Stream format");
         frame_buffer_size = vs_result.dwMaxVideoFrameSize; // Use value from frame format negotiation
     };
 
@@ -727,7 +736,7 @@ esp_err_t uvc_host_stream_open(const uvc_host_stream_config_t *stream_config, in
 err:
     usb_host_interface_release(p_uvc_host_driver->usb_client_hdl, uvc_stream->constant.dev_hdl, uvc_stream->constant.bInterfaceNumber);
 claim_err:
-    uvc_device_remove(uvc_stream);
+    uvc_device_remove(uvc_stream); // Including transfers and frames free
 not_found:
     xSemaphoreGive(p_uvc_host_driver->open_close_mutex);
     *stream_hdl_ret = NULL;
@@ -810,10 +819,10 @@ esp_err_t uvc_host_stream_start(uvc_host_stream_hdl_t stream_hdl)
     const uvc_host_stream_format_t format = stream_hdl->dynamic.vs_format;
     UVC_EXIT_CRITICAL();
 
-    // 1. Negotiate the frame format
+    // 1. Negotiate and commit the frame format
     // @see USB UVC specification ver 1.5, figure 4-1
     ESP_RETURN_ON_ERROR(
-        uvc_host_stream_control_negotiate(stream_hdl, &format, NULL),
+        uvc_host_stream_control_commit(stream_hdl, &format),
         TAG, "Failed to negotiate requested Video Stream format");
     vTaskDelay(pdMS_TO_TICKS(10)); // Some cameras need delay between format Commit and SetInterface
 
