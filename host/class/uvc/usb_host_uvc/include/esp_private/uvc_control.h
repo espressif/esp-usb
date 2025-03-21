@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2024-2025 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -35,7 +35,10 @@ extern "C" {
 esp_err_t uvc_host_usb_ctrl(uvc_host_stream_hdl_t stream_hdl, uint8_t bmRequestType, uint8_t bRequest, uint16_t wValue, uint16_t wIndex, uint16_t wLength, uint8_t *data);
 
 /**
- * @brief Negotiate UVC stream format
+ * @brief Probe UVC stream format
+ *
+ * This function is use for obtaining format negotiation information
+ * that are not in any descriptor, but in uvc_vs_ctrl_t
  *
  * @param      stream_hdl    UVC stream
  * @param[in]  vs_format     Requested Video Stream format
@@ -43,10 +46,22 @@ esp_err_t uvc_host_usb_ctrl(uvc_host_stream_hdl_t stream_hdl, uint8_t bmRequestT
  * @return
  *     - ESP_OK: Format negotiated and committed
  *     - ESP_ERR_INVALID_ARG: stream_hdl or vs_format is NULL
+ *     - Else: USB Control transfer error
+ */
+esp_err_t uvc_host_stream_control_probe(uvc_host_stream_hdl_t stream_hdl, const uvc_host_stream_format_t *vs_format, uvc_vs_ctrl_t *vs_result_ret);
+
+/**
+ * @brief Negotiate and commit UVC stream format
+ *
+ * @param      stream_hdl    UVC stream
+ * @param[in]  vs_format     Requested Video Stream format
+ * @return
+ *     - ESP_OK: Format negotiated and committed
+ *     - ESP_ERR_INVALID_ARG: stream_hdl or vs_format is NULL
  *     - ESP_ERR_NOT_FOUND: The requested format was not found
  *     - Else: USB Control transfer error
  */
-esp_err_t uvc_host_stream_control_negotiate(uvc_host_stream_hdl_t stream_hdl, const uvc_host_stream_format_t *vs_format, uvc_vs_ctrl_t *vs_result_ret);
+esp_err_t uvc_host_stream_control_commit(uvc_host_stream_hdl_t stream_hdl, const uvc_host_stream_format_t *vs_format);
 
 #ifdef __cplusplus
 }
