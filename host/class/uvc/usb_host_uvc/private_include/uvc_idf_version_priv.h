@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2024-2025 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -13,7 +13,10 @@
 #if (CONFIG_IDF_TARGET_ESP32P4)
 #define MAX_MPS_IN 4096
 #else
-#define MAX_MPS_IN 600
+// If FIFO is configured for bias IN, we have 608 bytes available.
+// However, configuring MPS > 596 causes USB transfer failures,
+// because end of the RX FIFO is used internally by the USB-OTG peripheral
+#define MAX_MPS_IN 596
 #endif
 
 // Definition of USB_EP_DESC_GET_MULT for IDF versions that don't have it.

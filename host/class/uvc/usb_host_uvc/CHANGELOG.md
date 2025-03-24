@@ -1,6 +1,7 @@
 ## [Unreleased]
 
 - Added `uvc_host_stream_format_select()` function that allows change of format of an opened stream
+- Fixed MPS limitation on FS targets from 600 to 596 bytes
 
 ## 2.1.0
 
