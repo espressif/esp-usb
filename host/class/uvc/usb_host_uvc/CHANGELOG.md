@@ -1,3 +1,7 @@
+## [Unreleased]
+
+- Added `uvc_host_stream_format_select()` function that allows change of format of an opened stream
+
 ## 2.1.0
 
 - support get frame list when device insert

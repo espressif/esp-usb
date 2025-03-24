@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2024-2025 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -254,6 +254,20 @@ esp_err_t uvc_host_stream_open(const uvc_host_stream_config_t *stream_config, in
  *     - Else: USB lib error
  */
 esp_err_t uvc_host_stream_start(uvc_host_stream_hdl_t stream_hdl);
+
+/**
+ * @brief Change the format of opened stream
+ *
+ * @note  If the stream is already streaming, it will be stopped, reconfigured and started again
+ * @param[in] stream_hdl UVC handle obtained from uvc_host_stream_open()
+ * @param[in] format     Format to configure
+ * @return
+ *     - ESP_OK: Success
+ *     - ESP_ERR_INVALID_ARG: Input parameter is NULL
+ *     - ESP_ERR_NOT_FOUND: Format negotiation error
+ *     - Else: USB lib error
+ */
+esp_err_t uvc_host_stream_format_select(uvc_host_stream_hdl_t stream_hdl, uvc_host_stream_format_t *format);
 
 /**
  * @brief Stop UVC stream

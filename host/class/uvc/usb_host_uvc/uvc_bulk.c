@@ -105,8 +105,6 @@ void bulk_transfer_callback(usb_transfer_t *transfer)
 
             bool return_frame = true; // Default to returning the frame in case streaming has been stopped
             if (invoke_fb_callback) {
-                memcpy((uvc_host_stream_format_t *)&this_frame->vs_format, &uvc_stream->constant.vs_format, sizeof(uvc_host_stream_format_t));
-
                 // Call the user's frame callback. If the callback returns false,
                 // we do not return the frame to the empty queue (i.e., the user wants to keep it for processing)
                 return_frame = uvc_stream->constant.frame_cb(this_frame, uvc_stream->constant.cb_arg);

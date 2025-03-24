@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2024-2025 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -32,9 +32,8 @@
 #else
 #define EXAMPLE_FRAME_COUNT         (2)
 #endif
-#define EXAMPLE_STREAM_FPS          (15)
 #define EXAMPLE_RECORDING_LENGTH_S  (5) // The stream(s) is enabled, run for EXAMPLE_RECORDING_LENGTH_S and then stopped
-#define EXAMPLE_NUMBER_OF_STREAMS   (2) // This example shows how to control multiple UVC streams. Set this to 1 if you camera offers only 1 stream
+#define EXAMPLE_NUMBER_OF_STREAMS   (1) // This example shows how to control multiple UVC streams. Set this to 1 if you camera offers only 1 stream
 #define EXAMPLE_USE_SDCARD          (0) // SD card on P4 evaluation board will be initialized
 
 static const char *TAG = "UVC example";
@@ -128,8 +127,8 @@ static void frame_handling_task(void *arg)
 
             do {
                 uvc_host_frame_t *frame;
-                if (xQueueReceive(frame_q, &frame, pdMS_TO_TICKS(1000)) == pdPASS) {
-                    ESP_LOGI(TAG, "Stream %d: New frame! Len: %d", uvc_index, frame->data_len);
+                if (xQueueReceive(frame_q, &frame, pdMS_TO_TICKS(5000)) == pdPASS) {
+                    ESP_LOGI(TAG, "Stream %d: New frame %dx%d! Len: %d", uvc_index, frame->vs_format.h_res, frame->vs_format.v_res, frame->data_len);
 
                     // Process the frame data here!!
 
