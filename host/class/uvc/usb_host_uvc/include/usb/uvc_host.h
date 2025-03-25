@@ -10,11 +10,14 @@
 #include "usb/usb_host.h"
 #include "usb/usb_types_uvc.h"
 #include "esp_err.h"
+#include "sdkconfig.h"
 
 // Use this macros for opening a UVC stream with any VID or PID
 #define UVC_HOST_ANY_VID (0)
 #define UVC_HOST_ANY_PID (0)
 #define UVC_HOST_ANY_DEV_ADDR (0)
+
+#define UVC_HOST_INTERVAL_ARRAY_SIZE (CONFIG_UVC_HOST_INTERVAL_ARRAY_SIZE)
 
 #ifdef __cplusplus
 extern "C" {
@@ -53,7 +56,7 @@ typedef struct {
             uint32_t interval_max;            /**< Maximum frame interval */
             uint32_t interval_step;           /**< Frame interval step */
         };
-        uint32_t interval[CONFIG_UVC_INTERVAL_ARRAY_SIZE]; /**< We must put a fixed size here because of the union type. This is flexible size array though */
+        uint32_t interval[UVC_HOST_INTERVAL_ARRAY_SIZE]; /**< We must put a fixed size here because of the union type. This is flexible size array though */
     };
 } uvc_host_frame_info_t;
 

@@ -454,7 +454,7 @@ esp_err_t uvc_desc_get_frame_list(const usb_config_desc_t *config_desc, uint8_t 
                     frame_info->interval_max = this_frame->mjpeg_uncompressed.dwMaxFrameInterval;
                     frame_info->interval_step = this_frame->mjpeg_uncompressed.dwFrameIntervalStep;
                 } else {
-                    for (int i = 0; i < CONFIG_UVC_INTERVAL_ARRAY_SIZE; i ++) {
+                    for (int i = 0; i < UVC_HOST_INTERVAL_ARRAY_SIZE; i ++) {
                         frame_info->interval[i] = this_frame->mjpeg_uncompressed.dwFrameInterval[i];
                     }
                 }
@@ -468,7 +468,7 @@ esp_err_t uvc_desc_get_frame_list(const usb_config_desc_t *config_desc, uint8_t 
                     frame_info->interval_max = this_frame->frame_based.dwMaxFrameInterval;
                     frame_info->interval_step = this_frame->frame_based.dwFrameIntervalStep;
                 } else {
-                    for (int i = 0; i < CONFIG_UVC_INTERVAL_ARRAY_SIZE; i ++) {
+                    for (int i = 0; i < UVC_HOST_INTERVAL_ARRAY_SIZE; i ++) {
                         frame_info->interval[i] = this_frame->frame_based.dwFrameInterval[i];
                     }
                 }

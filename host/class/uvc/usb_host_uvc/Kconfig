@@ -1,12 +1,12 @@
-menu "USB HOST UVC"
+menu "USB-Driver: UVC Host"
 
-    config PRINTF_UVC_CONFIGURATION_DESCRIPTOR
+    config UVC_HOST_PRINT_CONFIG_DESCRIPTOR
         bool "Print UVC Configuration Descriptor"
         default n
         help
             Print UVC Configuration Descriptor to console.
 
-    config UVC_INTERVAL_ARRAY_SIZE
+    config UVC_HOST_INTERVAL_ARRAY_SIZE
         int "Size of the interval array in uvc_host_frame_info_t"
         default 3
         help
