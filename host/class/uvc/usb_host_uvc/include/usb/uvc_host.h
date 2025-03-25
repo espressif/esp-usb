@@ -38,6 +38,7 @@ enum uvc_host_stream_format {
     UVC_VS_FORMAT_YUY2,
     UVC_VS_FORMAT_H264,
     UVC_VS_FORMAT_H265,
+    UVC_VS_FORMAT_MAX
 };
 
 /**

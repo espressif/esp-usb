@@ -6,6 +6,15 @@ menu "USB-Driver: UVC Host"
         help
             Print UVC Configuration Descriptor to console.
 
+    config UVC_HOST_PRINT_SUPPORTED_FORMATS
+        bool "Print supported formats"
+        default n
+        help
+            When the stream parameters are unknown, this feature could be enabled to show supported formats by the camera.
+            When enabled, the driver displays resolution, format and default FPS.
+
+            Disabled by default.
+
     config UVC_HOST_INTERVAL_ARRAY_SIZE
         int "Size of the interval array in uvc_host_frame_info_t"
         default 3

@@ -7,12 +7,32 @@
 #include <inttypes.h>
 #include <string.h> // strncmp for guid format parsing
 #include <math.h>   // fabsf for float comparison
+#include "esp_log.h"
 #include "usb/usb_helpers.h"
 #include "usb/uvc_host.h"
 #include "uvc_check_priv.h"
 #include "uvc_descriptors_priv.h"
+#include "sdkconfig.h"
+
+#define UVC_PRINT_SUPPORTED_FORMATS     CONFIG_UVC_HOST_PRINT_SUPPORTED_FORMATS
 
 #define FLOAT_EQUAL(a, b) (fabsf(a - b) < 0.0001f) // For comparing float values with acceptable difference (epsilon value)
+
+#if (UVC_PRINT_SUPPORTED_FORMATS)
+static const char *format_to_string[UVC_VS_FORMAT_MAX] = {
+    "Undefined",
+    "MJPEG",
+    "YUY2",
+    "H264",
+    "H265",
+};
+
+static inline uint32_t make_fps(uint32_t frame_interval)
+{
+    return (frame_interval != 0) ? (10000000 / frame_interval) : 0;
+}
+#endif // UVC_PRINT_SUPPORTED_FORMATS
+
 
 static const uvc_vs_input_header_desc_t *uvc_desc_get_streaming_input_header(const usb_config_desc_t *cfg_desc, uint8_t bInterfaceNumber)
 {
@@ -365,6 +385,21 @@ esp_err_t uvc_desc_get_streaming_interface_num(
     }
     *bcdUVC = vc_header_desc->bcdUVC;
 
+#if (UVC_PRINT_SUPPORTED_FORMATS)
+    uvc_host_frame_info_t frames[20];
+    size_t size = 20;
+    for (int iface = 0; iface < vc_header_desc->bInCollection; iface++) {
+        ESP_ERROR_CHECK(uvc_desc_get_frame_list(cfg_desc, uvc_index, &frames, &size));
+        ESP_LOGW("UVC", "Supported frame formats:");
+        for (uint8_t i = 0; i < size; i++) {
+            ESP_LOGW("UVC", "\t%dx%d, %s, default FPS: %d",
+                     frames[i].h_res, frames[i].v_res,
+                     format_to_string[frames[i].format],
+                     make_fps(frames[i].default_interval));
+        }
+    }
+#endif // UVC_PRINT_SUPPORTED_FORMATS
+
     // Find video streaming interface that offers the requested format
     for (int streaming_if = 0; streaming_if < vc_header_desc->bInCollection; streaming_if++) {
         uint8_t current_bInterfaceNumber = vc_header_desc->baInterfaceNr[streaming_if];
@@ -374,6 +409,7 @@ esp_err_t uvc_desc_get_streaming_interface_num(
             break;
         }
     }
+
     return ret;
 }
 
