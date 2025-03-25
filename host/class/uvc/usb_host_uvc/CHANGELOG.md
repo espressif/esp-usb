@@ -1,4 +1,4 @@
-## [Unreleased]
+## 2.2.0
 
 - Added `uvc_host_stream_format_select()` function that allows change of format of an opened stream
 - Fixed MPS limitation on FS targets from 600 to 596 bytes
@@ -6,8 +6,8 @@
 
 ## 2.1.0
 
-- support get frame list when device insert
-- support dual camera with hub
+- Added support for get frame list when device is inserted
+- Added support for multiple cameras with USB hub
 
 ## 2.0.1
 
