@@ -25,7 +25,11 @@ The build produces an executable in the build folder.
 Just run:
 
 ```
-./build/host_test_usb_cdc.elf
+idf.py monitor
 ```
 
-The test executable have some options provided by the test framework.
+or run the executable directly:
+
+```
+./build/host_test_usb_cdc.elf
+```
