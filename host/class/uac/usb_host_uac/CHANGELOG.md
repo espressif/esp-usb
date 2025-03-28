@@ -1,6 +1,6 @@
 # Changelog for USB Host UAC
 
-## [Unreleased]
+## 1.3.0
 
 1. Added Linux target build for the UAC component, host tests (https://github.com/espressif/esp-usb/issues/143)
 
