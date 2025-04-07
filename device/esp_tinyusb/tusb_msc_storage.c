@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2023 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2023-2025 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -23,6 +23,11 @@
 #endif
 
 static const char *TAG = "tinyusb_msc_storage";
+
+// CONFIG_TINYUSB_MSC_BUFSIZE must be bigger, or equal to the CONFIG_WL_SECTOR_SIZE
+#if (CONFIG_TINYUSB_MSC_BUFSIZE < CONFIG_WL_SECTOR_SIZE)
+#error "CONFIG_TINYUSB_MSC_BUFSIZE must be at least at the size of CONFIG_WL_SECTOR_SIZE"
+#endif
 
 typedef struct {
     bool is_fat_mounted;
