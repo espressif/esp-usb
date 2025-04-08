@@ -311,7 +311,6 @@ esp_err_t tusb_cdc_acm_init(const tinyusb_config_cdcacm_t *cfg)
     int itf = (int)cfg->cdc_port;
     /* Creating a CDC object */
     const tinyusb_config_cdc_t cdc_cfg = {
-        .usb_dev = cfg->usb_dev,
         .cdc_class = TUSB_CLASS_CDC,
         .cdc_subclass.comm_subclass = CDC_COMM_SUBCLASS_ABSTRACT_CONTROL_MODEL
     };

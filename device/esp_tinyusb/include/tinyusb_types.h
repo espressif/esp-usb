@@ -14,10 +14,6 @@ extern "C" {
 
 #define USB_ESPRESSIF_VID 0x303A
 
-typedef enum {
-    TINYUSB_USBDEV_0,
-} tinyusb_usbdev_t;
-
 /**
  * @brief TinyUSB peripheral port number
  */
