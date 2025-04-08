@@ -93,9 +93,7 @@ TEST_CASE("tinyusb_cdc", "[esp_tinyusb][cdc]")
     TEST_ASSERT_EQUAL(ESP_OK, tinyusb_driver_install(&tusb_cfg));
 
     tinyusb_config_cdcacm_t acm_cfg = {
-        .usb_dev = TINYUSB_USBDEV_0,
         .cdc_port = TINYUSB_CDC_ACM_0,
-        .rx_unread_buf_sz = 64,
         .callback_rx = &tinyusb_cdc_rx_callback,
         .callback_rx_wanted_char = NULL,
         .callback_line_state_changed = NULL,
