@@ -80,7 +80,6 @@ void run_usb_dual_cdc_device(void)
     ESP_ERROR_CHECK(tinyusb_driver_install(&tusb_cfg));
 
     tinyusb_config_cdcacm_t amc_cfg = {
-        .usb_dev = TINYUSB_USBDEV_0,
         .cdc_port = TINYUSB_CDC_ACM_0,
         .callback_rx = &tinyusb_cdc_rx_callback,
         .callback_rx_wanted_char = NULL,
