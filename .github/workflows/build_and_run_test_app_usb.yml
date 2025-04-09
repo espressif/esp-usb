@@ -11,7 +11,7 @@ jobs:
     name: Build USB TestApps
     strategy:
       matrix:
-        idf_ver: ["release-v5.0", "release-v5.1", "release-v5.2", "release-v5.3", "release-v5.4", "latest"]
+        idf_ver: ["release-v5.1", "release-v5.2", "release-v5.3", "release-v5.4", "latest"]
     runs-on: ubuntu-latest
     container: espressif/idf:${{ matrix.idf_ver }}
     steps:
@@ -46,13 +46,11 @@ jobs:
     needs: build
     strategy:
       matrix:
-        idf_ver: ["release-v5.0", "release-v5.1", "release-v5.2", "release-v5.3", "release-v5.4", "latest"]
+        idf_ver: ["release-v5.1", "release-v5.2", "release-v5.3", "release-v5.4", "latest"]
         idf_target: ["esp32s2", "esp32p4"]
         runner_tag: ["usb_host", "usb_device"]
         exclude:
           # Exclude esp32p4 for releases before IDF 5.3 for all runner tags (esp32p4 support starts in IDF 5.3)
-          - idf_ver: "release-v5.0"
-            idf_target: "esp32p4"
           - idf_ver: "release-v5.1"
             idf_target: "esp32p4"
           - idf_ver: "release-v5.2"
