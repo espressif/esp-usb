@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2022-2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2022-2025 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -7,6 +7,7 @@
 
 #include "esp_log.h"
 #include "tinyusb.h"
+#include "tinyusb_default_configs.h"
 #include "soc/soc_caps.h"
 #include "test_common.h"
 #include "esp_check.h"
@@ -122,20 +123,19 @@ static void storage_init(void)
 {
     ESP_LOGI(TAG, "USB MSC initialization");
 
-    const tinyusb_config_t tusb_cfg = {
-        .device_descriptor = &descriptor_config,
-        .string_descriptor = string_desc_arr,
-        .string_descriptor_count = sizeof(string_desc_arr) / sizeof(string_desc_arr[0]),
+    tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG();
+    tusb_cfg.device_descriptor = &descriptor_config;
+    tusb_cfg.string_descriptor = string_desc_arr;
+    tusb_cfg.string_descriptor_count = sizeof(string_desc_arr) / sizeof(string_desc_arr[0]);
 #if (TUD_OPT_HIGH_SPEED)
-        .fs_configuration_descriptor = msc_fs_desc_configuration,
-        .hs_configuration_descriptor = msc_hs_desc_configuration,
-        .qualifier_descriptor = &device_qualifier,
+    tusb_cfg.fs_configuration_descriptor = msc_fs_desc_configuration;
+    tusb_cfg.hs_configuration_descriptor = msc_hs_desc_configuration;
+    tusb_cfg.qualifier_descriptor = &device_qualifier;
 #else
-        .configuration_descriptor = msc_fs_desc_configuration,
+    tusb_cfg.configuration_descriptor = msc_fs_desc_configuration;
 #endif // TUD_OPT_HIGH_SPEED
-        .self_powered = true,
-        .vbus_monitor_io = VBUS_MONITORING_GPIO_NUM
-    };
+    tusb_cfg.self_powered = true;
+    tusb_cfg.vbus_monitor_io = VBUS_MONITORING_GPIO_NUM;
 
     ESP_ERROR_CHECK(tinyusb_driver_install(&tusb_cfg));
     ESP_LOGI(TAG, "USB initialization DONE");
