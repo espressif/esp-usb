@@ -13,41 +13,69 @@
 #include "diskio_wl.h"
 #include "wear_levelling.h"
 #include "esp_partition.h"
+#include "esp_memory_utils.h"
+#include "sdkconfig.h"
 #include "vfs_fat_internal.h"
 #include "tinyusb.h"
+#include "device/usbd_pvt.h"
 #include "class/msc/msc_device.h"
 #include "tusb_msc_storage.h"
-#include "esp_vfs_fat.h"
 #if SOC_SDMMC_HOST_SUPPORTED
 #include "diskio_sdmmc.h"
 #endif
 
 static const char *TAG = "tinyusb_msc_storage";
 
+#define MSC_STORAGE_MEM_ALIGN 4
+#define MSC_STORAGE_BUFFER_SIZE CONFIG_TINYUSB_MSC_BUFSIZE /*!< Size of the buffer, configured via menuconfig (MSC FIFO size) */
+
+#if ((MSC_STORAGE_BUFFER_SIZE) % MSC_STORAGE_MEM_ALIGN != 0)
+#error "CONFIG_TINYUSB_MSC_BUFSIZE must be divisible by MSC_STORAGE_MEM_ALIGN. Adjust your configuration (MSC FIFO size) in menuconfig."
+#endif
+
 // CONFIG_TINYUSB_MSC_BUFSIZE must be bigger, or equal to the CONFIG_WL_SECTOR_SIZE
 #if (CONFIG_TINYUSB_MSC_BUFSIZE < CONFIG_WL_SECTOR_SIZE)
 #error "CONFIG_TINYUSB_MSC_BUFSIZE must be at least at the size of CONFIG_WL_SECTOR_SIZE"
 #endif
 
+/**
+ * @brief Structure representing a single write buffer for MSC operations.
+ */
 typedef struct {
-    bool is_fat_mounted;
-    const char *base_path;
+    uint8_t data_buffer[MSC_STORAGE_BUFFER_SIZE]; /*!< Buffer to store write data. The size is defined by MSC_STORAGE_BUFFER_SIZE. */
+    uint32_t lba;                          /*!< Logical Block Address for the current WRITE10 operation. */
+    uint32_t offset;                       /*!< Offset within the specified LBA for the current write operation. */
+    uint32_t bufsize;                      /*!< Number of bytes to be written in this operation. */
+} msc_storage_buffer_t;
+
+/**
+ * @brief Handle for TinyUSB MSC storage interface.
+ *
+ * This structure holds metadata and function pointers required to
+ * manage the underlying storage medium (SPI flash, SDMMC).
+ */
+typedef struct {
+    msc_storage_buffer_t storage_buffer;
+    bool is_fat_mounted;                  /*!< Indicates if the FAT filesystem is currently mounted. */
+    const char *base_path;                /*!< Base path where the filesystem is mounted. */
     union {
-        wl_handle_t wl_handle;
+        wl_handle_t wl_handle;            /*!< Handle for wear leveling on SPI flash. */
 #if SOC_SDMMC_HOST_SUPPORTED
-        sdmmc_card_t *card;
+        sdmmc_card_t *card;               /*!< Handle for SDMMC card. */
 #endif
     };
-    esp_err_t (*mount)(BYTE pdrv);
-    esp_err_t (*unmount)(void);
-    uint32_t (*sector_count)(void);
-    uint32_t (*sector_size)(void);
-    esp_err_t (*read)(size_t sector_size, uint32_t lba, uint32_t offset, size_t size, void *dest);
-    esp_err_t (*write)(size_t sector_size, size_t addr, uint32_t lba, uint32_t offset, size_t size, const void *src);
-    tusb_msc_callback_t callback_mount_changed;
-    tusb_msc_callback_t callback_premount_changed;
-    int max_files;
-} tinyusb_msc_storage_handle_s; /*!< MSC object */
+    esp_err_t (*mount)(BYTE pdrv);        /*!< Pointer to the mount function. */
+    esp_err_t (*unmount)(void);           /*!< Pointer to the unmount function. */
+    uint32_t sector_count;                /*!< Total number of sectors in the storage medium. */
+    uint32_t sector_size;                 /*!< Size of a single sector in bytes. */
+    esp_err_t (*read)(size_t sector_size, /*!< Function pointer for reading data. */
+                      uint32_t lba, uint32_t offset, size_t size, void *dest);
+    esp_err_t (*write)(size_t sector_size, /*!< Function pointer for writing data. */
+                       size_t addr, uint32_t lba, uint32_t offset, size_t size, const void *src);
+    tusb_msc_callback_t callback_mount_changed; /*!< Callback for mount state change. */
+    tusb_msc_callback_t callback_premount_changed; /*!< Callback for pre-mount state change. */
+    int max_files;                          /*!< Maximum number of files that can be open simultaneously. */
+} tinyusb_msc_storage_handle_s;
 
 /* handle of tinyusb driver connected to application */
 static tinyusb_msc_storage_handle_s *s_storage_handle;
@@ -175,7 +203,7 @@ static esp_err_t _write_sector_sdmmc(size_t sector_size,
 }
 #endif
 
-static esp_err_t msc_storage_read_sector(uint32_t lba,
+static esp_err_t _msc_storage_read_sector(uint32_t lba,
         uint32_t offset,
         size_t size,
         void *dest)
@@ -185,7 +213,7 @@ static esp_err_t msc_storage_read_sector(uint32_t lba,
     return (s_storage_handle->read)(sector_size, lba, offset, size, dest);
 }
 
-static esp_err_t msc_storage_write_sector(uint32_t lba,
+static esp_err_t _msc_storage_write_sector(uint32_t lba,
         uint32_t offset,
         size_t size,
         const void *src)
@@ -252,6 +280,29 @@ fail:
         free(workbuf);
     }
     return ret;
+}
+
+/**
+ * @brief Handles deferred USB MSC write operations.
+ *
+ * This function is invoked via TinyUSB's deferred execution mechanism to perform
+ * write operations to the underlying storage. It writes data from the
+ * `storage_buffer` stored within the `s_storage_handle`.
+ *
+ * @param param Unused. Present for compatibility with deferred function signature.
+ */
+static void _write_func(void *param)
+{
+    // Process the data in storage_buffer
+    esp_err_t err = _msc_storage_write_sector(
+                        s_storage_handle->storage_buffer.lba,
+                        s_storage_handle->storage_buffer.offset,
+                        s_storage_handle->storage_buffer.bufsize,
+                        (const void *)s_storage_handle->storage_buffer.data_buffer
+                    );
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Write failed, error=0x%x", err);
+    }
 }
 
 esp_err_t tinyusb_msc_storage_mount(const char *base_path)
@@ -369,29 +420,29 @@ esp_err_t tinyusb_msc_storage_unmount(void)
 uint32_t tinyusb_msc_storage_get_sector_count(void)
 {
     assert(s_storage_handle);
-    return (s_storage_handle->sector_count)();
+    return (s_storage_handle->sector_count);
 }
 
 uint32_t tinyusb_msc_storage_get_sector_size(void)
 {
     assert(s_storage_handle);
-    return (s_storage_handle->sector_size)();
+    return (s_storage_handle->sector_size);
 }
 
 esp_err_t tinyusb_msc_storage_init_spiflash(const tinyusb_msc_spiflash_config_t *config)
 {
     assert(!s_storage_handle);
-    s_storage_handle = (tinyusb_msc_storage_handle_s *)malloc(sizeof(tinyusb_msc_storage_handle_s));
-    ESP_RETURN_ON_FALSE(s_storage_handle, ESP_ERR_NO_MEM, TAG, "could not allocate new handle for storage");
+    s_storage_handle = (tinyusb_msc_storage_handle_s *)heap_caps_aligned_alloc(MSC_STORAGE_MEM_ALIGN, sizeof(tinyusb_msc_storage_handle_s), MALLOC_CAP_DMA);
+    ESP_RETURN_ON_FALSE(s_storage_handle, ESP_ERR_NO_MEM, TAG, "Failed to allocate memory for storage handle");
     s_storage_handle->mount = &_mount_spiflash;
     s_storage_handle->unmount = &_unmount_spiflash;
-    s_storage_handle->sector_count = &_get_sector_count_spiflash;
-    s_storage_handle->sector_size = &_get_sector_size_spiflash;
+    s_storage_handle->wl_handle = config->wl_handle;
+    s_storage_handle->sector_count = _get_sector_count_spiflash();
+    s_storage_handle->sector_size = _get_sector_size_spiflash();
     s_storage_handle->read = &_read_sector_spiflash;
     s_storage_handle->write = &_write_sector_spiflash;
     s_storage_handle->is_fat_mounted = false;
     s_storage_handle->base_path = NULL;
-    s_storage_handle->wl_handle = config->wl_handle;
     // In case the user does not set mount_config.max_files
     // and for backward compatibility with versions <1.4.2
     // max_files is set to 2
@@ -408,6 +459,10 @@ esp_err_t tinyusb_msc_storage_init_spiflash(const tinyusb_msc_spiflash_config_t 
         tinyusb_msc_register_callback(TINYUSB_MSC_EVENT_PREMOUNT_CHANGED, config->callback_premount_changed);
     } else {
         tinyusb_msc_unregister_callback(TINYUSB_MSC_EVENT_PREMOUNT_CHANGED);
+    }
+
+    if (!esp_ptr_dma_capable((const void *)s_storage_handle->storage_buffer.data_buffer)) {
+        ESP_LOGW(TAG, "storage buffer is not DMA capable");
     }
 
     return ESP_OK;
@@ -417,17 +472,17 @@ esp_err_t tinyusb_msc_storage_init_spiflash(const tinyusb_msc_spiflash_config_t 
 esp_err_t tinyusb_msc_storage_init_sdmmc(const tinyusb_msc_sdmmc_config_t *config)
 {
     assert(!s_storage_handle);
-    s_storage_handle = (tinyusb_msc_storage_handle_s *)malloc(sizeof(tinyusb_msc_storage_handle_s));
-    ESP_RETURN_ON_FALSE(s_storage_handle, ESP_ERR_NO_MEM, TAG, "could not allocate new handle for storage");
+    s_storage_handle = (tinyusb_msc_storage_handle_s *)heap_caps_aligned_alloc(MSC_STORAGE_MEM_ALIGN, sizeof(tinyusb_msc_storage_handle_s), MALLOC_CAP_DMA);
+    ESP_RETURN_ON_FALSE(s_storage_handle, ESP_ERR_NO_MEM, TAG, "Failed to allocate memory for storage handle");
     s_storage_handle->mount = &_mount_sdmmc;
     s_storage_handle->unmount = &_unmount_sdmmc;
-    s_storage_handle->sector_count = &_get_sector_count_sdmmc;
-    s_storage_handle->sector_size = &_get_sector_size_sdmmc;
+    s_storage_handle->card = config->card;
+    s_storage_handle->sector_count = _get_sector_count_sdmmc();
+    s_storage_handle->sector_size = _get_sector_size_sdmmc();
     s_storage_handle->read = &_read_sector_sdmmc;
     s_storage_handle->write = &_write_sector_sdmmc;
     s_storage_handle->is_fat_mounted = false;
     s_storage_handle->base_path = NULL;
-    s_storage_handle->card = config->card;
     // In case the user does not set mount_config.max_files
     // and for backward compatibility with versions <1.4.2
     // max_files is set to 2
@@ -446,15 +501,20 @@ esp_err_t tinyusb_msc_storage_init_sdmmc(const tinyusb_msc_sdmmc_config_t *confi
         tinyusb_msc_unregister_callback(TINYUSB_MSC_EVENT_PREMOUNT_CHANGED);
     }
 
+    if (!esp_ptr_dma_capable((const void *)s_storage_handle->storage_buffer.data_buffer)) {
+        ESP_LOGW(TAG, "storage buffer is not DMA capable");
+    }
+
     return ESP_OK;
 }
 #endif
 
 void tinyusb_msc_storage_deinit(void)
 {
-    assert(s_storage_handle);
-    free(s_storage_handle);
-    s_storage_handle = NULL;
+    if (s_storage_handle) {
+        heap_caps_free(s_storage_handle);
+        s_storage_handle = NULL;
+    }
 }
 
 esp_err_t tinyusb_msc_register_callback(tinyusb_msc_event_type_t event_type,
@@ -513,7 +573,7 @@ void tud_msc_inquiry_cb(uint8_t lun, uint8_t vendor_id[8], uint8_t product_id[16
     (void) lun;
     const char vid[] = "TinyUSB";
     const char pid[] = "Flash Storage";
-    const char rev[] = "0.1";
+    const char rev[] = "0.2";
 
     memcpy(vendor_id, vid, strlen(vid));
     memcpy(product_id, pid, strlen(pid));
@@ -572,7 +632,7 @@ bool tud_msc_start_stop_cb(uint8_t lun, uint8_t power_condition, bool start, boo
 // - Application fill the buffer (up to bufsize) with address contents and return number of read byte.
 int32_t tud_msc_read10_cb(uint8_t lun, uint32_t lba, uint32_t offset, void *buffer, uint32_t bufsize)
 {
-    esp_err_t err = msc_storage_read_sector(lba, offset, bufsize, buffer);
+    esp_err_t err = _msc_storage_read_sector(lba, offset, bufsize, buffer);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "msc_storage_read_sector failed: 0x%x", err);
         return 0;
@@ -585,11 +645,17 @@ int32_t tud_msc_read10_cb(uint8_t lun, uint32_t lba, uint32_t offset, void *buff
 // - Application write data from buffer to address contents (up to bufsize) and return number of written byte.
 int32_t tud_msc_write10_cb(uint8_t lun, uint32_t lba, uint32_t offset, uint8_t *buffer, uint32_t bufsize)
 {
-    esp_err_t err = msc_storage_write_sector(lba, offset, bufsize, buffer);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "msc_storage_write_sector failed: 0x%x", err);
-        return 0;
-    }
+    assert(bufsize <= MSC_STORAGE_BUFFER_SIZE);
+    // Copy data to the buffer
+    memcpy((void *)s_storage_handle->storage_buffer.data_buffer, buffer, bufsize);
+    s_storage_handle->storage_buffer.lba = lba;
+    s_storage_handle->storage_buffer.offset = offset;
+    s_storage_handle->storage_buffer.bufsize = bufsize;
+
+    // Defer execution of the write to the TinyUSB task
+    usbd_defer_func(_write_func, NULL, false);
+
+    // Return the number of bytes accepted
     return bufsize;
 }
 
