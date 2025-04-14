@@ -31,7 +31,11 @@
 #include "freertos/queue.h"
 #include "freertos/event_groups.h"
 
+#include "sdkconfig.h"
+
 static const char *TAG = "uvc";
+
+#define UVC_HOST_PRINT_CONFIG_DESCRIPTOR     CONFIG_UVC_HOST_PRINT_CONFIG_DESCRIPTOR
 
 // UVC spinlock
 portMUX_TYPE uvc_lock = portMUX_INITIALIZER_UNLOCKED;
@@ -120,9 +124,9 @@ static esp_err_t uvc_host_device_connected(uint8_t addr)
 
     // Create UAC interfaces list in RAM, connected to the particular USB dev
     if (is_uvc_device) {
-#ifdef CONFIG_PRINTF_UVC_CONFIGURATION_DESCRIPTOR
+#if (UVC_HOST_PRINT_CONFIG_DESCRIPTOR)
         usb_print_config_descriptor(config_desc, &uvc_print_desc);
-#endif
+#endif // UVC_HOST_PRINT_CONFIG_DESCRIPTOR
         // Create Interfaces list for a possibility to claim Interface
         ESP_RETURN_ON_ERROR(uvc_host_interface_check(addr, config_desc), TAG, "uvc stream interface not found");
     } else {
@@ -356,7 +360,6 @@ static esp_err_t uvc_find_and_open_usb_device(uint8_t dev_addr, uint16_t vid, ui
         if ((vid == device_desc->idVendor || vid == UVC_HOST_ANY_VID) &&
                 (pid == device_desc->idProduct || pid == UVC_HOST_ANY_PID) &&
                 (dev_addr == dev_info.dev_addr || dev_addr == UVC_HOST_ANY_DEV_ADDR)) {
-            // Return path 1: t
             (*dev)->constant.dev_hdl = uvc_stream->constant.dev_hdl;
             return ESP_OK;
         }
@@ -394,7 +397,6 @@ static esp_err_t uvc_find_and_open_usb_device(uint8_t dev_addr, uint16_t vid, ui
                 if ((vid == device_desc->idVendor || vid == UVC_HOST_ANY_VID) &&
                         (pid == device_desc->idProduct || pid == UVC_HOST_ANY_PID) &&
                         (dev_addr == dev_addr_list[i] || dev_addr == UVC_HOST_ANY_DEV_ADDR)) {
-                    // Return path 2:
                     (*dev)->constant.dev_hdl = current_device;
                     return ESP_OK;
                 }
