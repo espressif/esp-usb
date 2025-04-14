@@ -1,3 +1,7 @@
+## 2.1.0
+
+- Added option to implement custom CDC-ACM like devices with C API
+
 ## 2.0.6
 
 - Fixed device opening for devices with CDC class defined in Device descriptor https://github.com/espressif/esp-usb/pull/89

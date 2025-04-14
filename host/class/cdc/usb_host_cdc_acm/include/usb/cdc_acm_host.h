@@ -7,9 +7,11 @@
 #pragma once
 
 #include <stdbool.h>
+#include "esp_err.h"
 #include "usb/usb_host.h"
 #include "usb/usb_types_cdc.h"
-#include "esp_err.h"
+#include "usb/cdc_acm_host_ops.h"
+#include "usb/cdc_host_types.h"
 
 // Pass these to cdc_acm_host_open() to signal that you don't care about VID/PID of the opened device
 #define CDC_HOST_ANY_VID (0)
@@ -18,33 +20,6 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-typedef struct cdc_dev_s *cdc_acm_dev_hdl_t;
-
-/**
- * @brief CDC-ACM Device Event types to upper layer
- *
- */
-typedef enum {
-    CDC_ACM_HOST_ERROR,
-    CDC_ACM_HOST_SERIAL_STATE,
-    CDC_ACM_HOST_NETWORK_CONNECTION,
-    CDC_ACM_HOST_DEVICE_DISCONNECTED
-} cdc_acm_host_dev_event_t;
-
-/**
- * @brief CDC-ACM Device Event data structure
- *
- */
-typedef struct {
-    cdc_acm_host_dev_event_t type;
-    union {
-        int error;                         //!< Error code from USB Host
-        cdc_acm_uart_state_t serial_state; //!< Serial (UART) state
-        bool network_connected;            //!< Network connection event
-        cdc_acm_dev_hdl_t cdc_hdl;         //!< Disconnection event
-    } data;
-} cdc_acm_host_dev_event_data_t;
 
 /**
  * @brief New USB device callback
@@ -57,25 +32,6 @@ typedef struct {
 typedef void (*cdc_acm_new_dev_callback_t)(usb_device_handle_t usb_dev);
 
 /**
- * @brief Data receive callback type
- *
- * @param[in] data     Pointer to received data
- * @param[in] data_len Length of received data in bytes
- * @param[in] user_arg User's argument passed to open function
- * @return true        Received data was processed     -> Flush RX buffer
- * @return false       Received data was NOT processed -> Append new data to the buffer
- */
-typedef bool (*cdc_acm_data_callback_t)(const uint8_t *data, size_t data_len, void *user_arg);
-
-/**
- * @brief Device event callback type
- *
- * @param[in] event    Event structure
- * @param[in] user_arg User's argument passed to open function
- */
-typedef void (*cdc_acm_host_dev_callback_t)(const cdc_acm_host_dev_event_data_t *event, void *user_ctx);
-
-/**
  * @brief Configuration structure of USB Host CDC-ACM driver
  *
  */
@@ -85,19 +41,6 @@ typedef struct {
     int  xCoreID;                          /**< Core affinity of the driver's task */
     cdc_acm_new_dev_callback_t new_dev_cb; /**< New USB device connected callback. Can be NULL. */
 } cdc_acm_host_driver_config_t;
-
-/**
- * @brief Configuration structure of CDC-ACM device
- *
- */
-typedef struct {
-    uint32_t connection_timeout_ms;       /**< Timeout for USB device connection in [ms] */
-    size_t out_buffer_size;               /**< Maximum size of USB bulk out transfer, set to 0 for read-only devices */
-    size_t in_buffer_size;                /**< Maximum size of USB bulk in transfer */
-    cdc_acm_host_dev_callback_t event_cb; /**< Device's event callback function. Can be NULL */
-    cdc_acm_data_callback_t data_cb;      /**< Device's data RX callback function. Can be NULL for write-only devices */
-    void *user_arg;                       /**< User's argument that will be passed to the callbacks */
-} cdc_acm_host_device_config_t;
 
 /**
  * @brief Install CDC-ACM driver
@@ -185,53 +128,6 @@ esp_err_t cdc_acm_host_close(cdc_acm_dev_hdl_t cdc_hdl);
  * @return esp_err_t
  */
 esp_err_t cdc_acm_host_data_tx_blocking(cdc_acm_dev_hdl_t cdc_hdl, const uint8_t *data, size_t data_len, uint32_t timeout_ms);
-
-/**
- * @brief SetLineCoding function
- *
- * @see Chapter 6.3.10, USB CDC-PSTN specification rev. 1.2
- *
- * @param     cdc_hdl     CDC handle obtained from cdc_acm_host_open()
- * @param[in] line_coding Line Coding structure
- * @return esp_err_t
- */
-esp_err_t cdc_acm_host_line_coding_set(cdc_acm_dev_hdl_t cdc_hdl, const cdc_acm_line_coding_t *line_coding);
-
-/**
- * @brief GetLineCoding function
- *
- * @see Chapter 6.3.11, USB CDC-PSTN specification rev. 1.2
- *
- * @param      cdc_hdl     CDC handle obtained from cdc_acm_host_open()
- * @param[out] line_coding Line Coding structure to be filled
- * @return esp_err_t
- */
-esp_err_t cdc_acm_host_line_coding_get(cdc_acm_dev_hdl_t cdc_hdl, cdc_acm_line_coding_t *line_coding);
-
-/**
- * @brief SetControlLineState function
- *
- * @see Chapter 6.3.12, USB CDC-PSTN specification rev. 1.2
- *
- * @param     cdc_hdl CDC handle obtained from cdc_acm_host_open()
- * @param[in] dtr     Indicates to DCE if DTE is present or not. This signal corresponds to V.24 signal 108/2 and RS-232 signal Data Terminal Ready.
- * @param[in] rts     Carrier control for half duplex modems. This signal corresponds to V.24 signal 105 and RS-232 signal Request To Send.
- * @return esp_err_t
- */
-esp_err_t cdc_acm_host_set_control_line_state(cdc_acm_dev_hdl_t cdc_hdl, bool dtr, bool rts);
-
-/**
- * @brief SendBreak function
- *
- * This function will block until the duration_ms has passed.
- *
- * @see Chapter 6.3.13, USB CDC-PSTN specification rev. 1.2
- *
- * @param     cdc_hdl     CDC handle obtained from cdc_acm_host_open()
- * @param[in] duration_ms Duration of the Break signal in [ms]
- * @return esp_err_t
- */
-esp_err_t cdc_acm_host_send_break(cdc_acm_dev_hdl_t cdc_hdl, uint16_t duration_ms);
 
 /**
  * @brief Print device's descriptors
@@ -348,10 +244,12 @@ public:
         return cdc_acm_host_send_custom_request(this->cdc_hdl, bmRequestType, bRequest, wValue, wIndex, wLength, data);
     }
 
+protected:
+    cdc_acm_dev_hdl_t cdc_hdl;
+
 private:
     CdcAcmDevice &operator= (const CdcAcmDevice &Copy);
     bool operator== (const CdcAcmDevice &param) const;
     bool operator!= (const CdcAcmDevice &param) const;
-    cdc_acm_dev_hdl_t cdc_hdl;
 };
 #endif

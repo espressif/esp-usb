@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2015-2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2015-2025 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -20,7 +20,8 @@
 #include "usb/usb_host.h"
 #include "usb/cdc_acm_host.h"
 #include "cdc_host_descriptor_parsing.h"
-#include "cdc_host_types.h"
+#include "cdc_host_common.h"
+#include "cdc_host_acm_compliant.h"
 
 static const char *TAG = "cdc_acm";
 
@@ -36,20 +37,6 @@ static portMUX_TYPE cdc_acm_lock = portMUX_INITIALIZER_UNLOCKED;
 // CDC-ACM events
 #define CDC_ACM_TEARDOWN          BIT0
 #define CDC_ACM_TEARDOWN_COMPLETE BIT1
-
-// CDC-ACM check macros
-#define CDC_ACM_CHECK(cond, ret_val) ({                                     \
-            if (!(cond)) {                                                  \
-                return (ret_val);                                           \
-            }                                                               \
-})
-
-#define CDC_ACM_CHECK_FROM_CRIT(cond, ret_val) ({                           \
-            if (!(cond)) {                                                  \
-                CDC_ACM_EXIT_CRITICAL();                                    \
-                return ret_val;                                             \
-            }                                                               \
-})
 
 // CDC-ACM driver object
 typedef struct {
@@ -110,25 +97,6 @@ static void out_xfer_cb(usb_transfer_t *transfer);
  * @param[in] arg Caller's argument (not used in this driver)
  */
 static void usb_event_cb(const usb_host_client_event_msg_t *event_msg, void *arg);
-
-/**
- * @brief Send CDC specific request
- *
- * Helper function that will send CDC specific request to default endpoint.
- * Both IN and OUT requests are sent through this API, depending on the in_transfer parameter.
- *
- * @see  Chapter 6.2, USB CDC specification rev. 1.2
- * @note CDC specific requests are only supported by devices that have dedicated management element.
- *
- * @param[in] cdc_dev Pointer to CDC device
- * @param[in] in_transfer Direction of data phase. true: IN, false: OUT
- * @param[in] request CDC request code
- * @param[inout] data Pointer to data buffer. Input for OUT transfers, output for IN transfers.
- * @param[in] data_len Length of data buffer
- * @param[in] value Value to be set in bValue of Setup packet
- * @return esp_err_t
- */
-static esp_err_t send_cdc_request(cdc_dev_t *cdc_dev, bool in_transfer, cdc_request_code_t request, uint8_t *data, uint16_t data_len, uint16_t value);
 
 /**
  * @brief Reset IN transfer
@@ -634,6 +602,14 @@ esp_err_t cdc_acm_host_open(uint16_t vid, uint16_t pid, uint8_t interface_idx, c
     cdc_dev->cdc_func_desc = cdc_info.func;
     cdc_dev->cdc_func_desc_cnt = cdc_info.func_cnt;
 
+    // For CDC compliant devices, this driver provides default implementation of CDC-ACM specific functions.
+    if (cdc_dev->cdc_func_desc_cnt > 1) {
+        cdc_dev->intf_func.line_coding_get = acm_compliant_line_coding_get;
+        cdc_dev->intf_func.line_coding_set = acm_compliant_line_coding_set;
+        cdc_dev->intf_func.set_control_line_state = acm_compliant_set_control_line_state;
+        cdc_dev->intf_func.send_break = acm_compliant_send_break;
+    }
+
     // The following line is here for backward compatibility with v1.0.*
     // where fixed size of IN buffer (equal to IN Maximum Packet Size) was used
     const size_t in_buf_size = (dev_config->data_cb && (dev_config->in_buffer_size == 0)) ? USB_EP_DESC_GET_MPS(cdc_info.in_ep) : dev_config->in_buffer_size;
@@ -953,52 +929,6 @@ unblock:
     return ret;
 }
 
-esp_err_t cdc_acm_host_line_coding_get(cdc_acm_dev_hdl_t cdc_hdl, cdc_acm_line_coding_t *line_coding)
-{
-    CDC_ACM_CHECK(line_coding, ESP_ERR_INVALID_ARG);
-
-    ESP_RETURN_ON_ERROR(
-        send_cdc_request((cdc_dev_t *)cdc_hdl, true, USB_CDC_REQ_GET_LINE_CODING, (uint8_t *)line_coding, sizeof(cdc_acm_line_coding_t), 0),
-        TAG,);
-    ESP_LOGD(TAG, "Line Get: Rate: %"PRIu32", Stop bits: %d, Parity: %d, Databits: %d", line_coding->dwDTERate,
-             line_coding->bCharFormat, line_coding->bParityType, line_coding->bDataBits);
-    return ESP_OK;
-}
-
-esp_err_t cdc_acm_host_line_coding_set(cdc_acm_dev_hdl_t cdc_hdl, const cdc_acm_line_coding_t *line_coding)
-{
-    CDC_ACM_CHECK(line_coding, ESP_ERR_INVALID_ARG);
-
-    ESP_RETURN_ON_ERROR(
-        send_cdc_request((cdc_dev_t *)cdc_hdl, false, USB_CDC_REQ_SET_LINE_CODING, (uint8_t *)line_coding, sizeof(cdc_acm_line_coding_t), 0),
-        TAG,);
-    ESP_LOGD(TAG, "Line Set: Rate: %"PRIu32", Stop bits: %d, Parity: %d, Databits: %d", line_coding->dwDTERate,
-             line_coding->bCharFormat, line_coding->bParityType, line_coding->bDataBits);
-    return ESP_OK;
-}
-
-esp_err_t cdc_acm_host_set_control_line_state(cdc_acm_dev_hdl_t cdc_hdl, bool dtr, bool rts)
-{
-    const uint16_t ctrl_bitmap = (uint16_t)dtr | ((uint16_t)rts << 1);
-
-    ESP_RETURN_ON_ERROR(
-        send_cdc_request((cdc_dev_t *)cdc_hdl, false, USB_CDC_REQ_SET_CONTROL_LINE_STATE, NULL, 0, ctrl_bitmap),
-        TAG,);
-    ESP_LOGD(TAG, "Control Line Set: DTR: %d, RTS: %d", dtr, rts);
-    return ESP_OK;
-}
-
-esp_err_t cdc_acm_host_send_break(cdc_acm_dev_hdl_t cdc_hdl, uint16_t duration_ms)
-{
-    ESP_RETURN_ON_ERROR(
-        send_cdc_request((cdc_dev_t *)cdc_hdl, false, USB_CDC_REQ_SEND_BREAK, NULL, 0, duration_ms),
-        TAG,);
-
-    // Block until break is deasserted
-    vTaskDelay(pdMS_TO_TICKS(duration_ms + 1));
-    return ESP_OK;
-}
-
 esp_err_t cdc_acm_host_send_custom_request(cdc_acm_dev_hdl_t cdc_hdl, uint8_t bmRequestType, uint8_t bRequest, uint16_t wValue, uint16_t wIndex, uint16_t wLength, uint8_t *data)
 {
     CDC_ACM_CHECK(cdc_hdl, ESP_ERR_INVALID_ARG);
@@ -1054,20 +984,6 @@ esp_err_t cdc_acm_host_send_custom_request(cdc_acm_dev_hdl_t cdc_hdl, uint8_t bm
 unblock:
     xSemaphoreGive(cdc_dev->ctrl_mux);
     return ret;
-}
-
-static esp_err_t send_cdc_request(cdc_dev_t *cdc_dev, bool in_transfer, cdc_request_code_t request, uint8_t *data, uint16_t data_len, uint16_t value)
-{
-    CDC_ACM_CHECK(cdc_dev, ESP_ERR_INVALID_ARG);
-    CDC_ACM_CHECK(cdc_dev->notif.intf_desc, ESP_ERR_NOT_SUPPORTED);
-
-    uint8_t req_type = USB_BM_REQUEST_TYPE_TYPE_CLASS | USB_BM_REQUEST_TYPE_RECIP_INTERFACE;
-    if (in_transfer) {
-        req_type |= USB_BM_REQUEST_TYPE_DIR_IN;
-    } else {
-        req_type |= USB_BM_REQUEST_TYPE_DIR_OUT;
-    }
-    return cdc_acm_host_send_custom_request((cdc_acm_dev_hdl_t) cdc_dev, req_type, request, value, cdc_dev->notif.intf_desc->bInterfaceNumber, data_len, data);
 }
 
 esp_err_t cdc_acm_host_protocols_get(cdc_acm_dev_hdl_t cdc_hdl, cdc_comm_protocol_t *comm, cdc_data_protocol_t *data)

@@ -36,6 +36,7 @@ typedef struct {
     struct {
         usb_transfer_t *xfer;
         uint8_t bEndpointAddress;
+        bool has_separate_interface;
     } notif;
 } cdc_dev_expects_t;
 
@@ -77,6 +78,9 @@ static esp_err_t _test_create_cmock_expectations(uint8_t dev_address, uint8_t in
     if (cdc_info.notif_ep) {
         cdc_dev_expects->notif.bEndpointAddress = cdc_info.notif_ep->bEndpointAddress;
         cdc_dev_expects->notif.xfer = reinterpret_cast<usb_transfer_t *>(&notif_xfer);
+        if (cdc_info.notif_intf != cdc_info.data_intf) {
+            cdc_dev_expects->notif.has_separate_interface = true;
+        }
     } else {
         cdc_dev_expects->notif.bEndpointAddress = 0;
         cdc_dev_expects->notif.xfer = nullptr;
@@ -189,13 +193,16 @@ esp_err_t test_cdc_acm_host_open(uint8_t dev_address, uint16_t vid, uint16_t pid
 
     // Call cdc_acm_start
 
-    // Claim data interface
+    // Claim 1st interface
     // Make sure that the interface_index has been claimed
     test_usb_host_interface_claim(interface_index);
 
-    // Claim notification interface (if supported)
-    if (p_cdc_dev_expects->notif.xfer) {
-        test_usb_host_interface_claim(interface_index);
+    // Claim 2nd interface (if supported)
+    if (p_cdc_dev_expects->notif.has_separate_interface) {
+        test_usb_host_interface_claim(interface_index + 1);
+    } else if (p_cdc_dev_expects->notif.xfer) {
+        // If the device has no separate interface, but has notification endpoint
+        usb_host_transfer_submit_ExpectAnyArgsAndReturn(ESP_OK);
     }
 
     // Call the real function cdc_acm_host_open
