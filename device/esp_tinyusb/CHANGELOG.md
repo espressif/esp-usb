@@ -1,3 +1,7 @@
+## 1.7.3
+
+- MSC: Improved transfer speed to SD cards and SPI flash
+
 ## 1.7.2
 
 - esp_tinyusb: Fixed crash on logging from ISR
