@@ -33,11 +33,6 @@ static const char *TAG = "tinyusb_msc_storage";
 #error "CONFIG_TINYUSB_MSC_BUFSIZE must be divisible by MSC_STORAGE_MEM_ALIGN. Adjust your configuration (MSC FIFO size) in menuconfig."
 #endif
 
-// CONFIG_TINYUSB_MSC_BUFSIZE must be bigger, or equal to the CONFIG_WL_SECTOR_SIZE
-#if (CONFIG_TINYUSB_MSC_BUFSIZE < CONFIG_WL_SECTOR_SIZE)
-#error "CONFIG_TINYUSB_MSC_BUFSIZE must be at least at the size of CONFIG_WL_SECTOR_SIZE"
-#endif
-
 /**
  * @brief Structure representing a single write buffer for MSC operations.
  */
@@ -432,6 +427,9 @@ uint32_t tinyusb_msc_storage_get_sector_size(void)
 esp_err_t tinyusb_msc_storage_init_spiflash(const tinyusb_msc_spiflash_config_t *config)
 {
     assert(!s_storage_handle);
+    ESP_RETURN_ON_FALSE(CONFIG_TINYUSB_MSC_BUFSIZE >= CONFIG_WL_SECTOR_SIZE,
+                        ESP_ERR_NOT_SUPPORTED, TAG,
+                        "CONFIG_TINYUSB_MSC_BUFSIZE (%d) must be at least the size of CONFIG_WL_SECTOR_SIZE (%d)", (int)(CONFIG_TINYUSB_MSC_BUFSIZE), (int)(CONFIG_WL_SECTOR_SIZE));
     s_storage_handle = (tinyusb_msc_storage_handle_s *)heap_caps_aligned_alloc(MSC_STORAGE_MEM_ALIGN, sizeof(tinyusb_msc_storage_handle_s), MALLOC_CAP_DMA);
     ESP_RETURN_ON_FALSE(s_storage_handle, ESP_ERR_NO_MEM, TAG, "Failed to allocate memory for storage handle");
     s_storage_handle->mount = &_mount_spiflash;
