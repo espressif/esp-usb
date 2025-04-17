@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2024-2025 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -7,17 +7,33 @@
 #pragma once
 
 #include <stdint.h>
-#include <sys/queue.h>
+#include <stdbool.h>
+#include <sys/queue.h>                  // For singly linked list
 
 #include "freertos/FreeRTOS.h"
-#include "freertos/semphr.h"
+#include "freertos/semphr.h"            // For mutexes and semaphores
 
-#include "usb/usb_host.h"      // For USB device handle and transfers
-#include "usb/cdc_acm_host.h"  // For callback types
-#include "usb/usb_types_cdc.h" // For protocol and serial state
+#include "usb/usb_host.h"               // For USB device handle and transfers
+#include "usb/cdc_acm_host_interface.h" // For CDC interface function table
+#include "usb/usb_types_cdc.h"          // For protocol and serial state
+
+// CDC-ACM check macros
+#define CDC_ACM_CHECK(cond, ret_val) ({                             \
+    if (!(cond)) {                                                  \
+        return (ret_val);                                           \
+    }                                                               \
+})
+
+#define CDC_ACM_CHECK_FROM_CRIT(cond, ret_val) ({                   \
+    if (!(cond)) {                                                  \
+        CDC_ACM_EXIT_CRITICAL();                                    \
+        return ret_val;                                             \
+    }                                                               \
+})
 
 typedef struct cdc_dev_s cdc_dev_t;
 struct cdc_dev_s {
+    cdc_acm_intf_t intf_func;             // CDC interface function table
     usb_device_handle_t dev_hdl;          // USB device handle
     void *cb_arg;                         // Common argument for user's callbacks (data IN and Notification)
     struct {

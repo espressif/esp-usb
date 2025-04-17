@@ -76,7 +76,8 @@ SCENARIO("Test mocked device opening and closing")
             dev_config.connection_timeout_ms = 1;   // Set small connection timeout, so the usb_host_device_addr_list_fill() is called only once
             int num_of_devices = 0;
             usb_host_device_addr_list_fill_ExpectAnyArgsAndReturn(ESP_OK);
-            // Don't register callback to usb_host_device_addr_list_fill(), we want to use mocked function here
+            // Unregister callback to usb_host_device_addr_list_fill(), we want to use mocked function here
+            usb_host_device_addr_list_fill_Stub(nullptr);
             usb_host_device_addr_list_fill_ReturnThruPtr_num_dev_ret(&num_of_devices);
             REQUIRE(ESP_ERR_NOT_FOUND == cdc_acm_host_open(vid, pid, interface_index, &dev_config, &dev));
         }
