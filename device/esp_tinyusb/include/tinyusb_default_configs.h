@@ -7,8 +7,7 @@
 #pragma once
 
 #include <stdbool.h>
-#include "tinyusb_types.h"
-#include "tinyusb_task.h"
+#include "tinyusb.h"
 #include "sdkconfig.h"
 
 #ifdef __cplusplus
@@ -49,39 +48,51 @@ extern "C" {
 // Default priority for task used in TinyUSB task creation
 #define TINYUSB_DEFAULT_TASK_PRIO      5
 
-#define TINYUSB_CONFIG_FULL_SPEED() \
-    (tinyusb_config_t) {                              \
-        .skip_phy_setup = false,                      \
-        .port = TINYUSB_PORT_0,                       \
-        .task = TINYUSB_TASK_DEFAULT(),               \
-        .self_powered = false,                        \
-        .vbus_monitor_io = -1,                        \
-        .device_descriptor = NULL,                    \
-        .string_descriptor = NULL,                    \
-        .string_descriptor_count = 0,                 \
-        .configuration_descriptor = NULL,             \
+
+
+#define TINYUSB_CONFIG_FULL_SPEED()                     \
+    (tinyusb_config_t) {                                \
+        .port = TINYUSB_PORT_FULL_SPEED_0,              \
+        .phy = {                                        \
+            .skip_setup = false,                        \
+            .self_powered = false,                      \
+            .vbus_monitor_io = -1,                      \
+        },                                              \
+        .task = TINYUSB_TASK_DEFAULT(),                 \
+        .descriptor = {                                 \
+            .device = NULL,                             \
+            .qualifier = NULL,                          \
+            .string = NULL,                             \
+            .string_count = 0,                          \
+            .full_speed_config = NULL,                  \
+            .high_speed_config = NULL,                  \
+        },                                              \
     }
 
-#define TINYUSB_CONFIG_HIGH_SPEED() \
-    (tinyusb_config_t) {                              \
-        .skip_phy_setup = false,                      \
-        .port = TINYUSB_PORT_1,                       \
-        .task = TINYUSB_TASK_DEFAULT(),               \
-        .self_powered = false,                        \
-        .vbus_monitor_io = -1,                        \
-        .device_descriptor = NULL,                    \
-        .string_descriptor = NULL,                    \
-        .string_descriptor_count = 0,                 \
-        .fs_configuration_descriptor = NULL,          \
-        .hs_configuration_descriptor = NULL,          \
-        .qualifier_descriptor = NULL,                 \
-    }
+#define TINYUSB_CONFIG_HIGH_SPEED()                     \
+    (tinyusb_config_t) {                                \
+        .port = TINYUSB_PORT_HIGH_SPEED_0,              \
+        .phy = {                                        \
+            .skip_setup = false,                        \
+            .self_powered = false,                      \
+            .vbus_monitor_io = -1,                      \
+        },                                              \
+        .task = TINYUSB_TASK_DEFAULT(),                 \
+        .descriptor = {                                 \
+            .device = NULL,                             \
+            .qualifier = NULL,                          \
+            .string = NULL,                             \
+            .string_count = 0,                          \
+            .full_speed_config = NULL,                  \
+            .high_speed_config = NULL,                  \
+        },                                              \
+}
 
-#define TINYUSB_TASK_DEFAULT() \
-    (tinyusb_task_config_t) {                         \
-        .size = TINYUSB_DEFAULT_TASK_SIZE,            \
-        .priority = TINYUSB_DEFAULT_TASK_PRIO,        \
-        .xCoreID = TINYUSB_DEFAULT_TASK_AFFINITY,    \
+#define TINYUSB_TASK_DEFAULT()                          \
+    (tinyusb_task_config_t) {                           \
+        .size = TINYUSB_DEFAULT_TASK_SIZE,              \
+        .priority = TINYUSB_DEFAULT_TASK_PRIO,          \
+        .xCoreID = TINYUSB_DEFAULT_TASK_AFFINITY,       \
     }
 
 /**
@@ -93,11 +104,11 @@ extern "C" {
  * @param p Task priority
  * @param a Task affinity (CPU core)
  */
-#define TINYUSB_TASK_CUSTOM(s, p, a) \
-    (tinyusb_task_config_t) {                    \
-        .size = (s),                             \
-        .priority = (p),                         \
-        .xCoreID = (a),                         \
+#define TINYUSB_TASK_CUSTOM(s, p, a)                    \
+    (tinyusb_task_config_t) {                           \
+        .size = (s),                                    \
+        .priority = (p),                                \
+        .xCoreID = (a),                                 \
     }
 
 #ifdef __cplusplus

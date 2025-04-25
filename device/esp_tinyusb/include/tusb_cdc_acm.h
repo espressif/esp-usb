@@ -13,8 +13,6 @@ extern "C" {
 #include <stdint.h>
 #include "sdkconfig.h"
 #include "esp_err.h"
-
-#include "tinyusb_types.h"
 #include "class/cdc/cdc.h"
 
 #if (CONFIG_TINYUSB_CDC_ENABLED != 1)
