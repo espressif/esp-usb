@@ -6,7 +6,7 @@
 
 #include "usb_descriptors.h"
 #include "sdkconfig.h"
-#include "tinyusb_types.h"
+#include "tinyusb.h"
 
 /*
  * A combination of interfaces must have a unique product id, since PC will save device driver after the first plug.
@@ -42,7 +42,7 @@ const tusb_desc_device_t descriptor_dev_default = {
     .bMaxPacketSize0 = CFG_TUD_ENDPOINT0_SIZE,
 
 #if CONFIG_TINYUSB_DESC_USE_ESPRESSIF_VID
-    .idVendor = USB_ESPRESSIF_VID,
+    .idVendor = TINYUSB_ESPRESSIF_VID,
 #else
     .idVendor = CONFIG_TINYUSB_DESC_CUSTOM_VID,
 #endif
