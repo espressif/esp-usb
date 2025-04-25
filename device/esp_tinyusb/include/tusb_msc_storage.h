@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2023 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2023-2025 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -83,6 +83,8 @@ typedef struct {
  * @return esp_err_t
  *       - ESP_OK, if success;
  *       - ESP_ERR_NO_MEM, if there was no memory to allocate storage components;
+ *       - ESP_ERR_NOT_SUPPORTED, if wear leveling sector size CONFIG_WL_SECTOR_SIZE is bigger than
+ *                                the tinyusb MSC buffer size CONFIG_TINYUSB_MSC_BUFSIZE
  */
 esp_err_t tinyusb_msc_storage_init_spiflash(const tinyusb_msc_spiflash_config_t *config);
 
