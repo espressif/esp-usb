@@ -1,6 +1,6 @@
 idf_component_register(SRC_DIRS .
                        INCLUDE_DIRS .
-                       REQUIRES usb_host_cdc_acm unity esp_tinyusb
+                       REQUIRES unity
                        WHOLE_ARCHIVE)
 
 # So we have access to private_include:
