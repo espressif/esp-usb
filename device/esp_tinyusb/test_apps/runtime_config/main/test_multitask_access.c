@@ -27,7 +27,7 @@
 #include "test_task.h"
 #include "sdkconfig.h"
 
-#define MULTIPLE_THREADS_TASKS_NUM 4
+#define MULTIPLE_THREADS_TASKS_NUM 5
 
 static int nb_of_success = 0;
 
@@ -35,11 +35,9 @@ static void test_task_install(void *arg)
 {
     TaskHandle_t parent_task_handle = (TaskHandle_t)arg;
 
-    printf("start\n");
-
     // Install TinyUSB driver
     tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG();
-    tusb_cfg.skip_phy_setup = true; // Skip phy setup to allow multiple tasks to install the driver
+    tusb_cfg.phy.skip_setup = true; // Skip phy setup to allow multiple tasks to install the driver
 
     if (tinyusb_driver_install(&tusb_cfg) == ESP_OK) {
         test_device_wait();
@@ -61,7 +59,7 @@ static void test_task_install(void *arg)
  * Scenario: Trying to install driver from several tasks
  * Note: when skip_phy_setup = false, the task access will be determined by the first task install the phy
  */
-TEST_CASE("Multitask: Install", "[runtime_config]")
+TEST_CASE("Multitask: Install", "[runtime_config][full_speed][high_speed]")
 {
     usb_phy_handle_t phy_hdl = NULL;
     // Install the PHY externally
@@ -69,10 +67,10 @@ TEST_CASE("Multitask: Install", "[runtime_config]")
         .controller = USB_PHY_CTRL_OTG,
         .target = USB_PHY_TARGET_INT,
         .otg_mode = USB_OTG_MODE_DEVICE,
-        .otg_speed = USB_PHY_SPEED_HIGH,
     };
     TEST_ASSERT_EQUAL_MESSAGE(ESP_OK, usb_new_phy(&phy_conf, &phy_hdl), "Unable to install USB PHY ");
 
+    nb_of_success = 0;
     // Create tasks that will start the driver
     for (int i = 0; i < MULTIPLE_THREADS_TASKS_NUM; i++) {
         TEST_ASSERT_EQUAL(pdTRUE, xTaskCreate(test_task_install,
@@ -84,7 +82,7 @@ TEST_CASE("Multitask: Install", "[runtime_config]")
     }
 
     // Wait until all tasks are finished
-    vTaskDelay(pdMS_TO_TICKS(1000));
+    vTaskDelay(pdMS_TO_TICKS(5000));
     // Check if all tasks finished, we should get all notification from the tasks
     TEST_ASSERT_EQUAL_MESSAGE(MULTIPLE_THREADS_TASKS_NUM, ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(5000)), "Not all tasks finished");
     // There should be only one task that was able to install the driver
