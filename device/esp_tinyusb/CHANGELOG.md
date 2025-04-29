@@ -1,4 +1,8 @@
-## 1.7.3
+## 1.7.4
+
+- MSC: WL Sector runtime check during spiflash init (fix for build time error check)
+
+## 1.7.3 [yanked]
 
 - MSC: Improved transfer speed to SD cards and SPI flash
 
