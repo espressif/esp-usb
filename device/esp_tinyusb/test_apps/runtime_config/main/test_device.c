@@ -115,7 +115,7 @@ const char *test_string_descriptor[USB_STRING_DESCRIPTOR_ARRAY_SIZE + 1] = {
     "TinyUSB",             // 1: Manufacturer
     "TinyUSB Device",      // 2: Product
     "123456",              // 3: Serials, should use chip ID
-    "String 4",            // 4: Test string #5
+    "TinyUSB CDC",         // 4: CDC String descriptor
     "String 5",            // 5: Test string #6
     "String 6",            // 6: Test string #7
     "String 7",            // 7: Test string #8
@@ -146,8 +146,8 @@ TEST_CASE("Device: String Descriptors overflow", "[runtime_config][default]")
 {
     // TinyUSB driver default configuration
     tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG();
-    tusb_cfg.string_descriptor = test_string_descriptor;
-    tusb_cfg.string_descriptor_count = USB_STRING_DESCRIPTOR_ARRAY_SIZE + 1;
+    tusb_cfg.descriptor.string = test_string_descriptor;
+    tusb_cfg.descriptor.string_count = USB_STRING_DESCRIPTOR_ARRAY_SIZE + 1;
     // Install TinyUSB driver
     TEST_ASSERT_EQUAL(ESP_ERR_NOT_SUPPORTED, tinyusb_driver_install(&tusb_cfg));
 }
@@ -162,8 +162,8 @@ TEST_CASE("Device: String Descriptors maximum value", "[runtime_config][default]
 {
     // TinyUSB driver default configuration
     tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG();
-    tusb_cfg.string_descriptor = test_string_descriptor;
-    tusb_cfg.string_descriptor_count = USB_STRING_DESCRIPTOR_ARRAY_SIZE;
+    tusb_cfg.descriptor.string = test_string_descriptor;
+    tusb_cfg.descriptor.string_count = USB_STRING_DESCRIPTOR_ARRAY_SIZE;
     // Install TinyUSB driver
     TEST_ASSERT_EQUAL(ESP_OK, tinyusb_driver_install(&tusb_cfg));
     test_device_wait();
@@ -181,14 +181,13 @@ TEST_CASE("Device: Device & Configuration", "[runtime_config][default]")
     // TinyUSB driver configuration
     tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG();
     // Set descriptors
-    tusb_cfg.device_descriptor = &test_device_descriptor;
-    tusb_cfg.string_descriptor = test_string_descriptor;
+    tusb_cfg.descriptor.device = &test_device_descriptor;
+    tusb_cfg.descriptor.string = test_string_descriptor;
+    tusb_cfg.descriptor.string_count = 5; // 5 string descriptors as we report string index 4 for CDC in the configuration descriptor
+    tusb_cfg.descriptor.full_speed_config = test_fs_configuration_descriptor;
 #if (TUD_OPT_HIGH_SPEED)
-    tusb_cfg.qualifier_descriptor = &device_qualifier;
-    tusb_cfg.fs_configuration_descriptor = test_fs_configuration_descriptor;
-    tusb_cfg.hs_configuration_descriptor = test_hs_configuration_descriptor;
-#else
-    tusb_cfg.configuration_descriptor = test_fs_configuration_descriptor;
+    tusb_cfg.descriptor.qualifier = &device_qualifier;
+    tusb_cfg.descriptor.high_speed_config = test_hs_configuration_descriptor;
 #endif // TUD_OPT_HIGH_SPEED
 
     // Install TinyUSB driver
@@ -222,9 +221,9 @@ TEST_CASE("Device: Device Descriptor only", "[runtime_config][default]")
 {
     tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG();
 
-    tusb_cfg.device_descriptor = &test_device_descriptor;
+    tusb_cfg.descriptor.device = &test_device_descriptor;
 #if (TUD_OPT_HIGH_SPEED)
-    tusb_cfg.qualifier_descriptor = &device_qualifier;
+    tusb_cfg.descriptor.qualifier = &device_qualifier;
 #endif // TUD_OPT_HIGH_SPEED
     // Install TinyUSB driver
     TEST_ASSERT_EQUAL(ESP_OK, tinyusb_driver_install(&tusb_cfg));
@@ -244,15 +243,12 @@ TEST_CASE("Device: Device & Full-speed config only", "[runtime_config][default]"
 {
     tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG();
 
-    tusb_cfg.device_descriptor = &test_device_descriptor;
+    tusb_cfg.descriptor.device = &test_device_descriptor;
+    tusb_cfg.descriptor.full_speed_config = test_fs_configuration_descriptor;
 #if (TUD_OPT_HIGH_SPEED)
-    tusb_cfg.qualifier_descriptor = &device_qualifier;
-    tusb_cfg.fs_configuration_descriptor = test_fs_configuration_descriptor;
-    tusb_cfg.hs_configuration_descriptor = NULL;
-#else
-    tusb_cfg.configuration_descriptor = test_fs_configuration_descriptor;
+    tusb_cfg.descriptor.qualifier = &device_qualifier;
+    // tusb_cfg.descriptor.high_speed_config = NULL;
 #endif // TUD_OPT_HIGH_SPEED
-
     // Install TinyUSB driver
     TEST_ASSERT_EQUAL(ESP_OK, tinyusb_driver_install(&tusb_cfg));
     test_device_wait();
@@ -287,9 +283,9 @@ TEST_CASE("Device: Device and High-speed config only", "[runtime_config][high_sp
 {
     tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG();
 
-    tusb_cfg.device_descriptor = &test_device_descriptor;
-    tusb_cfg.qualifier_descriptor = &device_qualifier;
-    tusb_cfg.hs_configuration_descriptor = test_hs_configuration_descriptor;
+    tusb_cfg.descriptor.device = &test_device_descriptor;
+    tusb_cfg.descriptor.qualifier = &device_qualifier;
+    tusb_cfg.descriptor.high_speed_config = test_hs_configuration_descriptor;
 
     // Install TinyUSB driver
     TEST_ASSERT_EQUAL(ESP_OK, tinyusb_driver_install(&tusb_cfg));
