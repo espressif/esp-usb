@@ -219,7 +219,7 @@ public:
         return err;
     }
 
-    virtual inline esp_err_t line_coding_get(cdc_acm_line_coding_t *line_coding) const
+    virtual inline esp_err_t line_coding_get(cdc_acm_line_coding_t *line_coding)
     {
         return cdc_acm_host_line_coding_get(this->cdc_hdl, line_coding);
     }
