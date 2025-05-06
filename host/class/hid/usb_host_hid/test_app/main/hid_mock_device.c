@@ -196,15 +196,13 @@ void hid_mock_device(tusb_iface_count_t iface_count)
     tusb_iface_count = iface_count;
 
     tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG();
-    tusb_cfg.string_descriptor = hid_string_descriptor;
-    tusb_cfg.string_descriptor_count = sizeof(hid_string_descriptor) / sizeof(hid_string_descriptor[0]);
+    tusb_cfg.descriptor.full_speed_config = hid_configuration_descriptor_list[tusb_iface_count];
 #if (TUD_OPT_HIGH_SPEED)
-    tusb_cfg.fs_configuration_descriptor = hid_configuration_descriptor_list[tusb_iface_count];
-    tusb_cfg.hs_configuration_descriptor = hid_configuration_descriptor_list[tusb_iface_count];
-    tusb_cfg.qualifier_descriptor = &device_qualifier;
-#else
-    tusb_cfg.configuration_descriptor = hid_configuration_descriptor_list[tusb_iface_count];
+    tusb_cfg.descriptor.high_speed_config = hid_configuration_descriptor_list[tusb_iface_count];
+    tusb_cfg.descriptor.qualifier = &device_qualifier;
 #endif // TUD_OPT_HIGH_SPEED
+    tusb_cfg.descriptor.string = hid_string_descriptor;
+    tusb_cfg.descriptor.string_count = sizeof(hid_string_descriptor) / sizeof(hid_string_descriptor[0]);
 
     ESP_ERROR_CHECK(tinyusb_driver_install(&tusb_cfg));
 
