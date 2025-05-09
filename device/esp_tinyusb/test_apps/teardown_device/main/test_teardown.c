@@ -98,13 +98,11 @@ TEST_CASE("tinyusb_teardown", "[esp_tinyusb][teardown]")
 
     // TinyUSB driver configuration
     tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG();
-    tusb_cfg.device_descriptor = &test_device_descriptor;
+    tusb_cfg.descriptor.device = &test_device_descriptor;
+    tusb_cfg.descriptor.full_speed_config = test_configuration_descriptor;
 #if (TUD_OPT_HIGH_SPEED)
-    tusb_cfg.qualifier_descriptor = &device_qualifier;
-    tusb_cfg.fs_configuration_descriptor = test_configuration_descriptor;
-    tusb_cfg.hs_configuration_descriptor = test_configuration_descriptor;
-#else
-    tusb_cfg.configuration_descriptor = test_configuration_descriptor;
+    tusb_cfg.descriptor.qualifier = &device_qualifier;
+    tusb_cfg.descriptor.high_speed_config = test_configuration_descriptor;
 #endif // TUD_OPT_HIGH_SPEED
 
     TEST_ASSERT_EQUAL(ESP_OK, tinyusb_driver_install(&tusb_cfg));
