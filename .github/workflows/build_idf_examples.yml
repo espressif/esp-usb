@@ -17,6 +17,7 @@ jobs:
             "release-v5.2",
             "release-v5.3",
             "release-v5.4",
+            "release-v5.5",
             "latest",
           ]
     runs-on: ubuntu-latest
