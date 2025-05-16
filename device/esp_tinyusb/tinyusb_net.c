@@ -135,7 +135,7 @@ esp_err_t tinyusb_net_init(tinyusb_usbdev_t usb_dev, const tinyusb_net_config_t 
              mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
     uint8_t mac_id = tusb_get_mac_string_id();
     // Pass it to Descriptor control module
-    tinyusb_set_str_descriptor(s_net_obj.mac_str, mac_id);
+    tinyusb_descriptors_set_string(s_net_obj.mac_str, mac_id);
 
     s_net_obj.initialized = true;
 

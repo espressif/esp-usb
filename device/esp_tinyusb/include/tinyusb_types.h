@@ -7,6 +7,7 @@
 #pragma once
 
 #include "soc/soc_caps.h"
+#include "tusb.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -24,6 +25,22 @@ typedef enum {
 #endif // (SOC_USB_OTG_PERIPH_NUM > 1)
     TINYUSB_PORT_MAX,
 } tinyusb_port_t;
+
+/**
+ * @brief USB device descriptor configuration
+ *
+ * @note This structure is used to configure the USB device descriptor. The user can set the parameters
+ *       according to their requirements.
+ * @note User can set default descriptors values in the Kconfig file.
+ */
+typedef struct {
+    const tusb_desc_device_t *device;           /*!< Pointer to a device descriptor */
+    const tusb_desc_device_qualifier_t *qualifier;   /*!< Pointer to a qualifier descriptor. */
+    const char **string;                        /*!< Pointer to array of string descriptors.*/
+    int string_count;                           /*!< Number of descriptors in above array */
+    const uint8_t *full_speed_config;           /*!< Pointer to a Full-speed configuration descriptor. */
+    const uint8_t *high_speed_config;           /*!< Pointer to a High-speed configuration descriptor. Not used when device is Full-speed only. */
+} tinyusb_desc_config_t;
 
 #ifdef __cplusplus
 }

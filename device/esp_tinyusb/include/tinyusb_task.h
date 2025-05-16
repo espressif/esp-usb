@@ -41,7 +41,8 @@ esp_err_t tinyusb_task_check_config(const tinyusb_task_config_t *task_cfg);
  * Prepares TinyUSB Task for running TinyUSB stack.
  *
  * @param port USB Peripheral hardware port number. Available when hardware has several available peripherals.
- * @param task_cfg TinyUSB Task configuration
+ * @param task_cfg TinyUSB Task configuration.
+ * @param desc_cfg USB device descriptor configuration.
  *
  * @retval
  *    - ESP_ERR_INVALID_STATE if TinyUSB Task already started
@@ -51,7 +52,7 @@ esp_err_t tinyusb_task_check_config(const tinyusb_task_config_t *task_cfg);
  *    - ESP_ERR_NO_MEM if memory allocation failed
  *    - ESP_OK if TinyUSB Task initialized successfully
  */
-esp_err_t tinyusb_task_start(tinyusb_port_t port, const tinyusb_task_config_t *task_cfg);
+esp_err_t tinyusb_task_start(tinyusb_port_t port, const tinyusb_task_config_t *task_cfg, const tinyusb_desc_config_t *desc_cfg);
 
 /**
  * @brief Stops TinyUSB Task

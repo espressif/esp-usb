@@ -17,44 +17,32 @@ extern "C" {
 #endif
 
 /**
- * @brief Configuration structure of the TinyUSB core
+ * @brief USB PHY configuration
+ *
+ * @note This structure is used to configure the USB PHY. The user can set the parameters
+ *       according to their requirements.
  */
 typedef struct {
-    // USB Peripheral Settings
-    bool skip_phy_setup;                       /*!< If set, the esp_tinyusb will not configure the USB PHY thus allowing
-                                                    the user to manually configure the USB PHY before calling tinyusb_driver_install().
-                                                    Users should set this if they want to use an external USB PHY. Otherwise,
-                                                    the esp_tinyusb will automatically configure the internal USB PHY */
-
-    // USB Device Task configuration
-    tinyusb_port_t port;                        /*!< USB Peripheral hardware port number. Available when hardware has several available peripherals. */
-    tinyusb_task_config_t task;                 /*!< USB Device Task configuration. */
-
-    // USB Device VBUS monitoring (relevant only when skip_phy_setup is false)
+    bool skip_setup;                       /*!< If set, the esp_tinyusb will not configure the USB PHY thus allowing
+                                                the user to manually configure the USB PHY before calling tinyusb_driver_install().
+                                                Users should set this if they want to use an external USB PHY. Otherwise,
+                                                the esp_tinyusb will automatically configure the internal USB PHY */
+    // Relevant only when skip_setup is false
     bool self_powered;                        /*!< USB specification mandates self-powered devices to monitor USB VBUS to detect connection/disconnection events.
-                                                   If you want to use this feature, connected VBUS to any free GPIO through a voltage divider or voltage comparator.
-                                                   The voltage divider output should be (0.75 * Vdd) if VBUS is 4.4V (lowest valid voltage at device port).
-                                                   The comparator thresholds should be set with hysteresis: 4.35V (falling edge) and 4.75V (raising edge). */
+                                                To use this feature, connect VBUS to any free GPIO through a voltage divider or voltage comparator.
+                                                The voltage divider output should be (0.75 * Vdd) if VBUS is 4.4V (lowest valid voltage at device port).
+                                                The comparator thresholds should be set with hysteresis: 4.35V (falling edge) and 4.75V (raising edge). */
     int vbus_monitor_io;                      /*!< GPIO for VBUS monitoring. Ignored if not self_powered. */
+} tinyusb_phy_config_t;
 
-    // USB Device Descriptors and configuration
-    const tusb_desc_device_t *device_descriptor; /*!< Pointer to a device descriptor. If set to NULL, the TinyUSB device will use a default device descriptor whose values are set in Kconfig */
-    const char **string_descriptor;             /*!< Pointer to array of string descriptors. If set to NULL, TinyUSB device will use a default string descriptors whose values are set in Kconfig */
-    int string_descriptor_count;                /*!< Number of descriptors in above array */
-    union {
-        struct {
-            const uint8_t *configuration_descriptor;            /*!< Pointer to a configuration descriptor. If set to NULL, TinyUSB device will use a default configuration descriptor whose values are set in Kconfig */
-        };
-#if (TUD_OPT_HIGH_SPEED)
-        struct {
-            const uint8_t *fs_configuration_descriptor;         /*!< Pointer to a FullSpeed configuration descriptor. If set to NULL, TinyUSB device will use a default configuration descriptor whose values are set in Kconfig */
-        };
-    };
-    const uint8_t *hs_configuration_descriptor;                 /*!< Pointer to a HighSpeed configuration descriptor. If set to NULL, TinyUSB device will use a default configuration descriptor whose values are set in Kconfig */
-    const tusb_desc_device_qualifier_t *qualifier_descriptor;   /*!< Pointer to a qualifier descriptor */
-#else
-    };
-#endif // TUD_OPT_HIGH_SPEED
+/**
+ * @brief Configuration structure of the TinyUSB driver
+ */
+typedef struct {
+    tinyusb_port_t port;                        /*!< USB Peripheral hardware port number. Available when hardware has several available peripherals. */
+    tinyusb_phy_config_t phy;                   /*!< USB PHY configuration. */
+    tinyusb_task_config_t task;                 /*!< USB Device Task configuration. */
+    tinyusb_desc_config_t descriptor;           /*!< Pointer to a descriptor configuration. If set to NULL, the TinyUSB device will use a default descriptor configuration whose values are set in Kconfig */
 } tinyusb_config_t;
 
 /**
