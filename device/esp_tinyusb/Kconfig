@@ -193,7 +193,7 @@ menu "TinyUSB Stack"
                 help
                     Select the FAT filesystem type used when formatting storage.
 
-            config TINY_USB_FAT_FORMAT_ANY
+            config TINYUSB_FAT_FORMAT_ANY
                 bool "FM_ANY - Automatically select from FAT12/FAT16/FAT32"
 
             config TINY_USB_FAT_FORMAT_FAT
