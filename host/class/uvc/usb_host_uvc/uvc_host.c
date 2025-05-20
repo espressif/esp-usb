@@ -41,8 +41,8 @@ static const char *TAG = "uvc";
 #define UVC_CTRL_MAX_ATTEMPTS    3
 #define UVC_CTRL_RETRY_DELAY_MS  10
 
-// UVC spinlock
-portMUX_TYPE uvc_lock = portMUX_INITIALIZER_UNLOCKED;
+// UVC spinlock (extern linkage, shared among all UVC driver files, declared in uvc_critical_priv.h)
+DEFINE_CRIT_SECTION_LOCK(uvc_lock);
 
 // UVC driver status
 #define UVC_STARTED           BIT0 // UVC driver events handling started

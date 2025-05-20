@@ -6,6 +6,7 @@
 
 #include "freertos/FreeRTOS.h"
 #include "sdkconfig.h"
+#include "esp_private/critical_section.h"
 #include "esp_idf_version.h"
 #include "esp_log.h"
 #include "esp_check.h"
@@ -17,9 +18,10 @@
 
 static const char *TAG = "TinyUSB-PM";
 
-static portMUX_TYPE tinyusb_pm_spinlock = portMUX_INITIALIZER_UNLOCKED;
-#define TINYUSB_PM_ENTER_CRITICAL()    portENTER_CRITICAL(&tinyusb_pm_spinlock)
-#define TINYUSB_PM_EXIT_CRITICAL()     portEXIT_CRITICAL(&tinyusb_pm_spinlock)
+// TinyUSB PM spinlock
+DEFINE_CRIT_SECTION_LOCK_STATIC(tinyusb_pm_spinlock);
+#define TINYUSB_PM_ENTER_CRITICAL()    esp_os_enter_critical(&tinyusb_pm_spinlock)
+#define TINYUSB_PM_EXIT_CRITICAL()     esp_os_exit_critical(&tinyusb_pm_spinlock)
 
 /**
  * Macro used in switch-case branch, to break off the case when error is returned
