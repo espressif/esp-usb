@@ -255,16 +255,16 @@ static esp_err_t _mount(char *drv, FATFS *fs)
         ESP_LOGW(TAG, "formatting card, allocation unit size=%d", alloc_unit_size);
 
         BYTE format_flags;
-#if defined(CONFIG_TINY_USB_FAT_FORMAT_ANY)
+#if defined(CONFIG_TINYUSB_FAT_FORMAT_ANY)
         format_flags = FM_ANY;
 
-#elif defined(CONFIG_TINY_USB_FAT_FORMAT_FAT)
+#elif defined(CONFIG_TINYUSB_FAT_FORMAT_FAT)
         format_flags = FM_FAT;
 
-#elif defined(CONFIG_TINY_USB_FAT_FORMAT_FAT32)
+#elif defined(CONFIG_TINYUSB_FAT_FORMAT_FAT32)
         format_flags = FM_FAT32;
 
-#elif defined(CONFIG_TINY_USB_FAT_FORMAT_EXFAT)
+#elif defined(CONFIG_TINYUSB_FAT_FORMAT_EXFAT)
         format_flags = FM_EXFAT;
 #else
 
@@ -272,7 +272,7 @@ static esp_err_t _mount(char *drv, FATFS *fs)
 
 #endif
 
-#ifdef CONFIG_TINY_USB_FAT_FORMAT_SFD
+#ifdef CONFIG_TINYUSB_FAT_FORMAT_SFD
         format_flags |= FM_SFD;
 #endif
         const MKFS_PARM opt = {format_flags, 0, 0, 0, alloc_unit_size};
