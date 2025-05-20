@@ -1,3 +1,7 @@
+## [Unreleased]
+
+- Added `uvc_host_stream_format_get()` function that returns current stream's format
+
 ## 2.2.0
 
 - Added `uvc_host_stream_format_select()` function that allows change of format of an opened stream

@@ -841,7 +841,7 @@ esp_err_t uvc_host_stream_start(uvc_host_stream_hdl_t stream_hdl)
     return ESP_OK;
 }
 
-esp_err_t uvc_host_stream_format_select(uvc_host_stream_hdl_t stream_hdl, uvc_host_stream_format_t *format)
+esp_err_t uvc_host_stream_format_select(uvc_host_stream_hdl_t stream_hdl, const uvc_host_stream_format_t *format)
 {
     esp_err_t ret = ESP_OK;
     UVC_CHECK(stream_hdl && format, ESP_ERR_INVALID_ARG);
@@ -861,6 +861,15 @@ esp_err_t uvc_host_stream_format_select(uvc_host_stream_hdl_t stream_hdl, uvc_ho
         ret = uvc_host_stream_start(stream_hdl);
     }
     return ret;
+}
+
+esp_err_t uvc_host_stream_format_get(uvc_host_stream_hdl_t stream_hdl, uvc_host_stream_format_t *format)
+{
+    UVC_CHECK(stream_hdl && format, ESP_ERR_INVALID_ARG);
+    UVC_ENTER_CRITICAL();
+    memcpy(format, &stream_hdl->dynamic.vs_format, sizeof(uvc_host_stream_format_t));
+    UVC_EXIT_CRITICAL();
+    return ESP_OK;
 }
 
 esp_err_t uvc_host_stream_stop(uvc_host_stream_hdl_t stream_hdl)

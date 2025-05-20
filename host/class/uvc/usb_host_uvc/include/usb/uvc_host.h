@@ -267,7 +267,20 @@ esp_err_t uvc_host_stream_start(uvc_host_stream_hdl_t stream_hdl);
  *     - ESP_ERR_NOT_FOUND: Format negotiation error
  *     - Else: USB lib error
  */
-esp_err_t uvc_host_stream_format_select(uvc_host_stream_hdl_t stream_hdl, uvc_host_stream_format_t *format);
+esp_err_t uvc_host_stream_format_select(uvc_host_stream_hdl_t stream_hdl, const uvc_host_stream_format_t *format);
+
+/**
+ * @brief Get format of opened stream
+ *
+ * @note There will be no CTRL transfer to the device. The format will be taken from the last successful negotiation.
+ *
+ * @param[in]  stream_hdl UVC handle obtained from uvc_host_stream_open()
+ * @param[out] format     Pointer to format structure to be filled
+ * @return
+ *     - ESP_OK: Success
+ *     - ESP_ERR_INVALID_ARG: Input parameter is NULL
+ */
+esp_err_t uvc_host_stream_format_get(uvc_host_stream_hdl_t stream_hdl, uvc_host_stream_format_t *format);
 
 /**
  * @brief Stop UVC stream
