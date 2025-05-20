@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2024-2025 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -10,10 +10,11 @@
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/portmacro.h"
+#include "esp_private/critical_section.h"
 
-extern portMUX_TYPE uvc_lock;
-#define UVC_ENTER_CRITICAL()              portENTER_CRITICAL(&uvc_lock)
-#define UVC_EXIT_CRITICAL()               portEXIT_CRITICAL(&uvc_lock)
+DEFINE_CRIT_SECTION_LOCK(uvc_lock);
+#define UVC_ENTER_CRITICAL()              esp_os_enter_critical(&uvc_lock)
+#define UVC_EXIT_CRITICAL()               esp_os_exit_critical(&uvc_lock)
 
 #define UVC_ATOMIC_LOAD(x)                __atomic_load_n(&x, __ATOMIC_SEQ_CST)
 #define UVC_ATOMIC_SET_IF_NULL(x, new_x)  ({ \
