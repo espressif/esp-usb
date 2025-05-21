@@ -169,6 +169,11 @@ static bool uvc_desc_format_is_equal(const uvc_frame_desc_t *frame_desc, const u
     UVC_CHECK(uvc_desc_is_frame_desc((const usb_standard_desc_t *)frame_desc), false);
 
     if (frame_desc->wWidth == vs_format->h_res && frame_desc->wHeight == vs_format->v_res) {
+        if (vs_format->fps == 0) {
+            return true; // Default FPS requested
+        }
+
+        // Check if this frame descriptor supports requested FPS
         uint8_t bFrameIntervalType;
         uint32_t dwMinFrameInterval, dwMaxFrameInterval, dwFrameIntervalStep;
 

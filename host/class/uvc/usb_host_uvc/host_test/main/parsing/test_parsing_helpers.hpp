@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2024-2025 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -15,7 +15,8 @@
     {x, y, 20, UVC_VS_FORMAT_MJPEG}, \
     {x, y, 15, UVC_VS_FORMAT_MJPEG}, \
     {x, y, 10, UVC_VS_FORMAT_MJPEG}, \
-    {x, y, 5, UVC_VS_FORMAT_MJPEG}
+    {x, y, 5, UVC_VS_FORMAT_MJPEG},  \
+    {x, y, 0, UVC_VS_FORMAT_MJPEG}
 
 /**
  * @brief Define MJPEG formats with FPS 30-15
@@ -23,7 +24,8 @@
 #define FORMAT_MJPEG_30_25_15(x, y)  \
     {x, y, 30, UVC_VS_FORMAT_MJPEG}, \
     {x, y, 25, UVC_VS_FORMAT_MJPEG}, \
-    {x, y, 15, UVC_VS_FORMAT_MJPEG}
+    {x, y, 15, UVC_VS_FORMAT_MJPEG}, \
+    {x, y, 0, UVC_VS_FORMAT_MJPEG}
 
 /**
  * @brief Define MJPEG formats with FPS 30-15
@@ -31,7 +33,8 @@
 #define FORMAT_MJPEG_30_20_15(x, y)  \
     {x, y, 30, UVC_VS_FORMAT_MJPEG}, \
     {x, y, 20, UVC_VS_FORMAT_MJPEG}, \
-    {x, y, 15, UVC_VS_FORMAT_MJPEG}
+    {x, y, 15, UVC_VS_FORMAT_MJPEG}, \
+    {x, y, 0, UVC_VS_FORMAT_MJPEG}
 
 /**
  * @brief Define YUY2 formats with FPS 30-5
@@ -42,7 +45,8 @@
     {x, y, 20, UVC_VS_FORMAT_YUY2},    \
     {x, y, 15, UVC_VS_FORMAT_YUY2},    \
     {x, y, 10, UVC_VS_FORMAT_YUY2},    \
-    {x, y, 5, UVC_VS_FORMAT_YUY2}
+    {x, y, 5, UVC_VS_FORMAT_YUY2},     \
+    {x, y, 0, UVC_VS_FORMAT_YUY2}
 
 /**
  * @brief Define YUY2 formats with FPS 30-15
@@ -50,7 +54,8 @@
 #define FORMAT_UNCOMPRESSED_30_25_15(x, y) \
     {x, y, 30, UVC_VS_FORMAT_YUY2},        \
     {x, y, 25, UVC_VS_FORMAT_YUY2},        \
-    {x, y, 15, UVC_VS_FORMAT_YUY2}
+    {x, y, 15, UVC_VS_FORMAT_YUY2},        \
+    {x, y, 0, UVC_VS_FORMAT_YUY2}
 
 /**
  * @brief Define YUY2 formats with FPS 30-15
@@ -58,7 +63,8 @@
 #define FORMAT_UNCOMPRESSED_30_20_15(x, y) \
     {x, y, 30, UVC_VS_FORMAT_YUY2},        \
     {x, y, 20, UVC_VS_FORMAT_YUY2},        \
-    {x, y, 15, UVC_VS_FORMAT_YUY2}
+    {x, y, 15, UVC_VS_FORMAT_YUY2},        \
+    {x, y, 0, UVC_VS_FORMAT_YUY2}
 
 /**
  * @brief Define YUY2 formats with FPS 20-5
@@ -67,7 +73,8 @@
     {x, y, 20, UVC_VS_FORMAT_YUY2},    \
     {x, y, 15, UVC_VS_FORMAT_YUY2},    \
     {x, y, 10, UVC_VS_FORMAT_YUY2},    \
-    {x, y, 5, UVC_VS_FORMAT_YUY2}
+    {x, y, 5, UVC_VS_FORMAT_YUY2},     \
+    {x, y, 0, UVC_VS_FORMAT_YUY2}
 
 /**
  * @brief Define h264 formats with FPS 30-15
@@ -75,7 +82,8 @@
 #define FORMAT_H264_30_25_15(x, y)  \
     {x, y, 30, UVC_VS_FORMAT_H264}, \
     {x, y, 25, UVC_VS_FORMAT_H264}, \
-    {x, y, 15, UVC_VS_FORMAT_H264}
+    {x, y, 15, UVC_VS_FORMAT_H264}, \
+    {x, y, 0, UVC_VS_FORMAT_H264}
 
 /**
  * @brief Define h264 formats with FPS 30-15
@@ -83,7 +91,8 @@
 #define FORMAT_H264_30_20_15(x, y)  \
     {x, y, 30, UVC_VS_FORMAT_H264}, \
     {x, y, 20, UVC_VS_FORMAT_H264}, \
-    {x, y, 15, UVC_VS_FORMAT_H264}
+    {x, y, 15, UVC_VS_FORMAT_H264}, \
+    {x, y, 0, UVC_VS_FORMAT_H264}
 
 /**
  * @brief Define h265 formats with FPS 30-15
@@ -91,7 +100,8 @@
 #define FORMAT_H265_30_20_15(x, y)  \
     {x, y, 30, UVC_VS_FORMAT_H265}, \
     {x, y, 20, UVC_VS_FORMAT_H265}, \
-    {x, y, 15, UVC_VS_FORMAT_H265}
+    {x, y, 15, UVC_VS_FORMAT_H265}, \
+    {x, y, 0, UVC_VS_FORMAT_H265}
 
 /**
  * @brief Helper that check if required format is supported

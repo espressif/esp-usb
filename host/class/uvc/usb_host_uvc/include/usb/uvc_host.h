@@ -124,7 +124,7 @@ typedef struct {
 typedef struct {
     unsigned h_res;                     /**< Horizontal resolution */
     unsigned v_res;                     /**< Vertical resolution */
-    float fps;                          /**< Frames per second */
+    float fps;                          /**< Frames per second, can be set to zero to request default FPS */
     enum uvc_host_stream_format format; /**< Frame coding format */
 } uvc_host_stream_format_t;
 

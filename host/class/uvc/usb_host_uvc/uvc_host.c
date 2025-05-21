@@ -723,6 +723,7 @@ esp_err_t uvc_host_stream_open(const uvc_host_stream_config_t *stream_config, in
         err, TAG,);
 
     // Save info
+    //@todo fps can be 0 here. Update the format with negotiated FPS
     uvc_format_save(uvc_stream, &stream_config->vs_format, frame_buffer_size);
     uvc_stream->constant.stream_cb = stream_config->event_cb;
     uvc_stream->constant.frame_cb = stream_config->frame_cb;
@@ -863,7 +864,7 @@ esp_err_t uvc_host_stream_format_select(uvc_host_stream_hdl_t stream_hdl, const 
     ESP_GOTO_ON_ERROR(
         uvc_host_stream_control_probe(stream_hdl, format, &vs_result),
         bailout, TAG, "Failed to negotiate requested Video Stream format");
-
+    //@todo fps can be 0 here. Update the format with negotiated FPS
     uvc_format_save(stream_hdl, format, vs_result.dwMaxVideoFrameSize);
 
 bailout:

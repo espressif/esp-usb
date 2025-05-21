@@ -62,7 +62,24 @@ static esp_err_t uvc_host_stream_control(uvc_host_stream_hdl_t stream_hdl, uvc_v
 
         vs_control->bFormatIndex    = format_desc->bFormatIndex;
         vs_control->bFrameIndex     = frame_desc->bFrameIndex;
-        vs_control->dwFrameInterval = UVC_DESC_FPS_TO_DWFRAMEINTERVAL(vs_format->fps); // Implicit conversion from float to uint32_t
+
+        // Load default FPS value in case requested FPS is 0
+        if (vs_format->fps == 0) {
+            switch (frame_desc->bDescriptorSubType) {
+            case UVC_VS_DESC_SUBTYPE_FRAME_FRAME_BASED:
+                vs_control->dwFrameInterval = frame_desc->frame_based.dwDefaultFrameInterval;
+                break;
+            case UVC_VS_DESC_SUBTYPE_FRAME_UNCOMPRESSED:
+            case UVC_VS_DESC_SUBTYPE_FRAME_MJPEG:
+                vs_control->dwFrameInterval = frame_desc->mjpeg_uncompressed.dwDefaultFrameInterval;
+                break;
+            default:
+                assert(!"This subtype is not supported!");
+                return ESP_ERR_NOT_SUPPORTED;
+            }
+        } else {
+            vs_control->dwFrameInterval = UVC_DESC_FPS_TO_DWFRAMEINTERVAL(vs_format->fps); // Implicit conversion from float to uint32_t
+        }
     }
 
     // Issue CTRL request
