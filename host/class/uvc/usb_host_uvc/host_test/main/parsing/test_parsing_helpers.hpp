@@ -114,7 +114,7 @@
         REQUIRE(bInterfaceNumber == expected_intf_num);                                                                    \
         const usb_intf_desc_t *intf_desc = nullptr;                                                                        \
         const usb_ep_desc_t *ep_desc = nullptr;                                                                            \
-        REQUIRE(ESP_OK == uvc_desc_get_streaming_intf_and_ep(cfg, bInterfaceNumber, 1024, &intf_desc, &ep_desc));                \
+        REQUIRE(ESP_OK == uvc_desc_get_streaming_intf_and_ep(cfg, bInterfaceNumber, 1024, &intf_desc, &ep_desc));          \
         REQUIRE(intf_desc != nullptr);                                                                                     \
         REQUIRE(ep_desc != nullptr);                                                                                       \
         const uvc_format_desc_t *format_desc = nullptr;                                                                    \
@@ -132,4 +132,22 @@
         uint8_t bInterfaceNumber = 0;                                                                                    \
         uint16_t bcdUVC = 0;                                                                                             \
         REQUIRE_FALSE(ESP_OK == uvc_desc_get_streaming_interface_num(cfg, 0, &this_format, &bcdUVC, &bInterfaceNumber)); \
+    } while (0)
+
+/**
+ * @brief Helper that check if default format is supported
+ */
+#define REQUIRE_FORMAT_DEFAULT(cfg, expected_intf_num)                                                                     \
+    do {                                                                                                                   \
+        uvc_host_stream_format_t format;                                                                                   \
+        format.format = UVC_VS_FORMAT_DEFAULT;                                                                             \
+        uint8_t bInterfaceNumber = 0;                                                                                      \
+        uint16_t bcdUVC = 0;                                                                                               \
+        REQUIRE(ESP_OK == uvc_desc_get_streaming_interface_num(cfg, 0, &format, &bcdUVC, &bInterfaceNumber));              \
+        REQUIRE(bInterfaceNumber == expected_intf_num);                                                                    \
+        const usb_intf_desc_t *intf_desc = nullptr;                                                                        \
+        const usb_ep_desc_t *ep_desc = nullptr;                                                                            \
+        REQUIRE(ESP_OK == uvc_desc_get_streaming_intf_and_ep(cfg, bInterfaceNumber, 1024, &intf_desc, &ep_desc));          \
+        REQUIRE(intf_desc != nullptr);                                                                                     \
+        REQUIRE(ep_desc != nullptr);                                                                                       \
     } while (0)

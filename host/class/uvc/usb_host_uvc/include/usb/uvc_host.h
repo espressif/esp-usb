@@ -30,7 +30,7 @@ enum uvc_host_driver_event {
  * @brief Formats supported by this driver
  */
 enum uvc_host_stream_format {
-    UVC_VS_FORMAT_UNDEFINED = 0, // Invalid format. Do not request this format from the camera.
+    UVC_VS_FORMAT_DEFAULT = 0, /**< Default format. Depends on the camera. */
     UVC_VS_FORMAT_MJPEG,
     UVC_VS_FORMAT_YUY2,
     UVC_VS_FORMAT_H264,
@@ -259,15 +259,15 @@ esp_err_t uvc_host_stream_start(uvc_host_stream_hdl_t stream_hdl);
  * @brief Change the format of opened stream
  *
  * @note  If the stream is already streaming, it will be stopped, reconfigured and started again
- * @param[in] stream_hdl UVC handle obtained from uvc_host_stream_open()
- * @param[in] format     Format to configure
+ * @param[in]    stream_hdl UVC handle obtained from uvc_host_stream_open()
+ * @param[inout] format     Format to configure. Will be updated if default FPS or default format is requested.
  * @return
  *     - ESP_OK: Success
  *     - ESP_ERR_INVALID_ARG: Input parameter is NULL
  *     - ESP_ERR_NOT_FOUND: Format negotiation error
  *     - Else: USB lib error
  */
-esp_err_t uvc_host_stream_format_select(uvc_host_stream_hdl_t stream_hdl, const uvc_host_stream_format_t *format);
+esp_err_t uvc_host_stream_format_select(uvc_host_stream_hdl_t stream_hdl, uvc_host_stream_format_t *format);
 
 /**
  * @brief Get format of opened stream

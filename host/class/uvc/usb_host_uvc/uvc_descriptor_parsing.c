@@ -130,9 +130,9 @@ int uvc_desc_parse_format(const uvc_format_desc_t *format_desc)
 {
     // Input checks
     assert(format_desc);
-    UVC_CHECK(uvc_desc_is_format_desc((const usb_standard_desc_t *)format_desc), UVC_VS_FORMAT_UNDEFINED);
+    UVC_CHECK(uvc_desc_is_format_desc((const usb_standard_desc_t *)format_desc), -1);
 
-    int ret = UVC_VS_FORMAT_UNDEFINED;
+    int ret = -1;
     switch (format_desc->bDescriptorSubType) {
     case UVC_VS_DESC_SUBTYPE_FORMAT_UNCOMPRESSED: {
         const char *guid = (const char *)(format_desc->uncompressed_frame_based.guidFormat);
@@ -156,8 +156,6 @@ int uvc_desc_parse_format(const uvc_format_desc_t *format_desc)
         break;
     }
     case UVC_VS_DESC_SUBTYPE_UNDEFINED:
-        ret =  UVC_VS_FORMAT_UNDEFINED;
-        break;
     default: break;
     }
     return ret;
@@ -282,7 +280,11 @@ static inline bool uvc_desc_is_format_supported(
     uint8_t bInterfaceNumber,
     const uvc_host_stream_format_t *vs_format)
 {
-    return (ESP_OK == uvc_desc_get_frame_format_by_format(cfg_desc, bInterfaceNumber, vs_format, NULL, NULL));
+    if (vs_format->format == UVC_VS_FORMAT_DEFAULT ||
+            ESP_OK == uvc_desc_get_frame_format_by_format(cfg_desc, bInterfaceNumber, vs_format, NULL, NULL)) {
+        return true;
+    }
+    return false;
 }
 
 static const uvc_vc_header_desc_t *uvc_desc_get_control_interface_header(const usb_config_desc_t *cfg_desc, unsigned uvc_idx)
@@ -425,7 +427,7 @@ esp_err_t uvc_desc_get_frame_list(const usb_config_desc_t *config_desc, uint8_t 
 
         const uvc_format_desc_t *this_format = (const uvc_format_desc_t *)(current_desc);
         enum uvc_host_stream_format format_type = uvc_desc_parse_format(this_format);
-        if (UVC_VS_FORMAT_UNDEFINED == format_type) {
+        if (0 > format_type) { // Undefined format
             continue;
         }
 
