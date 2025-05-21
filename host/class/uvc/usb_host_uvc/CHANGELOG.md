@@ -1,6 +1,7 @@
 ## [Unreleased]
 
 - Added `uvc_host_stream_format_get()` function that returns current stream's format
+- Added `uvc_host_buf_info_get()` function for esp_video binding
 
 ## 2.2.0
 

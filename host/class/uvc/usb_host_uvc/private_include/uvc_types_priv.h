@@ -51,6 +51,7 @@ struct uvc_host_stream_s {
 
     struct {
         uvc_host_stream_format_t vs_format;   // Format of the video stream
+        uint32_t dwMaxVideoFrameSize;         // Maximum frame size of this vs_format
         uvc_host_frame_t *current_frame;      // Frame that is being written to
         bool streaming;                       // Flag whether stream is on/off
     } dynamic; // Dynamic members require a critical section

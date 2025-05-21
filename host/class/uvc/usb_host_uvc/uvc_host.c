@@ -18,6 +18,7 @@
 #include "usb/uvc_host.h"
 #include "uvc_control.h"
 #include "uvc_stream.h"
+#include "uvc_esp_video.h"
 #include "uvc_types_priv.h"
 #include "uvc_frame_priv.h"
 #include "uvc_descriptors_priv.h"
@@ -636,14 +637,16 @@ unblock:
  *
  * @param[in] uvc_stream Stream handle
  * @param[in] vs_format  Format to save
+ * @param[in] dwMaxVideoFrameSize Maximum video frame size of this format
  */
-static void uvc_format_save(uvc_stream_t *uvc_stream, const uvc_host_stream_format_t *vs_format)
+static void uvc_format_save(uvc_stream_t *uvc_stream, const uvc_host_stream_format_t *vs_format, uint32_t dwMaxVideoFrameSize)
 {
     assert(uvc_stream && vs_format);
 
     UVC_ENTER_CRITICAL();
     // Save to video format to this stream
     memcpy((uvc_host_stream_format_t *)&uvc_stream->dynamic.vs_format, vs_format, sizeof(uvc_host_stream_format_t));
+    uvc_stream->dynamic.dwMaxVideoFrameSize = dwMaxVideoFrameSize;
     UVC_EXIT_CRITICAL();
 
     // Save to all frame buffers
@@ -720,7 +723,7 @@ esp_err_t uvc_host_stream_open(const uvc_host_stream_config_t *stream_config, in
         err, TAG,);
 
     // Save info
-    uvc_format_save(uvc_stream, &stream_config->vs_format);
+    uvc_format_save(uvc_stream, &stream_config->vs_format, frame_buffer_size);
     uvc_stream->constant.stream_cb = stream_config->event_cb;
     uvc_stream->constant.frame_cb = stream_config->frame_cb;
     uvc_stream->constant.cb_arg = stream_config->user_ctx;
@@ -856,7 +859,14 @@ esp_err_t uvc_host_stream_format_select(uvc_host_stream_hdl_t stream_hdl, const 
         }
     }
 
-    uvc_format_save(stream_hdl, format);
+    uvc_vs_ctrl_t vs_result;
+    ESP_GOTO_ON_ERROR(
+        uvc_host_stream_control_probe(stream_hdl, format, &vs_result),
+        bailout, TAG, "Failed to negotiate requested Video Stream format");
+
+    uvc_format_save(stream_hdl, format, vs_result.dwMaxVideoFrameSize);
+
+bailout:
     if (restart_required) {
         ret = uvc_host_stream_start(stream_hdl);
     }
@@ -869,6 +879,13 @@ esp_err_t uvc_host_stream_format_get(uvc_host_stream_hdl_t stream_hdl, uvc_host_
     UVC_ENTER_CRITICAL();
     memcpy(format, &stream_hdl->dynamic.vs_format, sizeof(uvc_host_stream_format_t));
     UVC_EXIT_CRITICAL();
+    return ESP_OK;
+}
+
+esp_err_t uvc_host_buf_info_get(uvc_host_stream_hdl_t stream_hdl, uvc_host_buf_info_t *buf_info)
+{
+    UVC_CHECK(stream_hdl && buf_info, ESP_ERR_INVALID_ARG);
+    buf_info->dwMaxVideoFrameSize = UVC_ATOMIC_LOAD(stream_hdl->dynamic.dwMaxVideoFrameSize);
     return ESP_OK;
 }
 
