@@ -74,8 +74,8 @@ static esp_err_t uvc_host_stream_control(uvc_host_stream_hdl_t stream_hdl, uvc_v
                 vs_control->dwFrameInterval = frame_desc->mjpeg_uncompressed.dwDefaultFrameInterval;
                 break;
             default:
-                assert(!"This subtype is not supported!");
-                return ESP_ERR_NOT_SUPPORTED;
+                vs_control->dwFrameInterval = 0; // Default value for unknown subtype
+                break;
             }
         } else {
             vs_control->dwFrameInterval = UVC_DESC_FPS_TO_DWFRAMEINTERVAL(vs_format->fps); // Implicit conversion from float to uint32_t

@@ -226,8 +226,7 @@ static bool uvc_desc_format_is_equal(const uvc_frame_desc_t *frame_desc, const u
             }
             break;
         default:
-            assert(!"This subtype is not supported!");
-            return false;
+            return true; // Unknown frame type, assume it is equal;
         }
     }
     return false;

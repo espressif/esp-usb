@@ -67,6 +67,13 @@ SCENARIO("UVC driver install/uninstall")
         }
 
         REQUIRE(ESP_OK == test_uvc_host_uninstall());
+
+        AND_WHEN("UVC driver is installed again") {
+            THEN("Installation succeeds") {
+                REQUIRE(ESP_OK == test_uvc_host_install(&uvc_driver_config));
+                REQUIRE(ESP_OK == test_uvc_host_uninstall());
+            }
+        }
     }
 }
 

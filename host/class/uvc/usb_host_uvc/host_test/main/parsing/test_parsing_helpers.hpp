@@ -7,7 +7,7 @@
 #pragma once
 
 /**
- * @brief Define MJPEG formats with FPS 30-5
+ * @brief Define MJPEG formats with FPS 30-5 and 0 (default)
  */
 #define FORMAT_MJPEG_30_5(x, y)      \
     {x, y, 30, UVC_VS_FORMAT_MJPEG}, \
@@ -19,7 +19,7 @@
     {x, y, 0, UVC_VS_FORMAT_MJPEG}
 
 /**
- * @brief Define MJPEG formats with FPS 30-15
+ * @brief Define MJPEG formats with FPS 30-15 and 0 (default)
  */
 #define FORMAT_MJPEG_30_25_15(x, y)  \
     {x, y, 30, UVC_VS_FORMAT_MJPEG}, \
@@ -28,7 +28,7 @@
     {x, y, 0, UVC_VS_FORMAT_MJPEG}
 
 /**
- * @brief Define MJPEG formats with FPS 30-15
+ * @brief Define MJPEG formats with FPS 30-15 and 0 (default)
  */
 #define FORMAT_MJPEG_30_20_15(x, y)  \
     {x, y, 30, UVC_VS_FORMAT_MJPEG}, \
@@ -37,7 +37,7 @@
     {x, y, 0, UVC_VS_FORMAT_MJPEG}
 
 /**
- * @brief Define YUY2 formats with FPS 30-5
+ * @brief Define YUY2 formats with FPS 30-5 and 0 (default)
  */
 #define FORMAT_UNCOMPRESSED_30_5(x, y) \
     {x, y, 30, UVC_VS_FORMAT_YUY2},    \
@@ -49,7 +49,7 @@
     {x, y, 0, UVC_VS_FORMAT_YUY2}
 
 /**
- * @brief Define YUY2 formats with FPS 30-15
+ * @brief Define YUY2 formats with FPS 30-15 and 0 (default)
  */
 #define FORMAT_UNCOMPRESSED_30_25_15(x, y) \
     {x, y, 30, UVC_VS_FORMAT_YUY2},        \
@@ -58,7 +58,7 @@
     {x, y, 0, UVC_VS_FORMAT_YUY2}
 
 /**
- * @brief Define YUY2 formats with FPS 30-15
+ * @brief Define YUY2 formats with FPS 30-15 and 0 (default)
  */
 #define FORMAT_UNCOMPRESSED_30_20_15(x, y) \
     {x, y, 30, UVC_VS_FORMAT_YUY2},        \
@@ -67,7 +67,7 @@
     {x, y, 0, UVC_VS_FORMAT_YUY2}
 
 /**
- * @brief Define YUY2 formats with FPS 20-5
+ * @brief Define YUY2 formats with FPS 20-5 and 0 (default)
  */
 #define FORMAT_UNCOMPRESSED_20_5(x, y) \
     {x, y, 20, UVC_VS_FORMAT_YUY2},    \
@@ -77,7 +77,7 @@
     {x, y, 0, UVC_VS_FORMAT_YUY2}
 
 /**
- * @brief Define h264 formats with FPS 30-15
+ * @brief Define h264 formats with FPS 30-15 and 0 (default)
  */
 #define FORMAT_H264_30_25_15(x, y)  \
     {x, y, 30, UVC_VS_FORMAT_H264}, \
@@ -86,7 +86,7 @@
     {x, y, 0, UVC_VS_FORMAT_H264}
 
 /**
- * @brief Define h264 formats with FPS 30-15
+ * @brief Define h264 formats with FPS 30-15 and 0 (default)
  */
 #define FORMAT_H264_30_20_15(x, y)  \
     {x, y, 30, UVC_VS_FORMAT_H264}, \
@@ -95,7 +95,7 @@
     {x, y, 0, UVC_VS_FORMAT_H264}
 
 /**
- * @brief Define h265 formats with FPS 30-15
+ * @brief Define h265 formats with FPS 30-15 and 0 (default)
  */
 #define FORMAT_H265_30_20_15(x, y)  \
     {x, y, 30, UVC_VS_FORMAT_H265}, \
