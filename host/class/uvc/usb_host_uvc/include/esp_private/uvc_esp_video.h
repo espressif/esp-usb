@@ -14,7 +14,7 @@ extern "C" {
 
 /**
  * This API provides access to advanced UVC features.
- * It is intended for use with esp_vide component.
+ * It is intended for use with esp_video component.
  */
 
 typedef struct {

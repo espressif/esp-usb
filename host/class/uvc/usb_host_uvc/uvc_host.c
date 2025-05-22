@@ -177,19 +177,22 @@ static void usb_event_cb(const usb_host_client_event_msg_t *event_msg, void *arg
 
 esp_err_t uvc_host_handle_events(unsigned long timeout)
 {
-    static bool called = false;
     uvc_host_driver_t *uvc_obj = UVC_ATOMIC_LOAD(p_uvc_host_driver); // Make local copy of the driver's handle
     UVC_CHECK(uvc_obj, ESP_ERR_INVALID_STATE);
 
-    // We use this static variable so we don't have to call FreeRTOS API in every handling call
-    if (!called) {
-        xEventGroupSetBits(uvc_obj->driver_status, UVC_STARTED);
-        called = true;
-    }
-
     ESP_LOGV(TAG, "USB UVC handling");
     esp_err_t ret = usb_host_client_handle_events(uvc_obj->usb_client_hdl, timeout);
-    EventBits_t events = xEventGroupGetBits(uvc_obj->driver_status);
+
+    // Get driver status
+    const EventBits_t events = xEventGroupGetBits(uvc_obj->driver_status);
+
+    // If this is the first call to this function, we need to set the UVC_STARTED bit
+    if ((events & UVC_STARTED) == 0) {
+        xEventGroupSetBits(uvc_obj->driver_status, UVC_STARTED);
+    }
+
+    // We return ESP_FAIL to signal that the driver is being uninstalled
+    // and we should stop handling events
     if (events & UVC_TEARDOWN) {
         xEventGroupSetBits(uvc_obj->driver_status, UVC_TEARDOWN_COMPLETE);
         ret = ESP_FAIL;
@@ -604,9 +607,11 @@ esp_err_t uvc_host_uninstall()
 
     // Signal to UVC task to stop, unblock it and wait for its deletion
     xEventGroupSetBits(uvc_obj->driver_status, UVC_TEARDOWN);
+    usb_host_client_unblock(uvc_obj->usb_client_hdl);
+    taskYIELD(); // Give the now unblocked UVC handling task a chance to run
+
     EventBits_t driver_status = xEventGroupGetBits(uvc_obj->driver_status);
     if (driver_status & UVC_STARTED) {
-        usb_host_client_unblock(uvc_obj->usb_client_hdl);
         ESP_GOTO_ON_FALSE(
             xEventGroupWaitBits(uvc_obj->driver_status, UVC_TEARDOWN_COMPLETE, pdFALSE, pdFALSE, pdMS_TO_TICKS(100)),
             ESP_ERR_NOT_FINISHED, unblock, TAG,);
