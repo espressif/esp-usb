@@ -12,6 +12,40 @@
 #include "tinyusb.h"
 #include "tinyusb_default_configs.h"
 
+
+// Enable to verify static assert during the build
+#define RUNTIME_CONFIG_CHECK_STATIC_ASSERTS         0
+
+/**
+ * @brief TinyUSB Task specific testcase
+ *
+ * Scenario: Verifies the default macros arguments
+ * Awaiting:
+ * - Default macros should configure to NULL when no arguments are provided
+ * - Default macros should configure to the provided arguments when one or two arguments are provided
+ */
+TEST_CASE("Config: Default macros arguments", "[runtime_config][default]")
+{
+    void *dummy_event_hdl = (void *) 0xDEADBEEF;
+    void *dummy_event_arg = (void *) 0xBEEFDEAD;
+
+    const tinyusb_config_t tusb_cfg_arg0 = TINYUSB_DEFAULT_CONFIG();
+    const tinyusb_config_t tusb_cfg_arg1 = TINYUSB_DEFAULT_CONFIG(dummy_event_hdl);
+    const tinyusb_config_t tusb_cfg_arg2 = TINYUSB_DEFAULT_CONFIG(dummy_event_hdl, dummy_event_arg);
+#if (RUNTIME_CONFIG_CHECK_STATIC_ASSERTS)
+    const tinyusb_config_t tusb_cfg_arg3 = TINYUSB_DEFAULT_CONFIG(dummy_event_hdl, dummy_event_arg, NULL);
+#endif // RUNTIME_CONFIG_CHECK_STATIC_ASSERTS
+
+    TEST_ASSERT_EQUAL_MESSAGE(NULL, tusb_cfg_arg0.event_cb, "Event callback should be NULL when no arguments provided");
+    TEST_ASSERT_EQUAL_MESSAGE(NULL, tusb_cfg_arg0.event_arg, "Event argument should be NULL when no arguments provided");
+
+    TEST_ASSERT_EQUAL_MESSAGE(dummy_event_hdl, tusb_cfg_arg1.event_cb, "Event callback was not set correctly");
+    TEST_ASSERT_EQUAL_MESSAGE(NULL, tusb_cfg_arg1.event_arg, "Event argument should be NULL when one argument is provided");
+
+    TEST_ASSERT_EQUAL_MESSAGE(dummy_event_hdl, tusb_cfg_arg2.event_cb, "Event callback was not set correctly");
+    TEST_ASSERT_EQUAL_MESSAGE(dummy_event_arg, tusb_cfg_arg2.event_arg, "Event argument was not set correctly");
+}
+
 #if (SOC_USB_OTG_PERIPH_NUM == 1)
 /**
  * @brief TinyUSB Task specific testcase
@@ -45,7 +79,7 @@ TEST_CASE("Config: Full-speed default (Full-speed)", "[runtime_config][full_spee
  */
 TEST_CASE("Config: Full-speed (High-speed)", "[runtime_config][full_speed]")
 {
-    const tinyusb_config_t tusb_cfg = TINYUSB_CONFIG_FULL_SPEED();
+    const tinyusb_config_t tusb_cfg = TINYUSB_CONFIG_FULL_SPEED(NULL, NULL);
 
     TEST_ASSERT_EQUAL_MESSAGE(TINYUSB_PORT_FULL_SPEED_0, tusb_cfg.port, "Wrong default port number");
     TEST_ASSERT_EQUAL_MESSAGE(false, tusb_cfg.phy.skip_setup, "Wrong default skip_setup value");
