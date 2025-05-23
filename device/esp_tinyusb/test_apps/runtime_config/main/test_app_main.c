@@ -11,7 +11,7 @@
 #include "freertos/task.h"
 #include "unity_test_runner.h"
 #include "unity_test_utils_memory.h"
-#include "test_device.h"
+#include "device_handling.h"
 
 /* setUp runs before every test */
 void setUp(void)
