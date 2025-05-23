@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2024-2025 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -26,15 +26,8 @@ extern "C" {
  * @brief Send bulk frame to the UVC driver
  *
  * Only the first and last transfer contains header
- *
- * @param transfer_size
- * @param transfer_context
- * @param data
- * @param frame_id
- * @param error_in_sof
- * @param error_in_eof
  */
-inline void test_streaming_bulk_send_frame(size_t transfer_size, void *transfer_context, std::span<const uint8_t> data, uint8_t frame_id = 0, bool error_in_sof = false, bool error_in_eof = false)
+inline void test_streaming_bulk_send_frame(size_t transfer_size, void *transfer_context, std::span<const uint8_t> data, uint8_t frame_id = 0, bool error_in_sof = false, bool error_in_eof = false, bool eof_in_sof = false)
 {
     assert(transfer_size > HEADER_LEN);
     assert(!data.empty());
@@ -64,6 +57,7 @@ inline void test_streaming_bulk_send_frame(size_t transfer_size, void *transfer_
     header_sof->bmHeaderInfo.end_of_header = 1;
     header_sof->bmHeaderInfo.frame_id = frame_id;
     header_sof->bmHeaderInfo.error = error_in_sof;
+    header_sof->bmHeaderInfo.end_of_frame = eof_in_sof;
 
 
     // Add Frame data to first SoF transfer
@@ -107,15 +101,8 @@ inline void test_streaming_bulk_send_frame(size_t transfer_size, void *transfer_
  * @brief Send isoc frame to the UVC driver
  *
  * Each ISOC packet contains header
- *
- * @param transfer_size
- * @param transfer_context
- * @param data
- * @param frame_id
- * @param error_in_sof
- * @param error_in_eof
  */
-inline void test_streaming_isoc_send_frame(size_t transfer_size, void *transfer_context, std::span<const uint8_t> data, uint8_t frame_id = 0, bool error_in_sof = false, bool error_in_eof = false)
+inline void test_streaming_isoc_send_frame(size_t transfer_size, void *transfer_context, std::span<const uint8_t> data, uint8_t frame_id = 0, bool error_in_sof = false, bool error_in_eof = false, bool eof_in_sof = false)
 {
     assert(transfer_size > HEADER_LEN);
     assert(!data.empty());

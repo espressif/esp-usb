@@ -26,10 +26,10 @@ std::function<void(const uvc_host_stream_event_data_t *, void *)> stream_callbac
 // code for each transfer type (bulk or isochronous). Instead, we can dynamically set the appropriate
 // frame-sending function, allowing `run_streaming_frame_reconstruction_scenario` to run identical tests
 // with either transfer method.
-std::function<void(size_t, void *, std::span<const uint8_t>, uint8_t, bool, bool)> send_frame_function;
-inline void send_function_wrapper(size_t transfer_size, void *transfer_context, std::span<const uint8_t> data, uint8_t frame_id = 0, bool error_in_sof = false, bool error_in_eof = false)
+std::function<void(size_t, void *, std::span<const uint8_t>, uint8_t, bool, bool, bool)> send_frame_function;
+inline void send_function_wrapper(size_t transfer_size, void *transfer_context, std::span<const uint8_t> data, uint8_t frame_id = 0, bool error_in_sof = false, bool error_in_eof = false, bool eof_in_sof = false)
 {
-    send_frame_function(transfer_size, transfer_context, data, frame_id, error_in_sof, error_in_eof);
+    send_frame_function(transfer_size, transfer_context, data, frame_id, error_in_sof, error_in_eof, eof_in_sof);
 }
 
 void run_streaming_frame_reconstruction_scenario(void)
@@ -236,15 +236,48 @@ void run_streaming_frame_reconstruction_scenario(void)
 
 SCENARIO("Bulk stream frame reconstruction", "[streaming][bulk]")
 {
+    /* Tests that are same for ISOC and BULK */
     send_frame_function = test_streaming_bulk_send_frame;
     run_streaming_frame_reconstruction_scenario();
+
+    /* BULK specific tests */
+    int frame_callback_called = 0;
+    uvc_stream_t stream = {}; // Define mock stream
+    stream.constant.cb_arg = (void *)&frame_callback_called;
+    stream.constant.frame_cb = [](const uvc_host_frame_t *frame, void *user_ctx) -> bool {
+        int *fb_called = static_cast<int *>(user_ctx);
+        (*fb_called)++;
+        return true;
+    };
+
+    GIVEN("Streaming enabled and frame allocated") {
+        REQUIRE(uvc_host_stream_unpause(&stream) == ESP_OK);
+        const uvc_host_stream_format_t format = {
+            .h_res = 46,
+            .v_res = 46,
+            .fps = 15,
+            .format = UVC_VS_FORMAT_MJPEG,
+        };
+
+        REQUIRE(uvc_frame_allocate(&stream, 1, 100 * 1024, 0) == ESP_OK);
+        uvc_frame_format_update(&stream, &format);
+
+        WHEN("Expected SoF but got EoF") {
+            test_streaming_bulk_send_frame(512, &stream, std::span(logo_jpg), 0, false, false, true);
+            THEN("The frame callback is called") {
+                REQUIRE(frame_callback_called == 1);
+            }
+        }
+    }
 }
 
 SCENARIO("Isochronous stream frame reconstruction", "[streaming][isoc]")
 {
+    /* Tests that are same for ISOC and BULK */
     send_frame_function = test_streaming_isoc_send_frame;
     run_streaming_frame_reconstruction_scenario();
 
+    /* ISOC specific tests */
     /*
     @todo ISOC test
     - Missed SoF
