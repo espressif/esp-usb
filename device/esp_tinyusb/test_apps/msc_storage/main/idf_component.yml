@@ -1,0 +1,7 @@
+## IDF Component Manager Manifest File
+dependencies:
+  espressif/esp_tinyusb:
+    version: "*"
+    override_path: "../../../"
+  espressif/tinyusb:
+    path: /home/roman-esp/workspace/Espressif/tinyusb
