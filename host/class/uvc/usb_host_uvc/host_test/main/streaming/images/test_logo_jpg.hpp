@@ -1,9 +1,19 @@
 /*
- * SPDX-FileCopyrightText: 2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2024-2025 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
+
+#pragma once
 #include <array>
+#include "usb/uvc_host.h"
+
+constexpr uvc_host_stream_format_t logo_jpg_format = {
+    .h_res = 46,
+    .v_res = 46,
+    .fps = 15,
+    .format = UVC_VS_FORMAT_MJPEG,
+};
 
 std::array<unsigned char, 7561> logo_jpg = {
     0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01,
