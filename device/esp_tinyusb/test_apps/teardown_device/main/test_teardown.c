@@ -71,10 +71,22 @@ static const tusb_desc_device_qualifier_t device_qualifier = {
 };
 #endif // TUD_OPT_HIGH_SPEED
 
-// Invoked when device is mounted
-void tud_mount_cb(void)
+/**
+ * @brief TinyUSB callback for device event
+ *
+ * @note
+ * For Linux-based Hosts: Reflects the SetConfiguration() request from the Host Driver.
+ * For Win-based Hosts: SetConfiguration() request is present only with available Class in device descriptor.
+ */
+void test_teardown_event_handler(tinyusb_event_t *event, void *arg)
 {
-    xSemaphoreGive(wait_mount);
+    switch (event->id) {
+    case TINYUSB_EVENT_ATTACHED:
+        xSemaphoreGive(wait_mount);
+        break;
+    default:
+        break;
+    }
 }
 
 /**
@@ -97,7 +109,7 @@ TEST_CASE("tinyusb_teardown", "[esp_tinyusb][teardown]")
     TEST_ASSERT_NOT_EQUAL(NULL, wait_mount);
 
     // TinyUSB driver configuration
-    tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG();
+    tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG(test_teardown_event_handler);
     tusb_cfg.descriptor.device = &test_device_descriptor;
     tusb_cfg.descriptor.full_speed_config = test_configuration_descriptor;
 #if (TUD_OPT_HIGH_SPEED)
