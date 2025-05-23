@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2024-2025 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -67,16 +67,22 @@ SCENARIO("Camera descriptor parsing: Logitech C270", "[logitech][c270]")
             {960, 544, 15, UVC_VS_FORMAT_YUY2},
             {960, 544, 10, UVC_VS_FORMAT_YUY2},
             {960, 544, 5, UVC_VS_FORMAT_YUY2},
+            {960, 544, 0, UVC_VS_FORMAT_YUY2},
             {960, 720, 10, UVC_VS_FORMAT_YUY2},
             {960, 720, 5, UVC_VS_FORMAT_YUY2},
+            {960, 720, 0, UVC_VS_FORMAT_YUY2},
             {1024, 576, 10, UVC_VS_FORMAT_YUY2},
             {1024, 576, 5, UVC_VS_FORMAT_YUY2},
+            {1024, 576, 0, UVC_VS_FORMAT_YUY2},
             {1184, 656, 10, UVC_VS_FORMAT_YUY2},
             {1184, 656, 5, UVC_VS_FORMAT_YUY2},
+            {1184, 656, 0, UVC_VS_FORMAT_YUY2},
             {1280, 720, 7.5f, UVC_VS_FORMAT_YUY2},
             {1280, 720, 5, UVC_VS_FORMAT_YUY2},
+            {1280, 720, 0, UVC_VS_FORMAT_YUY2},
             {1280, 960, 7.5f, UVC_VS_FORMAT_YUY2},
             {1280, 960, 5, UVC_VS_FORMAT_YUY2},
+            {1280, 960, 0, UVC_VS_FORMAT_YUY2},
         };
 
         for (uvc_host_stream_format_t this_format : formats) {
@@ -84,6 +90,10 @@ SCENARIO("Camera descriptor parsing: Logitech C270", "[logitech][c270]")
                 REQUIRE_FORMAT_SUPPORTED(cfg, this_format, 1);
             }
         }
+    }
+
+    GIVEN("Default format") {
+        REQUIRE_FORMAT_DEFAULT(cfg, 1);
     }
 
     GIVEN("Logitech C270 Unsupported") {

@@ -40,15 +40,15 @@ esp_err_t uvc_host_usb_ctrl(uvc_host_stream_hdl_t stream_hdl, uint8_t bmRequestT
  * This function is use for obtaining format negotiation information
  * that are not in any descriptor, but in uvc_vs_ctrl_t
  *
- * @param      stream_hdl    UVC stream
- * @param[in]  vs_format     Requested Video Stream format
- * @param[out] vs_result_ret Negotiation result. Can be NULL if result is not needed
+ * @param         stream_hdl       UVC stream
+ * @param[inout]  requested_format Requested Video Stream format. Negotiated format will be written here
+ * @param[out]    vs_result_ret    Negotiation result. Can be NULL if result is not needed
  * @return
  *     - ESP_OK: Format negotiated and committed
  *     - ESP_ERR_INVALID_ARG: stream_hdl or vs_format is NULL
  *     - Else: USB Control transfer error
  */
-esp_err_t uvc_host_stream_control_probe(uvc_host_stream_hdl_t stream_hdl, const uvc_host_stream_format_t *vs_format, uvc_vs_ctrl_t *vs_result_ret);
+esp_err_t uvc_host_stream_control_probe(uvc_host_stream_hdl_t stream_hdl, uvc_host_stream_format_t *requested_format, uvc_vs_ctrl_t *vs_result_ret);
 
 /**
  * @brief Negotiate and commit UVC stream format

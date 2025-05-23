@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2024-2025 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -70,15 +70,19 @@ SCENARIO("Camera descriptor parsing: Logitech Streamcam", "[logitech][streamcam]
             {960, 540, 10, UVC_VS_FORMAT_YUY2},
             {960, 540, 7.5f, UVC_VS_FORMAT_YUY2},
             {960, 540, 5, UVC_VS_FORMAT_YUY2},
+            {960, 540, 0, UVC_VS_FORMAT_YUY2},
 
             {1280, 720, 10, UVC_VS_FORMAT_YUY2},
             {1280, 720, 7.5f, UVC_VS_FORMAT_YUY2},
             {1280, 720, 5, UVC_VS_FORMAT_YUY2},
+            {1280, 720, 0, UVC_VS_FORMAT_YUY2},
 
             {1600, 896, 7.5f, UVC_VS_FORMAT_YUY2},
             {1600, 896, 5, UVC_VS_FORMAT_YUY2},
+            {1600, 896, 0, UVC_VS_FORMAT_YUY2},
 
             {1920, 1080, 5, UVC_VS_FORMAT_YUY2},
+            {1920, 1080, 0, UVC_VS_FORMAT_YUY2},
         };
 
         for (uvc_host_stream_format_t this_format : formats) {
@@ -86,6 +90,10 @@ SCENARIO("Camera descriptor parsing: Logitech Streamcam", "[logitech][streamcam]
                 REQUIRE_FORMAT_SUPPORTED(cfg, this_format, 1);
             }
         }
+    }
+
+    GIVEN("Default format") {
+        REQUIRE_FORMAT_DEFAULT(cfg, 1);
     }
 
     GIVEN("Logitech Streamcam Unsupported") {

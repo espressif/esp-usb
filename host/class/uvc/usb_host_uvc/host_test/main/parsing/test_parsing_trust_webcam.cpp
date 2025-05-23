@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2024-2025 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -25,6 +25,7 @@ SCENARIO("Camera descriptor parsing: Trust Webcam", "[trust][webcam]")
             FORMAT_UNCOMPRESSED_30_5(320, 240),
             FORMAT_UNCOMPRESSED_30_5(176, 144),
             {1280, 1024, 5, UVC_VS_FORMAT_YUY2},
+            {1280, 1024, 0, UVC_VS_FORMAT_YUY2},
             FORMAT_UNCOMPRESSED_30_5(160, 120),
         };
 
@@ -33,6 +34,10 @@ SCENARIO("Camera descriptor parsing: Trust Webcam", "[trust][webcam]")
                 REQUIRE_FORMAT_SUPPORTED(cfg, this_format, 1);
             }
         }
+    }
+
+    GIVEN("Default format") {
+        REQUIRE_FORMAT_DEFAULT(cfg, 1);
     }
 
     GIVEN("Trust Webcam Unsupported") {

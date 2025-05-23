@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2024-2025 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -26,6 +26,7 @@ SCENARIO("Camera descriptor parsing: Anker Powerconf C200", "[anker][powerconf][
             {640, 480, 30, UVC_VS_FORMAT_MJPEG},
             {640, 360, 30, UVC_VS_FORMAT_MJPEG},
             {320, 240, 30, UVC_VS_FORMAT_MJPEG},
+            {320, 240, 0, UVC_VS_FORMAT_MJPEG},
         };
 
         for (uvc_host_stream_format_t this_format : formats) {
@@ -40,6 +41,7 @@ SCENARIO("Camera descriptor parsing: Anker Powerconf C200", "[anker][powerconf][
             {640, 480, 30, UVC_VS_FORMAT_YUY2},
             {640, 360, 30, UVC_VS_FORMAT_YUY2},
             {320, 240, 30, UVC_VS_FORMAT_YUY2},
+            {320, 240, 0, UVC_VS_FORMAT_YUY2},
         };
 
         for (uvc_host_stream_format_t this_format : formats) {
@@ -57,6 +59,7 @@ SCENARIO("Camera descriptor parsing: Anker Powerconf C200", "[anker][powerconf][
             {640, 480, 30,   UVC_VS_FORMAT_H264},
             {640, 360, 30,   UVC_VS_FORMAT_H264},
             {320, 240, 30,   UVC_VS_FORMAT_H264},
+            {320, 240, 0,   UVC_VS_FORMAT_H264},
         };
 
         for (uvc_host_stream_format_t this_format : formats) {
@@ -64,6 +67,10 @@ SCENARIO("Camera descriptor parsing: Anker Powerconf C200", "[anker][powerconf][
                 REQUIRE_FORMAT_SUPPORTED(cfg, this_format, 1);
             }
         }
+    }
+
+    GIVEN("Default format") {
+        REQUIRE_FORMAT_DEFAULT(cfg, 1);
     }
 
     GIVEN("Anker Powerconf C200 Unsupported") {

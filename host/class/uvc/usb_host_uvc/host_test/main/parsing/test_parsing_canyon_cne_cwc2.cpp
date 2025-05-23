@@ -29,12 +29,15 @@ SCENARIO("Camera descriptor parsing: Canyon CNE CWC2", "[canyon][cne_cwc2]")
             {1280, 720, 15, UVC_VS_FORMAT_MJPEG},
             {1280, 720, 10, UVC_VS_FORMAT_MJPEG},
             {1280, 720, 5, UVC_VS_FORMAT_MJPEG},
+            {1280, 720, 0, UVC_VS_FORMAT_MJPEG},
             {1280, 960, 15, UVC_VS_FORMAT_MJPEG},
             {1280, 960, 10, UVC_VS_FORMAT_MJPEG},
             {1280, 960, 5, UVC_VS_FORMAT_MJPEG},
+            {1280, 960, 0, UVC_VS_FORMAT_MJPEG},
             {1600, 1200, 15, UVC_VS_FORMAT_MJPEG},
             {1600, 1200, 10, UVC_VS_FORMAT_MJPEG},
             {1600, 1200, 5, UVC_VS_FORMAT_MJPEG},
+            {1600, 1200, 0, UVC_VS_FORMAT_MJPEG},
         };
 
         for (uvc_host_stream_format_t this_format : formats) {
@@ -54,9 +57,12 @@ SCENARIO("Camera descriptor parsing: Canyon CNE CWC2", "[canyon][cne_cwc2]")
             FORMAT_UNCOMPRESSED_20_5(800, 600),
             {1280, 720, 10, UVC_VS_FORMAT_YUY2},
             {1280, 720, 5, UVC_VS_FORMAT_YUY2},
+            {1280, 720, 0, UVC_VS_FORMAT_YUY2},
             {1280, 960, 9, UVC_VS_FORMAT_YUY2},
             {1280, 960, 5, UVC_VS_FORMAT_YUY2},
+            {1280, 960, 0, UVC_VS_FORMAT_YUY2},
             {1600, 1200, 5, UVC_VS_FORMAT_YUY2},
+            {1600, 1200, 0, UVC_VS_FORMAT_YUY2},
         };
 
         for (uvc_host_stream_format_t this_format : formats) {
@@ -64,6 +70,10 @@ SCENARIO("Camera descriptor parsing: Canyon CNE CWC2", "[canyon][cne_cwc2]")
                 REQUIRE_FORMAT_SUPPORTED(cfg, this_format, 1);
             }
         }
+    }
+
+    GIVEN("Default format") {
+        REQUIRE_FORMAT_DEFAULT(cfg, 1);
     }
 
     GIVEN("Canyon CNE CWC2 Unsupported") {

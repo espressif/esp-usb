@@ -24,6 +24,7 @@ SCENARIO("Camera descriptor parsing: Logitech C980", "[old][logitech][c980]")
     GIVEN("Logitech C980") {
         uvc_host_stream_format_t formats[] = {
             {640, 480, 30, UVC_VS_FORMAT_MJPEG},
+            {640, 480, 0, UVC_VS_FORMAT_MJPEG},
         };
 
         for (uvc_host_stream_format_t this_format : formats) {
