@@ -253,7 +253,29 @@ static esp_err_t _mount(char *drv, FATFS *fs)
                                      CONFIG_WL_SECTOR_SIZE,
                                      4096);
         ESP_LOGW(TAG, "formatting card, allocation unit size=%d", alloc_unit_size);
-        const MKFS_PARM opt = {(BYTE)FM_FAT, 0, 0, 0, alloc_unit_size};
+
+        BYTE format_flags;
+#if defined(CONFIG_TINYUSB_FAT_FORMAT_ANY)
+        format_flags = FM_ANY;
+
+#elif defined(CONFIG_TINYUSB_FAT_FORMAT_FAT)
+        format_flags = FM_FAT;
+
+#elif defined(CONFIG_TINYUSB_FAT_FORMAT_FAT32)
+        format_flags = FM_FAT32;
+
+#elif defined(CONFIG_TINYUSB_FAT_FORMAT_EXFAT)
+        format_flags = FM_EXFAT;
+#else
+
+#error "No FAT format type selected"
+
+#endif
+
+#ifdef CONFIG_TINYUSB_FAT_FORMAT_SFD
+        format_flags |= FM_SFD;
+#endif
+        const MKFS_PARM opt = {format_flags, 0, 0, 0, alloc_unit_size};
         fresult = f_mkfs("", &opt, workbuf, workbuf_size); // Use default volume
         if (fresult != FR_OK) {
             ret = ESP_FAIL;

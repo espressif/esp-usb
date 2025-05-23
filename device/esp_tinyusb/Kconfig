@@ -185,6 +185,36 @@ menu "TinyUSB Stack"
             default "/data"
             help
                 MSC Mount Path of storage.
+
+        menu "TinyUSB FAT Format Options"
+            choice TINYUSB_FAT_FORMAT_TYPE
+               prompt "FatFS Format Type"
+                default TINYUSB_FAT_FORMAT_ANY
+                help
+                    Select the FAT filesystem type used when formatting storage.
+
+            config TINYUSB_FAT_FORMAT_ANY
+                bool "FM_ANY - Automatically select from FAT12/FAT16/FAT32"
+
+            config TINYUSB_FAT_FORMAT_FAT
+                bool "FM_FAT - Allow only FAT12/FAT16"
+
+            config TINYUSB_FAT_FORMAT_FAT32
+                bool "FM_FAT32 - Force FAT32 only"
+
+            config TINYUSB_FAT_FORMAT_EXFAT
+                bool "FM_EXFAT - Force exFAT (requires exFAT enabled)"
+
+            endchoice
+
+            config TINYUSB_FAT_FORMAT_SFD
+                bool "FM_SFD - Use SFD (no partition table)"
+                default n
+                help
+                    Format as a Super Floppy Disk (no partition table).
+                    This is typical for USB flash drives and small volumes.
+            endmenu
+
     endmenu # "Massive Storage Class"
 
     menu "Communication Device Class (CDC)"
