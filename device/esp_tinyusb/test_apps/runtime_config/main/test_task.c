@@ -22,9 +22,9 @@
 #include "unity.h"
 #include "tinyusb.h"
 #include "tinyusb_default_configs.h"
-#include "test_device.h"
 #include "test_task.h"
 #include "sdkconfig.h"
+#include "device_handling.h"
 
 // ============================= Tests =========================================
 
@@ -58,7 +58,7 @@ TEST_CASE("Task: Invalid params", "[runtime_config][default]")
 TEST_CASE("Task: Default configuration", "[task][default]")
 {
     // TinyUSB driver default configuration
-    tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG();
+    tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG(test_device_event_handler);
     // Install TinyUSB driver
     TEST_ASSERT_EQUAL(ESP_OK, tinyusb_driver_install(&tusb_cfg));
     test_device_wait();
@@ -74,7 +74,7 @@ TEST_CASE("Task: Default configuration", "[task][default]")
 TEST_CASE("Task: Default configuration, pin to CPU0", "[task][default]")
 {
     // TinyUSB driver default configuration
-    tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG();
+    tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG(test_device_event_handler);
     tusb_cfg.task.xCoreID = 0;
     // Install TinyUSB driver
     TEST_ASSERT_EQUAL(ESP_OK, tinyusb_driver_install(&tusb_cfg));
@@ -92,7 +92,7 @@ TEST_CASE("Task: Default configuration, pin to CPU0", "[task][default]")
 TEST_CASE("Task: Default configuration, pin to CPU1", "[task][default]")
 {
     // TinyUSB driver default configuration
-    tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG();
+    tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG(test_device_event_handler);
     tusb_cfg.task.xCoreID = 1;
     // Install TinyUSB driver
     TEST_ASSERT_EQUAL(ESP_OK, tinyusb_driver_install(&tusb_cfg));

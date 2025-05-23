@@ -22,9 +22,9 @@
 #include "unity.h"
 #include "tinyusb.h"
 #include "tinyusb_default_configs.h"
-#include "test_device.h"
 #include "test_task.h"
 #include "sdkconfig.h"
+#include "device_handling.h"
 
 /**
  * @brief TinyUSB Task specific testcase
@@ -35,7 +35,7 @@
 TEST_CASE("Periph: Full-speed", "[periph][full_speed]")
 {
     // TinyUSB driver default configuration
-    const tinyusb_config_t tusb_cfg = TINYUSB_CONFIG_FULL_SPEED();
+    const tinyusb_config_t tusb_cfg = TINYUSB_CONFIG_FULL_SPEED(test_device_event_handler, NULL);
     TEST_ASSERT_EQUAL(ESP_OK, tinyusb_driver_install(&tusb_cfg));
     test_device_wait();
     TEST_ASSERT_EQUAL(ESP_OK, tinyusb_driver_uninstall());
@@ -51,7 +51,7 @@ TEST_CASE("Periph: Full-speed", "[periph][full_speed]")
 TEST_CASE("Periph: High-speed", "[periph][high_speed]")
 {
     // TinyUSB driver default configuration
-    const tinyusb_config_t tusb_cfg = TINYUSB_CONFIG_HIGH_SPEED();
+    const tinyusb_config_t tusb_cfg = TINYUSB_CONFIG_HIGH_SPEED(test_device_event_handler, NULL);
     // Install TinyUSB driver
     TEST_ASSERT_EQUAL(ESP_OK, tinyusb_driver_install(&tusb_cfg));
     test_device_wait();
