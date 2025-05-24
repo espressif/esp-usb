@@ -15,7 +15,6 @@ extern "C" {
 #include "freertos/semphr.h"
 #include "freertos/timers.h"
 #include "tusb.h"
-#include "tinyusb_types.h"
 
 /* CDC classification
    ********************************************************************* */

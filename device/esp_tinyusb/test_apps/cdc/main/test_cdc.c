@@ -31,7 +31,7 @@ static const tusb_desc_device_t cdc_device_descriptor = {
     .bDeviceSubClass = MISC_SUBCLASS_COMMON,
     .bDeviceProtocol = MISC_PROTOCOL_IAD,
     .bMaxPacketSize0 = CFG_TUD_ENDPOINT0_SIZE,
-    .idVendor = USB_ESPRESSIF_VID,
+    .idVendor = TINYUSB_ESPRESSIF_VID,
     .idProduct = 0x4002,
     .bcdDevice = 0x0100,
     .iManufacturer = 0x01,
@@ -81,13 +81,11 @@ TEST_CASE("tinyusb_cdc", "[esp_tinyusb][cdc]")
 {
     // Install TinyUSB driver
     tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG();
-    tusb_cfg.device_descriptor = &cdc_device_descriptor;
+    tusb_cfg.descriptor.device = &cdc_device_descriptor;
+    tusb_cfg.descriptor.full_speed_config = cdc_desc_configuration;
 #if (TUD_OPT_HIGH_SPEED)
-    tusb_cfg.qualifier_descriptor = &device_qualifier;
-    tusb_cfg.fs_configuration_descriptor = cdc_desc_configuration;
-    tusb_cfg.hs_configuration_descriptor = cdc_desc_configuration;
-#else
-    tusb_cfg.configuration_descriptor = cdc_desc_configuration;
+    tusb_cfg.descriptor.qualifier = &device_qualifier;
+    tusb_cfg.descriptor.high_speed_config = cdc_desc_configuration;
 #endif // TUD_OPT_HIGH_SPEED
 
     TEST_ASSERT_EQUAL(ESP_OK, tinyusb_driver_install(&tusb_cfg));

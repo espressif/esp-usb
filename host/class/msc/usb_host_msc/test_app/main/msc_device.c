@@ -124,18 +124,16 @@ static void storage_init(void)
     ESP_LOGI(TAG, "USB MSC initialization");
 
     tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG();
-    tusb_cfg.device_descriptor = &descriptor_config;
-    tusb_cfg.string_descriptor = string_desc_arr;
-    tusb_cfg.string_descriptor_count = sizeof(string_desc_arr) / sizeof(string_desc_arr[0]);
+    tusb_cfg.descriptor.device = &descriptor_config;
+    tusb_cfg.descriptor.full_speed_config = msc_fs_desc_configuration;
 #if (TUD_OPT_HIGH_SPEED)
-    tusb_cfg.fs_configuration_descriptor = msc_fs_desc_configuration;
-    tusb_cfg.hs_configuration_descriptor = msc_hs_desc_configuration;
-    tusb_cfg.qualifier_descriptor = &device_qualifier;
-#else
-    tusb_cfg.configuration_descriptor = msc_fs_desc_configuration;
+    tusb_cfg.descriptor.high_speed_config = msc_hs_desc_configuration;
+    tusb_cfg.descriptor.qualifier = &device_qualifier;
 #endif // TUD_OPT_HIGH_SPEED
-    tusb_cfg.self_powered = true;
-    tusb_cfg.vbus_monitor_io = VBUS_MONITORING_GPIO_NUM;
+    tusb_cfg.descriptor.string = string_desc_arr;
+    tusb_cfg.descriptor.string_count = sizeof(string_desc_arr) / sizeof(string_desc_arr[0]);
+    tusb_cfg.phy.self_powered = true;
+    tusb_cfg.phy.vbus_monitor_io = VBUS_MONITORING_GPIO_NUM;
 
     ESP_ERROR_CHECK(tinyusb_driver_install(&tusb_cfg));
     ESP_LOGI(TAG, "USB initialization DONE");
