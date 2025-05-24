@@ -14,6 +14,8 @@
 extern "C" {
 #endif
 
+#define GET_CONFIG_MACRO(dummy, arg1, arg2, arg3, name, ...)    name
+
 /**
  * @brief Default TinyUSB Driver configuration structure initializer
  *
@@ -31,10 +33,24 @@ extern "C" {
  * - Unicore:       CPU0
  *
  */
+
+#define TINYUSB_DEFAULT_CONFIG(...)              GET_CONFIG_MACRO(, ##__VA_ARGS__, \
+                                                                    TINYUSB_CONFIG_INVALID,    \
+                                                                    TINYUSB_CONFIG_EVENT_ARG,  \
+                                                                    TINYUSB_CONFIG_EVENT,      \
+                                                                    TINYUSB_CONFIG_NO_ARG      \
+                                                                )(__VA_ARGS__)
+
+#define TINYUSB_CONFIG_INVALID(...)              static_assert(false, "Too many arguments for TINYUSB_DEFAULT_CONFIG")
+
 #if CONFIG_IDF_TARGET_ESP32P4
-#define TINYUSB_DEFAULT_CONFIG()       TINYUSB_CONFIG_HIGH_SPEED()
+#define TINYUSB_CONFIG_NO_ARG()                  TINYUSB_CONFIG_HIGH_SPEED(NULL, NULL)
+#define TINYUSB_CONFIG_EVENT(event_hdl)          TINYUSB_CONFIG_HIGH_SPEED(event_hdl, NULL)
+#define TINYUSB_CONFIG_EVENT_ARG(event_hdl, arg) TINYUSB_CONFIG_HIGH_SPEED(event_hdl, arg)
 #else
-#define TINYUSB_DEFAULT_CONFIG()       TINYUSB_CONFIG_FULL_SPEED()
+#define TINYUSB_CONFIG_NO_ARG()                  TINYUSB_CONFIG_FULL_SPEED(NULL, NULL)
+#define TINYUSB_CONFIG_EVENT(event_hdl)          TINYUSB_CONFIG_FULL_SPEED(event_hdl, NULL)
+#define TINYUSB_CONFIG_EVENT_ARG(event_hdl, arg) TINYUSB_CONFIG_FULL_SPEED(event_hdl, arg)
 #endif
 
 #if CONFIG_FREERTOS_UNICORE
@@ -48,9 +64,7 @@ extern "C" {
 // Default priority for task used in TinyUSB task creation
 #define TINYUSB_DEFAULT_TASK_PRIO      5
 
-
-
-#define TINYUSB_CONFIG_FULL_SPEED()                     \
+#define TINYUSB_CONFIG_FULL_SPEED(event_hdl, arg)       \
     (tinyusb_config_t) {                                \
         .port = TINYUSB_PORT_FULL_SPEED_0,              \
         .phy = {                                        \
@@ -67,9 +81,11 @@ extern "C" {
             .full_speed_config = NULL,                  \
             .high_speed_config = NULL,                  \
         },                                              \
+        .event_cb = (event_hdl),                        \
+        .event_arg = (arg),                             \
     }
 
-#define TINYUSB_CONFIG_HIGH_SPEED()                     \
+#define TINYUSB_CONFIG_HIGH_SPEED(event_hdl, arg)       \
     (tinyusb_config_t) {                                \
         .port = TINYUSB_PORT_HIGH_SPEED_0,              \
         .phy = {                                        \
@@ -86,7 +102,9 @@ extern "C" {
             .full_speed_config = NULL,                  \
             .high_speed_config = NULL,                  \
         },                                              \
-}
+        .event_cb = (event_hdl),                        \
+        .event_arg = (arg),                             \
+    }
 
 #define TINYUSB_TASK_DEFAULT()                          \
     (tinyusb_task_config_t) {                           \

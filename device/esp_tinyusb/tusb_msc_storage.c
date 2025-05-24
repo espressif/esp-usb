@@ -322,7 +322,7 @@ static void _write_func(void *param)
     }
 }
 
-esp_err_t tinyusb_msc_storage_mount(const char *base_path)
+static esp_err_t tinyusb_msc_storage_mount(const char *base_path)
 {
     esp_err_t ret = ESP_OK;
     assert(s_storage_handle);
@@ -391,7 +391,7 @@ fail:
     return ret;
 }
 
-esp_err_t tinyusb_msc_storage_unmount(void)
+static esp_err_t tinyusb_msc_storage_unmount(void)
 {
     if (!s_storage_handle) {
         return ESP_FAIL;
@@ -715,16 +715,14 @@ int32_t tud_msc_scsi_cb(uint8_t lun, uint8_t const scsi_cmd[16], void *buffer, u
     return ret;
 }
 
-// Invoked when device is unmounted
-void tud_umount_cb(void)
+void tinyusb_msc_storage_to_app(void)
 {
     if (tinyusb_msc_storage_mount(s_storage_handle->base_path) != ESP_OK) {
         ESP_LOGW(TAG, "tud_umount_cb() mount Fails");
     }
 }
 
-// Invoked when device is mounted (configured)
-void tud_mount_cb(void)
+void tinyusb_msc_storage_to_usb(void)
 {
     tinyusb_msc_storage_unmount();
 }

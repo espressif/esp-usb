@@ -100,6 +100,33 @@ typedef struct {
                                                        Can be NULL for Full-Speed only devices. */
 } tinyusb_desc_config_t;
 
+/**
+ * @brief TinyUSB event type
+ */
+typedef enum {
+    TINYUSB_EVENT_ATTACHED,             /*!< USB device attached to the Host */
+    TINYUSB_EVENT_DETACHED,             /*!< USB device detached from the Host */
+} tinyusb_event_id_t;
+
+/**
+ * @brief TinyUSB event structure
+ *
+ * This structure is used to pass the event information to the callback function.
+ */
+typedef struct {
+    tinyusb_event_id_t id;            /*!< Event ID */
+    union {
+        uint8_t rhport;               /*!< USB Peripheral hardware port number. Available when hardware has several available peripherals. */
+    };
+} tinyusb_event_t;
+
+/**
+ * @brief Callback used to indicate TinyUSB events
+ *
+ * @param event  Pointer to event data structure
+ * @param arg    Pointer to the argument passed to the callback
+ */
+typedef void (*tinyusb_event_cb_t)(tinyusb_event_t *event, void *arg);
 
 /**
  * @brief Configuration structure of the TinyUSB driver
@@ -109,6 +136,8 @@ typedef struct {
     tinyusb_phy_config_t phy;                   /*!< USB PHY configuration. */
     tinyusb_task_config_t task;                 /*!< USB Device Task configuration. */
     tinyusb_desc_config_t descriptor;           /*!< Pointer to a descriptor configuration. If set to NULL, the TinyUSB device will use a default descriptor configuration whose values are set in Kconfig */
+    tinyusb_event_cb_t event_cb;                /*!< Callback function that will be called when USB events occur. */
+    void *event_arg;                            /*!< Pointer to the argument passed to the callback */
 } tinyusb_config_t;
 
 /**
