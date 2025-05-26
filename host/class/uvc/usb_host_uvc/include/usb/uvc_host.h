@@ -30,7 +30,7 @@ enum uvc_host_driver_event {
  * @brief Formats supported by this driver
  */
 enum uvc_host_stream_format {
-    UVC_VS_FORMAT_UNDEFINED = 0, // Invalid format. Do not request this format from the camera.
+    UVC_VS_FORMAT_DEFAULT = 0, /**< Default format. Depends on the camera. */
     UVC_VS_FORMAT_MJPEG,
     UVC_VS_FORMAT_YUY2,
     UVC_VS_FORMAT_H264,
@@ -124,7 +124,7 @@ typedef struct {
 typedef struct {
     unsigned h_res;                     /**< Horizontal resolution */
     unsigned v_res;                     /**< Vertical resolution */
-    float fps;                          /**< Frames per second */
+    float fps;                          /**< Frames per second, can be set to zero to request default FPS */
     enum uvc_host_stream_format format; /**< Frame coding format */
 } uvc_host_stream_format_t;
 
@@ -259,8 +259,8 @@ esp_err_t uvc_host_stream_start(uvc_host_stream_hdl_t stream_hdl);
  * @brief Change the format of opened stream
  *
  * @note  If the stream is already streaming, it will be stopped, reconfigured and started again
- * @param[in] stream_hdl UVC handle obtained from uvc_host_stream_open()
- * @param[in] format     Format to configure
+ * @param[in]    stream_hdl UVC handle obtained from uvc_host_stream_open()
+ * @param[inout] format     Format to configure. Will be updated if default FPS or default format is requested.
  * @return
  *     - ESP_OK: Success
  *     - ESP_ERR_INVALID_ARG: Input parameter is NULL
@@ -268,6 +268,19 @@ esp_err_t uvc_host_stream_start(uvc_host_stream_hdl_t stream_hdl);
  *     - Else: USB lib error
  */
 esp_err_t uvc_host_stream_format_select(uvc_host_stream_hdl_t stream_hdl, uvc_host_stream_format_t *format);
+
+/**
+ * @brief Get format of opened stream
+ *
+ * @note There will be no CTRL transfer to the device. The format will be taken from the last successful negotiation.
+ *
+ * @param[in]  stream_hdl UVC handle obtained from uvc_host_stream_open()
+ * @param[out] format     Pointer to format structure to be filled
+ * @return
+ *     - ESP_OK: Success
+ *     - ESP_ERR_INVALID_ARG: Input parameter is NULL
+ */
+esp_err_t uvc_host_stream_format_get(uvc_host_stream_hdl_t stream_hdl, uvc_host_stream_format_t *format);
 
 /**
  * @brief Stop UVC stream

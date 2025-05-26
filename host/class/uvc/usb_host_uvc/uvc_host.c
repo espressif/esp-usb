@@ -18,6 +18,7 @@
 #include "usb/uvc_host.h"
 #include "uvc_control.h"
 #include "uvc_stream.h"
+#include "uvc_esp_video.h"
 #include "uvc_types_priv.h"
 #include "uvc_frame_priv.h"
 #include "uvc_descriptors_priv.h"
@@ -176,19 +177,22 @@ static void usb_event_cb(const usb_host_client_event_msg_t *event_msg, void *arg
 
 esp_err_t uvc_host_handle_events(unsigned long timeout)
 {
-    static bool called = false;
     uvc_host_driver_t *uvc_obj = UVC_ATOMIC_LOAD(p_uvc_host_driver); // Make local copy of the driver's handle
     UVC_CHECK(uvc_obj, ESP_ERR_INVALID_STATE);
 
-    // We use this static variable so we don't have to call FreeRTOS API in every handling call
-    if (!called) {
-        xEventGroupSetBits(uvc_obj->driver_status, UVC_STARTED);
-        called = true;
-    }
-
     ESP_LOGV(TAG, "USB UVC handling");
     esp_err_t ret = usb_host_client_handle_events(uvc_obj->usb_client_hdl, timeout);
-    EventBits_t events = xEventGroupGetBits(uvc_obj->driver_status);
+
+    // Get driver status
+    const EventBits_t events = xEventGroupGetBits(uvc_obj->driver_status);
+
+    // If this is the first call to this function, we need to set the UVC_STARTED bit
+    if ((events & UVC_STARTED) == 0) {
+        xEventGroupSetBits(uvc_obj->driver_status, UVC_STARTED);
+    }
+
+    // We return ESP_FAIL to signal that the driver is being uninstalled
+    // and we should stop handling events
     if (events & UVC_TEARDOWN) {
         xEventGroupSetBits(uvc_obj->driver_status, UVC_TEARDOWN_COMPLETE);
         ret = ESP_FAIL;
@@ -603,9 +607,11 @@ esp_err_t uvc_host_uninstall()
 
     // Signal to UVC task to stop, unblock it and wait for its deletion
     xEventGroupSetBits(uvc_obj->driver_status, UVC_TEARDOWN);
+    usb_host_client_unblock(uvc_obj->usb_client_hdl);
+    taskYIELD(); // Give the now unblocked UVC handling task a chance to run
+
     EventBits_t driver_status = xEventGroupGetBits(uvc_obj->driver_status);
     if (driver_status & UVC_STARTED) {
-        usb_host_client_unblock(uvc_obj->usb_client_hdl);
         ESP_GOTO_ON_FALSE(
             xEventGroupWaitBits(uvc_obj->driver_status, UVC_TEARDOWN_COMPLETE, pdFALSE, pdFALSE, pdMS_TO_TICKS(100)),
             ESP_ERR_NOT_FINISHED, unblock, TAG,);
@@ -636,14 +642,16 @@ unblock:
  *
  * @param[in] uvc_stream Stream handle
  * @param[in] vs_format  Format to save
+ * @param[in] dwMaxVideoFrameSize Maximum video frame size of this format
  */
-static void uvc_format_save(uvc_stream_t *uvc_stream, const uvc_host_stream_format_t *vs_format)
+static void uvc_format_save(uvc_stream_t *uvc_stream, const uvc_host_stream_format_t *vs_format, uint32_t dwMaxVideoFrameSize)
 {
     assert(uvc_stream && vs_format);
 
     UVC_ENTER_CRITICAL();
     // Save to video format to this stream
     memcpy((uvc_host_stream_format_t *)&uvc_stream->dynamic.vs_format, vs_format, sizeof(uvc_host_stream_format_t));
+    uvc_stream->dynamic.dwMaxVideoFrameSize = dwMaxVideoFrameSize;
     UVC_EXIT_CRITICAL();
 
     // Save to all frame buffers
@@ -688,39 +696,32 @@ esp_err_t uvc_host_stream_open(const uvc_host_stream_config_t *stream_config, in
         uvc_transfers_allocate(uvc_stream, stream_config->advanced.number_of_urbs, stream_config->advanced.urb_size, ep_desc),
         err, TAG,);
 
-    // Allocate Frame buffers
-    size_t frame_buffer_size;
-    if (stream_config->advanced.frame_size != 0) {
-        // A custom frame size has been specified in the advanced configuration.
-        // Use this user-defined value as the frame buffer size.
-        frame_buffer_size = stream_config->advanced.frame_size;
-    } else {
-        // No custom frame size is defined, so we need to determine the frame size based on the camera's capability.
-        // Note: The maximum frame size (dwMaxVideoFrameSize) is not provided in the device descriptors.
-        // Instead, it is retrieved via a negotiation process that involves:
-        //   1. Setting the desired video format on the camera.
-        //   2. Receiving the negotiation result, which includes the maximum supported frame size (dwMaxVideoFrameSize).
-        //
-        // Important: This negotiation only computes the potential maximum frame size.
-        // The selected video frame format is not committed until uvc_host_stream_start() is executed.
-        // Negotiate the frame format
-        uvc_vs_ctrl_t vs_result;
-        ESP_GOTO_ON_ERROR(
-            uvc_host_stream_control_probe(uvc_stream, &stream_config->vs_format, &vs_result),
-            err, TAG, "Failed to negotiate requested Video Stream format");
-        frame_buffer_size = vs_result.dwMaxVideoFrameSize; // Use value from frame format negotiation
-    };
+    // Note: The maximum frame size (dwMaxVideoFrameSize) is not provided in the device descriptors.
+    // Instead, it is retrieved via a negotiation process that involves:
+    //   1. Setting the desired video format on the camera.
+    //   2. Receiving the negotiation result, which includes the maximum supported frame size (dwMaxVideoFrameSize).
+    //
+    // Important: This negotiation only computes the potential maximum frame size.
+    // The selected video frame format is not committed until uvc_host_stream_start() is executed.
+    // Negotiate the frame format
+    uvc_vs_ctrl_t vs_result;
+    uvc_host_stream_format_t real_format;
+    memcpy(&real_format, &stream_config->vs_format, sizeof(uvc_host_stream_format_t)); // Memcpy to avoid overwriting the original format
+    ESP_GOTO_ON_ERROR(
+        uvc_host_stream_control_probe(uvc_stream, &real_format, &vs_result),
+        err, TAG, "Failed to negotiate requested Video Stream format");
 
+    // Allocate Frame buffers
     ESP_GOTO_ON_ERROR(
         uvc_frame_allocate(
             uvc_stream,
             stream_config->advanced.number_of_frame_buffers,
-            frame_buffer_size,
+            stream_config->advanced.frame_size ? stream_config->advanced.frame_size : vs_result.dwMaxVideoFrameSize,
             stream_config->advanced.frame_heap_caps),
         err, TAG,);
 
     // Save info
-    uvc_format_save(uvc_stream, &stream_config->vs_format);
+    uvc_format_save(uvc_stream, &real_format, vs_result.dwMaxVideoFrameSize);
     uvc_stream->constant.stream_cb = stream_config->event_cb;
     uvc_stream->constant.frame_cb = stream_config->frame_cb;
     uvc_stream->constant.cb_arg = stream_config->user_ctx;
@@ -856,11 +857,47 @@ esp_err_t uvc_host_stream_format_select(uvc_host_stream_hdl_t stream_hdl, uvc_ho
         }
     }
 
-    uvc_format_save(stream_hdl, format);
+    // Allow partial format change
+    // If the user does not provide resolution/format, we use the **current one**
+    // If the user does not provide FPS, we use the **default one**
+    if (format->h_res == 0 || format->v_res == 0) {
+        UVC_ENTER_CRITICAL();
+        format->h_res = stream_hdl->dynamic.vs_format.h_res;
+        format->v_res = stream_hdl->dynamic.vs_format.v_res;
+        UVC_EXIT_CRITICAL();
+    }
+
+    if (format->format == UVC_VS_FORMAT_DEFAULT) {
+        format->format = UVC_ATOMIC_LOAD(stream_hdl->dynamic.vs_format.format);
+    }
+
+    uvc_vs_ctrl_t vs_result;
+    ESP_GOTO_ON_ERROR(
+        uvc_host_stream_control_probe(stream_hdl, format, &vs_result),
+        bailout, TAG, "Failed to negotiate requested Video Stream format");
+    uvc_format_save(stream_hdl, format, vs_result.dwMaxVideoFrameSize);
+
+bailout:
     if (restart_required) {
-        ret = uvc_host_stream_start(stream_hdl);
+        ret |= uvc_host_stream_start(stream_hdl);
     }
     return ret;
+}
+
+esp_err_t uvc_host_stream_format_get(uvc_host_stream_hdl_t stream_hdl, uvc_host_stream_format_t *format)
+{
+    UVC_CHECK(stream_hdl && format, ESP_ERR_INVALID_ARG);
+    UVC_ENTER_CRITICAL();
+    memcpy(format, &stream_hdl->dynamic.vs_format, sizeof(uvc_host_stream_format_t));
+    UVC_EXIT_CRITICAL();
+    return ESP_OK;
+}
+
+esp_err_t uvc_host_buf_info_get(uvc_host_stream_hdl_t stream_hdl, uvc_host_buf_info_t *buf_info)
+{
+    UVC_CHECK(stream_hdl && buf_info, ESP_ERR_INVALID_ARG);
+    buf_info->dwMaxVideoFrameSize = UVC_ATOMIC_LOAD(stream_hdl->dynamic.dwMaxVideoFrameSize);
+    return ESP_OK;
 }
 
 esp_err_t uvc_host_stream_stop(uvc_host_stream_hdl_t stream_hdl)

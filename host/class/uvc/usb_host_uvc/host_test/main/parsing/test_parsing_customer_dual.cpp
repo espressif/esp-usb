@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2024-2025 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -24,6 +24,7 @@ SCENARIO("Camera descriptor parsing: Customer dual", "[customer][dual]")
             {720, 1280, 15, UVC_VS_FORMAT_MJPEG},
             {720, 1280, 10, UVC_VS_FORMAT_MJPEG},
             {720, 1280, 5, UVC_VS_FORMAT_MJPEG},
+            {720, 1280, 0, UVC_VS_FORMAT_MJPEG},
         };
 
         for (uvc_host_stream_format_t this_format : formats) {
@@ -70,6 +71,10 @@ SCENARIO("Camera descriptor parsing: Customer dual", "[customer][dual]")
                 REQUIRE(frame_desc != nullptr);
             }
         }
+    }
+
+    GIVEN("Default format") {
+        REQUIRE_FORMAT_DEFAULT(cfg, 1);
     }
 
     GIVEN("Customer dual Unsupported") {
