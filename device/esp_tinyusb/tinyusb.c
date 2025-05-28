@@ -14,7 +14,8 @@
 #include "tusb.h"
 
 #if (CONFIG_TINYUSB_MSC_ENABLED)
-#include "tusb_msc_storage.h"
+#include "tinyusb_msc.h"
+#include "msc_storage.h"
 #endif // CONFIG_TINYUSB_MSC_ENABLED
 
 const static char *TAG = "TinyUSB";
@@ -53,7 +54,7 @@ static tinyusb_ctx_t s_ctx; // TinyUSB context
 void tud_mount_cb(void)
 {
 #if (CONFIG_TINYUSB_MSC_ENABLED)
-    tinyusb_msc_storage_to_usb();
+    msc_storage_mount_to_usb();
 #endif // CONFIG_TINYUSB_MSC_ENABLED
     tinyusb_event_t event = {
         .id = TINYUSB_EVENT_ATTACHED,
@@ -76,7 +77,7 @@ void tud_mount_cb(void)
 void tud_umount_cb(void)
 {
 #if (CONFIG_TINYUSB_MSC_ENABLED)
-    tinyusb_msc_storage_to_app();
+    msc_storage_mount_to_app();
 #endif // CONFIG_TINYUSB_MSC_ENABLED
     tinyusb_event_t event = {
         .id = TINYUSB_EVENT_DETACHED,
