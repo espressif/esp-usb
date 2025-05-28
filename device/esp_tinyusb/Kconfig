@@ -113,6 +113,7 @@ menu "TinyUSB Stack"
                 MSC Mount Path of storage.
 
         menu "TinyUSB FAT Format Options"
+            depends on TINYUSB_MSC_ENABLED
             choice TINYUSB_FAT_FORMAT_TYPE
                prompt "FatFS Format Type"
                 default TINYUSB_FAT_FORMAT_ANY
