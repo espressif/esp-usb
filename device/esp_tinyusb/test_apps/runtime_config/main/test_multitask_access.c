@@ -23,9 +23,9 @@
 #include "unity.h"
 #include "tinyusb.h"
 #include "tinyusb_default_configs.h"
-#include "test_device.h"
 #include "test_task.h"
 #include "sdkconfig.h"
+#include "device_handling.h"
 
 #define MULTIPLE_THREADS_TASKS_NUM 5
 
@@ -36,7 +36,7 @@ static void test_task_install(void *arg)
     TaskHandle_t parent_task_handle = (TaskHandle_t)arg;
 
     // Install TinyUSB driver
-    tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG();
+    tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG(test_device_event_handler);
     tusb_cfg.phy.skip_setup = true; // Skip phy setup to allow multiple tasks to install the driver
 
     if (tinyusb_driver_install(&tusb_cfg) == ESP_OK) {

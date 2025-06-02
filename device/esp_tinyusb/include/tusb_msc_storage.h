@@ -125,6 +125,7 @@ esp_err_t tinyusb_msc_register_callback(tinyusb_msc_event_type_t event_type,
  */
 esp_err_t tinyusb_msc_unregister_callback(tinyusb_msc_event_type_t event_type);
 
+// TODO: check the description and update it after MSC storage refactoring
 /**
  * @brief Mount the storage partition locally on the firmware application.
  *
@@ -143,7 +144,8 @@ esp_err_t tinyusb_msc_unregister_callback(tinyusb_msc_event_type_t event_type);
  *       - ESP_ERR_NOT_FOUND if the maximum count of volumes is already mounted
  *       - ESP_ERR_NO_MEM if not enough memory or too many VFSes already registered;
  */
-esp_err_t tinyusb_msc_storage_mount(const char *base_path);
+// esp_err_t tinyusb_msc_storage_mount(const char *base_path);
+void tinyusb_msc_storage_to_app(void);
 
 /**
  * @brief Unmount the storage partition from the firmware application.
@@ -160,7 +162,8 @@ esp_err_t tinyusb_msc_storage_mount(const char *base_path);
  *      - ESP_OK on success
  *      - ESP_ERR_INVALID_STATE if FATFS is not registered in VFS
  */
-esp_err_t tinyusb_msc_storage_unmount(void);
+// esp_err_t tinyusb_msc_storage_unmount(void);
+void tinyusb_msc_storage_to_usb(void);
 
 /**
  * @brief Get number of sectors in storage media

@@ -20,37 +20,15 @@
 #include "esp_err.h"
 //
 #include "unity.h"
+// TinyUSB Public
 #include "tinyusb.h"
 #include "tinyusb_default_configs.h"
 #include "test_task.h"
-//
+// TinyUSB Private
 #include "descriptors_control.h"
+// Test common
+#include "device_handling.h"
 
-
-static SemaphoreHandle_t wait_mount = NULL;
-
-#define TUSB_DEVICE_DELAY_MS        1000
-
-void test_device_setup(void)
-{
-    wait_mount = xSemaphoreCreateBinary();
-    TEST_ASSERT_NOT_NULL(wait_mount);
-}
-
-void test_device_release(void)
-{
-    TEST_ASSERT_NOT_NULL(wait_mount);
-    vSemaphoreDelete(wait_mount);
-}
-
-void test_device_wait(void)
-{
-    // Wait for tud_mount_cb() to be called
-    TEST_ASSERT_EQUAL_MESSAGE(pdTRUE, xSemaphoreTake(wait_mount, pdMS_TO_TICKS(TUSB_DEVICE_DELAY_MS)), "No tusb_mount_cb() in time");
-    // Delay to allow finish the enumeration
-    // Disable this delay could lead to potential race conditions when the tud_task() is pinned to another CPU
-    vTaskDelay(pdMS_TO_TICKS(250));
-}
 
 // ========================== TinyUSB General Device Descriptors ===============================
 
@@ -124,17 +102,6 @@ const char *test_string_descriptor[USB_STRING_DESCRIPTOR_ARRAY_SIZE + 1] = {
 
 
 // ========================== Callbacks ========================================
-/**
- * @brief TinyUSB callback for device mount.
- *
- * @note
- * For Linux-based Hosts: Reflects the SetConfiguration() request from the Host Driver.
- * For Win-based Hosts: SetConfiguration() request is present only with available Class in device descriptor.
- */
-void tud_mount_cb(void)
-{
-    xSemaphoreGive(wait_mount);
-}
 
 /**
  * @brief TinyUSB Task specific testcase
@@ -145,7 +112,7 @@ void tud_mount_cb(void)
 TEST_CASE("Device: String Descriptors overflow", "[runtime_config][default]")
 {
     // TinyUSB driver default configuration
-    tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG();
+    tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG(test_device_event_handler);
     tusb_cfg.descriptor.string = test_string_descriptor;
     tusb_cfg.descriptor.string_count = USB_STRING_DESCRIPTOR_ARRAY_SIZE + 1;
     // Install TinyUSB driver
@@ -161,7 +128,7 @@ TEST_CASE("Device: String Descriptors overflow", "[runtime_config][default]")
 TEST_CASE("Device: String Descriptors maximum value", "[runtime_config][default]")
 {
     // TinyUSB driver default configuration
-    tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG();
+    tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG(test_device_event_handler);
     tusb_cfg.descriptor.string = test_string_descriptor;
     tusb_cfg.descriptor.string_count = USB_STRING_DESCRIPTOR_ARRAY_SIZE;
     // Install TinyUSB driver
@@ -179,7 +146,7 @@ TEST_CASE("Device: String Descriptors maximum value", "[runtime_config][default]
 TEST_CASE("Device: Device & Configuration", "[runtime_config][default]")
 {
     // TinyUSB driver configuration
-    tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG();
+    tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG(test_device_event_handler);
     // Set descriptors
     tusb_cfg.descriptor.device = &test_device_descriptor;
     tusb_cfg.descriptor.string = test_string_descriptor;
@@ -204,7 +171,7 @@ TEST_CASE("Device: Device & Configuration", "[runtime_config][default]")
  */
 TEST_CASE("Device: Full-speed default", "[runtime_config][full_speed]")
 {
-    const tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG();
+    const tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG(test_device_event_handler);
     // Install TinyUSB driver
     TEST_ASSERT_EQUAL(ESP_OK, tinyusb_driver_install(&tusb_cfg));
     test_device_wait();
@@ -219,7 +186,7 @@ TEST_CASE("Device: Full-speed default", "[runtime_config][full_speed]")
  */
 TEST_CASE("Device: Device Descriptor only", "[runtime_config][default]")
 {
-    tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG();
+    tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG(test_device_event_handler);
 
     tusb_cfg.descriptor.device = &test_device_descriptor;
 #if (TUD_OPT_HIGH_SPEED)
@@ -241,7 +208,7 @@ TEST_CASE("Device: Device Descriptor only", "[runtime_config][default]")
  */
 TEST_CASE("Device: Device & Full-speed config only", "[runtime_config][default]")
 {
-    tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG();
+    tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG(test_device_event_handler);
 
     tusb_cfg.descriptor.device = &test_device_descriptor;
     tusb_cfg.descriptor.full_speed_config = test_fs_configuration_descriptor;
@@ -264,7 +231,7 @@ TEST_CASE("Device: Device & Full-speed config only", "[runtime_config][default]"
  */
 TEST_CASE("Device: High-speed default", "[runtime_config][high_speed]")
 {
-    const tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG();
+    const tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG(test_device_event_handler);
     // Install TinyUSB driver
     TEST_ASSERT_EQUAL(ESP_OK, tinyusb_driver_install(&tusb_cfg));
     test_device_wait();
@@ -281,7 +248,7 @@ TEST_CASE("Device: High-speed default", "[runtime_config][high_speed]")
  */
 TEST_CASE("Device: Device and High-speed config only", "[runtime_config][high_speed]")
 {
-    tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG();
+    tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG(test_device_event_handler);
 
     tusb_cfg.descriptor.device = &test_device_descriptor;
     tusb_cfg.descriptor.qualifier = &device_qualifier;
