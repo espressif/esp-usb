@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2015-2023 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2015-2025 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -9,6 +9,7 @@
 #include <wchar.h>
 #include <stdint.h>
 #include "esp_err.h"
+#include "usb/usb_host.h"
 #include "freertos/FreeRTOS.h"
 
 #ifdef __cplusplus
@@ -23,6 +24,11 @@ extern "C" {
 
 #define MSC_STR_DESC_SIZE 32
 
+// For backward compatibility with IDF versions which do not have suspend/resume api
+#ifdef USB_HOST_LIB_EVENT_FLAGS_AUTO_SUSPEND
+#define MSC_HOST_SUSPEND_RESUME_API_SUPPORTED
+#endif
+
 typedef struct msc_host_device *msc_host_device_handle_t;     /**< Handle to a Mass Storage Device */
 
 /**
@@ -32,10 +38,14 @@ typedef struct {
     enum {
         MSC_DEVICE_CONNECTED,       /**< MSC device has been connected to the system.*/
         MSC_DEVICE_DISCONNECTED,    /**< MSC device has been disconnected from the system.*/
+#ifdef MSC_HOST_SUSPEND_RESUME_API_SUPPORTED
+        MSC_DEVICE_SUSPENDED,       /**< MSC device has been suspended.*/
+        MSC_DEVICE_RESUMED,         /**< MSC device has been resumed.*/
+#endif // MSC_HOST_SUSPEND_RESUME_API_SUPPORTED
     } event;
     union {
-        uint8_t address;                /**< Address of connected MSC device.*/
-        msc_host_device_handle_t handle; /**< MSC device handle to disconnected device.*/
+        uint8_t address;                 /**< Address of connected MSC device.*/
+        msc_host_device_handle_t handle; /**< MSC device handle to disconnected, suspended or resumed device.*/
     } device;
 } msc_host_event_t;
 
