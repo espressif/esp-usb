@@ -14,7 +14,7 @@
 #include "tusb.h"
 
 #if (CONFIG_TINYUSB_MSC_ENABLED)
-#include "tusb_msc_storage.h"
+#include "tinyusb_msc.h"
 #endif // CONFIG_TINYUSB_MSC_ENABLED
 
 const static char *TAG = "TinyUSB";
