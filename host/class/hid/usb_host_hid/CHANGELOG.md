@@ -1,3 +1,7 @@
+## [unreleased]
+
+- Added global suspend/resume support
+
 ## 1.0.4
 - Added support for ESP32-H4
 
