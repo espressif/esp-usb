@@ -23,6 +23,8 @@
 #include "test_hid_basic.h"
 #include "hid_mock_device.h"
 
+#define TEST_EVENT_WAIT_MS          500     // Time to expect driver or device event
+
 // Global variable to verify user arg passing through callbacks
 static uint32_t user_arg_value = 0x8A53E0A4; // Just a constant random number
 
@@ -30,7 +32,7 @@ static uint32_t user_arg_value = 0x8A53E0A4; // Just a constant random number
 // IMPORTANT: Interaction is not possible within device/interface callback
 static bool time_to_shutdown = false;
 static bool time_to_stop_polling = false;
-QueueHandle_t hid_host_test_event_queue;
+QueueHandle_t hid_host_test_event_queue = NULL;
 TaskHandle_t hid_test_task_handle;
 
 // Multiple tasks testing
@@ -48,11 +50,32 @@ static const char *test_hid_proto_names[] = {
     "MOUSE"
 };
 
+/**
+ * @brief Event group type
+ */
+typedef enum {
+    HID_DRIVER_EVENT = 0,       /**< HID Driver event type */
+    HID_INTERFACE_EVENT,        /**< HID Interface event type */
+} event_group_t;
+
+/**
+ * @brief Test event queue
+ */
 typedef struct {
-    hid_host_device_handle_t hid_device_handle;
-    hid_host_driver_event_t event;
-    void *arg;
-} hid_host_test_event_queue_t;
+    event_group_t event_group;                              /**< Event group (Driver or Interface) */
+    union {
+        struct {
+            hid_host_driver_event_t event;                  /**< HID Driver event ID */
+            hid_host_device_handle_t hid_device_handle;     /**< HID Device handle */
+            void *arg;
+        } driver_evt;                                       /**< Driver event */
+        struct {
+            hid_host_interface_event_t event;               /**< HID Interface event ID */
+            hid_host_device_handle_t hid_device_handle;     /**< HID Device handle */
+            void *arg;
+        } interface_evt;                                    /**< Interface event */
+    };
+} hid_host_event_queue_t;
 
 // usb_host_lib_set_root_port_power is used to force toggle connection, primary developed for esp32p4
 // esp32p4 is supported from IDF 5.3
@@ -216,16 +239,188 @@ void hid_host_test_concurrent(hid_host_device_handle_t hid_device_handle,
     }
 }
 
+#ifdef HID_HOST_SUSPEND_RESUME_API_SUPPORTED
+/**
+ * @brief Expect interface or device events
+ * @note The function also checks for no events being delivered
+ *
+ * @param[in] expected_event   Pointer to an expected event, NULL to expect NO event
+ * @param[in] ticks            Ticks to wait for the event
+ */
+static void hid_host_test_expect_event(hid_host_event_queue_t *expected_event, TickType_t ticks)
+{
+    TEST_ASSERT_NOT_NULL_MESSAGE(hid_host_test_event_queue, "App queue has not been initialized");
+
+    // Expect NO event
+    if (expected_event == NULL) {
+        hid_host_event_queue_t event_queue;
+        if (pdFALSE == xQueueReceive(hid_host_test_event_queue, &event_queue, ticks)) {
+            // Expecting NO event, none delivered, return
+            return;
+        } else {
+            TEST_FAIL_MESSAGE("Expecting NO event, but an event delivered");
+        }
+    }
+
+    // Expect 2 events, one for each device
+    for (int i = 0; i < 2; i++) {
+        hid_host_event_queue_t event_queue;
+        if (pdTRUE == xQueueReceive(hid_host_test_event_queue, &event_queue, ticks)) {
+            TEST_ASSERT_EQUAL_MESSAGE(expected_event->event_group, event_queue.event_group, "Unexpected event group");
+            if (event_queue.event_group == HID_DRIVER_EVENT) {
+                TEST_ASSERT_EQUAL_MESSAGE(event_queue.driver_evt.event, expected_event->driver_evt.event, "Unexpected driver event");
+            } else {
+                TEST_ASSERT_EQUAL_MESSAGE(event_queue.interface_evt.event, expected_event->interface_evt.event, "Unexpected interface event");
+            }
+        } else {
+            TEST_FAIL_MESSAGE("Device event not generated on time");
+        }
+    }
+}
+
+/**
+ * @brief HID Host interface callback with power management (suspend/resume) events
+ * @note  The callback is pushing events to an event queue
+ *
+ * @param[in] hid_device_handle Device handle
+ * @param[in] event             Interface event
+ * @param[in] arg               Callback argument
+ */
+static void hid_host_pm_interface_callback(hid_host_device_handle_t hid_device_handle,
+                                           const hid_host_interface_event_t event,
+                                           void *arg)
+{
+    uint8_t data[64] = { 0 };
+    size_t data_length = 0;
+    hid_host_dev_params_t dev_params;
+    TEST_ASSERT_EQUAL(ESP_OK, hid_host_device_get_params(hid_device_handle, &dev_params));
+    TEST_ASSERT_EQUAL_PTR_MESSAGE(&user_arg_value, arg, "User argument has lost");
+
+    switch (event) {
+    case HID_HOST_INTERFACE_EVENT_INPUT_REPORT:
+        printf("USB port %d, Interface num %d: ",
+               dev_params.addr,
+               dev_params.iface_num);
+
+        hid_host_device_get_raw_input_report_data(hid_device_handle,
+                                                  data,
+                                                  64,
+                                                  &data_length);
+
+        for (int i = 0; i < data_length; i++) {
+            printf("%02x ", data[i]);
+        }
+        printf("\n");
+        break;
+    case HID_HOST_INTERFACE_EVENT_DISCONNECTED:
+        printf("USB port %d, interface %d, '%s', '%s' DISCONNECTED\n",
+               dev_params.addr,
+               dev_params.iface_num,
+               test_hid_sub_class_names[dev_params.sub_class],
+               test_hid_proto_names[dev_params.proto]);
+        TEST_ASSERT_EQUAL(ESP_OK, hid_host_device_close(hid_device_handle) );
+        break;
+    case HID_HOST_INTERFACE_EVENT_TRANSFER_ERROR:
+        printf("USB Host transfer error\n");
+        break;
+    case HID_HOST_INTERFACE_EVENT_SUSPENDED:
+        printf("USB port %d, interface %d, '%s', '%s' SUSPENDED\n",
+               dev_params.addr,
+               dev_params.iface_num,
+               test_hid_sub_class_names[dev_params.sub_class],
+               test_hid_proto_names[dev_params.proto]);
+        break;
+    case HID_HOST_INTERFACE_EVENT_RESUMED:
+        printf("USB port %d, interface %d, '%s', '%s' RESUMED\n",
+               dev_params.addr,
+               dev_params.iface_num,
+               test_hid_sub_class_names[dev_params.sub_class],
+               test_hid_proto_names[dev_params.proto]);
+        break;
+    default:
+        TEST_FAIL_MESSAGE("HID Interface unhandled event");
+        break;
+    }
+
+    const hid_host_event_queue_t event_queue = {
+        .event_group = HID_INTERFACE_EVENT,
+        .interface_evt.hid_device_handle = hid_device_handle,
+        .interface_evt.event = event,
+        .interface_evt.arg = arg,
+    };
+
+    if (hid_host_test_event_queue) {
+        xQueueSend(hid_host_test_event_queue, &event_queue, 0);
+    }
+}
+
+/**
+ * @brief HID Host driver callback
+ * @note  The callback is pushing events to an event queue
+ *
+ * @param[in] hid_device_handle Device handle
+ * @param[in] event             Driver event
+ * @param[in] arg               Callback argument
+ */
+static void hid_host_test_pm_driver_callback(hid_host_device_handle_t hid_device_handle,
+                                             const hid_host_driver_event_t event,
+                                             void *arg)
+{
+    hid_host_dev_params_t dev_params;
+    TEST_ASSERT_EQUAL(ESP_OK, hid_host_device_get_params(hid_device_handle, &dev_params));
+    TEST_ASSERT_EQUAL_PTR_MESSAGE(&user_arg_value, arg, "User argument has lost");
+
+    switch (event) {
+    case HID_HOST_DRIVER_EVENT_CONNECTED:
+        printf("USB port %d, interface %d, '%s', '%s' CONNECTED\n",
+               dev_params.addr,
+               dev_params.iface_num,
+               test_hid_sub_class_names[dev_params.sub_class],
+               test_hid_proto_names[dev_params.proto]);
+
+        const hid_host_device_config_t dev_config = {
+            .callback = hid_host_pm_interface_callback,
+            .callback_arg = &user_arg_value
+        };
+
+        TEST_ASSERT_EQUAL(ESP_OK, hid_host_device_open(hid_device_handle, &dev_config) );
+        TEST_ASSERT_EQUAL(ESP_OK, hid_host_device_start(hid_device_handle) );
+
+        s_global_hdl = hid_device_handle;
+        break;
+    default:
+        TEST_FAIL_MESSAGE("HID Driver unhandled event");
+        return;
+    }
+
+    const hid_host_event_queue_t event_queue = {
+        .event_group = HID_DRIVER_EVENT,
+        .driver_evt.hid_device_handle = hid_device_handle,
+        .driver_evt.event = event,
+        .driver_evt.arg = arg,
+    };
+
+    if (hid_host_test_event_queue) {
+        xQueueSend(hid_host_test_event_queue, &event_queue, 0);
+    }
+}
+#endif // HID_HOST_SUSPEND_RESUME_API_SUPPORTED
+
 void hid_host_test_device_callback_to_queue(hid_host_device_handle_t hid_device_handle,
                                             const hid_host_driver_event_t event,
                                             void *arg)
 {
-    const hid_host_test_event_queue_t evt_queue = {
-        .hid_device_handle = hid_device_handle,
-        .event = event,
-        .arg = arg
+
+    const hid_host_event_queue_t evt_queue = {
+        .event_group = HID_DRIVER_EVENT,
+        .driver_evt.hid_device_handle = hid_device_handle,
+        .driver_evt.event = event,
+        .driver_evt.arg = arg,
     };
-    xQueueSend(hid_host_test_event_queue, &evt_queue, 0);
+
+    if (hid_host_test_event_queue) {
+        xQueueSend(hid_host_test_event_queue, &evt_queue, 0);
+    }
 }
 
 void hid_host_test_requests_callback(hid_host_device_handle_t hid_device_handle,
@@ -362,21 +557,22 @@ void hid_host_test_requests_callback(hid_host_device_handle_t hid_device_handle,
 
 void hid_host_test_task(void *pvParameters)
 {
-    hid_host_test_event_queue_t evt_queue;
+    hid_host_event_queue_t evt_queue;
     // Create queue
-    hid_host_test_event_queue = xQueueCreate(10, sizeof(hid_host_test_event_queue_t));
+    hid_host_test_event_queue = xQueueCreate(10, sizeof(hid_host_event_queue_t));
 
     // Wait queue
     while (!time_to_shutdown) {
         if (xQueueReceive(hid_host_test_event_queue, &evt_queue, pdMS_TO_TICKS(50))) {
-            hid_host_test_requests_callback(evt_queue.hid_device_handle,
-                                            evt_queue.event,
-                                            evt_queue.arg);
+            hid_host_test_requests_callback(evt_queue.driver_evt.hid_device_handle,
+                                            evt_queue.driver_evt.event,
+                                            evt_queue.driver_evt.arg);
         }
     }
 
     xQueueReset(hid_host_test_event_queue);
     vQueueDelete(hid_host_test_event_queue);
+    hid_host_test_event_queue = NULL;
     vTaskDelete(NULL);
 }
 
@@ -530,6 +726,13 @@ static void usb_lib_task(void *arg)
             // Notify that device was being disconnected
             xTaskNotifyGive(arg);
         }
+#ifdef HID_HOST_SUSPEND_RESUME_API_SUPPORTED
+        // Automatic ssuspend timer
+        if (event_flags & USB_HOST_LIB_EVENT_FLAGS_AUTO_SUSPEND) {
+            printf("USB Event flags: AUTO_SUSPEND\n");
+            TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_root_port_suspend());
+        }
+#endif // HID_HOST_SUSPEND_RESUME_API_SUPPORTED
     }
 
     // Change global flag for all tasks still running
@@ -727,6 +930,237 @@ TEST_CASE("request Report Descriptor 32K", "[hid_host_extra_large_report]")
     // Delete the semaphore
     vSemaphoreDelete(s_global_hdl_sem);
 }
+
+#ifdef HID_HOST_SUSPEND_RESUME_API_SUPPORTED
+/**
+ * @brief Basic Suspend/Resume sequence
+ *
+ * Purpose:
+ *     - Test HID Host reaction to global suspend/resume events
+ *
+ * Procedure:
+ *     - Install USB Host lib, Install HID driver, open device and start device
+ *     - Suspend and resume the root port, check that correct interface events are delivered
+ *     - Teardown
+ */
+TEST_CASE("suspend_resume_basic", "[hid_host]")
+{
+    hid_host_test_event_queue = xQueueCreate(10, sizeof(hid_host_event_queue_t));
+    TEST_ASSERT_NOT_NULL(hid_host_test_event_queue);
+
+    // Install USB and HID driver with 'hid_host_test_pm_driver_callback'
+    test_hid_setup(hid_host_test_pm_driver_callback, HID_TEST_EVENT_HANDLE_IN_DRIVER);
+
+    // Wait, until the device is connected, expect 2 CONNECTED events
+    hid_host_event_queue_t expected_event = {
+        .event_group = HID_DRIVER_EVENT,
+        .driver_evt.event = HID_HOST_DRIVER_EVENT_CONNECTED
+    };
+    hid_host_test_expect_event(&expected_event, pdMS_TO_TICKS(TEST_EVENT_WAIT_MS));
+
+    printf("Issue suspend\n");
+    TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_root_port_suspend());
+    expected_event.event_group = HID_INTERFACE_EVENT;
+    expected_event.interface_evt.event = HID_HOST_INTERFACE_EVENT_SUSPENDED;
+    hid_host_test_expect_event(&expected_event, pdMS_TO_TICKS(TEST_EVENT_WAIT_MS));
+
+    printf("Issue resume\n");
+    TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_root_port_resume());
+    expected_event.interface_evt.event = HID_HOST_INTERFACE_EVENT_RESUMED;
+    hid_host_test_expect_event(&expected_event, pdMS_TO_TICKS(TEST_EVENT_WAIT_MS));
+
+    // Tear down test
+    test_hid_teardown();
+    vQueueDelete(hid_host_test_event_queue);
+    hid_host_test_event_queue = NULL;
+}
+
+#define TEST_HID_SUSPEND_TIMER_INTERVAL_MS   500
+#define TEST_HID_SUSPEND_TIMER_MARGIN_MS     50
+
+/**
+ * @brief Automatic Suspend timer
+ *
+ * Purpose:
+ *     - Test automatic suspend timer functionality (One-Shot and Periodic timer settings)
+ *
+ * Procedure:
+ *     - Install USB Host lib, Install HID driver, open device and start device
+ *     - Set automatic suspend timer, expect the root port to be suspended by expecting interface events
+ *     - Issue a CTRL transfer to the device, expect the root port to be resumed
+ *     - Teardown
+ */
+TEST_CASE("auto_suspend_timer", "[hid_host]")
+{
+    hid_host_test_event_queue = xQueueCreate(10, sizeof(hid_host_event_queue_t));
+    TEST_ASSERT_NOT_NULL(hid_host_test_event_queue);
+
+    // Install USB and HID driver with 'hid_host_test_pm_driver_callback'
+    test_hid_setup(hid_host_test_pm_driver_callback, HID_TEST_EVENT_HANDLE_IN_DRIVER);
+
+    // Wait, until the device is connected, expect 2 CONNECTED events
+    hid_host_event_queue_t expected_event = {
+        .event_group = HID_DRIVER_EVENT,
+        .driver_evt.event = HID_HOST_DRIVER_EVENT_CONNECTED
+    };
+    hid_host_test_expect_event(&expected_event, pdMS_TO_TICKS(TEST_EVENT_WAIT_MS));
+
+    // Set one-shot auto suspend timer, and expect suspended event
+    printf("Set One-Shot auto suspend timer\n");
+    TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_set_auto_suspend(USB_HOST_LIB_AUTO_SUSPEND_ONE_SHOT, TEST_HID_SUSPEND_TIMER_INTERVAL_MS));
+    expected_event.event_group = HID_INTERFACE_EVENT;
+    expected_event.interface_evt.event = HID_HOST_INTERFACE_EVENT_SUSPENDED;
+    hid_host_test_expect_event(&expected_event, pdMS_TO_TICKS(TEST_HID_SUSPEND_TIMER_INTERVAL_MS + TEST_HID_SUSPEND_TIMER_MARGIN_MS));
+
+    // Manually resume the root port and expect the resumed event
+    TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_root_port_resume());
+    expected_event.interface_evt.event = HID_HOST_INTERFACE_EVENT_RESUMED;
+    hid_host_test_expect_event(&expected_event, pdMS_TO_TICKS(TEST_EVENT_WAIT_MS));
+
+    // Make sure no other event is delivered, as the auto suspend timer is a one-shot timer
+    hid_host_test_expect_event(NULL, pdMS_TO_TICKS(TEST_HID_SUSPEND_TIMER_INTERVAL_MS * 2));
+
+    // Set periodic auto suspend timer
+    printf("Set periodic auto suspend timer\n");
+    TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_set_auto_suspend(USB_HOST_LIB_AUTO_SUSPEND_PERIODIC, TEST_HID_SUSPEND_TIMER_INTERVAL_MS));
+
+    for (int i = 0; i < 3; i++) {
+        // Expect suspend event from the periodic auto suspend timer
+        expected_event.interface_evt.event = HID_HOST_INTERFACE_EVENT_SUSPENDED;
+        hid_host_test_expect_event(&expected_event, pdMS_TO_TICKS(TEST_HID_SUSPEND_TIMER_INTERVAL_MS + TEST_HID_SUSPEND_TIMER_MARGIN_MS));
+
+        // Even though the periodic timer is running, don't expect any event because of suspended root port
+        hid_host_test_expect_event(NULL, pdMS_TO_TICKS(TEST_HID_SUSPEND_TIMER_INTERVAL_MS * 2));
+
+        // Manually resume the root port and expect the resumed event
+        TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_root_port_resume());
+        expected_event.interface_evt.event = HID_HOST_INTERFACE_EVENT_RESUMED;
+        hid_host_test_expect_event(&expected_event, pdMS_TO_TICKS(TEST_EVENT_WAIT_MS));
+
+        // Verify transfer on resumed device
+        hid_host_dev_params_t dev_params;
+        TEST_ASSERT_EQUAL(ESP_OK, hid_host_device_get_params(s_global_hdl, &dev_params));
+        test_hid_host_device_stress(&dev_params);
+    }
+
+    // Disable the periodic auto suspend timer
+    printf("Disable periodic auto suspend timer\n");
+    TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_set_auto_suspend(USB_HOST_LIB_AUTO_SUSPEND_PERIODIC, 0));
+    // Make sure no event is delivered
+    hid_host_test_expect_event(NULL, pdMS_TO_TICKS(TEST_HID_SUSPEND_TIMER_INTERVAL_MS * 2));
+
+    // Tear down test
+    test_hid_teardown();
+    vQueueDelete(hid_host_test_event_queue);
+    hid_host_test_event_queue = NULL;
+}
+/**
+ * @brief Resume by transfer submit
+ *
+ * Purpose:
+ *     - Test, that a device can be resumed submitting a transfer
+ *
+ * Procedure:
+ *     - Install USB Host lib, Install HID driver, open device and start device
+ *     - Manually suspend the root port, expect suspend event
+ *     - Issue a CTRL transfer to the device, expect the root port to be resumed, expect resume event
+ *     - Manually suspend the root port, expect suspend event
+ *     - Start the device, expect the root port to be resumed, expect resume event
+ *     - Teardown
+ */
+TEST_CASE("resume_by_transfer_submit", "[hid_host]")
+{
+    hid_host_test_event_queue = xQueueCreate(10, sizeof(hid_host_event_queue_t));
+    TEST_ASSERT_NOT_NULL(hid_host_test_event_queue);
+
+    // Install USB and HID driver with 'hid_host_test_pm_driver_callback'
+    test_hid_setup(hid_host_test_pm_driver_callback, HID_TEST_EVENT_HANDLE_IN_DRIVER);
+
+    // Wait, until the device is connected, expect 2 CONNECTED events
+    hid_host_event_queue_t expected_event = {
+        .event_group = HID_DRIVER_EVENT,
+        .driver_evt.event = HID_HOST_DRIVER_EVENT_CONNECTED
+    };
+    hid_host_test_expect_event(&expected_event, pdMS_TO_TICKS(TEST_EVENT_WAIT_MS));
+
+    // Suspend the root port manually
+    TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_root_port_suspend());
+    expected_event.event_group = HID_INTERFACE_EVENT;
+    expected_event.interface_evt.event = HID_HOST_INTERFACE_EVENT_SUSPENDED;
+    hid_host_test_expect_event(&expected_event, pdMS_TO_TICKS(TEST_EVENT_WAIT_MS));
+
+    hid_host_dev_params_t dev_params;
+    TEST_ASSERT_EQUAL(ESP_OK, hid_host_device_get_params(s_global_hdl, &dev_params));
+
+    // Auto resume the device by sending a ctrl transfer
+    test_hid_host_device_stress(&dev_params);
+    expected_event.interface_evt.event = HID_HOST_INTERFACE_EVENT_RESUMED;
+    hid_host_test_expect_event(&expected_event, pdMS_TO_TICKS(TEST_EVENT_WAIT_MS));
+
+    // Suspend the root port manually
+    TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_root_port_suspend());
+    expected_event.event_group = HID_INTERFACE_EVENT;
+    expected_event.interface_evt.event = HID_HOST_INTERFACE_EVENT_SUSPENDED;
+    hid_host_test_expect_event(&expected_event, pdMS_TO_TICKS(TEST_EVENT_WAIT_MS));
+
+    // Auto resume the device by calling device start
+    TEST_ASSERT_EQUAL(ESP_OK, hid_host_device_start(s_global_hdl));
+    expected_event.interface_evt.event = HID_HOST_INTERFACE_EVENT_RESUMED;
+    hid_host_test_expect_event(&expected_event, pdMS_TO_TICKS(TEST_EVENT_WAIT_MS));
+
+    // Tear down test
+    test_hid_teardown();
+    vQueueDelete(hid_host_test_event_queue);
+    hid_host_test_event_queue = NULL;
+}
+
+/**
+ * @brief Sudden disconnect with suspended device
+ *
+ * Purpose:
+ *     - Test HID Host reaction to sudden disconnection with suspended device
+ *
+ * Procedure:
+ *     - Install USB Host lib, Install HID driver, open device and start device
+ *     - Suspend the root port, check that correct interface events are delivered
+ *     - Disconnect the device, expect disconnection event to be delivered
+ *     - Teardown
+ */
+TEST_CASE("sudden_disconnect_suspended_device", "[hid_host]")
+{
+    hid_host_test_event_queue = xQueueCreate(10, sizeof(hid_host_event_queue_t));
+    TEST_ASSERT_NOT_NULL(hid_host_test_event_queue);
+
+    // Install USB and HID driver with 'hid_host_test_pm_driver_callback'
+    test_hid_setup(hid_host_test_pm_driver_callback, HID_TEST_EVENT_HANDLE_IN_DRIVER);
+
+    // Wait, until the device is connected, expect 2 CONNECTED events
+    hid_host_event_queue_t expected_event = {
+        .event_group = HID_DRIVER_EVENT,
+        .driver_evt.event = HID_HOST_DRIVER_EVENT_CONNECTED
+    };
+    hid_host_test_expect_event(&expected_event, pdMS_TO_TICKS(TEST_EVENT_WAIT_MS));
+
+    printf("Issue suspend\n");
+    TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_root_port_suspend());
+    expected_event.event_group = HID_INTERFACE_EVENT;
+    expected_event.interface_evt.event = HID_HOST_INTERFACE_EVENT_SUSPENDED;
+    hid_host_test_expect_event(&expected_event, pdMS_TO_TICKS(TEST_EVENT_WAIT_MS));
+
+    // Disconnect the device, while the root port is suspended
+    force_conn_state(false, pdMS_TO_TICKS(1000));
+    expected_event.interface_evt.event = HID_HOST_INTERFACE_EVENT_DISCONNECTED;
+    hid_host_test_expect_event(&expected_event, pdMS_TO_TICKS(TEST_EVENT_WAIT_MS));
+
+    // Tear down test
+    vTaskDelay(20);
+    TEST_ASSERT_EQUAL(ESP_OK, hid_host_uninstall() );
+    ulTaskNotifyValueClear(NULL, 1);
+    vTaskDelay(20);
+    vQueueDelete(hid_host_test_event_queue);
+    hid_host_test_event_queue = NULL;
+}
+#endif // HID_HOST_SUSPEND_RESUME_API_SUPPORTED
 
 TEST_CASE("mock_hid_device_with_one_iface", "[hid_device][ignore]")
 {

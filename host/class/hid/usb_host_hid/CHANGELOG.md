@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Added a limitation for the HID report descriptor size to a maximum of 2048 bytes
+- Added global suspend/resume support
 
 ## [1.0.4] - 2025-09-24
 
