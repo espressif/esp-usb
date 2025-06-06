@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2023 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2023-2025 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -11,6 +11,7 @@
 #include "esp_err.h"
 #include <freertos/FreeRTOS.h>
 
+#include "usb/usb_host.h"
 #include "hid.h"
 
 #ifdef __cplusplus
@@ -29,6 +30,11 @@ extern "C" {
 */
 #define HID_STR_DESC_MAX_LENGTH           32
 
+// For backward compatibility, remove after IDF 5.x EOL             TODO IDF version
+#ifdef USB_HOST_LIB_EVENT_FLAGS_AUTO_SUSPEND
+#define HID_HOST_SUSPEND_RESUME_API_SUPPORTED
+#endif
+
 typedef struct hid_interface *hid_host_device_handle_t;    /**< Device Handle. Handle to a particular HID interface */
 
 // ------------------------ USB HID Host events --------------------------------
@@ -37,6 +43,10 @@ typedef struct hid_interface *hid_host_device_handle_t;    /**< Device Handle. H
 */
 typedef enum {
     HID_HOST_DRIVER_EVENT_CONNECTED = 0x00,        /**< HID Device has been found in connected USB device (at least one) */
+#ifdef HID_HOST_SUSPEND_RESUME_API_SUPPORTED
+    HID_HOST_DRIVER_EVENT_SUSPENDED,               /**< HID Device has been suspended */
+    HID_HOST_DRIVER_EVENT_RESUMED,                 /**< HID Device has been resumed */
+#endif // HID_HOST_SUSPEND_RESUME_API_SUPPORTED
 } hid_host_driver_event_t;
 
 /**
