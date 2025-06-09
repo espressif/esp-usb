@@ -4,13 +4,12 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <string.h>
 #include "sdkconfig.h"
 #include "esp_log.h"
 #include "esp_check.h"
 #include "esp_err.h"
-#include "esp_private/periph_ctrl.h"
 #include "esp_private/usb_phy.h"
-#include "soc/usb_pins.h" // TODO: Will be removed in IDF v6.0 IDF-9029
 #include "tinyusb.h"
 #include "descriptors_control.h"
 #include "tusb.h"
@@ -41,15 +40,31 @@ esp_err_t tinyusb_driver_install(const tinyusb_config_t *config)
 #endif // USB_PHY_SUPPORTS_P4_OTG11
     };
 
-    // External PHY IOs config
-    usb_phy_ext_io_conf_t ext_io_conf = {
-        .vp_io_num = USBPHY_VP_NUM,
-        .vm_io_num = USBPHY_VM_NUM,
-        .rcv_io_num = USBPHY_RCV_NUM,
-        .oen_io_num = USBPHY_OEN_NUM,
-        .vpo_io_num = USBPHY_VPO_NUM,
-        .vmo_io_num = USBPHY_VMO_NUM,
-    };
+    /*
+    Following ext. PHY IO configuration is here to provide compatibility with IDFv5.x releases,
+    where ext. PHY IOs were mapped to predefined GPIOs.
+    In reality, ESP32-S2 and ESP32-S3 can map ext. PHY IOs to any GPIOs.
+    This option is implemented in esp_tinyusb v2.0.0 and later.
+    */
+    usb_phy_ext_io_conf_t ext_io_conf;
+    // Use memset to be compatible with IDF < 5.4.1 where suspend_n_io_num and fs_edge_sel_io_num were added
+    memset(&ext_io_conf, -1, sizeof(usb_phy_ext_io_conf_t));
+#if CONFIG_IDF_TARGET_ESP32S2
+    ext_io_conf.vp_io_num  = 33;
+    ext_io_conf.vm_io_num  = 34;
+    ext_io_conf.rcv_io_num = 35;
+    ext_io_conf.oen_io_num = 36;
+    ext_io_conf.vpo_io_num = 37;
+    ext_io_conf.vmo_io_num = 38;
+#elif CONFIG_IDF_TARGET_ESP32S3
+    ext_io_conf.vp_io_num  = 42;
+    ext_io_conf.vm_io_num  = 41;
+    ext_io_conf.rcv_io_num = 21;
+    ext_io_conf.oen_io_num = 40;
+    ext_io_conf.vpo_io_num = 39;
+    ext_io_conf.vmo_io_num = 38;
+#endif // IDF_TARGET_ESP32S3
+
     if (config->external_phy) {
         phy_conf.target = USB_PHY_TARGET_EXT;
         phy_conf.ext_io_conf = &ext_io_conf;

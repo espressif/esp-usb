@@ -1,6 +1,6 @@
-## 1.7.4~1
+## 1.7.5
 
-- esp_tinyusb: Claim forward compatibility with IDF 6.0
+- esp_tinyusb: Provide forward compatibility with IDF 6.0
 
 ## 1.7.4
 
