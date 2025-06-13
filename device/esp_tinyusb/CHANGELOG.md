@@ -1,3 +1,7 @@
+## 1.7.6 [Unreleased]
+
+- MSC: Fixed the possibility to use SD/MMC storage with large capacity (more than 4 GB)
+
 ## 1.7.5
 
 - esp_tinyusb: Provide forward compatibility with IDF 6.0
