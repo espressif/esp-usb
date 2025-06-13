@@ -137,9 +137,13 @@ static esp_err_t _write_sector_spiflash(size_t sector_size,
                                         size_t size,
                                         const void *src)
 {
-    ESP_RETURN_ON_ERROR(wl_erase_range(s_storage_handle->wl_handle, addr, size),
-                        TAG, "Failed to erase");
-    return wl_write(s_storage_handle->wl_handle, addr, src, size);
+    (void) addr; // addr argument is not used in this function, we calculate it based on lba and offset.
+    size_t temp = 0;
+    size_t src_addr = 0; // Address of the data to be write, relative to the beginning of the partition.
+    ESP_RETURN_ON_FALSE(!__builtin_umul_overflow(lba, sector_size, &temp), ESP_ERR_INVALID_SIZE, TAG, "overflow lba %lu sector_size %u", lba, sector_size);
+    ESP_RETURN_ON_FALSE(!__builtin_uadd_overflow(temp, offset, &src_addr), ESP_ERR_INVALID_SIZE, TAG, "overflow addr %u offset %lu", temp, offset);
+    ESP_RETURN_ON_ERROR(wl_erase_range(s_storage_handle->wl_handle, src_addr, size), TAG, "Failed to erase");
+    return wl_write(s_storage_handle->wl_handle, src_addr, src, size);
 }
 
 #if SOC_SDMMC_HOST_SUPPORTED
@@ -194,6 +198,7 @@ static esp_err_t _write_sector_sdmmc(size_t sector_size,
                                      size_t size,
                                      const void *src)
 {
+    (void) addr; // addr argument is not used in this function, we use lba directly
     return sdmmc_write_sectors(s_storage_handle->card, src, lba, size / sector_size);
 }
 #endif
@@ -219,16 +224,12 @@ static esp_err_t _msc_storage_write_sector(uint32_t lba,
         return ESP_ERR_INVALID_STATE;
     }
     size_t sector_size = tinyusb_msc_storage_get_sector_size();
-    size_t temp = 0;
-    size_t addr = 0; // Address of the data to be read, relative to the beginning of the partition.
-    ESP_RETURN_ON_FALSE(!__builtin_umul_overflow(lba, sector_size, &temp), ESP_ERR_INVALID_SIZE, TAG, "overflow lba %lu sector_size %u", lba, sector_size);
-    ESP_RETURN_ON_FALSE(!__builtin_uadd_overflow(temp, offset, &addr), ESP_ERR_INVALID_SIZE, TAG, "overflow addr %u offset %lu", temp, offset);
 
-    if (addr % sector_size != 0 || size % sector_size != 0) {
+    if (size % sector_size != 0) {
         ESP_LOGE(TAG, "Invalid Argument lba(%lu) offset(%lu) size(%u) sector_size(%u)", lba, offset, size, sector_size);
         return ESP_ERR_INVALID_ARG;
     }
-    return (s_storage_handle->write)(sector_size, addr, lba, offset, size, src);
+    return (s_storage_handle->write)(sector_size, 0 /* not used */, lba, offset, size, src);
 }
 
 static esp_err_t _mount(char *drv, FATFS *fs)
