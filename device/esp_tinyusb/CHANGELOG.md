@@ -1,4 +1,4 @@
-## 1.7.6 [Unreleased]
+## 1.7.6
 
 - MSC: Fixed the possibility to use SD/MMC storage with large capacity (more than 4 GB)
 
