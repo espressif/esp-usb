@@ -1,0 +1,267 @@
+<HTML><HEAD>
+	<META http-equiv="X-UA-Compatible" content="IE=edge" />
+	<META charset="UTF-8" />
+	<STYLE type='text/css'>
+		BODY { background-color: #DFDFDF; }
+		.dm_display
+		{
+		    color: Navy;
+		    font-family: monospace;
+		    background-color: White;
+		    border-width: 3px;
+		    border-style: outset;
+		}
+
+		#suite-output
+		{
+		    background-color: #FFFFDD;
+		    border: ridge 3px #FFFFDD;
+		    border-collapse: collapse;
+		    padding: 0;
+		    margin: 0;
+		    empty-cells: hide
+		}
+
+		#test-header
+		{
+		    font-weight: bold;
+		    font-size: large;
+		    border-top: ridge 2px #FFFFDD;
+		    border-bottom: ridge 2px #FFFFDD;
+		    padding: 0;
+		    margin: 0;
+		}
+
+		.test-pass, .test-fail
+		{
+		    float: right;
+		    border-left: ridge 2px #FFFDD;
+		    min-width: 6em;
+		}
+
+		.test-pass { background-color: #00FF00; }
+		.test-fail { background-color: #FF8888; }
+
+		.test-details
+		{
+		    clear: both;
+		    font-family: monospace;
+		    padding: 0;
+		    margin: 0;
+		    empty-cells: hide;
+		}
+
+		.label
+		{
+		    float: left;
+		    width: 6em;
+		}
+
+		.content
+		{
+		    white-space: pre-wrap;
+		    margin-left: 7em;
+		}
+
+		.err_log, .warn_log
+		{
+		    color: Red;
+		}
+
+		.err_log { font-weight: bold; }
+
+		.unexpected_log
+		{
+		    color: Red;
+		    background-color: Yellow;
+		    font-weight: bold;
+		    font-style: italic;
+		}
+	</STYLE>
+	<TITLE>HID Tests - 2025-06-17 06-25-05</TITLE>
+	<META name='Suite-Name' content='HID Tests.cvtests' />
+	<META name='Test-Version' content='GuiCV.exe ver 4.1.0.0' />
+	<META name='Test-Version' content='BaseUtilities.dll ver 4.1.0.0' />
+	<META name='Test-Version' content='GuiHelper.dll ver 4.1.0.0' />
+	<META name='Test-Version' content='ComplianceUtilities.dll ver 4.1.0.0' />
+	<META name='Test-Version' content='TestSuiteParser.dll ver 4.1.0.0' />
+	<META name='Test-Version' content='xhci_DevIOCTL.dll ver 2.2.7.0' />
+	<META name='Test-Version' content='xhci_TestServices.dll ver 2.2.7.0' />
+	<META name='Test-Version' content='USBUtilities.dll ver 1.4.5.1' />
+	<META name='Test-Version' content='StackSwitcher.dll ver 1.4.5.1' />
+	<META name='Test-Version' content='xhci_CVServices.dll ver 2.2.7.0' />
+	<META name='Test-Version' content='HidParser.dll ver 1.4.5.0' />
+	<META name='Test-Version' content='xhci_HID.dll ver 3.1.9.0' />
+	<META name='Host-Controller' content='VID=1022,PID=43D5' />
+	<META name='Device-Under-Test' content='VID=303A, PID=4006' />
+	<META name='Device-Speed' content='Full Speed' />
+	<META name='Topology' content='XHCI HC -- DUT' />
+	<META name='Test-Pass' content='HID Class WhichSpecCompliant Test [Fails (0); Aborts (0); Warnings (0)]' />
+	<META name='Test-Pass' content='HID Class Descriptor Test (Configuration Index 0) - configured [Fails (0); Aborts (0); Warnings (0)]' />
+	<META name='Test-Pass' content='HID Class Protocol Test (Configuration Index 0) [Fails (0); Aborts (0); Warnings (0)]' />
+	<META name='Test-Pass' content='HID Class GET/SET Idle Test (Configuration Index 0) [Fails (0); Aborts (0); Warnings (0)]' />
+	<META name='Test-Pass' content='HID Class Report Descriptor Test (Configuration Index 0) [Fails (0); Aborts (0); Warnings (0)]' />
+	<META name='Suite-Result' content='PASS' />
+	<META name='Log-Name' content='HID Tests - 2025-06-17 06-25-05.html' />
+	<META name='Test-Count' content='5' />
+</HEAD>
+<BODY><DIV id='suite-summary'>
+	<DIV><STRONG>APPLICATION</STRONG>: USB 3 Gen X Command Verifier<BR></DIV>
+	<DIV><STRONG>TEST SUITE</STRONG>: HID Tests.cvtests<BR></DIV>
+	<DIV><STRONG>OPERATING SYSTEM</STRONG>: <BR></DIV>
+	<DIV><STRONG>WORKSTATION</STRONG>: <BR></DIV>
+	<DIV><STRONG>DATE</STRONG>: Tuesday, June 17, 2025<BR></DIV>
+	<DIV><STRONG>TIME</STRONG>: 06:25:16 AM<BR></DIV>
+	<DIV><STRONG>OPERATOR</STRONG>: jam_r<BR></DIV>
+	<DIV><STRONG>NUMBER OF TESTS</STRONG>: 5<BR></DIV>
+	<DIV><STRONG>LOG NAME</STRONG>: HID Tests - 2025-06-17 06-25-05<BR></DIV>
+	<DIV><STRONG>RESULT</STRONG>: passed<BR></DIV>
+<HR>
+</DIV>
+<BR><BR>
+<DIV id='suite-output'>
+<DIV id='test-header'>Initialize Test Suite</DIV>
+<DIV class='test-details'>
+<DIV><DIV class='label'>INFO</DIV><DIV class='content'>Test log initialized.</DIV></DIV>
+<DIV><DIV class='label'>INFO</DIV><DIV class='content'>Log Level: Verbose</DIV></DIV>
+<DIV><DIV class='label'>INFO</DIV><DIV class='content'>User Input module initialized</DIV></DIV>
+<DIV><DIV class='label'>INFO</DIV><DIV class='content'>Windows Version 22H2 (OS Build 19045)</DIV></DIV>
+<DIV style='color:#00005F'><DIV class='label'>INFO</DIV><DIV class='content'>GuiCV.exe ver 4.1.0.0</DIV></DIV>
+<DIV style='color:#00005F'><DIV class='label'>INFO</DIV><DIV class='content'>BaseUtilities.dll ver 4.1.0.0</DIV></DIV>
+<DIV style='color:#00005F'><DIV class='label'>INFO</DIV><DIV class='content'>GuiHelper.dll ver 4.1.0.0</DIV></DIV>
+<DIV style='color:#00005F'><DIV class='label'>INFO</DIV><DIV class='content'>ComplianceUtilities.dll ver 4.1.0.0</DIV></DIV>
+<DIV style='color:#00005F'><DIV class='label'>INFO</DIV><DIV class='content'>TestSuiteParser.dll ver 4.1.0.0</DIV></DIV>
+<DIV style='color:#00005F'><DIV class='label'>INFO</DIV><DIV class='content'>xhci_DevIOCTL.dll ver 2.2.7.0</DIV></DIV>
+<DIV style='color:#00005F'><DIV class='label'>INFO</DIV><DIV class='content'>xhci_TestServices.dll ver 2.2.7.0</DIV></DIV>
+<DIV style='color:#00005F'><DIV class='label'>INFO</DIV><DIV class='content'>USBUtilities.dll ver 1.4.5.1</DIV></DIV>
+<DIV style='color:#00005F'><DIV class='label'>INFO</DIV><DIV class='content'>StackSwitcher.dll ver 1.4.5.1</DIV></DIV>
+<DIV style='color:#00005F'><DIV class='label'>INFO</DIV><DIV class='content'>xhci_CVServices.dll ver 2.2.7.0</DIV></DIV>
+<DIV style='color:#00005F'><DIV class='label'>INFO</DIV><DIV class='content'>HidParser.dll ver 1.4.5.0</DIV></DIV>
+<DIV style='color:#00005F'><DIV class='label'>INFO</DIV><DIV class='content'>xhci_HID.dll ver 3.1.9.0</DIV></DIV>
+<DIV><DIV class='label'>INFO</DIV><DIV class='content'>XHCISpecVersion: 1.10.</DIV></DIV>
+<DIV style='font-weight: 700;color:#00007F'><DIV class='label'>INFO</DIV><DIV class='content'>Host 1 selected: xHCI Host:  VID=0x1022, PID=0x43D5 (PCI bus 1, device 0, function 0)</DIV></DIV>
+<DIV style='font-weight: 400;font-style:italic;color:#00002F'><DIV class='label'>INFO</DIV><DIV class='content'>Select single item:
+  Please select HID Device  to test
+  modal: YES
+  timeout: NONE</DIV></DIV>
+<DIV><DIV class='label'>INFO</DIV><DIV class='content'>User selection from list: &quot;FS  Device (HID) addr=1:   VID=303A, PID=4006  RouteString 0x00000&quot;</DIV></DIV>
+<DIV style='font-weight: 700;color:#00007F'><DIV class='label'>INFO</DIV><DIV class='content'>Please select HID Device  to test</DIV></DIV>
+<DIV><DIV class='label'>INFO</DIV><DIV class='content'>HID Device Under Test is operating at Full Speed.</DIV></DIV>
+<DIV><DIV class='label'>INFO</DIV><DIV class='content'>Topology: XHCI HC -- DUT</DIV></DIV>
+<DIV><DIV class='label'>INFO</DIV><DIV class='content'>
+// Device Descriptor:
+/*    0h */  0x12, 0x01, 0x00, 0x02, 0x00, 0x00, 0x00, 0x40, 0x3A, 0x30, 0x06, 0x40, 0x00, 0x01, 0x01, 0x02, 0x03, 0x01, // Device</DIV></DIV>
+<DIV style='color:#BF0000'><DIV class='label'>INFO</DIV><DIV class='content'>BOS descriptors not supported for USB version 2.00 devices.</DIV></DIV>
+<DIV><DIV class='label'>INFO</DIV><DIV class='content'>Couldn't retrieve BOS Descriptor: bcdUSB=0x0200.</DIV></DIV>
+<DIV><DIV class='label'>INFO</DIV><DIV class='content'>Retrieving Full Configuration descriptor.</DIV></DIV>
+<DIV><DIV class='label'>INFO</DIV><DIV class='content'>Read Configuration descriptor.</DIV></DIV>
+<DIV><DIV class='label'>INFO</DIV><DIV class='content'>
+// Full Configuration Descriptor (index 0):
+/*    0h */  0x09, 0x02, 0x22, 0x00, 0x01, 0x01, 0x00, 0xA0, 0x32, // Configuration
+/*    9h */  0x09, 0x04, 0x00, 0x00, 0x01, 0x03, 0x00, 0x00, 0x04, // Interface: Num=0, Alt=0 (HID)
+/*   12h */  0x09, 0x21, 0x11, 0x01, 0x00, 0x01, 0x22, 0x92, 0x00, // &lt;UNKNOWN DESCRIPTOR&gt;
+/*   1Bh */  0x07, 0x05, 0x81, 0x03, 0x10, 0x00, 0x0A, // Endpoint: Address=0x03, Direction=out, Type=interrupt</DIV></DIV>
+</DIV>
+<DIV id='test-header'>Get Number Of Configurations</DIV>
+<DIV class='test-details'>
+<DIV><DIV class='label'>INFO</DIV><DIV class='content'>About to get Configuration count.</DIV></DIV>
+<DIV><DIV class='label'>INFO</DIV><DIV class='content'>USB Version number of device:  2.00</DIV></DIV>
+<DIV><DIV class='label'>INFO</DIV><DIV class='content'>Number of configurations: 1.</DIV></DIV>
+</DIV>
+<DIV id='test-header'>Get Number Of Configurations - Other Speed</DIV>
+<DIV class='test-details'>
+<DIV><DIV class='label'>INFO</DIV><DIV class='content'>About to get Other Speed Configuration count.</DIV></DIV>
+<DIV><DIV class='label'>INFO</DIV><DIV class='content'>Number of Other Speed configurations: 0.</DIV></DIV>
+</DIV>
+<DIV id='test-header'><A  name='anchor_4'>HID Class WhichSpecCompliant Test</A><DIV class='test-pass'>Passed</DIV></DIV>
+<DIV class='test-details'>
+<DIV style='font-weight: 700;font-style:italic;color:#0000AA'><DIV class='label'>INFO</DIV><DIV class='content'>Start time: Jun 17, 2025 - 06:25:11</DIV></DIV>
+<DIV><DIV class='label'>INFO</DIV><DIV class='content'>USB Version number of device:  2.00</DIV></DIV>
+<DIV><DIV class='label'>INFO</DIV><DIV class='content'>Retrieving Full Configuration descriptor.</DIV></DIV>
+<DIV><DIV class='label'>INFO</DIV><DIV class='content'>Interface 0x0 Alternate Setting 0x0 is draft 4 Compliant</DIV></DIV>
+<DIV style='font-weight: 700;color:#007F00'><DIV class='label'>INFO</DIV><DIV class='content'>
+Stop time: Jun 17, 2025 - 06:25:12</DIV></DIV>
+<DIV style='font-weight: 700;color:#007F00'><DIV class='label'>INFO</DIV><DIV class='content'>Duration:  1 second.</DIV></DIV>
+<DIV style='font-weight: 700;color:#007F00'><DIV class='label'>INFO</DIV><DIV class='content'>Stopping Test [ HID Class WhichSpecCompliant Test:
+     Number of: Fails (0); Aborts (0); Warnings (0) ]</DIV></DIV>
+</DIV>
+<DIV id='test-header'><A  name='anchor_5'>HID Class Descriptor Test (Configuration Index 0) - configured</A><DIV class='test-pass'>Passed</DIV></DIV>
+<DIV class='test-details'>
+<DIV style='font-weight: 700;font-style:italic;color:#0000AA'><DIV class='label'>INFO</DIV><DIV class='content'>Start time: Jun 17, 2025 - 06:25:12</DIV></DIV>
+<DIV><DIV class='label'>INFO</DIV><DIV class='content'>Device is operating at Full Speed.</DIV></DIV>
+<DIV><DIV class='label'>INFO</DIV><DIV class='content'>Already in configured device state: don't need to change it.</DIV></DIV>
+<DIV><DIV class='label'>INFO</DIV><DIV class='content'>Don't need to change configuration: setter: 0x01.</DIV></DIV>
+<DIV><DIV class='label'>INFO</DIV><DIV class='content'>Retrieving Full Configuration descriptor.</DIV></DIV>
+<DIV><DIV class='label'>INFO</DIV><DIV class='content'>Retrieving Full Configuration descriptor.</DIV></DIV>
+<DIV><DIV class='label'>INFO</DIV><DIV class='content'>Testing HID descriptor for Interface 0x0</DIV></DIV>
+<DIV><DIV class='label'>INFO</DIV><DIV class='content'>HID descriptor total length : 0x9</DIV></DIV>
+<DIV><DIV class='label'>INFO</DIV><DIV class='content'>HID descriptor type : 0x21</DIV></DIV>
+<DIV><DIV class='label'>INFO</DIV><DIV class='content'>HID specification version : 0x111</DIV></DIV>
+<DIV><DIV class='label'>INFO</DIV><DIV class='content'>CountryCode : 0x0</DIV></DIV>
+<DIV><DIV class='label'>INFO</DIV><DIV class='content'>Number of other descriptors present : 0x1</DIV></DIV>
+<DIV><DIV class='label'>INFO</DIV><DIV class='content'>HID report descriptor length : 0x92</DIV></DIV>
+<DIV style='font-weight: 700;color:#007F00'><DIV class='label'>INFO</DIV><DIV class='content'>
+Stop time: Jun 17, 2025 - 06:25:13</DIV></DIV>
+<DIV style='font-weight: 700;color:#007F00'><DIV class='label'>INFO</DIV><DIV class='content'>Duration:  1 second.</DIV></DIV>
+<DIV style='font-weight: 700;color:#007F00'><DIV class='label'>INFO</DIV><DIV class='content'>Stopping Test [ HID Class Descriptor Test (Configuration Index 0) - configured:
+     Number of: Fails (0); Aborts (0); Warnings (0) ]</DIV></DIV>
+</DIV>
+<DIV id='test-header'><A  name='anchor_6'>HID Class Protocol Test (Configuration Index 0)</A><DIV class='test-pass'>Passed</DIV></DIV>
+<DIV class='test-details'>
+<DIV style='font-weight: 700;font-style:italic;color:#0000AA'><DIV class='label'>INFO</DIV><DIV class='content'>Start time: Jun 17, 2025 - 06:25:13</DIV></DIV>
+<DIV><DIV class='label'>INFO</DIV><DIV class='content'>Set Configuration request succeeded for configuration value : 1.</DIV></DIV>
+<DIV><DIV class='label'>INFO</DIV><DIV class='content'>Get Configuration request succeeded.  Configuration value = 0x01.</DIV></DIV>
+<DIV><DIV class='label'>INFO</DIV><DIV class='content'>Changed configuration to 0x01.</DIV></DIV>
+<DIV><DIV class='label'>INFO</DIV><DIV class='content'>Retrieving Full Configuration descriptor.</DIV></DIV>
+<DIV><DIV class='label'>INFO</DIV><DIV class='content'>Starting GET/SET protocol tests for interface : 0</DIV></DIV>
+<DIV><DIV class='label'>INFO</DIV><DIV class='content'>GET/SET protocol request is optional. Skipping tests</DIV></DIV>
+<DIV style='font-weight: 700;color:#007F00'><DIV class='label'>INFO</DIV><DIV class='content'>
+Stop time: Jun 17, 2025 - 06:25:14</DIV></DIV>
+<DIV style='font-weight: 700;color:#007F00'><DIV class='label'>INFO</DIV><DIV class='content'>Duration:  1 second.</DIV></DIV>
+<DIV style='font-weight: 700;color:#007F00'><DIV class='label'>INFO</DIV><DIV class='content'>Stopping Test [ HID Class Protocol Test (Configuration Index 0):
+     Number of: Fails (0); Aborts (0); Warnings (0) ]</DIV></DIV>
+</DIV>
+<DIV id='test-header'><A  name='anchor_7'>HID Class GET/SET Idle Test (Configuration Index 0)</A><DIV class='test-pass'>Passed</DIV></DIV>
+<DIV class='test-details'>
+<DIV style='font-weight: 700;font-style:italic;color:#0000AA'><DIV class='label'>INFO</DIV><DIV class='content'>Start time: Jun 17, 2025 - 06:25:14</DIV></DIV>
+<DIV><DIV class='label'>INFO</DIV><DIV class='content'>Set Configuration request succeeded for configuration value : 1.</DIV></DIV>
+<DIV><DIV class='label'>INFO</DIV><DIV class='content'>Get Configuration request succeeded.  Configuration value = 0x01.</DIV></DIV>
+<DIV><DIV class='label'>INFO</DIV><DIV class='content'>Changed configuration to 0x01.</DIV></DIV>
+<DIV><DIV class='label'>INFO</DIV><DIV class='content'>Retrieving Full Configuration descriptor.</DIV></DIV>
+<DIV><DIV class='label'>INFO</DIV><DIV class='content'>GET/SETIdle test for report ID 0x1. Setting idle rate to : 0x7F</DIV></DIV>
+<DIV><DIV class='label'>INFO</DIV><DIV class='content'>GET/SETIdle test for report ID 0x1. Setting idle rate to : 0xFF</DIV></DIV>
+<DIV><DIV class='label'>INFO</DIV><DIV class='content'>GET/SETIdle test for report ID 0x1. Setting idle rate to : 0x0</DIV></DIV>
+<DIV><DIV class='label'>INFO</DIV><DIV class='content'>GET/SETIdle test for report ID 0x2. Setting idle rate to : 0x7F</DIV></DIV>
+<DIV><DIV class='label'>INFO</DIV><DIV class='content'>GET/SETIdle test for report ID 0x2. Setting idle rate to : 0xFF</DIV></DIV>
+<DIV><DIV class='label'>INFO</DIV><DIV class='content'>GET/SETIdle test for report ID 0x2. Setting idle rate to : 0x0</DIV></DIV>
+<DIV style='font-weight: 700;color:#007F00'><DIV class='label'>INFO</DIV><DIV class='content'>
+Stop time: Jun 17, 2025 - 06:25:15</DIV></DIV>
+<DIV style='font-weight: 700;color:#007F00'><DIV class='label'>INFO</DIV><DIV class='content'>Duration:  1 second.</DIV></DIV>
+<DIV style='font-weight: 700;color:#007F00'><DIV class='label'>INFO</DIV><DIV class='content'>Stopping Test [ HID Class GET/SET Idle Test (Configuration Index 0):
+     Number of: Fails (0); Aborts (0); Warnings (0) ]</DIV></DIV>
+</DIV>
+<DIV id='test-header'><A  name='anchor_8'>HID Class Report Descriptor Test (Configuration Index 0)</A><DIV class='test-pass'>Passed</DIV></DIV>
+<DIV class='test-details'>
+<DIV style='font-weight: 700;font-style:italic;color:#0000AA'><DIV class='label'>INFO</DIV><DIV class='content'>Start time: Jun 17, 2025 - 06:25:15</DIV></DIV>
+<DIV><DIV class='label'>INFO</DIV><DIV class='content'>Set Configuration request succeeded for configuration value : 1.</DIV></DIV>
+<DIV><DIV class='label'>INFO</DIV><DIV class='content'>Get Configuration request succeeded.  Configuration value = 0x01.</DIV></DIV>
+<DIV><DIV class='label'>INFO</DIV><DIV class='content'>Changed configuration to 0x01.</DIV></DIV>
+<DIV><DIV class='label'>INFO</DIV><DIV class='content'>Retrieving Full Configuration descriptor.</DIV></DIV>
+<DIV><DIV class='label'>INFO</DIV><DIV class='content'>Report descriptor length: 146</DIV></DIV>
+<DIV><DIV class='label'>INFO</DIV><DIV class='content'>Item count in report descriptor: 73</DIV></DIV>
+<DIV><DIV class='label'>INFO</DIV><DIV class='content'>Report descriptor test passed. Proceeding to next descriptor</DIV></DIV>
+<DIV style='font-weight: 700;color:#007F00'><DIV class='label'>INFO</DIV><DIV class='content'>
+Stop time: Jun 17, 2025 - 06:25:16</DIV></DIV>
+<DIV style='font-weight: 700;color:#007F00'><DIV class='label'>INFO</DIV><DIV class='content'>Duration:  1 second.</DIV></DIV>
+<DIV style='font-weight: 700;color:#007F00'><DIV class='label'>INFO</DIV><DIV class='content'>Stopping Test [ HID Class Report Descriptor Test (Configuration Index 0):
+     Number of: Fails (0); Aborts (0); Warnings (0) ]</DIV></DIV>
+</DIV>
+<DIV id='test-header'>Summary</DIV>
+<DIV class='test-details'>
+<DIV style='font-weight: 700;font-style:italic;color:#007F00'><DIV class='label'>INFO</DIV><DIV class='content'>TEST SUITE SUMMARY:
+    [ Fails (0); Aborts (0); Warnings (0) ]</DIV></DIV>
+<DIV style='font-weight: 700;font-style:italic;color:#007F00'><DIV class='label'>INFO</DIV><DIV class='content'>TEST RESULTS:
+    [ Passed (5); Failed (0) ]</DIV></DIV>
+</DIV>
+</DIV>
+</BODY></HTML>
