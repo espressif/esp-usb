@@ -1,3 +1,7 @@
+## 1.7.7 [unreleased]
+
+- esp_tinyusb: Added documentation to README.md
+
 ## 1.7.6
 
 - MSC: Fixed the possibility to use SD/MMC storage with large capacity (more than 4 GB)
