@@ -22,7 +22,7 @@
 #include "unity.h"
 // TinyUSB Public
 #include "tinyusb.h"
-#include "tinyusb_default_configs.h"
+#include "tinyusb_default_config.h"
 #include "test_task.h"
 // TinyUSB Private
 #include "descriptors_control.h"
