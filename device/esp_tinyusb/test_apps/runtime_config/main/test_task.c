@@ -21,7 +21,7 @@
 //
 #include "unity.h"
 #include "tinyusb.h"
-#include "tinyusb_default_configs.h"
+#include "tinyusb_default_config.h"
 #include "test_task.h"
 #include "sdkconfig.h"
 #include "device_handling.h"

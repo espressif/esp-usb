@@ -21,7 +21,7 @@
 //
 #include "unity.h"
 #include "tinyusb.h"
-#include "tinyusb_default_configs.h"
+#include "tinyusb_default_config.h"
 #include "tusb_cdc_acm.h"
 
 static const char *TAG = "teardown";

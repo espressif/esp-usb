@@ -10,7 +10,7 @@
 
 #include "unity.h"
 #include "tinyusb.h"
-#include "tinyusb_default_configs.h"
+#include "tinyusb_default_config.h"
 
 
 // Enable to verify static assert during the build

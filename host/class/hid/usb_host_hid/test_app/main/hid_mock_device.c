@@ -6,7 +6,7 @@
 
 #include <stdint.h>
 #include "tinyusb.h"
-#include "tinyusb_default_configs.h"
+#include "tinyusb_default_config.h"
 #include "class/hid/hid_device.h"
 #include "hid_mock_device.h"
 

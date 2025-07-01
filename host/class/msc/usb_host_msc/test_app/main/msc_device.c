@@ -7,7 +7,7 @@
 
 #include "esp_log.h"
 #include "tinyusb.h"
-#include "tinyusb_default_configs.h"
+#include "tinyusb_default_config.h"
 #include "soc/soc_caps.h"
 #include "test_common.h"
 #include "esp_check.h"
