@@ -20,7 +20,7 @@
 #include "soc/gpio_sig_map.h"
 #include "unity.h"
 #include "tinyusb.h"
-#include "tinyusb_default_configs.h"
+#include "tinyusb_default_config.h"
 
 #define DEVICE_DETACH_TEST_ROUNDS       10
 #define DEVICE_DETACH_ROUND_DELAY_MS    1000
