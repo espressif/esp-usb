@@ -7,7 +7,7 @@
 #include <stdint.h>
 #include "sdkconfig.h"
 #include "tinyusb.h"
-#include "tinyusb_default_configs.h"
+#include "tinyusb_default_config.h"
 #include "tusb_cdc_acm.h"
 
 static uint8_t buf[CONFIG_TINYUSB_CDC_RX_BUFSIZE + 1];
