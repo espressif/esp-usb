@@ -20,13 +20,20 @@ endif() # CONFIG_TINYUSB_CDC_ENABLED
 
 if(CONFIG_TINYUSB_MSC_ENABLED)
     list(APPEND srcs
-        tusb_msc_storage.c
+        "tinyusb_msc.c"
+        "storage_spiflash.c"
         )
+    if (CONFIG_SOC_SDMMC_HOST_SUPPORTED)
+        list(APPEND srcs
+            "storage_sdmmc.c"
+            )
+    endif() # CONFIG_SOC_SDMMC_HOST_SUPPORTED
 endif() # CONFIG_TINYUSB_MSC_ENABLED
+
 
 if(CONFIG_TINYUSB_NET_MODE_NCM)
     list(APPEND srcs
-         tinyusb_net.c
+         "tinyusb_net.c"
          )
 endif() # CONFIG_TINYUSB_NET_MODE_NCM
 

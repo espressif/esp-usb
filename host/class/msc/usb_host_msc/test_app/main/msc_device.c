@@ -12,7 +12,7 @@
 #include "test_common.h"
 #include "esp_check.h"
 #include "driver/gpio.h"
-#include "tusb_msc_storage.h"
+#include "tinyusb_msc.h"
 #if SOC_SDMMC_HOST_SUPPORTED
 #include "diskio_impl.h"
 #include "diskio_sdmmc.h"
@@ -160,10 +160,11 @@ void device_app(void)
     static wl_handle_t wl_handle = WL_INVALID_HANDLE;
     ESP_ERROR_CHECK(storage_init_spiflash(&wl_handle));
 
-    const tinyusb_msc_spiflash_config_t config_spi = {
-        .wl_handle = wl_handle,
+    const tinyusb_msc_storage_config_t config = {
+        .medium.wl_handle = wl_handle,  // Set the medium of the storage to the wear leveling
     };
-    ESP_ERROR_CHECK(tinyusb_msc_storage_init_spiflash(&config_spi));
+    ESP_ERROR_CHECK(tinyusb_msc_new_storage_spiflash(&config, NULL));
+
     storage_init();
     while (1) {
         vTaskDelay(100);
@@ -250,9 +251,10 @@ void device_app_sdmmc(void)
     static sdmmc_card_t *card = NULL;
     ESP_ERROR_CHECK(storage_init_sdmmc(&card));
 
-    tinyusb_msc_sdmmc_config_t config_sdmmc;
-    config_sdmmc.card = card;
-    ESP_ERROR_CHECK(tinyusb_msc_storage_init_sdmmc(&config_sdmmc));
+    const tinyusb_msc_storage_config_t config = {
+        .medium.card = card,  // Set the medium of the storage to the SDMMC card
+    };
+    ESP_ERROR_CHECK(tinyusb_msc_new_storage_sdmmc(&config, NULL));
 
     storage_init();
     while (1) {
