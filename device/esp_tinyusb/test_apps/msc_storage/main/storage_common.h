@@ -45,6 +45,15 @@ void storage_deinit_spiflash(wl_handle_t wl_handle);
 void storage_init_sdmmc(sdmmc_card_t **card);
 
 /**
+ * @brief Erase the SDMMC storage
+ *
+ * This function erases the entire SDMMC card.
+ *
+ * @param[in] card Pointer to the sdmmc_card_t structure that was initialized in storage_init_sdmmc
+ */
+void storage_erase_sdmmc(sdmmc_card_t *card);
+
+/**
  * @brief Deinitialize the SDMMC storage
  *
  * @param[in] card Pointer to the sdmmc_card_t structure that was initialized in storage_init_sdmmc
