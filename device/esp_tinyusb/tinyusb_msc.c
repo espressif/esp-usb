@@ -103,7 +103,6 @@ static tinyusb_msc_driver_t *p_msc_driver;
 // 1.TODO: Multiple LUNs support
 // 2.TODO: Critical section to protect the driver pointer
 // 3.TODO: Critical section to protect the callback
-// 4.TODO: Storage Format support
 
 //
 // ========================== TinyUSB MSC Storage Event Handling =================================
@@ -217,7 +216,7 @@ static esp_err_t vfs_fat_format(BYTE format_flags)
 
     size_t alloc_unit_size = esp_vfs_fat_get_allocation_unit_size(CONFIG_WL_SECTOR_SIZE, workbuf_size);
 
-    ESP_LOGW(TAG, "Format drive, allocation unit size=%d", alloc_unit_size);
+    ESP_LOGD(TAG, "Format drive, allocation unit size=%d", alloc_unit_size);
 
     const MKFS_PARM opt = {format_flags, 0, 0, 0, alloc_unit_size};
     fresult = f_mkfs("", &opt, workbuf, workbuf_size); // Use default volume
@@ -248,6 +247,7 @@ static esp_err_t vfs_fat_mount(char *drv, FATFS *fs, bool force)
         break;
     case FR_NO_FILESYSTEM:
     case FR_INT_ERR:
+        // These are recoverable errors, which can be fixed by formatting the drive
         ESP_LOGD(TAG, "Drive %s does not have a filesystem, need to format", drv);
         ret = ESP_ERR_NOT_FOUND; // No filesystem or internal error, need to format
         break;
@@ -288,42 +288,43 @@ esp_err_t msc_storage_mount(void)
         ESP_LOGD(TAG, "VFS FAT already registered");
     } else if (ret != ESP_OK) {
         ESP_LOGE(TAG, "VFS FAT register failed, %s", esp_err_to_name(ret));
-        goto fail;
+        tinyusb_event_cb(TINYUSB_MSC_EVENT_MOUNT_FAILED);
+        goto exit;
     }
+
+    // Registering the FATFS object was done successfully; change the mount point.
+    // All subsequent errors depend on the filesystem.
+    s_storage_handle->mount_point = TINYUSB_MSC_STORAGE_MOUNT_APP;
 
     ret = vfs_fat_mount(drv, fs, true);
     if (ret == ESP_ERR_NOT_FOUND) {
         // If mount failed, try to format the drive
         if (s_storage_handle->fat_fs.do_not_format) {
-            ESP_LOGE(TAG, "Mount failed and do not format is set");
+            ESP_LOGD(TAG, "Mount failed and do not format is set");
             tinyusb_event_cb(TINYUSB_MSC_EVENT_FORMAT_REQUIRED);
-            goto fail;
+            ret = ESP_OK;
+            goto exit;
         }
-        ESP_LOGW(TAG, "Mount failed, trying to format the drive");
+        ESP_LOGW(TAG, "Filesystem not found; creating a new one");
         BYTE format_flags = s_storage_handle->fat_fs.format_flags;
-        ret = vfs_fat_format(format_flags);
-        if (ret != ESP_OK) {
-            ESP_LOGE(TAG, "Failed to format the drive, %s", esp_err_to_name(ret));
-            goto fail;
-        }
+        ESP_GOTO_ON_ERROR(vfs_fat_format(format_flags), fail, TAG, "Failed to format the drive");
         ESP_GOTO_ON_ERROR(vfs_fat_mount(drv, fs, false), fail, TAG, "Failed to mount FAT filesystem");
-        ESP_LOGW(TAG, "Format completed, FAT mounted successfully");
+        ESP_LOGD(TAG, "Format completed, FAT mounted successfully");
     } else if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to mount drive, %s", esp_err_to_name(ret));
-        goto fail; // If mount was unsuccessful, return the error
+        goto fail;
     }
 
-    s_storage_handle->mount_point = TINYUSB_MSC_STORAGE_MOUNT_APP;
-
     tinyusb_event_cb(TINYUSB_MSC_EVENT_MOUNT_COMPLETE);
-
-    return ret;
+    return ESP_OK;
 
 fail:
+    tinyusb_event_cb(TINYUSB_MSC_EVENT_FORMAT_FAILED);
+exit:
+    s_storage_handle->medium->unmount();
     if (fs) {
         esp_vfs_fat_unregister_path(base_path);
     }
-    ff_diskio_unregister(pdrv);
     return ret;
 }
 
@@ -641,16 +642,19 @@ esp_err_t tinyusb_msc_set_storage_mount_point(tinyusb_msc_storage_handle_t handl
 
     ESP_RETURN_ON_FALSE(p_msc_driver != NULL, ESP_ERR_INVALID_STATE, TAG, "MSC driver is not initialized");
     ESP_RETURN_ON_FALSE(p_msc_driver->dynamic.storage != NULL, ESP_ERR_INVALID_STATE, TAG, "MSC storage is not initialized");
+    ESP_RETURN_ON_FALSE(mount_point <= TINYUSB_MSC_STORAGE_MOUNT_APP, ESP_ERR_INVALID_ARG, TAG, "Invalid mount point");
+
+    msc_storage_obj_t *storage = p_msc_driver->dynamic.storage;
+    if (storage->mount_point == mount_point) {
+        // If the storage is already mounted to the requested mount point, do nothing
+        return ESP_OK;
+    }
 
     if (mount_point == TINYUSB_MSC_STORAGE_MOUNT_APP) {
-        // If the storage is mounted to application, mount it
         msc_storage_mount();
     } else {
-        // If the storage is mounted to USB host, unmount it
         msc_storage_unmount();
     }
-    p_msc_driver->dynamic.storage->mount_point = mount_point;
-
     return ESP_OK;
 }
 
@@ -702,9 +706,35 @@ esp_err_t tinyusb_msc_get_storage_mount_point(tinyusb_msc_storage_handle_t handl
 esp_err_t tinyusb_msc_format_storage(tinyusb_msc_storage_handle_t handle)
 {
     (void) handle; // Unused parameter
-    // TODO: Storage Format support
-    ESP_LOGW(TAG, "Formatting drive is not implemented yet");
-    return ESP_ERR_NOT_SUPPORTED;
+
+    esp_err_t ret;
+    FATFS *fs = NULL;
+    BYTE pdrv = 0xFF;
+
+    ESP_RETURN_ON_FALSE(p_msc_driver != NULL, ESP_ERR_INVALID_STATE, TAG, "MSC driver is not initialized");
+    ESP_RETURN_ON_FALSE(p_msc_driver->dynamic.storage != NULL, ESP_ERR_INVALID_STATE, TAG, "MSC storage is not initialized");
+
+    msc_storage_obj_t *storage = p_msc_driver->dynamic.storage;
+    const char *base_path = storage->fat_fs.base_path;
+    int max_files = storage->fat_fs.max_files;
+
+    ESP_RETURN_ON_FALSE(storage->mount_point == TINYUSB_MSC_STORAGE_MOUNT_APP, ESP_ERR_INVALID_ARG, TAG, "Storage must be mounted to APP to format it");
+    // Register the diskio driver on the storage medium
+    ESP_RETURN_ON_ERROR(ff_diskio_get_drive(&pdrv), TAG, "The maximum count of volumes is already mounted");
+    ESP_RETURN_ON_ERROR(storage->medium->mount(pdrv), TAG, "Failed pdrv=%d", pdrv);
+
+    // Register FAT FS with VFS component
+    char drv[3] = {(char)('0' + pdrv), ':', 0}; // FATFS drive specificator; if only one drive is used, can be an empty string
+    ESP_RETURN_ON_ERROR(esp_vfs_fat_register(base_path, drv, max_files, &fs), TAG, "VFS FAT register failed");
+    // to make format, we need to mount the fs
+    // Mount the FAT FS
+    ret = vfs_fat_mount(drv, fs, true);
+    ESP_RETURN_ON_FALSE(ret == ESP_ERR_NOT_FOUND, ESP_ERR_NOT_FOUND, TAG, "Unexpected filesystem found on the drive");
+    ESP_RETURN_ON_ERROR(vfs_fat_format(storage->fat_fs.format_flags), TAG, "Failed to format the drive");
+    ESP_RETURN_ON_ERROR(vfs_fat_mount(drv, fs, false), TAG, "Failed to mount FAT filesystem");
+
+    ESP_LOGD(TAG, "Storage formatted successfully");
+    return ESP_OK;
 }
 
 /* TinyUSB MSC callbacks

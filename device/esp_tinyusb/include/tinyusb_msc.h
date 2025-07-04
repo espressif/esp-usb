@@ -42,6 +42,7 @@ typedef enum {
     TINYUSB_MSC_EVENT_MOUNT_COMPLETE,            /*!< Called AFTER the mount or unmount operation is complete */
     TINYUSB_MSC_EVENT_MOUNT_FAILED,              /*!< Called if the mount operation failed */
     TINYUSB_MSC_EVENT_FORMAT_REQUIRED,           /*!< Called when the storage needs to be formatted */
+    TINYUSB_MSC_EVENT_FORMAT_FAILED,             /*!< Called if the format operation failed */
 } tinyusb_msc_event_id_t;
 
 /**
@@ -236,7 +237,10 @@ esp_err_t tinyusb_msc_set_storage_callback(tusb_msc_callback_t callback, void *a
  * @param[in] handle    Storage handle, obtained during storage creation.
  *
  * @return
- *   - ESP_ERR_NOT_SUPPORTED: Formatting is not supported
+ *   - ESP_ERR_INVALID_STATE: MSC driver is not initialized or storage is not initialized
+ *   - ESP_ERR_INVALID_ARG: Storage must be mounted to APP to format it
+ *   - ESP_ERR_NOT_FOUND: Unexpected filesystem found on the drive
+ *   - ESP_OK: Storage formatted successfully
  */
 esp_err_t tinyusb_msc_format_storage(tinyusb_msc_storage_handle_t handle);
 

@@ -123,6 +123,13 @@ void storage_init_sdmmc(sdmmc_card_t **card)
     printf("\tSector Size: %u\n", sd_card->csd.sector_size);
 }
 
+void storage_erase_sdmmc(sdmmc_card_t *card)
+{
+    // Erase the SDMMC card
+    TEST_ASSERT_EQUAL_MESSAGE(ESP_OK, sdmmc_full_erase(card), "Failed to erase SDMMC card");
+    printf("SDMMC Card erased successfully\n");
+}
+
 void storage_deinit_sdmmc(sdmmc_card_t *card)
 {
     // Deinit the host

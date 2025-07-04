@@ -10,6 +10,7 @@
 - esp_tinyusb: Added USB Device event callback to handle different USB Device events. For the list of supported USB Device events, refer to to [Espressif's Addition to TinyUSB - README](/device/esp_tinyusb/README.md)
 - esp_tinyusb: Removed configuration option to handle TinyUSB events outside of this driver
 - MSC: Removed dedicated callbacks; introduced a single callback with an event ID for each storage
+- MSC: Added storage format support
 - MSC: Updated public API; refer to the [MSC Class Migration guide v2](/docs/device/migration-guides/v2/tinyusb_msc.md)
 - Console: Updated public API; refer to the [Console Class Migration guide v2](/docs/device/migration-guides/v2/tinyusb_console.md)
 - CDC-ACM: Updated public API; refer to the [CDC-ACM Class Migration guide v2](/docs/device/migration-guides/v2/tinyusb_cdc_acm.md)
