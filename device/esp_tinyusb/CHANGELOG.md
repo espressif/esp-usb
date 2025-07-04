@@ -3,6 +3,17 @@
 ### Breaking changes
 - phy: esp_tinyusb will no longer initialize external PHY. If external PHY is required, it must be explicitly initialized by user and esp_tinyusb must be configured with `skip_phy_setup = true`
 
+## 1.7.7 [unreleased]
+
+- esp_tinyusb: Added documentation to README.md
+
+## 1.7.6
+
+- MSC: Fixed the possibility to use SD/MMC storage with large capacity (more than 4 GB)
+
+## 1.7.5
+
+- esp_tinyusb: Provide forward compatibility with IDF 6.0
 
 ## 1.7.4~1
 
