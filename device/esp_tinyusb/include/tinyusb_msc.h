@@ -42,6 +42,7 @@ typedef enum {
     TINYUSB_MSC_EVENT_MOUNT_COMPLETE,            /*!< Called AFTER the mount or unmount operation is complete */
     TINYUSB_MSC_EVENT_MOUNT_FAILED,              /*!< Called if the mount operation failed */
     TINYUSB_MSC_EVENT_FORMAT_REQUIRED,           /*!< Called when the storage needs to be formatted */
+    TINYUSB_MSC_EVENT_FORMAT_FAILED,             /*!< Called if the format operation failed */
 } tinyusb_msc_event_id_t;
 
 /**
