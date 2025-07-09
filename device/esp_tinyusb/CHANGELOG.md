@@ -1,7 +1,15 @@
 ## 2.0.0 [Unreleased]
 
+- esp_tinyusb: Added USB Compliance Verification results
+
 ### Breaking changes
-- phy: esp_tinyusb will no longer initialize external PHY. If external PHY is required, it must be explicitly initialized by user and esp_tinyusb must be configured with `skip_phy_setup = true`
+
+- esp_tinyusb: External PHY is no longer initialized automatically. If an external PHY is required, it must be explicitly initialized by the user, and esp_tinyusb must be configured with `phy.skip_setup = true`
+- esp_tinyusb: Added run-time configuration for port, task, and descriptors, with the option to use the default configuration; For more details, refer the [Espressif's Addition to TinyUSB Mirgation guide v2](/docs/device/migration-guides/v2/tinyusb.md)
+- esp_tinyusb: Added USB Device event callback to handle events such as connection and disconnection
+- esp_tinyusb: Removed configuration option to handle TinyUSB events outside of this driver
+- MSC: Removed dedicated callbacks; introduced a single callback with an event ID for each storage
+- MSC: Updated public API; refer to the [MSC Class Migration guide v2](/docs/device/migration-guides/v2/tinyusb_msc.md)
 
 ## 1.7.7 [unreleased]
 
