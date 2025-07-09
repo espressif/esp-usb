@@ -1,7 +1,7 @@
 ## IDF Component Manager Manifest File
 description: Espressif's additions to TinyUSB
 documentation: "https://docs.espressif.com/projects/esp-idf/en/latest/esp32s2/api-reference/peripherals/usb_device.html"
-version: "1.7.4~1"
+version: "1.7.6"
 url: https://github.com/espressif/esp-usb/tree/master/device/esp_tinyusb
 dependencies:
   idf: '>=5.0' # IDF 4.x contains TinyUSB as submodule

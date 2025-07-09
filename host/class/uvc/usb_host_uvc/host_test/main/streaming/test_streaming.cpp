@@ -17,19 +17,16 @@
 #include "images/test_logo_jpg.hpp"
 #include "test_streaming_helpers.hpp"
 
-std::function<bool(const uvc_host_frame_t *, void *)> frame_callback; // Define a std::function to hold the lambda with captures
-std::function<void(const uvc_host_stream_event_data_t *, void *)> stream_callback; // Define a std::function to hold the lambda with captures
-
 // `send_frame_function` is a generic std::function that acts as a wrapper for sending frames in the
 // test scenarios. By assigning it either `test_streaming_bulk_send_frame` or `test_streaming_isoc_send_frame`
 // before calling `run_streaming_frame_reconstruction_scenario()`, we avoid duplicating the entire scenario
 // code for each transfer type (bulk or isochronous). Instead, we can dynamically set the appropriate
 // frame-sending function, allowing `run_streaming_frame_reconstruction_scenario` to run identical tests
 // with either transfer method.
-std::function<void(size_t, void *, std::span<const uint8_t>, uint8_t, bool, bool)> send_frame_function;
-inline void send_function_wrapper(size_t transfer_size, void *transfer_context, std::span<const uint8_t> data, uint8_t frame_id = 0, bool error_in_sof = false, bool error_in_eof = false)
+std::function<void(size_t, void *, std::span<const uint8_t>, uint8_t, bool, bool, bool)> send_frame_function;
+inline void send_function_wrapper(size_t transfer_size, void *transfer_context, std::span<const uint8_t> data, uint8_t frame_id = 0, bool error_in_sof = false, bool error_in_eof = false, bool eof_in_sof = false)
 {
-    send_frame_function(transfer_size, transfer_context, data, frame_id, error_in_sof, error_in_eof);
+    send_frame_function(transfer_size, transfer_context, data, frame_id, error_in_sof, error_in_eof, eof_in_sof);
 }
 
 void run_streaming_frame_reconstruction_scenario(void)
@@ -39,45 +36,31 @@ void run_streaming_frame_reconstruction_scenario(void)
     uvc_stream_t stream = {}; // Define mock stream
     stream.constant.cb_arg = (void *)&user_arg;
 
-    stream.constant.stream_cb = [](const uvc_host_stream_event_data_t *event, void *user_ctx) {
-        return stream_callback(event, user_ctx);
-    };
-    stream.constant.frame_cb = [](const uvc_host_frame_t *frame, void *user_ctx) -> bool {
-        // We cannot have catching lambdas here, so we must call this std::function...
-        return frame_callback(frame, user_ctx);
-    };
-
     // We don't expect any stream events or frames by default
-    stream_callback = [&](const uvc_host_stream_event_data_t *event, void *user_ctx) {
+    stream.constant.stream_cb = [](const uvc_host_stream_event_data_t *event, void *user_ctx) {
         FAIL("Unexpected event " + std::to_string(event->type));
     };
-    frame_callback = [&](const uvc_host_frame_t *frame, void *user_ctx) -> bool {
+    stream.constant.frame_cb = [](const uvc_host_frame_t *frame, void *user_ctx) -> bool {
         FAIL("Got unexpected frame");
         return true;
     };
 
     GIVEN("Streaming enabled") {
         REQUIRE(uvc_host_stream_unpause(&stream) == ESP_OK);
-        const uvc_host_stream_format_t format = {
-            .h_res = 46,
-            .v_res = 46,
-            .fps = 15,
-            .format = UVC_VS_FORMAT_MJPEG,
-        };
-
         AND_GIVEN("Frame buffer is allocated") {
             int frame_callback_called;
             frame_callback_called = 0;
             // We expect valid frame data
-            frame_callback = [&](const uvc_host_frame_t *frame, void *user_ctx) -> bool {
-                frame_callback_called++;
+            stream.constant.cb_arg = (void *)&frame_callback_called;
+            stream.constant.frame_cb = [](const uvc_host_frame_t *frame, void *user_ctx) -> bool {
+                int *frame_callback_called = static_cast<int *>(user_ctx);
+                (*frame_callback_called)++;
 
-                REQUIRE(user_ctx == stream.constant.cb_arg); // Sanity check
-                REQUIRE(frame->data_len == logo_jpg.size());
-                REQUIRE(frame->vs_format.h_res == format.h_res);
-                REQUIRE(frame->vs_format.v_res == format.v_res);
-                REQUIRE(frame->vs_format.fps == format.fps);
-                REQUIRE(frame->vs_format.format == format.format);
+                REQUIRE(frame->data_len         == logo_jpg.size());
+                REQUIRE(frame->vs_format.h_res  == logo_jpg_format.h_res);
+                REQUIRE(frame->vs_format.v_res  == logo_jpg_format.v_res);
+                REQUIRE(frame->vs_format.fps    == logo_jpg_format.fps);
+                REQUIRE(frame->vs_format.format == logo_jpg_format.format);
 
                 std::vector<uint8_t> frame_data(frame->data, frame->data + frame->data_len);
                 std::vector<uint8_t> original_data(logo_jpg.begin(), logo_jpg.end());
@@ -87,7 +70,7 @@ void run_streaming_frame_reconstruction_scenario(void)
             };
 
             REQUIRE(uvc_frame_allocate(&stream, 1, 100 * 1024, 0) == ESP_OK);
-            uvc_frame_format_update(&stream, &format);
+            uvc_frame_format_update(&stream, &logo_jpg_format);
 
             // Test
             for (size_t transfer_size = 512; transfer_size <= 8192; transfer_size += 512) {
@@ -157,12 +140,12 @@ void run_streaming_frame_reconstruction_scenario(void)
         }
 
         AND_GIVEN("Frame buffer is too small") {
-
             // We expect overflow stream event
             enum uvc_host_dev_event event_type = static_cast<enum uvc_host_dev_event>(-1); // Explicitly set to invalid value
-            stream_callback = [&](const uvc_host_stream_event_data_t *event, void *user_ctx) {
-                REQUIRE(user_ctx == stream.constant.cb_arg); // Sanity check
-                event_type = event->type;
+            stream.constant.cb_arg = (void *)&event_type;
+            stream.constant.stream_cb = [](const uvc_host_stream_event_data_t *event, void *user_ctx) {
+                enum uvc_host_dev_event *event_type = static_cast<enum uvc_host_dev_event *>(user_ctx);
+                *event_type = event->type;
             };
             REQUIRE(uvc_frame_allocate(&stream, 1, logo_jpg.size() - 100, 0) == ESP_OK);
 
@@ -180,9 +163,10 @@ void run_streaming_frame_reconstruction_scenario(void)
         AND_GIVEN("There is no free frame buffer") {
             // We expect overflow stream event
             enum uvc_host_dev_event event_type = static_cast<enum uvc_host_dev_event>(-1); // Explicitly set to invalid value
-            stream_callback = [&](const uvc_host_stream_event_data_t *event, void *user_ctx) {
-                REQUIRE(user_ctx == stream.constant.cb_arg); // Sanity check
-                event_type = event->type;
+            stream.constant.cb_arg = (void *)&event_type;
+            stream.constant.stream_cb = [](const uvc_host_stream_event_data_t *event, void *user_ctx) {
+                enum uvc_host_dev_event *event_type = static_cast<enum uvc_host_dev_event *>(user_ctx);
+                *event_type = event->type;
             };
 
             uvc_host_frame_t *temp_frame = nullptr;
@@ -236,15 +220,41 @@ void run_streaming_frame_reconstruction_scenario(void)
 
 SCENARIO("Bulk stream frame reconstruction", "[streaming][bulk]")
 {
+    /* Tests that are same for ISOC and BULK */
     send_frame_function = test_streaming_bulk_send_frame;
     run_streaming_frame_reconstruction_scenario();
+
+    /* BULK specific tests */
+    int frame_callback_called = 0;
+    uvc_stream_t stream = {}; // Define mock stream
+    stream.constant.cb_arg = (void *)&frame_callback_called;
+    stream.constant.frame_cb = [](const uvc_host_frame_t *frame, void *user_ctx) -> bool {
+        int *fb_called = static_cast<int *>(user_ctx);
+        (*fb_called)++;
+        return true;
+    };
+
+    GIVEN("Streaming enabled and frame allocated") {
+        REQUIRE(uvc_host_stream_unpause(&stream) == ESP_OK);
+        REQUIRE(uvc_frame_allocate(&stream, 1, 100 * 1024, 0) == ESP_OK);
+        uvc_frame_format_update(&stream, &logo_jpg_format);
+
+        WHEN("Expected SoF but got EoF") {
+            test_streaming_bulk_send_frame(512, &stream, std::span(logo_jpg), 0, false, false, true);
+            THEN("The frame callback is called") {
+                REQUIRE(frame_callback_called == 1);
+            }
+        }
+    }
 }
 
 SCENARIO("Isochronous stream frame reconstruction", "[streaming][isoc]")
 {
+    /* Tests that are same for ISOC and BULK */
     send_frame_function = test_streaming_isoc_send_frame;
     run_streaming_frame_reconstruction_scenario();
 
+    /* ISOC specific tests */
     /*
     @todo ISOC test
     - Missed SoF

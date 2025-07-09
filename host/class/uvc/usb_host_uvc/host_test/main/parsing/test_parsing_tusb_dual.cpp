@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2024-2025 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -20,7 +20,8 @@ SCENARIO("Camera descriptor parsing: TinyUSB dual UVC", "[tusb][dual]")
 
     GIVEN("TinyUSB dual UVC MJPEG 0") {
         uvc_host_stream_format_t formats[] = {
-            {480, 270, 20, UVC_VS_FORMAT_MJPEG}
+            {480, 270, 20, UVC_VS_FORMAT_MJPEG},
+            {480, 270, 0, UVC_VS_FORMAT_MJPEG},
         };
 
         for (uvc_host_stream_format_t this_format : formats) {
@@ -32,7 +33,8 @@ SCENARIO("Camera descriptor parsing: TinyUSB dual UVC", "[tusb][dual]")
 
     GIVEN("TinyUSB dual UVC MJPEG 1") {
         uvc_host_stream_format_t formats[] = {
-            {1280, 720, 15, UVC_VS_FORMAT_MJPEG}
+            {1280, 720, 15, UVC_VS_FORMAT_MJPEG},
+            {1280, 720, 0, UVC_VS_FORMAT_MJPEG},
         };
 
         for (uvc_host_stream_format_t this_format : formats) {
@@ -54,6 +56,10 @@ SCENARIO("Camera descriptor parsing: TinyUSB dual UVC", "[tusb][dual]")
                 REQUIRE(frame_desc != nullptr);
             }
         }
+    }
+
+    GIVEN("Default format") {
+        REQUIRE_FORMAT_DEFAULT(cfg, 1);
     }
 
     GIVEN("TinyUSB dual UVC Unsupported") {

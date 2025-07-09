@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2024-2025 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -40,6 +40,7 @@ SCENARIO("Camera descriptor parsing: ELP h264", "[elp][h264]")
         uvc_host_stream_format_t formats[] = {
             FORMAT_UNCOMPRESSED_30_25_15(640, 480),
             {800, 600, 15, UVC_VS_FORMAT_YUY2},
+            {800, 600, 0, UVC_VS_FORMAT_YUY2},
             FORMAT_UNCOMPRESSED_30_25_15(640, 360),
             FORMAT_UNCOMPRESSED_30_25_15(352, 288),
             FORMAT_UNCOMPRESSED_30_25_15(320, 240),
@@ -68,6 +69,10 @@ SCENARIO("Camera descriptor parsing: ELP h264", "[elp][h264]")
                 REQUIRE_FORMAT_SUPPORTED(cfg, this_format, 2);
             }
         }
+    }
+
+    GIVEN("Default format") {
+        REQUIRE_FORMAT_DEFAULT(cfg, 1);
     }
 
     GIVEN("ELP h264 Unsupported") {

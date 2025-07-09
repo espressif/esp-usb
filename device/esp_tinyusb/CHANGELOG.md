@@ -15,10 +15,6 @@
 
 - esp_tinyusb: Provide forward compatibility with IDF 6.0
 
-## 1.7.4~1
-
-- esp_tinyusb: Claim forward compatibility with IDF 6.0
-
 ## 1.7.4
 
 - MSC: WL Sector runtime check during spiflash init (fix for build time error check)

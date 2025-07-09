@@ -120,7 +120,6 @@ void bulk_transfer_callback(usb_transfer_t *transfer)
     }
     case UVC_STREAM_BULK_PACKET_SOF: {
         const uvc_payload_header_t *payload_header = (const uvc_payload_header_t *)payload;
-        assert(!payload_header->bmHeaderInfo.end_of_frame);
 
         // We detected start of new frame. Update Frame ID and start fetching this frame
         uvc_stream->single_thread.current_frame_id   = payload_header->bmHeaderInfo.frame_id;

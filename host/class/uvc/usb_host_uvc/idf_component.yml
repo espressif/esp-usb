@@ -1,5 +1,5 @@
 ## IDF Component Manager Manifest File
-version: "2.2.0"
+version: "2.3.0"
 description: USB Host UVC driver
 url: https://github.com/espressif/esp-usb/tree/master/host/class/uvc/usb_host_uvc
 dependencies:

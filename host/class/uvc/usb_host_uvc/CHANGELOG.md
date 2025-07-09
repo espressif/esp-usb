@@ -1,3 +1,11 @@
+## 2.3.0
+
+- Added `uvc_host_stream_format_get()` function that returns current stream's format
+- Added `uvc_host_buf_info_get()` function for esp_video binding
+- Added option to request default FPS by setting FPS = 0
+- Fixed UVC driver re-installation
+- Fixed abort on unexpected EoF flag in bulk transfers
+
 ## 2.2.0
 
 - Added `uvc_host_stream_format_select()` function that allows change of format of an opened stream

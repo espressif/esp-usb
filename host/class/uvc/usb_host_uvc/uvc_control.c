@@ -62,7 +62,24 @@ static esp_err_t uvc_host_stream_control(uvc_host_stream_hdl_t stream_hdl, uvc_v
 
         vs_control->bFormatIndex    = format_desc->bFormatIndex;
         vs_control->bFrameIndex     = frame_desc->bFrameIndex;
-        vs_control->dwFrameInterval = UVC_DESC_FPS_TO_DWFRAMEINTERVAL(vs_format->fps); // Implicit conversion from float to uint32_t
+
+        // Load default FPS value in case requested FPS is 0
+        if (vs_format->fps == 0) {
+            switch (frame_desc->bDescriptorSubType) {
+            case UVC_VS_DESC_SUBTYPE_FRAME_FRAME_BASED:
+                vs_control->dwFrameInterval = frame_desc->frame_based.dwDefaultFrameInterval;
+                break;
+            case UVC_VS_DESC_SUBTYPE_FRAME_UNCOMPRESSED:
+            case UVC_VS_DESC_SUBTYPE_FRAME_MJPEG:
+                vs_control->dwFrameInterval = frame_desc->mjpeg_uncompressed.dwDefaultFrameInterval;
+                break;
+            default:
+                vs_control->dwFrameInterval = 0; // Default value for unknown subtype
+                break;
+            }
+        } else {
+            vs_control->dwFrameInterval = UVC_DESC_FPS_TO_DWFRAMEINTERVAL(vs_format->fps); // Implicit conversion from float to uint32_t
+        }
     }
 
     // Issue CTRL request
@@ -122,18 +139,23 @@ static inline bool uvc_is_vs_format_equal(const uvc_host_stream_format_t *a, con
     return false;
 }
 
-esp_err_t uvc_host_stream_control_probe(uvc_host_stream_hdl_t stream_hdl, const uvc_host_stream_format_t *vs_format, uvc_vs_ctrl_t *vs_result_ret)
+esp_err_t uvc_host_stream_control_probe(uvc_host_stream_hdl_t stream_hdl, uvc_host_stream_format_t *requested_format, uvc_vs_ctrl_t *vs_result_ret)
 {
-    UVC_CHECK(stream_hdl && vs_format, ESP_ERR_INVALID_ARG);
+    UVC_CHECK(stream_hdl && requested_format, ESP_ERR_INVALID_ARG);
 
     esp_err_t ret;
     uvc_vs_ctrl_t vs_result = {0};
-    uvc_host_stream_format_t format_ignored;
+    uvc_host_stream_format_t default_format;
 
     // Notes: Some cameras require 'probe_get' to be the 1st negotiation call
-    uvc_control_probe_get(stream_hdl, &vs_result, &format_ignored);
-    uvc_control_probe_set(stream_hdl, &vs_result, vs_format);       // Set the desired frame format
-    ret = uvc_control_probe_get(stream_hdl, &vs_result, &format_ignored); // Get back the format (not checked yet)
+    // It returns 'default' format and frame settings which will be used if requested format is UVC_VS_FORMAT_DEFAULT
+    uvc_control_probe_get(stream_hdl, &vs_result, &default_format);
+    if (requested_format->format == UVC_VS_FORMAT_DEFAULT) {
+        memcpy(requested_format, &default_format, sizeof(uvc_host_stream_format_t));
+    }
+
+    uvc_control_probe_set(stream_hdl, &vs_result, requested_format); // Set the requested frame format
+    ret = uvc_control_probe_get(stream_hdl, &vs_result, requested_format); // Get back the format
 
     // Pass the result to user
     if (vs_result_ret) {
@@ -160,7 +182,8 @@ esp_err_t uvc_host_stream_control_commit(uvc_host_stream_hdl_t stream_hdl, const
         // Notes: Some cameras require 'probe_get' to be the 1st negotiation call
         // It returns 'default' format and frame settings. It is ignored for now.
         // We can reuse the returned value, if we wanted to implement 'negotiate default frame format' feature.
-        uvc_host_stream_control_probe(stream_hdl, vs_format, NULL);
+        memcpy(&format_set, vs_format, sizeof(uvc_host_stream_format_t));
+        uvc_host_stream_control_probe(stream_hdl, &format_set, NULL);
 
         // We do this to mimic Windows driver: The Min/Max values are ignored by this driver.
         // These values can be used if we wanted to negotiate advanced parameters, such as wCompQuality to select JPEG encoding quality

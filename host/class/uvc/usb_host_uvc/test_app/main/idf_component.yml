@@ -1,0 +1,6 @@
+## IDF Component Manager Manifest File
+dependencies:
+  # Needed as DUT
+  espressif/usb_host_uvc:
+    version: "*"
+    override_path: "../../../usb_host_uvc"

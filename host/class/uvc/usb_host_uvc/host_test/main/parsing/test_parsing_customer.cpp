@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2024-2025 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -22,12 +22,16 @@ SCENARIO("Camera descriptor parsing: Customer", "[customer][single]")
         uvc_host_stream_format_t formats[] = {
             {1280, 720, 15, UVC_VS_FORMAT_MJPEG},
             {1280, 720, 10, UVC_VS_FORMAT_MJPEG},
+            {1280, 720, 0, UVC_VS_FORMAT_MJPEG},
             {800, 480, 20, UVC_VS_FORMAT_MJPEG},
             {800, 480, 15, UVC_VS_FORMAT_MJPEG},
+            {800, 480, 0, UVC_VS_FORMAT_MJPEG},
             {640, 480, 25, UVC_VS_FORMAT_MJPEG},
             {640, 480, 15, UVC_VS_FORMAT_MJPEG},
+            {640, 480, 0, UVC_VS_FORMAT_MJPEG},
             {480, 320, 25, UVC_VS_FORMAT_MJPEG},
             {480, 320, 15, UVC_VS_FORMAT_MJPEG},
+            {480, 320, 0, UVC_VS_FORMAT_MJPEG},
         };
 
         for (uvc_host_stream_format_t this_format : formats) {
@@ -35,6 +39,10 @@ SCENARIO("Camera descriptor parsing: Customer", "[customer][single]")
                 REQUIRE_FORMAT_SUPPORTED(cfg, this_format, 1);
             }
         }
+    }
+
+    GIVEN("Default format") {
+        REQUIRE_FORMAT_DEFAULT(cfg, 1);
     }
 
     GIVEN("Customer Unsupported") {
