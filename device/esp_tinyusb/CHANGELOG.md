@@ -1,3 +1,14 @@
+## 2.0.0 [Unreleased]
+
+### Breaking changes
+- esp_tinyusb: External PHY will no longer be initialized automatically. If an external PHY is required, it must be explicitly initialized by the user, and esp_tinyusb must be configured with `phy.skip_setup = true`.
+- esp_tinyusb: Added run-time configuration for port and task, with the option to use the default configuration.
+- esp_tinyusb: Added USB Device event callback.
+- esp_tinyusb: Removed external task for TinyUSB.
+- MSC: Introduced the storage handle.
+- MSC: Removed dedicated callbacks; introduced a single callback with an event ID for each storage.
+- MSC: API update
+
 ## 1.7.7 [unreleased]
 
 - esp_tinyusb: Added documentation to README.md
@@ -9,6 +20,10 @@
 ## 1.7.5
 
 - esp_tinyusb: Provide forward compatibility with IDF 6.0
+
+## 1.7.4~1
+
+- esp_tinyusb: Claim forward compatibility with IDF 6.0
 
 ## 1.7.4
 

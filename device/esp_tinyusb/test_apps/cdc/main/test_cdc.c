@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2023-2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2023-2025 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -17,6 +17,7 @@
 
 #include "unity.h"
 #include "tinyusb.h"
+#include "tinyusb_default_config.h"
 #include "tusb_cdc_acm.h"
 #include "vfs_tinyusb.h"
 
@@ -30,7 +31,7 @@ static const tusb_desc_device_t cdc_device_descriptor = {
     .bDeviceSubClass = MISC_SUBCLASS_COMMON,
     .bDeviceProtocol = MISC_PROTOCOL_IAD,
     .bMaxPacketSize0 = CFG_TUD_ENDPOINT0_SIZE,
-    .idVendor = USB_ESPRESSIF_VID,
+    .idVendor = TINYUSB_ESPRESSIF_VID,
     .idProduct = 0x4002,
     .bcdDevice = 0x0100,
     .iManufacturer = 0x01,
@@ -79,26 +80,18 @@ static void tinyusb_cdc_rx_callback(int itf, cdcacm_event_t *event)
 TEST_CASE("tinyusb_cdc", "[esp_tinyusb][cdc]")
 {
     // Install TinyUSB driver
-    const tinyusb_config_t tusb_cfg = {
-        .device_descriptor = &cdc_device_descriptor,
-        .string_descriptor = NULL,
-        .string_descriptor_count = 0,
-        .external_phy = false,
+    tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG();
+    tusb_cfg.descriptor.device = &cdc_device_descriptor;
+    tusb_cfg.descriptor.full_speed_config = cdc_desc_configuration;
 #if (TUD_OPT_HIGH_SPEED)
-        .fs_configuration_descriptor = cdc_desc_configuration,
-        .hs_configuration_descriptor = cdc_desc_configuration,
-        .qualifier_descriptor = &device_qualifier,
-#else
-        .configuration_descriptor = cdc_desc_configuration,
+    tusb_cfg.descriptor.qualifier = &device_qualifier;
+    tusb_cfg.descriptor.high_speed_config = cdc_desc_configuration;
 #endif // TUD_OPT_HIGH_SPEED
-    };
 
     TEST_ASSERT_EQUAL(ESP_OK, tinyusb_driver_install(&tusb_cfg));
 
     tinyusb_config_cdcacm_t acm_cfg = {
-        .usb_dev = TINYUSB_USBDEV_0,
         .cdc_port = TINYUSB_CDC_ACM_0,
-        .rx_unread_buf_sz = 64,
         .callback_rx = &tinyusb_cdc_rx_callback,
         .callback_rx_wanted_char = NULL,
         .callback_line_state_changed = NULL,

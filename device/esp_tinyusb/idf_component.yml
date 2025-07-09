@@ -6,5 +6,5 @@ url: https://github.com/espressif/esp-usb/tree/master/device/esp_tinyusb
 dependencies:
   idf: '>=5.0' # IDF 4.x contains TinyUSB as submodule
   tinyusb:
-    version: '>=0.14.2'
+    version: '>=0.17.0'
     public: true
