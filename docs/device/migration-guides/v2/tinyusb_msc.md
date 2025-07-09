@@ -2,13 +2,13 @@
 
 ## 1. Do I need to migrate?
 
-The new version has been redesigned for better maintainability and to enable future feature extensions without introducing breaking changes.
+The new version has been redesigned for better maintainability and to enable future feature extensions without introducing breaking changes. If you are already using v2.0.0 or later, no migration is needed.
 
 Potential new features include:
 - Specific settings to define the behavior of the storage medium (e.g., whether to mount on connection);
 - Support for multiple storage devices (LUNs) on a single device.
 
-## 2. What to expect after migration?
+## 2. Changes Required After Migration
 
 To simplify the migration process, partial compatibility with the previous API has been retained. During the first build, you will see the following warning:
 
@@ -54,7 +54,7 @@ The new version simplifies event handling and provides additional features, such
 - Storage Format `tinyusb_msc_format_storage()`
 - Storage set FAT Filesystem configuration `tinyusb_msc_config_storage_fat_fs`
 
-## 4. Compilation errors description
+## 4. Common Migration Errors and Solutions
 
 **Possible error**
 
