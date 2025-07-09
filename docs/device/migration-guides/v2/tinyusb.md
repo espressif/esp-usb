@@ -2,13 +2,13 @@
 
 ## 1. Do I need to migrate?
 
-This migration guide is intended for users upgrading from Espressif's TinyUSB addition v1.x.x to the v2.0.0 of the component. If you are already using the latest version, no migration is required.
+This migration guide is intended for users upgrading from Espressif's TinyUSB addition v1.x.x to the v2.0.0 of the component. If you are already using v2.0.0 or later, no migration is needed.
 
 The primary feature of this update is the introduction of dynamic configuration for the TinyUSB Device Stack. This enhancement allows users to modify the USB Device configuration at run-time, without needing to reconfigure the entire project.
 
 These changes are reflected in the updated configuration structure for the TinyUSB driver and its member names.
 
-## 2. What to expect after migration?
+## 2. Changes Required After Migration
 
 You will need to update how the TinyUSB driver is configured. This includes:
 
@@ -50,7 +50,7 @@ void main(void)
     config.port = TINYUSB_PORT_HIGH_SPEED_0;
     // Install TinyUSB driver
     tinyusb_driver_install(&config);
-    // Do something and uninstall the TinyUSB Stack
+    // Use the USB device, then uninstall the TinyUSB stack
     tinyusb_driver_uninstall();
 
     // Re-configure the TinyUSB to the Full-speed port
@@ -107,7 +107,7 @@ void main(void)
 | `tinyusb_config_t::self_powered`                | `tinyusb_config_t::phy.self_powered`            |
 | `tinyusb_config_t::vbus_monitor_io`             | `tinyusb_config_t::phy.vbus_monitor_io`         |
 
-## 4. Errors after the update and fix description
+## 4. Common Migration Errors and Solutions
 
 **Possible error**
 
