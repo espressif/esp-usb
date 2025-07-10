@@ -1,4 +1,4 @@
-## 1.7.7 [unreleased]
+## 1.7.6~1
 
 - esp_tinyusb: Added documentation to README.md
 
