@@ -115,8 +115,11 @@ typedef enum {
  */
 typedef struct {
     tinyusb_event_id_t id;            /*!< Event ID */
+    uint8_t rhport;                   /*!< USB Peripheral hardware port number. Available when hardware has several available peripherals. */
     union {
-        uint8_t rhport;               /*!< USB Peripheral hardware port number. Available when hardware has several available peripherals. */
+        struct {
+            bool remote_wakeup;        /*!< Remote wakeup enabled flag */
+        } suspended;                   /*!< Specific event id data */
     };
 } tinyusb_event_t;
 
