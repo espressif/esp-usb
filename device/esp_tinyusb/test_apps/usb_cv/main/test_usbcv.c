@@ -25,7 +25,7 @@
 #include "unity.h"
 #include "device_common.h"
 #include "tinyusb.h"
-#include "tinyusb_default_configs.h"
+#include "tinyusb_default_config.h"
 #include "tinyusb_msc.h"
 #include "storage_common.h"
 
