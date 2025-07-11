@@ -17,6 +17,10 @@
 #define CDC_HOST_ANY_VID (0)
 #define CDC_HOST_ANY_PID (0)
 
+#ifdef USB_HOST_LIB_EVENT_FLAGS_AUTO_SUSPEND
+#define CDC_HOST_SUSPEND_RESUME_API_SUPPORTED
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

@@ -9,8 +9,13 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include "usb/usb_types_cdc.h"
+#include "usb/usb_host.h"               // For USB Host suspend/resume API
 
 typedef struct cdc_dev_s *cdc_acm_dev_hdl_t;
+
+#ifdef USB_HOST_LIB_EVENT_FLAGS_AUTO_SUSPEND
+#define CDC_HOST_SUSPEND_RESUME_API_SUPPORTED
+#endif
 
 /**
  * @brief CDC-ACM Device Event types to upper layer
@@ -19,7 +24,11 @@ typedef enum {
     CDC_ACM_HOST_ERROR,
     CDC_ACM_HOST_SERIAL_STATE,
     CDC_ACM_HOST_NETWORK_CONNECTION,
-    CDC_ACM_HOST_DEVICE_DISCONNECTED
+    CDC_ACM_HOST_DEVICE_DISCONNECTED,
+#ifdef CDC_HOST_SUSPEND_RESUME_API_SUPPORTED
+    CDC_ACM_HOST_DEVICE_SUSPENDED,
+    CDC_ACM_HOST_DEVICE_RESUMED,
+#endif // CDC_HOST_SUSPEND_RESUME_API_SUPPORTED
 } cdc_acm_host_dev_event_t;
 
 /**
