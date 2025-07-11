@@ -842,10 +842,35 @@ static void out_xfer_cb(usb_transfer_t *transfer)
     xSemaphoreGive((SemaphoreHandle_t)transfer->context);
 }
 
+/**
+ * @brief Resume CDC device
+ *
+ * Submit poll for BULK IN and INTR IN transfers
+ *
+ * @param cdc_dev
+ * @return esp_err_t
+ */
+#ifdef CDC_HOST_SUSPEND_RESUME_API_SUPPORTED
+static void cdc_acm_resume(cdc_dev_t *cdc_dev)
+{
+    assert(cdc_dev);
+
+    if (cdc_dev->data.in_xfer) {
+        ESP_LOGD(TAG, "Submitting poll for BULK IN transfer");
+        ESP_ERROR_CHECK(usb_host_transfer_submit(cdc_dev->data.in_xfer));
+    }
+
+    if (cdc_dev->notif.xfer) {
+        ESP_LOGD(TAG, "Submitting poll for INTR IN transfer");
+        ESP_ERROR_CHECK(usb_host_transfer_submit(cdc_dev->notif.xfer));
+    }
+}
+#endif // CDC_HOST_SUSPEND_RESUME_API_SUPPORTED
+
 static void usb_event_cb(const usb_host_client_event_msg_t *event_msg, void *arg)
 {
     switch (event_msg->event) {
-    case USB_HOST_CLIENT_EVENT_NEW_DEV:
+    case USB_HOST_CLIENT_EVENT_NEW_DEV: {
         // Guard p_cdc_acm_obj->new_dev_cb from concurrent access
         ESP_LOGD(TAG, "New device connected");
         CDC_ACM_ENTER_CRITICAL();
@@ -861,8 +886,8 @@ static void usb_event_cb(const usb_host_client_event_msg_t *event_msg, void *arg
             _new_dev_cb(new_dev);
             usb_host_device_close(p_cdc_acm_obj->cdc_acm_client_hdl, new_dev);
         }
-
         break;
+    }
     case USB_HOST_CLIENT_EVENT_DEV_GONE: {
         ESP_LOGD(TAG, "Device suddenly disconnected");
         // Find CDC pseudo-devices associated with this USB device and close them
@@ -881,7 +906,54 @@ static void usb_event_cb(const usb_host_client_event_msg_t *event_msg, void *arg
         }
         break;
     }
+#ifdef CDC_HOST_SUSPEND_RESUME_API_SUPPORTED
+    case USB_HOST_CLIENT_EVENT_DEV_SUSPENDED: {
+        ESP_LOGD(TAG, "Device suspended");
+        // Find CDC pseudo-devices associated with this USB device and deliver suspend event to the user
+        cdc_dev_t *cdc_dev;
+        cdc_dev_t *tcdc_dev;
+        SLIST_FOREACH_SAFE(cdc_dev, &p_cdc_acm_obj->cdc_devices_list, list_entry, tcdc_dev) {
+            if (cdc_dev->dev_hdl == event_msg->dev_suspend_resume.dev_hdl && cdc_dev->notif.cb) {
+
+                // The driver does not have to do anything to suspend the device,
+                // the usb host lib already halted and flushed all EPs
+
+                // The suspended device was opened by this driver: inform user about this
+                const cdc_acm_host_dev_event_data_t suspend_event = {
+                    .type = CDC_ACM_HOST_DEVICE_SUSPENDED,
+                    .data.cdc_hdl = (cdc_acm_dev_hdl_t) cdc_dev,
+                };
+                cdc_dev->notif.cb(&suspend_event, cdc_dev->cb_arg);
+            }
+        }
+        break;
+    }
+    case USB_HOST_CLIENT_EVENT_DEV_RESUMED: {
+        ESP_LOGD(TAG, "Device resumed");
+        // Find CDC pseudo-devices associated with this USB device and deliver resume event to the user
+        cdc_dev_t *cdc_dev;
+        cdc_dev_t *tcdc_dev;
+        SLIST_FOREACH_SAFE(cdc_dev, &p_cdc_acm_obj->cdc_devices_list, list_entry, tcdc_dev) {
+            if (cdc_dev->dev_hdl == event_msg->dev_suspend_resume.dev_hdl) {
+
+                // Resume the pseudo-device
+                cdc_acm_resume(cdc_dev);
+
+                if (cdc_dev->notif.cb != NULL) {
+                    // The resumed device was opened by this driver: inform user about this
+                    const cdc_acm_host_dev_event_data_t resume_event = {
+                        .type = CDC_ACM_HOST_DEVICE_RESUMED,
+                        .data.cdc_hdl = (cdc_acm_dev_hdl_t) cdc_dev,
+                    };
+                    cdc_dev->notif.cb(&resume_event, cdc_dev->cb_arg);
+                }
+            }
+        }
+        break;
+    }
+#endif // CDC_HOST_SUSPEND_RESUME_API_SUPPORTED
     default:
+        ESP_LOGE(TAG, "Unrecognized USB Host client event");
         assert(false);
         break;
     }
