@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2015-2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2015-2025 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -16,6 +16,11 @@
 // Pass these to cdc_acm_host_open() to signal that you don't care about VID/PID of the opened device
 #define CDC_HOST_ANY_VID (0)
 #define CDC_HOST_ANY_PID (0)
+
+// For backward compatibility with IDF versions which do not have suspend/resume api
+#ifdef USB_HOST_LIB_EVENT_FLAGS_AUTO_SUSPEND
+#define CDC_HOST_SUSPEND_RESUME_API_SUPPORTED
+#endif
 
 #ifdef __cplusplus
 extern "C" {
