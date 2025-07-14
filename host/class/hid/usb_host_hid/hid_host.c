@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2022-2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2022-2025 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -91,6 +91,7 @@ typedef enum {
     HID_INTERFACE_STATE_READY,                  /**< HID Interface opened and ready to start transfer */
     HID_INTERFACE_STATE_ACTIVE,                 /**< HID Interface is in use */
     HID_INTERFACE_STATE_WAIT_USER_DELETION,     /**< HID Interface wait user to be removed */
+    HID_INTERFACE_STATE_SUSPENDED,              /**< HID Interface (and the whole device) is suspended */
     HID_INTERFACE_STATE_MAX
 } hid_iface_state_t;
 
@@ -111,6 +112,7 @@ typedef struct hid_interface {
     hid_host_interface_event_cb_t user_cb;  /**< Interface application callback */
     void *user_cb_arg;                      /**< Interface application callback arg */
     hid_iface_state_t state;                /**< Interface state */
+    hid_iface_state_t last_state;           /**< Interface last state before entering suspended mode */
 } hid_iface_t;
 
 /**
@@ -550,6 +552,150 @@ static esp_err_t hid_host_device_disconnected(usb_device_handle_t dev_hdl)
     return ESP_OK;
 }
 
+#ifdef HID_HOST_SUSPEND_RESUME_API_SUPPORTED
+
+/**
+ * @brief Suspend interface
+ *
+ * @note endpoints are already halted and flushed when a global suspend is issues by the USB Host lib
+ * @param[in] iface    HID interface handle
+ * @param[in] stop_ep  Stop (halt and flush) endpoint
+ *
+ * @return esp_err_t
+ */
+static esp_err_t hid_host_suspend_interface(hid_iface_t *iface, bool stop_ep)
+{
+    HID_RETURN_ON_INVALID_ARG(iface);
+    HID_RETURN_ON_INVALID_ARG(iface->parent);
+
+    HID_RETURN_ON_FALSE(is_interface_in_list(iface),
+                        ESP_ERR_NOT_FOUND,
+                        "Interface handle not found");
+
+    HID_RETURN_ON_FALSE((HID_INTERFACE_STATE_SUSPENDED != iface->state),
+                        ESP_ERR_INVALID_STATE,
+                        "Interface wrong state");
+
+    // EP is usually stopped by usb_host_lib, in case of global suspend, thus no need to Halt->Flush EP again
+    if (stop_ep) {
+        HID_RETURN_ON_ERROR( usb_host_endpoint_halt(iface->parent->dev_hdl, iface->ep_in),
+                             "Unable to HALT EP");
+        HID_RETURN_ON_ERROR( usb_host_endpoint_flush(iface->parent->dev_hdl, iface->ep_in),
+                             "Unable to FLUSH EP");
+        // Don't clear EP, it must remain halted, when the device is in suspended state
+    }
+
+    iface->last_state = iface->state;
+    iface->state = HID_INTERFACE_STATE_SUSPENDED;
+
+    return ESP_OK;
+}
+
+/**
+ * @brief Resume interface
+ *
+ * @note endpoints are already cleared when a global resume is issues by the USB Host lib
+ * @param[in] iface      HID interface handle
+ * @param[in] resume_ep  Resume (clear) endpoint
+ *
+ * @return esp_err_t
+ */
+static esp_err_t hid_host_resume_interface(hid_iface_t *iface, bool resume_ep)
+{
+    HID_RETURN_ON_INVALID_ARG(iface);
+    HID_RETURN_ON_INVALID_ARG(iface->parent);
+
+    HID_RETURN_ON_FALSE(is_interface_in_list(iface),
+                        ESP_ERR_NOT_FOUND,
+                        "Interface handle not found");
+
+    HID_RETURN_ON_FALSE ((HID_INTERFACE_STATE_SUSPENDED == iface->state),
+                         ESP_ERR_INVALID_STATE,
+                         "Interface wrong state");
+
+    // EP is usually cleared by usb_host_lib, in case of global suspend, thus no need to Clear an EP again
+    if (resume_ep) {
+        usb_host_endpoint_clear(iface->parent->dev_hdl, iface->ep_in);
+    }
+
+    iface->state = iface->last_state;
+
+    if (iface->in_xfer == NULL) {
+        return ESP_OK;
+    }
+
+    // start data transfer
+    return usb_host_transfer_submit(iface->in_xfer);
+}
+
+/**
+ * @brief Suspend device
+ *
+ * @param[in] dev_hdl    USB Device handle
+ *
+ * @return esp_err_t
+ */
+static esp_err_t hid_host_device_suspended(usb_device_handle_t dev_hdl)
+{
+    hid_device_t *hid_device = get_hid_device_by_handle(dev_hdl);
+    HID_RETURN_ON_INVALID_ARG(hid_device);
+
+    HID_ENTER_CRITICAL();
+    hid_iface_t *hid_iface_curr;
+    hid_iface_t *hid_iface_next;
+    // Go through list
+    hid_iface_curr = STAILQ_FIRST(&s_hid_driver->hid_ifaces_tailq);
+    while (hid_iface_curr != NULL) {
+        hid_iface_next = STAILQ_NEXT(hid_iface_curr, tailq_entry);
+        HID_EXIT_CRITICAL();
+
+        if (hid_iface_curr->parent && (hid_iface_curr->parent->dev_addr == hid_device->dev_addr)) {
+            hid_host_suspend_interface(hid_iface_curr, false);
+            hid_host_user_device_callback(hid_iface_curr, HID_HOST_DRIVER_EVENT_SUSPENDED);
+        }
+        HID_ENTER_CRITICAL();
+        hid_iface_curr = hid_iface_next;
+    }
+    HID_EXIT_CRITICAL();
+
+    return ESP_OK;
+}
+
+/**
+ * @brief Resume device
+ *
+ * @param[in] dev_hdl    USB Device handle
+ *
+ * @return esp_err_t
+ */
+static esp_err_t hid_host_device_resumed(usb_device_handle_t dev_hdl)
+{
+    hid_device_t *hid_device = get_hid_device_by_handle(dev_hdl);
+    HID_RETURN_ON_INVALID_ARG(hid_device);
+
+    HID_ENTER_CRITICAL();
+    hid_iface_t *hid_iface_curr;
+    hid_iface_t *hid_iface_next;
+    // Go through list
+    hid_iface_curr = STAILQ_FIRST(&s_hid_driver->hid_ifaces_tailq);
+    while (hid_iface_curr != NULL) {
+        hid_iface_next = STAILQ_NEXT(hid_iface_curr, tailq_entry);
+        HID_EXIT_CRITICAL();
+
+        if (hid_iface_curr->parent && (hid_iface_curr->parent->dev_addr == hid_device->dev_addr)) {
+            hid_host_resume_interface(hid_iface_curr, false);
+            hid_host_user_device_callback(hid_iface_curr, HID_HOST_DRIVER_EVENT_RESUMED);
+        }
+        HID_ENTER_CRITICAL();
+        hid_iface_curr = hid_iface_next;
+    }
+    HID_EXIT_CRITICAL();
+
+    return ESP_OK;
+}
+
+#endif // HID_HOST_SUSPEND_RESUME_API_SUPPORTED
+
 /**
  * @brief USB Host Client's event callback
  *
@@ -558,10 +704,28 @@ static esp_err_t hid_host_device_disconnected(usb_device_handle_t dev_hdl)
  */
 static void client_event_cb(const usb_host_client_event_msg_t *event, void *arg)
 {
-    if (event->event == USB_HOST_CLIENT_EVENT_NEW_DEV) {
+    switch (event->event) {
+    case USB_HOST_CLIENT_EVENT_NEW_DEV:
+        ESP_LOGD(TAG, "New device connected");
         hid_host_device_init_attempt(event->new_dev.address);
-    } else if (event->event == USB_HOST_CLIENT_EVENT_DEV_GONE) {
+        break;
+    case USB_HOST_CLIENT_EVENT_DEV_GONE:
+        ESP_LOGD(TAG, "Device suddenly disconnected");
         hid_host_device_disconnected(event->dev_gone.dev_hdl);
+        break;
+#ifdef HID_HOST_SUSPEND_RESUME_API_SUPPORTED
+    case USB_HOST_CLIENT_EVENT_DEV_SUSPENDED:
+        ESP_LOGD(TAG, "Device suspended");
+        hid_host_device_suspended(event->dev_suspend_resume.dev_hdl);
+        break;
+    case USB_HOST_CLIENT_EVENT_DEV_RESUMED:
+        ESP_LOGD(TAG, "Device resumed");
+        hid_host_device_resumed(event->dev_suspend_resume.dev_hdl);
+        break;
+#endif // HID_HOST_SUSPEND_RESUME_API_SUPPORTED
+    default:
+        ESP_LOGW(TAG, "Unrecognized USB Host client event");
+        break;
     }
 }
 
@@ -628,14 +792,19 @@ static esp_err_t hid_host_disable_interface(hid_iface_t *iface)
                         ESP_ERR_NOT_FOUND,
                         "Interface handle not found");
 
-    HID_RETURN_ON_FALSE((HID_INTERFACE_STATE_ACTIVE == iface->state),
+    HID_RETURN_ON_FALSE((HID_INTERFACE_STATE_ACTIVE == iface->state ||
+                         HID_INTERFACE_STATE_SUSPENDED == iface->state),
                         ESP_ERR_INVALID_STATE,
                         "Interface wrong state");
 
-    HID_RETURN_ON_ERROR( usb_host_endpoint_halt(iface->parent->dev_hdl, iface->ep_in),
-                         "Unable to HALT EP");
-    HID_RETURN_ON_ERROR( usb_host_endpoint_flush(iface->parent->dev_hdl, iface->ep_in),
-                         "Unable to FLUSH EP");
+    if (HID_INTERFACE_STATE_ACTIVE == iface->state) {
+        HID_RETURN_ON_ERROR( usb_host_endpoint_halt(iface->parent->dev_hdl, iface->ep_in),
+                             "Unable to HALT EP");
+        HID_RETURN_ON_ERROR( usb_host_endpoint_flush(iface->parent->dev_hdl, iface->ep_in),
+                             "Unable to FLUSH EP");
+    }
+    // If interface state is suspended, the EP is already flushed and halted, only clear the EP
+    // If suspended, may return ESP_ERR_INVALID_STATE
     usb_host_endpoint_clear(iface->parent->dev_hdl, iface->ep_in);
 
     iface->state = HID_INTERFACE_STATE_READY;
@@ -1204,7 +1373,8 @@ esp_err_t hid_host_device_close(hid_host_device_handle_t hid_dev_handle)
              hid_iface->dev_params.iface_num,
              hid_iface->state);
 
-    if (HID_INTERFACE_STATE_ACTIVE == hid_iface->state) {
+    if (HID_INTERFACE_STATE_ACTIVE == hid_iface->state ||
+            HID_INTERFACE_STATE_SUSPENDED == hid_iface->state) {
         HID_RETURN_ON_ERROR( hid_host_disable_interface(hid_iface),
                              "Unable to disable HID Interface");
     }
@@ -1212,7 +1382,6 @@ esp_err_t hid_host_device_close(hid_host_device_handle_t hid_dev_handle)
     if (HID_INTERFACE_STATE_READY == hid_iface->state) {
         HID_RETURN_ON_ERROR( hid_host_interface_release_and_free_transfer(hid_iface),
                              "Unable to release HID Interface");
-
         // If the device is closing by user before device detached we need to flush user callback here
         free(hid_iface->report_desc);
         hid_iface->report_desc = NULL;
