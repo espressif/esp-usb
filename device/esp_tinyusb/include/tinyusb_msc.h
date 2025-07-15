@@ -22,7 +22,7 @@ extern "C" {
 /**
  * @brief Handle for TinyUSB MSC storage
  */
-typedef struct tinyusb_msc_storage_handle_s *tinyusb_msc_storage_handle_t;
+typedef struct tinyusb_msc_storage_s *tinyusb_msc_storage_handle_t;
 
 /**
  * @brief Storage mount point types
