@@ -295,6 +295,8 @@ void main(void)
     .medium.wl_handle = wl_handle,
   };
   tinyusb_msc_new_storage_spiflash(&cfg, &storage_hdl);
+
+  // After installing TinyUSB driver, MSC Class will have one LUN, mapped to SPI/Flash storage
 }
 ```
 
@@ -320,8 +322,53 @@ void main(void)
     .medium.card = card,
   };
   tinyusb_msc_new_storage_sdmmc(&cfg, &storage_hdl);
+
+  // After installing TinyUSB driver, MSC Class will have one LUN, mapped to SD/MMC storage
 }
 ```
+
+**Dual Storage**
+
+```c
+static wl_handle_t storage_init_spiflash(void)
+{
+  wl_handle_t wl;
+  // Find partition
+  // Mount Wear Levelling
+  return wl;
+}
+
+static sdmmc_card_t *storage_init_sdmmc(void)
+{
+  sdmmc_card_t *card;
+  // Config sdmmc
+  // Init sdmmc_host
+  // Init sdmmc slot
+  // Init sdmmc card
+  return card;
+}
+
+void main(void)
+{
+  tinyusb_msc_storage_handle_t storage1_hdl;
+  tinyusb_msc_storage_handle_t storage2_hdl;
+  tinyusb_msc_storage_config_t cfg;
+
+  sdmmc_card_t *card = storage_init_sdmmc();
+  wl_handle_t wl_handle = storage_init_spiflash();
+
+  // Create SPI/Flash storage
+  cfg.medium.wl_handle = wl_handle;
+  tinyusb_msc_new_storage_spiflash(&cfg, &storage_hdl);
+
+  // Create SD/MMC storage
+  cfg.medium.card = card;
+  tinyusb_msc_new_storage_sdmmc(&cfg, &storage_hdl);
+
+  // After installing TinyUSB driver, MSC Class will have two LUNs, mapped to SPI/Flash and SD/MMC storages accordingly
+}
+```
+
 
 **Storage callback**
 
