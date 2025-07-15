@@ -22,7 +22,7 @@ extern "C" {
 /**
  * @brief Handle for TinyUSB MSC storage
  */
-typedef struct tinyusb_msc_storage_handle_s *tinyusb_msc_storage_handle_t;
+typedef struct tinyusb_msc_storage_s *tinyusb_msc_storage_handle_t;
 
 /**
  * @brief Storage mount point types
@@ -238,7 +238,7 @@ esp_err_t tinyusb_msc_set_storage_callback(tusb_msc_callback_t callback, void *a
  *
  * @return
  *   - ESP_ERR_INVALID_STATE: MSC driver is not initialized or storage is not initialized
- *   - ESP_ERR_INVALID_ARG: Storage must be mounted to APP to format it
+ *   - ESP_ERR_INVALID_ARG: Invalid input argument, handle is NULL
  *   - ESP_ERR_NOT_FOUND: Unexpected filesystem found on the drive
  *   - ESP_OK: Storage formatted successfully
  */
