@@ -84,7 +84,7 @@ typedef struct {
         union {
             struct {
                 // User config - 16 bits
-                uint32_t lun0_auto_mount_off: 1;    /**< If true, turn off automatically mount LUN0 on USB host connection */
+                uint32_t auto_mount_off: 1;         /**< If true, turn off automatically mount on USB host connection */
                 uint32_t user_reserved15: 15;       /**< Reserved for future use */
                 // Internal config - 16 bits
                 uint32_t internal_reserved15: 15;   /**< Reserved for intenral use */
@@ -411,7 +411,7 @@ void msc_storage_mount_to_app(void)
 {
     if (p_msc_driver == NULL ||
             p_msc_driver->dynamic.storage == NULL ||
-            p_msc_driver->constant.flags.lun0_auto_mount_off) {
+            p_msc_driver->constant.flags.auto_mount_off) {
         return;
     }
 
@@ -425,7 +425,7 @@ void msc_storage_mount_to_usb(void)
 {
     if (p_msc_driver == NULL ||
             p_msc_driver->dynamic.storage == NULL ||
-            p_msc_driver->constant.flags.lun0_auto_mount_off) {
+            p_msc_driver->constant.flags.auto_mount_off) {
         return;
     }
 
@@ -508,7 +508,7 @@ esp_err_t tinyusb_msc_new_storage_spiflash(const tinyusb_msc_storage_config_t *c
         // Driver was not installed, install it now
         tinyusb_msc_driver_config_t default_cfg = {
             .user_flags = {
-                .lun0_auto_mount_off = false, // Disable auto-mount for LUN0
+                .auto_mount_off = false, // Disable auto-mount
             },
             .callback = msc_storage_event_default_cb, // Default callback
             .callback_arg = NULL, // No argument for the default callback
@@ -552,7 +552,7 @@ esp_err_t tinyusb_msc_new_storage_sdmmc(const tinyusb_msc_storage_config_t *conf
         // Driver was not installed, install it now
         tinyusb_msc_driver_config_t default_cfg = {
             .user_flags = {
-                .lun0_auto_mount_off = false, // Disable auto-mount for LUN0
+                .auto_mount_off = false, // Disable auto-mount
             },
             .callback = msc_storage_event_default_cb, // Default callback
             .callback_arg = NULL, // No argument for the default callback
