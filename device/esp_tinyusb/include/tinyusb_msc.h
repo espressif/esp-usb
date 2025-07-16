@@ -22,7 +22,7 @@ extern "C" {
 /**
  * @brief Handle for TinyUSB MSC storage
  */
-typedef struct tinyusb_msc_storage_handle_s *tinyusb_msc_storage_handle_t;
+typedef struct tinyusb_msc_storage_s *tinyusb_msc_storage_handle_t;
 
 /**
  * @brief Storage mount point types
@@ -117,12 +117,12 @@ typedef struct {
 typedef struct {
     union {
         struct {
-            uint16_t lun0_auto_mount_off: 1;
+            uint16_t auto_mount_off: 1;
             uint16_t reserved15: 15;
         };
         uint16_t val;
     } user_flags;                           /*!< Configuration flags for the MSC driver.
-                                             *   - lun0_auto_mount_off: If true, LUN0 will not be automatically re-mounted when device connects to or disconnects from USB Host.
+                                             *   - auto_mount_off: If true, medium will not be automatically re-mounted when device connects to or disconnects from USB Host.
                                              *     This allows manual control over when the storage is exposed to the USB host.
                                              */
     tusb_msc_callback_t callback;           /*!< Callback function invoked on storage events.
