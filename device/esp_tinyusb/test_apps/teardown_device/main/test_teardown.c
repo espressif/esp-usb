@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2024-2025 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -21,6 +21,7 @@
 //
 #include "unity.h"
 #include "tinyusb.h"
+#include "tinyusb_default_config.h"
 #include "tusb_cdc_acm.h"
 
 static const char *TAG = "teardown";
@@ -70,10 +71,22 @@ static const tusb_desc_device_qualifier_t device_qualifier = {
 };
 #endif // TUD_OPT_HIGH_SPEED
 
-// Invoked when device is mounted
-void tud_mount_cb(void)
+/**
+ * @brief TinyUSB callback for device event
+ *
+ * @note
+ * For Linux-based Hosts: Reflects the SetConfiguration() request from the Host Driver.
+ * For Win-based Hosts: SetConfiguration() request is present only with available Class in device descriptor.
+ */
+void test_teardown_event_handler(tinyusb_event_t *event, void *arg)
 {
-    xSemaphoreGive(wait_mount);
+    switch (event->id) {
+    case TINYUSB_EVENT_ATTACHED:
+        xSemaphoreGive(wait_mount);
+        break;
+    default:
+        break;
+    }
 }
 
 /**
@@ -96,19 +109,13 @@ TEST_CASE("tinyusb_teardown", "[esp_tinyusb][teardown]")
     TEST_ASSERT_NOT_EQUAL(NULL, wait_mount);
 
     // TinyUSB driver configuration
-    const tinyusb_config_t tusb_cfg = {
-        .device_descriptor = &test_device_descriptor,
-        .string_descriptor = NULL,
-        .string_descriptor_count = 0,
-        .external_phy = false,
+    tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG(test_teardown_event_handler);
+    tusb_cfg.descriptor.device = &test_device_descriptor;
+    tusb_cfg.descriptor.full_speed_config = test_configuration_descriptor;
 #if (TUD_OPT_HIGH_SPEED)
-        .fs_configuration_descriptor = test_configuration_descriptor,
-        .hs_configuration_descriptor = test_configuration_descriptor,
-        .qualifier_descriptor = &device_qualifier,
-#else
-        .configuration_descriptor = test_configuration_descriptor,
+    tusb_cfg.descriptor.qualifier = &device_qualifier;
+    tusb_cfg.descriptor.high_speed_config = test_configuration_descriptor;
 #endif // TUD_OPT_HIGH_SPEED
-    };
 
     TEST_ASSERT_EQUAL(ESP_OK, tinyusb_driver_install(&tusb_cfg));
     // Wait for the usb event
