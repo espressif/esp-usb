@@ -435,8 +435,8 @@ multiple definition of `tud_mount_cb'; esp-idf/main/libmain.a(tusb_hid_example_m
 collect2: error: ld returned 1 exit status
 ```
 
-
 **How to fix**
+
 The `tud_mount_cb()` and `tud_umount_cb()` callbacks are now handled internally. To handle attach and detach events in your application, use the USB Device Event callback (`tinyusb_config_t::event_cb`).
 
 Update your code from:
