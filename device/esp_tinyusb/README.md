@@ -21,15 +21,15 @@ Run-time default configuration for Device Stack is managed internally via the `T
 
 ### Custom configuration
 
-- Manual configuration for Device Stack: descriptors, peripheral port, task, and USB PHY can be set as needed.
+Manual configuration for Device Stack: descriptors, peripheral port, task, and USB PHY parameters can be set as needed.
 
 ### Build-Time configuration
 
 Configure the Device Stack using `menuconfig`:
 
 - TinyUSB log verbosity
-- Default device/string descriptor options
-- Class-specific options
+- Default device/string descriptor used by the default configuration macros
+- Class-specific options (CDC-ACM, MSC, MIDI, HID, DFU, BTH, ECM/NCM/RNDIS, Vendor etc.)
 
 ### Supported classes
 
