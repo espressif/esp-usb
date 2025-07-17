@@ -1,4 +1,4 @@
-## 2.0.0 [Unreleased]
+## 2.0.0
 
 - esp_tinyusb: Added USB Compliance Verification results
 
