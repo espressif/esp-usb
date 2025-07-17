@@ -12,12 +12,14 @@
 #include "unity_test_runner.h"
 #include "unity_test_utils_memory.h"
 #include "device_common.h"
+#include "test_msc_common.h"
 
 /* setUp runs before every test */
 void setUp(void)
 {
     unity_utils_record_free_mem();
     test_device_setup();
+    test_storage_event_queue_setup();
 }
 
 /* tearDown runs after every test */
@@ -26,6 +28,7 @@ void tearDown(void)
     // Short delay to allow task to be cleaned up
     vTaskDelay(10);
     test_device_release();
+    test_storage_event_queue_teardown();
     unity_utils_evaluate_leaks();
 }
 

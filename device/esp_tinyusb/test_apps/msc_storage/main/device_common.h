@@ -7,6 +7,12 @@
 
 #include "tinyusb.h"
 
+//
+// ========================== Test Configuration Parameters =====================================
+//
+
+#define TEST_DEVICE_PRESENCE_TIMEOUT_MS   5000 // Timeout for checking device presence
+
 /**
  * @brief Test device setup
  */
