@@ -23,14 +23,15 @@ const static char *TAG = "UAC_TEST";
 
 // ----------------------- Public -------------------------
 static EventGroupHandle_t s_evt_handle;
-static QueueHandle_t s_event_queue = NULL;
+static QueueHandle_t s_transfer_event_queue = NULL;
+static QueueHandle_t s_client_event_queue = NULL;
 static EventGroupHandle_t s_evt_handle = NULL;
 
 #define BIT0_USB_HOST_DRIVER_REMOVED      (0x01 << 0)
 
 // Known microphone device parameters
-#define UAC_DEV_PID 0x3307
-#define UAC_DEV_VID 0x349C
+#define UAC_DEV_PID 0x25
+#define UAC_DEV_VID 0x1395
 
 #define UAC_DEV_MIC_IFACE_NUM 3
 #define UAC_DEV_MIC_IFACE_ALT_NUM 1
@@ -147,11 +148,6 @@ static void delete_phy(void) {}
 
 static void uac_device_callback(uac_host_device_handle_t uac_device_handle, const uac_host_device_event_t event, void *arg)
 {
-    if (event == UAC_HOST_DRIVER_EVENT_DISCONNECTED) {
-        ESP_LOGI(TAG, "UAC Device disconnected");
-        TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_close(uac_device_handle));
-        return;
-    }
     // Send uac device event to the event queue
     event_queue_t evt_queue = {
         .event_group = UAC_DEVICE_EVENT,
@@ -159,8 +155,44 @@ static void uac_device_callback(uac_host_device_handle_t uac_device_handle, cons
         .device_evt.event = event,
         .device_evt.arg = arg
     };
-    // should not block here
-    xQueueSend(s_event_queue, &evt_queue, 0);
+
+    bool transfer_evt_queue = false;
+    bool client_evt_queue = false;
+
+    switch (event) {
+    case UAC_HOST_DRIVER_EVENT_DISCONNECTED:
+        ESP_LOGI(TAG, "UAC Device disconnected");
+        TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_close(uac_device_handle));
+        client_evt_queue = true;
+        break;
+#ifdef UAC_HOST_SUSPEND_RESUME_API_SUPPORTED
+    case UAC_HOST_DEVICE_EVENT_SUSPENDED:
+        ESP_LOGI(TAG, "Device suspended");
+        client_evt_queue = true;
+        break;
+    case UAC_HOST_DEVICE_EVENT_RESUMED:
+        ESP_LOGI(TAG, "Device resumed");
+        client_evt_queue = true;
+        break;
+#endif // UAC_HOST_SUSPEND_RESUME_API_SUPPORTED
+    case UAC_HOST_DEVICE_EVENT_TRANSFER_ERROR:
+    case UAC_HOST_DEVICE_EVENT_RX_DONE:
+    case UAC_HOST_DEVICE_EVENT_TX_DONE:
+        transfer_evt_queue = true;
+        break;
+    default:
+        TEST_FAIL_MESSAGE("Unrecognized device event");
+        break;
+    }
+
+    // Sanity check, logical XOR
+    assert(transfer_evt_queue != client_evt_queue);
+
+    if (transfer_evt_queue) {
+        xQueueSend(s_transfer_event_queue, &evt_queue, 0);
+    } else {
+        xQueueSend(s_client_event_queue, &evt_queue, 0);
+    }
 }
 
 static void uac_host_lib_callback(uint8_t addr, uint8_t iface_num, const uac_host_driver_event_t event, void *arg)
@@ -173,7 +205,41 @@ static void uac_host_lib_callback(uint8_t addr, uint8_t iface_num, const uac_hos
         .driver_evt.event = event,
         .driver_evt.arg = arg
     };
-    xQueueSend(s_event_queue, &evt_queue, 0);
+
+    switch (event) {
+    case UAC_HOST_DRIVER_EVENT_RX_CONNECTED:
+        ESP_LOGI(TAG, "RX Device connected");
+        break;
+    case UAC_HOST_DRIVER_EVENT_TX_CONNECTED:
+        ESP_LOGI(TAG, "TX Device connected");
+        break;
+    default:
+        TEST_FAIL_MESSAGE("Unrecognized driver event");
+    }
+
+    xQueueSend(s_client_event_queue, &evt_queue, 0);
+}
+
+
+static void expect_client_event(event_queue_t *expected_client_event, TickType_t ticks)
+{
+    event_queue_t client_event;
+
+    // Check, that no event is delivered
+    if (expected_client_event == NULL) {
+        if (pdFALSE == xQueueReceive(s_client_event_queue, &client_event, ticks)) {
+            return;
+        } else {
+            TEST_FAIL_MESSAGE("Expecting NO event, but an event delivered");
+        }
+    }
+
+    // Check that an event is delivered
+    if (pdTRUE == xQueueReceive(s_client_event_queue, &client_event, ticks)) {
+        TEST_ASSERT_EQUAL_MESSAGE(expected_client_event->device_evt.event, client_event.device_evt.event, "Unexpected app event");
+    } else {
+        TEST_ASSERT_MESSAGE(false, "App event not generated on time");
+    }
 }
 
 /**
@@ -229,8 +295,11 @@ static void usb_lib_task(void *arg)
 void test_uac_setup(void)
 {
     // create a queue to handle events
-    s_event_queue = xQueueCreate(16, sizeof(event_queue_t));
-    TEST_ASSERT_NOT_NULL(s_event_queue);
+    s_client_event_queue = xQueueCreate(8, sizeof(event_queue_t));
+    TEST_ASSERT_NOT_NULL(s_client_event_queue);
+    s_transfer_event_queue = xQueueCreate(16, sizeof(event_queue_t));
+    TEST_ASSERT_NOT_NULL(s_transfer_event_queue);
+    //TEST_ASSERT_NOT_NULL(s_event_queue);
     s_evt_handle = xEventGroupCreate();
     TEST_ASSERT_NOT_NULL(s_evt_handle);
     static TaskHandle_t uac_task_handle = NULL;
@@ -258,7 +327,8 @@ void test_uac_setup(void)
 
 void test_uac_queue_reset(void)
 {
-    xQueueReset(s_event_queue);
+    xQueueReset(s_client_event_queue);
+    xQueueReset(s_transfer_event_queue);
 }
 
 void test_uac_teardown(bool force)
@@ -273,7 +343,8 @@ void test_uac_teardown(bool force)
     // Wait for USB lib task to finish
     xEventGroupWaitBits(s_evt_handle, BIT0_USB_HOST_DRIVER_REMOVED, pdTRUE, pdTRUE, portMAX_DELAY);
     // delete event queue and event group
-    vQueueDelete(s_event_queue);
+    vQueueDelete(s_client_event_queue);
+    vQueueDelete(s_transfer_event_queue);
     vEventGroupDelete(s_evt_handle);
     // delay to allow task to delete
     vTaskDelay(100);
@@ -316,7 +387,7 @@ void test_handle_dev_connection(uint8_t *iface_num, uint8_t *if_rx)
 {
     event_queue_t evt_queue = {0};
     // ignore the first connected event
-    TEST_ASSERT_EQUAL(pdTRUE, xQueueReceive(s_event_queue, &evt_queue, portMAX_DELAY));
+    TEST_ASSERT_EQUAL(pdTRUE, xQueueReceive(s_client_event_queue, &evt_queue, portMAX_DELAY));
     TEST_ASSERT_EQUAL(UAC_DRIVER_EVENT, evt_queue.event_group);
     TEST_ASSERT_EQUAL(1, evt_queue.driver_evt.addr);
     if (iface_num) {
@@ -538,7 +609,7 @@ TEST_CASE("test uac rx reading", "[uac_host][rx]")
     event_queue_t evt_queue = {0};
     ESP_LOGI(TAG, "Start reading data from MIC");
     while (1) {
-        if (xQueueReceive(s_event_queue, &evt_queue, portMAX_DELAY)) {
+        if (xQueueReceive(s_transfer_event_queue, &evt_queue, portMAX_DELAY)) {
             TEST_ASSERT_EQUAL(UAC_DEVICE_EVENT, evt_queue.event_group);
             uac_host_device_handle_t uac_device_handle = evt_queue.device_evt.handle;
             uac_host_device_event_t event = evt_queue.device_evt.event;
@@ -676,7 +747,7 @@ TEST_CASE("test uac tx writing", "[uac_host][tx]")
     const uint8_t test_counter_max = 15;
     event_queue_t evt_queue = {0};
     while (1) {
-        if (xQueueReceive(s_event_queue, &evt_queue, portMAX_DELAY)) {
+        if (xQueueReceive(s_transfer_event_queue, &evt_queue, portMAX_DELAY)) {
             TEST_ASSERT_EQUAL(UAC_DEVICE_EVENT, evt_queue.event_group);
             uac_host_device_handle_t uac_device_handle = evt_queue.device_evt.handle;
             uac_host_device_event_t event = evt_queue.device_evt.event;
@@ -834,7 +905,7 @@ TEST_CASE("test uac tx rx loopback", "[uac_host][tx][rx]")
         TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_resume(mic_device_handle));
         TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_resume(spk_device_handle));
         while (1) {
-            if (xQueueReceive(s_event_queue, &evt_queue, portMAX_DELAY)) {
+            if (xQueueReceive(s_transfer_event_queue, &evt_queue, portMAX_DELAY)) {
                 TEST_ASSERT_EQUAL(UAC_DEVICE_EVENT, evt_queue.event_group);
                 uac_host_device_event_t event = evt_queue.device_evt.event;
                 esp_err_t ret = ESP_FAIL;
@@ -904,10 +975,7 @@ exit_rx:
 
 /**
  * @brief: Test disconnect the device when the stream is running
- * @note: Currently, the P4 PHY can't be controlled to emulate the hot-plug event,
- *  so the test is disabled
  */
-#if !CONFIG_IDF_TARGET_ESP32P4
 TEST_CASE("test uac tx rx loopback with disconnect", "[uac_host][tx][rx][hot-plug]")
 {
     // handle device connection
@@ -985,7 +1053,7 @@ TEST_CASE("test uac tx rx loopback with disconnect", "[uac_host][tx][rx][hot-plu
         TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_resume(mic_device_handle));
         TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_resume(spk_device_handle));
         while (1) {
-            if (xQueueReceive(s_event_queue, &evt_queue, portMAX_DELAY)) {
+            if (xQueueReceive(s_transfer_event_queue, &evt_queue, portMAX_DELAY)) {
                 TEST_ASSERT_EQUAL(UAC_DEVICE_EVENT, evt_queue.event_group);
                 uac_host_device_event_t event = evt_queue.device_evt.event;
                 esp_err_t ret = ESP_FAIL;
@@ -1051,4 +1119,298 @@ exit_rx:
         free(rx_buffer_stereo);
     }
 }
-#endif
+
+#ifdef UAC_HOST_SUSPEND_RESUME_API_SUPPORTED
+/**
+ * @brief UAC reading with suspend/resume, TODO brief and procedure
+ */
+TEST_CASE("test uac rx reading, suspend/resume", "[uac_host][rx]")
+{
+    uint8_t mic_iface_num = 0;
+    uint8_t spk_iface_num = 0;
+    uint8_t if_rx = false;
+    test_handle_dev_connection(&mic_iface_num, &if_rx);
+    if (!if_rx) {
+        spk_iface_num = mic_iface_num;
+        test_handle_dev_connection(&mic_iface_num, &if_rx);
+        TEST_ASSERT_EQUAL(if_rx, true);
+    } else {
+        test_handle_dev_connection(&spk_iface_num, &if_rx);
+        TEST_ASSERT_EQUAL(if_rx, false);
+    }
+
+    const uint32_t buffer_threshold = 4800;
+    const uint32_t buffer_size = 19200;
+
+    // Issue suspend/resume, expect NO event, since the device is not opened by host
+    printf("Issue suspend\n");
+    usb_host_lib_root_port_suspend();
+    expect_client_event(NULL, 500);
+
+    printf("Issue resume\n");
+    usb_host_lib_root_port_resume();
+    expect_client_event(NULL, 500);
+
+    // Opend the device by client
+    uac_host_device_handle_t uac_device_handle = NULL;
+    test_open_mic_device(mic_iface_num, buffer_size, buffer_threshold, &uac_device_handle);
+
+    // Issue suspend/resume, expect suspend/resume events, as the device is already opened
+    printf("Issue suspend\n");
+    usb_host_lib_root_port_suspend();
+    event_queue_t expect_event = {.device_evt.event = UAC_HOST_DEVICE_EVENT_SUSPENDED};
+    expect_client_event(&expect_event, 500);
+
+    printf("Issue resume\n");
+    expect_event.device_evt.event = UAC_HOST_DEVICE_EVENT_RESUMED;
+    usb_host_lib_root_port_resume();
+    expect_client_event(&expect_event, 500);
+
+    // start the device with first alt interface params
+    uac_host_dev_alt_param_t iface_alt_params;
+    TEST_ASSERT_EQUAL(ESP_OK, uac_host_get_device_alt_param(uac_device_handle, 1, &iface_alt_params));
+    const uac_host_stream_config_t stream_config = {
+        .channels = iface_alt_params.channels,
+        .bit_resolution = iface_alt_params.bit_resolution,
+        .sample_freq = iface_alt_params.sample_freq[0],
+    };
+    TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_start(uac_device_handle, &stream_config));
+    // Most device support mute and volume control. if not, comment out the following two lines
+    TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_set_mute(uac_device_handle, 0));
+    TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_set_volume(uac_device_handle, 80));
+
+    uint8_t *rx_buffer = (uint8_t *)calloc(1, buffer_threshold);
+    TEST_ASSERT_NOT_NULL(rx_buffer);
+    uint32_t rx_size = 0;
+    // got 5s data, then stop the stream
+    const uint32_t timeout = 5000;
+    uint32_t time_counter = 0;
+    event_queue_t evt_queue = {0};
+
+    // Check that data events are being sent
+    TEST_ASSERT_EQUAL(pdTRUE, xQueueReceive(s_transfer_event_queue, &evt_queue, pdMS_TO_TICKS(100)));
+    TEST_ASSERT_EQUAL(UAC_DEVICE_EVENT, evt_queue.event_group);
+
+    // Issue suspend/resume after the device has been started
+    printf("Issue suspend\n");
+    usb_host_lib_root_port_suspend();
+    expect_event.device_evt.event = UAC_HOST_DEVICE_EVENT_SUSPENDED;
+    expect_client_event(&expect_event, 500);
+
+    printf("Issue resume\n");
+    expect_event.device_evt.event = UAC_HOST_DEVICE_EVENT_RESUMED;
+    usb_host_lib_root_port_resume();
+    expect_client_event(&expect_event, 500);
+
+    ESP_LOGI(TAG, "Start reading data from MIC");
+    while (1) {
+        if (xQueueReceive(s_transfer_event_queue, &evt_queue, portMAX_DELAY)) {
+            TEST_ASSERT_EQUAL(UAC_DEVICE_EVENT, evt_queue.event_group);
+            uac_host_device_handle_t uac_device_handle = evt_queue.device_evt.handle;
+            uac_host_device_event_t event = evt_queue.device_evt.event;
+            switch (event) {
+            case UAC_HOST_DEVICE_EVENT_RX_DONE:
+                uac_host_device_read(uac_device_handle, rx_buffer, buffer_threshold, &rx_size, 0);
+                TEST_ASSERT_EQUAL(buffer_threshold, rx_size);
+                time_counter += rx_size / (iface_alt_params.channels * iface_alt_params.bit_resolution / 8 * iface_alt_params.sample_freq[0] / 1000);
+                if (time_counter >= timeout) {
+                    goto exit_rx;
+                }
+                break;
+            default:
+                TEST_ASSERT(0);
+                break;
+            }
+        }
+    }
+exit_rx:
+    ESP_LOGI(TAG, "Stop reading data from MIC");
+    TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_set_mute(uac_device_handle, 1));
+    TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_close(uac_device_handle));
+
+    // Issue suspend/resume after the device has been closed, no client events are expected
+    printf("Issue suspend\n");
+    usb_host_lib_root_port_suspend();
+    expect_client_event(NULL, 500);
+
+    printf("Issue resume\n");
+    usb_host_lib_root_port_resume();
+    expect_client_event(NULL, 500);
+
+    free(rx_buffer);
+}
+
+
+/**
+ * @brief UAC loopback with suspend/resume, TODO readme and procedure
+ */
+TEST_CASE("test uac tx rx loopback suspend/resume", "[uac_host][tx][rx]")
+{
+    // handle device connection
+    uint8_t mic_iface_num = 0;
+    uint8_t spk_iface_num = 0;
+    uint8_t if_rx = false;
+    test_handle_dev_connection(&mic_iface_num, &if_rx);
+    if (!if_rx) {
+        spk_iface_num = mic_iface_num;
+        test_handle_dev_connection(&mic_iface_num, &if_rx);
+        TEST_ASSERT_EQUAL(if_rx, true);
+    } else {
+        test_handle_dev_connection(&spk_iface_num, &if_rx);
+        TEST_ASSERT_EQUAL(if_rx, false);
+    }
+
+    const uint32_t rx_buffer_size = 19200;
+    const uint32_t rx_buffer_threshold = 4800;
+
+    uac_host_device_handle_t mic_device_handle = NULL;
+    test_open_mic_device(mic_iface_num, rx_buffer_size, rx_buffer_threshold, &mic_device_handle);
+    uac_host_device_handle_t spk_device_handle = NULL;
+    // set same params to spk device
+    test_open_spk_device(spk_iface_num, rx_buffer_size, rx_buffer_threshold, &spk_device_handle);
+
+    // Issue suspend/resume, expect 2 set of suspend/resume events, one for each interface (mic+spk)
+    printf("Issue suspend\n");
+    usb_host_lib_root_port_suspend();
+    event_queue_t expect_event = {.device_evt.event = UAC_HOST_DEVICE_EVENT_SUSPENDED};
+    expect_client_event(&expect_event, 500);
+    expect_client_event(&expect_event, 500);
+
+    printf("Issue resume\n");
+    expect_event.device_evt.event = UAC_HOST_DEVICE_EVENT_RESUMED;
+    usb_host_lib_root_port_resume();
+    expect_client_event(&expect_event, 500);
+    expect_client_event(&expect_event, 500);
+
+    // get mic alt interface 1 params, set same params to spk device
+    uac_host_dev_alt_param_t mic_alt_params;
+    TEST_ASSERT_EQUAL(ESP_OK, uac_host_get_device_alt_param(mic_device_handle, 1, &mic_alt_params));
+
+    uac_host_stream_config_t stream_config = {
+        .channels = mic_alt_params.channels,
+        .bit_resolution = mic_alt_params.bit_resolution,
+        .sample_freq = mic_alt_params.sample_freq[0],
+        .flags = FLAG_STREAM_SUSPEND_AFTER_START,
+    };
+
+    uint8_t actual_volume = 0;
+    bool actual_mute = 0;
+    TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_start(mic_device_handle, &stream_config));
+    TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_set_mute(mic_device_handle, 0));
+    TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_get_mute(mic_device_handle, &actual_mute));
+    TEST_ASSERT_EQUAL(0, actual_mute);
+    TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_set_volume(mic_device_handle, 80));
+    TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_get_volume(mic_device_handle, &actual_volume));
+    TEST_ASSERT_EQUAL(80, actual_volume);
+
+    uac_host_dev_alt_param_t spk_alt_params;
+    TEST_ASSERT_EQUAL(ESP_OK, uac_host_get_device_alt_param(spk_device_handle, 1, &spk_alt_params));
+
+    // some usb headset may have one channel for mic and two channels for speaker
+    bool channel_mismatch = false;
+    if (spk_alt_params.channels != mic_alt_params.channels) {
+        if (mic_alt_params.channels == 1 && spk_alt_params.channels == 2) {
+            ESP_LOGW(TAG, "Speaker channels %u and microphone channels %u are not the same", spk_alt_params.channels, mic_alt_params.channels);
+            stream_config.channels = 2;
+            channel_mismatch = true;
+        } else {
+            ESP_LOGE(TAG, "Speaker channels %u and microphone channels %u are not supported", spk_alt_params.channels, mic_alt_params.channels);
+            TEST_ASSERT(0);
+        }
+    }
+
+    TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_start(spk_device_handle, &stream_config));
+    TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_set_mute(spk_device_handle, 0));
+    TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_get_mute(spk_device_handle, &actual_mute));
+    TEST_ASSERT_EQUAL(0, actual_mute);
+    TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_set_volume(spk_device_handle, 80));
+    TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_get_volume(spk_device_handle, &actual_volume));
+    TEST_ASSERT_EQUAL(80, actual_volume);
+
+    uint8_t *rx_buffer = (uint8_t *)calloc(1, rx_buffer_threshold);
+    uint8_t *rx_buffer_stereo = NULL;
+    if (channel_mismatch) {
+        rx_buffer_stereo = (uint8_t *)calloc(1, rx_buffer_threshold * 2);
+        TEST_ASSERT_NOT_NULL(rx_buffer_stereo);
+    }
+    TEST_ASSERT_NOT_NULL(rx_buffer);
+    uint32_t rx_size = 0;
+    // got 5s data, then stop the stream
+    const uint32_t timeout = 5000;
+    const uint32_t test_times = 3;
+    uint32_t time_counter = 0;
+    uint32_t test_counter = 0;
+    event_queue_t evt_queue = {0};
+    while (1) {
+        TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_resume(mic_device_handle));
+        TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_resume(spk_device_handle));
+        while (1) {
+            if (xQueueReceive(s_transfer_event_queue, &evt_queue, portMAX_DELAY)) {
+                TEST_ASSERT_EQUAL(UAC_DEVICE_EVENT, evt_queue.event_group);
+                uac_host_device_event_t event = evt_queue.device_evt.event;
+                esp_err_t ret = ESP_FAIL;
+                switch (event) {
+                case UAC_HOST_DEVICE_EVENT_RX_DONE:
+                    // read as much as possible
+                    do {
+                        ret = uac_host_device_read(mic_device_handle, rx_buffer, rx_buffer_threshold, &rx_size, 0);
+                        if (ret == ESP_OK) {
+                            if (channel_mismatch) {
+                                // convert mono to stereo
+                                if (mic_alt_params.bit_resolution == 16) {
+                                    for (size_t i = 0; i < rx_size; i += 2) {
+                                        rx_buffer_stereo[i * 2] = rx_buffer[i];
+                                        rx_buffer_stereo[i * 2 + 1] = rx_buffer[i + 1];
+                                        rx_buffer_stereo[i * 2 + 2] = rx_buffer[i];
+                                        rx_buffer_stereo[i * 2 + 3] = rx_buffer[i + 1];
+                                    }
+                                    ret = uac_host_device_write(spk_device_handle, rx_buffer_stereo, rx_size * 2, 0);
+                                } else {
+                                    for (size_t i = 0; i < rx_size; i++) {
+                                        rx_buffer_stereo[i * 2] = rx_buffer[i];
+                                        rx_buffer_stereo[i * 2 + 1] = rx_buffer[i];
+                                    }
+                                    ret = uac_host_device_write(spk_device_handle, rx_buffer_stereo, rx_size * 2, 0);
+                                }
+                            } else {
+                                ret = uac_host_device_write(spk_device_handle, rx_buffer, rx_size, 0);
+                            }
+                            time_counter += rx_size / (mic_alt_params.channels * mic_alt_params.bit_resolution / 8 * mic_alt_params.sample_freq[0] / 1000);
+                        }
+                    } while (ret == ESP_OK);
+
+                    if (time_counter >= timeout) {
+                        goto restart_rx;
+                    }
+                    break;
+                case UAC_HOST_DEVICE_EVENT_TX_DONE:
+                    // we do nothing here, just wait for the rx done event
+                    break;
+                default:
+                    TEST_ASSERT(0);
+                    break;
+                }
+            }
+        }
+restart_rx:
+        if (++test_counter >= test_times) {
+            goto exit_rx;
+        }
+        TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_suspend(mic_device_handle));
+        TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_suspend(spk_device_handle));
+        time_counter = 0;
+        vTaskDelay(100);
+    }
+
+exit_rx:
+    TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_set_mute(spk_device_handle, 1));
+    TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_close(spk_device_handle));
+    TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_set_mute(mic_device_handle, 1));
+    TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_close(mic_device_handle));
+    free(rx_buffer);
+    if (rx_buffer_stereo) {
+        free(rx_buffer_stereo);
+    }
+}
+
+#endif // UAC_HOST_SUSPEND_RESUME_API_SUPPORTED

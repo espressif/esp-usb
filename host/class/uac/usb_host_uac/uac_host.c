@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2024-2025 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -202,6 +202,8 @@ static esp_err_t _uac_host_device_add(uint8_t addr, usb_device_handle_t dev_hdl,
 static esp_err_t _uac_host_device_delete(uac_device_t *uac_device);
 static esp_err_t uac_cs_request_set(uac_device_t *uac_device, const uac_cs_request_t *req);
 static esp_err_t uac_cs_request_set_ep_frequency(uac_iface_t *iface, uint8_t ep_addr, uint32_t freq);
+static esp_err_t uac_host_interface_suspend(uac_iface_t *iface, bool root_port_suspended);
+static esp_err_t uac_host_interface_resume(uac_iface_t *iface, bool root_port_suspended);
 
 // --------------------------- Utility Functions --------------------------------
 /**
@@ -1008,6 +1010,79 @@ static esp_err_t _uac_host_device_disconnected(usb_device_handle_t dev_hdl)
     return ESP_OK;
 }
 
+#ifdef UAC_HOST_SUSPEND_RESUME_API_SUPPORTED
+/**
+ * @brief Handler for global (root port) suspend event
+ *
+ * @param[in] dev_hdl   USB device handle
+ * @return esp_err_t
+ */
+static esp_err_t _uac_host_device_suspended(usb_device_handle_t dev_hdl)
+{
+    uac_device_t *uac_device = get_uac_device_by_handle(dev_hdl);
+    assert(uac_device);
+
+    UAC_ENTER_CRITICAL();
+    uac_iface_t *uac_iface = STAILQ_FIRST(&s_uac_driver->uac_ifaces_tailq);
+    uac_iface_t *uac_tmp = NULL;
+
+    while (uac_iface != NULL) {
+        uac_tmp = STAILQ_NEXT(uac_iface, tailq_entry);
+        UAC_EXIT_CRITICAL();
+
+        if (uac_iface->parent && (uac_iface->parent->addr == uac_device->addr)) {
+            ESP_LOGD(TAG, "Suspending interface %p in %d state", uac_iface, uac_iface->state);
+
+            if (uac_iface->state == UAC_INTERFACE_STATE_ACTIVE) {
+                uac_host_interface_suspend(uac_iface, true);
+            }
+            uac_host_user_interface_callback(uac_iface, UAC_HOST_DEVICE_EVENT_SUSPENDED);
+        }
+        uac_iface = uac_tmp;
+        UAC_ENTER_CRITICAL();
+    }
+    UAC_EXIT_CRITICAL();
+    return ESP_OK;
+}
+
+/**
+ * @brief Handler for global (root port) resume event
+ *
+ * @param[in] dev_hdl   USB device handle
+ * @return esp_err_t
+ */
+
+static esp_err_t _uac_host_device_resumed(usb_device_handle_t dev_hdl)
+{
+    uac_device_t *uac_device = get_uac_device_by_handle(dev_hdl);
+    assert(uac_device);
+
+    UAC_ENTER_CRITICAL();
+    uac_iface_t *uac_iface = STAILQ_FIRST(&s_uac_driver->uac_ifaces_tailq);
+    uac_iface_t *uac_tmp = NULL;
+
+    while (uac_iface != NULL) {
+        uac_tmp = STAILQ_NEXT(uac_iface, tailq_entry);
+        UAC_EXIT_CRITICAL();
+
+        if (uac_iface->parent && (uac_iface->parent->addr == uac_device->addr)) {
+            ESP_LOGD(TAG, "Resuming interface %p in %d state", uac_iface, uac_iface->state);
+
+            // The interface is in ready state, we must submit RX transfer(s) poll
+            if (uac_iface->state == UAC_INTERFACE_STATE_READY) {
+                uac_host_interface_resume(uac_iface, true);
+            }
+            uac_host_user_interface_callback(uac_iface, UAC_HOST_DEVICE_EVENT_RESUMED);
+        }
+        uac_iface = uac_tmp;
+        UAC_ENTER_CRITICAL();
+    }
+    UAC_EXIT_CRITICAL();
+    return ESP_OK;
+}
+
+#endif // UAC_HOST_SUSPEND_RESUME_API_SUPPORTED
+
 /**
  * @brief USB Host Client's event callback
  *
@@ -1016,10 +1091,28 @@ static esp_err_t _uac_host_device_disconnected(usb_device_handle_t dev_hdl)
  */
 static void client_event_cb(const usb_host_client_event_msg_t *event, void *arg)
 {
-    if (event->event == USB_HOST_CLIENT_EVENT_NEW_DEV) {
+    switch (event->event) {
+    case USB_HOST_CLIENT_EVENT_NEW_DEV:
+        ESP_LOGD(TAG, "New device connected");
         _uac_host_device_connected(event->new_dev.address);
-    } else if (event->event == USB_HOST_CLIENT_EVENT_DEV_GONE) {
+        break;
+    case USB_HOST_CLIENT_EVENT_DEV_GONE:
+        ESP_LOGD(TAG, "Device suddenly disconnected");
         _uac_host_device_disconnected(event->dev_gone.dev_hdl);
+        break;
+#ifdef UAC_HOST_SUSPEND_RESUME_API_SUPPORTED
+    case USB_HOST_CLIENT_EVENT_DEV_SUSPENDED:
+        ESP_LOGD(TAG, "Device suspended");
+        _uac_host_device_suspended(event->dev_suspend_resume.dev_hdl);
+        break;
+    case USB_HOST_CLIENT_EVENT_DEV_RESUMED:
+        ESP_LOGD(TAG, "Device resumed");
+        _uac_host_device_resumed(event->dev_suspend_resume.dev_hdl);
+        break;
+#endif // UAC_HOST_SUSPEND_RESUME_API_SUPPORTED
+    default:
+        ESP_LOGW(TAG, "Unrecognized USB Host client event");
+        break;
     }
 }
 
@@ -1253,7 +1346,7 @@ static void stream_tx_xfer_done(usb_transfer_t *out_xfer)
  * @param[in] iface       Pointer to Interface structure
  * @return esp_err_t
  */
-static esp_err_t uac_host_interface_suspend(uac_iface_t *iface)
+static esp_err_t uac_host_interface_suspend(uac_iface_t *iface, bool root_port_suspended)
 {
     UAC_RETURN_ON_INVALID_ARG(iface);
     UAC_RETURN_ON_INVALID_ARG(iface->parent);
@@ -1263,19 +1356,23 @@ static esp_err_t uac_host_interface_suspend(uac_iface_t *iface)
     iface->state = UAC_INTERFACE_STATE_SUSPENDING;
 
     // Set Interface alternate setting to 0
-    usb_setup_packet_t request;
-    USB_SETUP_PACKET_INIT_SET_INTERFACE(&request, iface->dev_info.iface_num, 0);
-    esp_err_t ret = uac_cs_request_set(iface->parent, (uac_cs_request_t *)&request);
-    if (ret != ESP_OK) {
-        ESP_LOGW(TAG, "Set Interface %d-%d Failed", iface->dev_info.iface_num, 0);
-    } else {
-        ESP_LOGI(TAG, "Set Interface %d-%d", iface->dev_info.iface_num, 0);
+    if (!root_port_suspended) {
+        usb_setup_packet_t request;
+        USB_SETUP_PACKET_INIT_SET_INTERFACE(&request, iface->dev_info.iface_num, 0);
+        esp_err_t ret = uac_cs_request_set(iface->parent, (uac_cs_request_t *)&request);
+        if (ret != ESP_OK) {
+            ESP_LOGW(TAG, "Set Interface %d-%d Failed", iface->dev_info.iface_num, 0);
+        } else {
+            ESP_LOGI(TAG, "Set Interface %d-%d", iface->dev_info.iface_num, 0);
+        }
     }
 
-    uint8_t ep_addr = iface->iface_alt[iface->cur_alt].ep_addr;
-    UAC_RETURN_ON_ERROR(usb_host_endpoint_halt(iface->parent->dev_hdl, ep_addr), "Unable to HALT EP");
-    UAC_RETURN_ON_ERROR(usb_host_endpoint_flush(iface->parent->dev_hdl, ep_addr), "Unable to FLUSH EP");
-    usb_host_endpoint_clear(iface->parent->dev_hdl, ep_addr);
+    if (!root_port_suspended) {
+        uint8_t ep_addr = iface->iface_alt[iface->cur_alt].ep_addr;
+        UAC_RETURN_ON_ERROR(usb_host_endpoint_halt(iface->parent->dev_hdl, ep_addr), "Unable to HALT EP");
+        UAC_RETURN_ON_ERROR(usb_host_endpoint_flush(iface->parent->dev_hdl, ep_addr), "Unable to FLUSH EP");
+        usb_host_endpoint_clear(iface->parent->dev_hdl, ep_addr);
+    }
     _ring_buffer_flush(iface->ringbuf);
 
     // add all the transfer to free list
@@ -1299,7 +1396,7 @@ static esp_err_t uac_host_interface_suspend(uac_iface_t *iface)
  * @param[in] iface       Pointer to Interface structure
  * @return esp_err_t
  */
-static esp_err_t uac_host_interface_resume(uac_iface_t *iface)
+static esp_err_t uac_host_interface_resume(uac_iface_t *iface, bool root_port_suspended)
 {
     UAC_RETURN_ON_INVALID_ARG(iface);
     UAC_RETURN_ON_INVALID_ARG(iface->parent);
@@ -1308,15 +1405,17 @@ static esp_err_t uac_host_interface_resume(uac_iface_t *iface)
     UAC_RETURN_ON_FALSE((UAC_INTERFACE_STATE_READY == iface->state), ESP_ERR_INVALID_STATE, "Interface wrong state");
 
     // Set Interface alternate setting
-    usb_setup_packet_t request;
-    USB_SETUP_PACKET_INIT_SET_INTERFACE(&request, iface->dev_info.iface_num, iface->cur_alt + 1);
-    UAC_RETURN_ON_ERROR(uac_cs_request_set(iface->parent, (uac_cs_request_t *)&request), "Unable to set Interface alternate");
-    ESP_LOGI(TAG, "Set Interface %d-%d", iface->dev_info.iface_num, iface->cur_alt + 1);
-    // Set endpoint frequency control
-    if (iface->iface_alt[iface->cur_alt].freq_ctrl_supported) {
-        ESP_LOGI(TAG, "Set EP %02X frequency %"PRIu32, iface->iface_alt[iface->cur_alt].ep_addr, iface->iface_alt[iface->cur_alt].cur_sampling_freq);
-        UAC_RETURN_ON_ERROR(uac_cs_request_set_ep_frequency(iface, iface->iface_alt[iface->cur_alt].ep_addr,
-                            iface->iface_alt[iface->cur_alt].cur_sampling_freq), "Unable to set endpoint frequency");
+    if (!root_port_suspended) {
+        usb_setup_packet_t request;
+        USB_SETUP_PACKET_INIT_SET_INTERFACE(&request, iface->dev_info.iface_num, iface->cur_alt + 1);
+        UAC_RETURN_ON_ERROR(uac_cs_request_set(iface->parent, (uac_cs_request_t *)&request), "Unable to set Interface alternate");
+        ESP_LOGI(TAG, "Set Interface %d-%d", iface->dev_info.iface_num, iface->cur_alt + 1);
+        // Set endpoint frequency control
+        if (iface->iface_alt[iface->cur_alt].freq_ctrl_supported) {
+            ESP_LOGI(TAG, "Set EP %02X frequency %"PRIu32, iface->iface_alt[iface->cur_alt].ep_addr, iface->iface_alt[iface->cur_alt].cur_sampling_freq);
+            UAC_RETURN_ON_ERROR(uac_cs_request_set_ep_frequency(iface, iface->iface_alt[iface->cur_alt].ep_addr,
+                                iface->iface_alt[iface->cur_alt].cur_sampling_freq), "Unable to set endpoint frequency");
+        }
     }
     // for RX, we just submit all the transfers
     if (iface->dev_info.type == UAC_STREAM_RX) {
@@ -2109,7 +2208,7 @@ esp_err_t uac_host_device_close(uac_host_device_handle_t uac_dev_handle)
 
     UAC_RETURN_ON_ERROR(uac_host_interface_try_lock(uac_iface, DEFAULT_CTRL_XFER_TIMEOUT_MS), "UAC Interface is busy by other task");
     if (UAC_INTERFACE_STATE_ACTIVE == uac_iface->state) {
-        UAC_GOTO_ON_ERROR(uac_host_interface_suspend(uac_iface), "Unable to disable UAC Interface");
+        UAC_GOTO_ON_ERROR(uac_host_interface_suspend(uac_iface, false), "Unable to disable UAC Interface");
     }
 
     if (UAC_INTERFACE_STATE_READY == uac_iface->state) {
@@ -2281,7 +2380,7 @@ esp_err_t uac_host_device_start(uac_host_device_handle_t uac_dev_handle, const u
     iface_claimed = true;
 
     if (!(iface->flags & FLAG_STREAM_SUSPEND_AFTER_START)) {
-        UAC_GOTO_ON_ERROR(uac_host_interface_resume(iface), "Unable to enable UAC Interface");
+        UAC_GOTO_ON_ERROR(uac_host_interface_resume(iface, false), "Unable to resume UAC Interface");
     }
     uac_host_interface_unlock(iface);
     return ESP_OK;
@@ -2306,7 +2405,7 @@ esp_err_t uac_host_device_suspend(uac_host_device_handle_t uac_dev_handle)
     }
     esp_err_t ret = ESP_OK;
     UAC_GOTO_ON_FALSE((UAC_INTERFACE_STATE_ACTIVE == iface->state), ESP_ERR_INVALID_STATE, "device not active");
-    UAC_GOTO_ON_ERROR(uac_host_interface_suspend(iface), "Unable to disable UAC Interface");
+    UAC_GOTO_ON_ERROR(uac_host_interface_suspend(iface, false), "Unable to suspend UAC Interface");
 
     uac_host_interface_unlock(iface);
     return ESP_OK;
@@ -2329,7 +2428,7 @@ esp_err_t uac_host_device_resume(uac_host_device_handle_t uac_dev_handle)
 
     esp_err_t ret = ESP_OK;
     UAC_GOTO_ON_FALSE((UAC_INTERFACE_STATE_READY == iface->state), ESP_ERR_INVALID_STATE, "device not ready");
-    UAC_GOTO_ON_ERROR(uac_host_interface_resume(iface), "Unable to enable UAC Interface");
+    UAC_GOTO_ON_ERROR(uac_host_interface_resume(iface, false), "Unable to resume UAC Interface");
 
     uac_host_interface_unlock(iface);
     return ESP_OK;
@@ -2347,7 +2446,7 @@ esp_err_t uac_host_device_stop(uac_host_device_handle_t uac_dev_handle)
     esp_err_t ret = ESP_OK;
     UAC_RETURN_ON_ERROR(uac_host_interface_try_lock(iface, DEFAULT_CTRL_XFER_TIMEOUT_MS), "Unable to lock UAC Interface");
     if (UAC_INTERFACE_STATE_ACTIVE == iface->state) {
-        UAC_GOTO_ON_ERROR(uac_host_interface_suspend(iface), "Unable to disable UAC Interface");
+        UAC_GOTO_ON_ERROR(uac_host_interface_suspend(iface, false), "Unable to suspend UAC Interface");
     }
 
     if (UAC_INTERFACE_STATE_READY == iface->state) {
