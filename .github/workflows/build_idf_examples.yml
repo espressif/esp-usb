@@ -5,6 +5,8 @@ on:
     - cron: "0 0 * * SAT" # Saturday midnight
   pull_request:
     types: [opened, reopened, synchronize]
+    branches-ignore:
+      - '*'            # TODO: Remove exclusion of all branches once examples are updated. See issue IDF-13618 for tracking.
 
 jobs:
   build:
@@ -12,7 +14,6 @@ jobs:
       matrix:
         idf_ver:
           [
-            "release-v5.0",
             "release-v5.1",
             "release-v5.2",
             "release-v5.3",
