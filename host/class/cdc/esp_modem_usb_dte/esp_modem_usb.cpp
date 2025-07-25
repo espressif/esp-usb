@@ -36,10 +36,19 @@ static void usb_host_task(void *arg)
 {
     while (1) {
         uint32_t event_flags;
-        usb_host_lib_handle_events(portMAX_DELAY, &event_flags);
+        esp_err_t err = ESP_OK;
+        err = usb_host_lib_handle_events(portMAX_DELAY, &event_flags);
         if (event_flags & USB_HOST_LIB_EVENT_FLAGS_NO_CLIENTS) {
-            ESP_LOGD(TAG, "No more clients: clean up\n");
-            usb_host_device_free_all();
+            err = usb_host_device_free_all();
+            ESP_LOGD(TAG, "No more clients: clean up %d", err);
+            err = usb_host_uninstall();
+            ESP_LOGD(TAG, "USB Host uninstalled %d", err);
+            *(TaskHandle_t *)arg = nullptr;
+            vTaskDelete(NULL);
+        }
+        if (event_flags & USB_HOST_LIB_EVENT_FLAGS_ALL_FREE) {
+            err = cdc_acm_host_uninstall();
+            ESP_LOGD(TAG, "CDC-ACM Host uninstalled %d", err);
         }
     }
 }
@@ -59,8 +68,13 @@ public:
 
             ESP_MODEM_THROW_IF_ERROR(usb_host_install(&host_config), "USB Host install failed");
             ESP_LOGD(TAG, "USB Host installed");
+            // The priority of the usb_host task should be lower than that of the USB-CDC task. 
+            // This ensures that when the CDC-ACM device is disconnected, 
+            // the USB-CDC task first calls cdc_acm_host_close(), 
+            // and then the usb_host calls cdc_acm_host_uninstall().
+            ESP_MODEM_THROW_IF_FALSE(config->task_priority >= 1);
             ESP_MODEM_THROW_IF_FALSE(
-                pdTRUE == xTaskCreatePinnedToCore(usb_host_task, "usb_host", 4096, NULL, config->task_priority + 1, &usb_host_lib_task, usb_config->xCoreID),
+                pdTRUE == xTaskCreatePinnedToCore(usb_host_task, "usb_host", 4096, &usb_host_lib_task, config->task_priority - 1, &usb_host_lib_task, usb_config->xCoreID),
                 "USB host task failed");
         }
 
