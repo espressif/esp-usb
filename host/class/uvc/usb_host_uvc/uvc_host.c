@@ -121,9 +121,9 @@ static esp_err_t uvc_host_device_connected(uint8_t addr)
 
     // Create UAC interfaces list in RAM, connected to the particular USB dev
     if (is_uvc_device) {
-#ifdef CONFIG_PRINTF_UVC_CONFIGURATION_DESCRIPTOR
+#ifdef CONFIG_UVC_PRINTF_CONFIGURATION_DESCRIPTOR
         usb_print_config_descriptor(config_desc, &uvc_print_desc);
-#endif
+#endif // CONFIG_UVC_PRINTF_CONFIGURATION_DESCRIPTOR
         // Create Interfaces list for a possibility to claim Interface
         ESP_RETURN_ON_ERROR(uvc_host_interface_check(addr, config_desc), TAG, "uvc stream interface not found");
     } else {

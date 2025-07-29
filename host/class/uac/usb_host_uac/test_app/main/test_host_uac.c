@@ -236,10 +236,10 @@ void test_uac_setup(void)
     static TaskHandle_t uac_task_handle = NULL;
     // create USB lib task, pass the current task handle to notify when the task is created
     TEST_ASSERT_EQUAL(pdTRUE, xTaskCreatePinnedToCore(usb_lib_task,
-                      "usb_events",
-                      4096,
-                      xTaskGetCurrentTaskHandle(),
-                      5, &uac_task_handle, 0));
+                                                      "usb_events",
+                                                      4096,
+                                                      xTaskGetCurrentTaskHandle(),
+                                                      5, &uac_task_handle, 0));
 
     // install uac host driver
     ulTaskNotifyTake(pdTRUE, portMAX_DELAY);

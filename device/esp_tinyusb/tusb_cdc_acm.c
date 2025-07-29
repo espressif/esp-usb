@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2020-2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2020-2025 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -139,8 +139,8 @@ void tud_cdc_rx_wanted_cb(uint8_t itf, char wanted_char)
 }
 
 esp_err_t tinyusb_cdcacm_register_callback(tinyusb_cdcacm_itf_t itf,
-        cdcacm_event_type_t event_type,
-        tusb_cdcacm_callback_t callback)
+                                           cdcacm_event_type_t event_type,
+                                           tusb_cdcacm_callback_t callback)
 {
     esp_tusb_cdcacm_t *acm = get_acm(itf);
     if (acm) {
@@ -176,7 +176,7 @@ esp_err_t tinyusb_cdcacm_register_callback(tinyusb_cdcacm_itf_t itf,
 }
 
 esp_err_t tinyusb_cdcacm_unregister_callback(tinyusb_cdcacm_itf_t itf,
-        cdcacm_event_type_t event_type)
+                                             cdcacm_event_type_t event_type)
 {
     esp_tusb_cdcacm_t *acm = get_acm(itf);
     if (!acm) {

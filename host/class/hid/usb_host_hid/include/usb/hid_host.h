@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2023 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2023-2025 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -79,8 +79,8 @@ typedef struct {
  * @param[in] arg         User argument from HID driver configuration structure
 */
 typedef void (*hid_host_driver_event_cb_t)(hid_host_device_handle_t hid_device_handle,
-        const hid_host_driver_event_t event,
-        void *arg);
+                                           const hid_host_driver_event_t event,
+                                           void *arg);
 
 /**
  * @brief USB HID Interface event callback.
@@ -90,8 +90,8 @@ typedef void (*hid_host_driver_event_cb_t)(hid_host_device_handle_t hid_device_h
  * @param[in] arg                   User argument
 */
 typedef void (*hid_host_interface_event_cb_t)(hid_host_device_handle_t hid_device_handle,
-        const hid_host_interface_event_t event,
-        void *arg);
+                                              const hid_host_interface_event_t event,
+                                              void *arg);
 
 // ----------------------------- Public ---------------------------------------
 /**
@@ -183,9 +183,9 @@ esp_err_t hid_host_device_get_params(hid_host_device_handle_t hid_dev_handle,
  * @return esp_err_t
  */
 esp_err_t hid_host_device_get_raw_input_report_data(hid_host_device_handle_t hid_dev_handle,
-        uint8_t *data,
-        size_t data_length_max,
-        size_t *data_length);
+                                                    uint8_t *data,
+                                                    size_t data_length_max,
+                                                    size_t *data_length);
 
 // ------------------------ USB HID Host driver API ----------------------------
 
@@ -267,7 +267,7 @@ esp_err_t hid_class_request_get_idle(hid_host_device_handle_t hid_dev_handle,
  * @return esp_err_t
  */
 esp_err_t hid_class_request_get_protocol(hid_host_device_handle_t hid_dev_handle,
-        hid_report_protocol_t *protocol);
+                                         hid_report_protocol_t *protocol);
 
 /**
 * @brief HID class specific request SET REPORT
@@ -306,7 +306,7 @@ esp_err_t hid_class_request_set_idle(hid_host_device_handle_t hid_dev_handle,
  * @return esp_err_t
  */
 esp_err_t hid_class_request_set_protocol(hid_host_device_handle_t hid_dev_handle,
-        hid_report_protocol_t protocol);
+                                         hid_report_protocol_t protocol);
 
 #ifdef __cplusplus
 }

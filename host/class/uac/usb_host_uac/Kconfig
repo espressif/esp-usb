@@ -1,5 +1,5 @@
 menu "USB Host UAC"
-    config PRINTF_UAC_CONFIGURATION_DESCRIPTOR
+    config UAC_PRINTF_CONFIGURATION_DESCRIPTOR
         bool "Print UAC Configuration Descriptor"
         default n
         help

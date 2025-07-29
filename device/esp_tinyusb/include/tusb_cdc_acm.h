@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2020-2023 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2020-2025 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -130,8 +130,8 @@ esp_err_t tusb_cdc_acm_deinit(int itf);
  * @return esp_err_t - ESP_OK or ESP_ERR_INVALID_ARG
  */
 esp_err_t tinyusb_cdcacm_register_callback(tinyusb_cdcacm_itf_t itf,
-        cdcacm_event_type_t event_type,
-        tusb_cdcacm_callback_t callback);
+                                           cdcacm_event_type_t event_type,
+                                           tusb_cdcacm_callback_t callback);
 
 /**
  * @brief Unregister a callback invoking on CDC event
