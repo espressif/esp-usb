@@ -122,10 +122,10 @@ fail:
     if (diskio_registered) {
         ff_diskio_unregister(pdrv);
     }
-    esp_vfs_fat_unregister_path(base_path);
     if (fs) {
         f_mount(NULL, drive, 0);
     }
+    esp_vfs_fat_unregister_path(base_path);
     dealloc_msc_vfs(vfs);
     return ret;
 }
