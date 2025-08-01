@@ -188,22 +188,22 @@ menu "TinyUSB Stack"
 
         menu "TinyUSB FAT Format Options"
             choice TINYUSB_FAT_FORMAT_TYPE
-               prompt "FatFS Format Type"
+                prompt "FatFS Format Type"
                 default TINYUSB_FAT_FORMAT_ANY
                 help
                     Select the FAT filesystem type used when formatting storage.
 
-            config TINYUSB_FAT_FORMAT_ANY
-                bool "FM_ANY - Automatically select from FAT12/FAT16/FAT32"
+                config TINYUSB_FAT_FORMAT_ANY
+                    bool "FM_ANY - Automatically select from FAT12/FAT16/FAT32"
 
-            config TINYUSB_FAT_FORMAT_FAT
-                bool "FM_FAT - Allow only FAT12/FAT16"
+                config TINYUSB_FAT_FORMAT_FAT
+                    bool "FM_FAT - Allow only FAT12/FAT16"
 
-            config TINYUSB_FAT_FORMAT_FAT32
-                bool "FM_FAT32 - Force FAT32 only"
+                config TINYUSB_FAT_FORMAT_FAT32
+                    bool "FM_FAT32 - Force FAT32 only"
 
-            config TINYUSB_FAT_FORMAT_EXFAT
-                bool "FM_EXFAT - Force exFAT (requires exFAT enabled)"
+                config TINYUSB_FAT_FORMAT_EXFAT
+                    bool "FM_EXFAT - Force exFAT (requires exFAT enabled)"
 
             endchoice
 
@@ -213,7 +213,7 @@ menu "TinyUSB Stack"
                 help
                     Format as a Super Floppy Disk (no partition table).
                     This is typical for USB flash drives and small volumes.
-            endmenu
+        endmenu
 
     endmenu # "Massive Storage Class"
 
@@ -348,11 +348,11 @@ menu "TinyUSB Stack"
             default 3200
             range 1600 10240
             help
-              Size of NTB buffers on the reception side. The minimum size used by Linux is 2048 bytes.
-              NTB buffer size must be significantly larger than the MTU (Maximum Transmission Unit).
-              The typical default MTU size for Ethernet is 1500 bytes, plus an additional packet overhead.
-              To improve performance, the NTB buffer size should be large enough to fit multiple MTU-sized
-              frames in a single NTB buffer and it's length should be multiple of 4.
+                Size of NTB buffers on the reception side. The minimum size used by Linux is 2048 bytes.
+                NTB buffer size must be significantly larger than the MTU (Maximum Transmission Unit).
+                The typical default MTU size for Ethernet is 1500 bytes, plus an additional packet overhead.
+                To improve performance, the NTB buffer size should be large enough to fit multiple MTU-sized
+                frames in a single NTB buffer and it's length should be multiple of 4.
 
         config TINYUSB_NCM_IN_NTB_BUFF_MAX_SIZE
             int "NCM NTB Buffer size for transmission size"
@@ -360,11 +360,11 @@ menu "TinyUSB Stack"
             default 3200
             range 1600 10240
             help
-              Size of NTB buffers on the transmission side. The minimum size used by Linux is 2048 bytes.
-              NTB buffer size must be significantly larger than the MTU (Maximum Transmission Unit).
-              The typical default MTU size for Ethernet is 1500 bytes, plus an additional packet overhead.
-              To improve performance, the NTB buffer size should be large enough to fit multiple MTU-sized
-              frames in a single NTB buffer and it's length should be multiple of 4.
+                Size of NTB buffers on the transmission side. The minimum size used by Linux is 2048 bytes.
+                NTB buffer size must be significantly larger than the MTU (Maximum Transmission Unit).
+                The typical default MTU size for Ethernet is 1500 bytes, plus an additional packet overhead.
+                To improve performance, the NTB buffer size should be large enough to fit multiple MTU-sized
+                frames in a single NTB buffer and it's length should be multiple of 4.
 
     endmenu # "Network driver (ECM/NCM/RNDIS)"
 

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2022-2023 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2022-2025 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -25,8 +25,8 @@
  *
  */
 static void test_hid_host_interface_event_close(hid_host_device_handle_t hid_device_handle,
-        const hid_host_interface_event_t event,
-        void *arg)
+                                                const hid_host_interface_event_t event,
+                                                void *arg)
 {
     switch (event) {
     case HID_HOST_INTERFACE_EVENT_INPUT_REPORT:
@@ -48,8 +48,8 @@ static void test_hid_host_interface_event_close(hid_host_device_handle_t hid_dev
  *
  */
 static void test_hid_host_event_callback_stub(hid_host_device_handle_t hid_device_handle,
-        const hid_host_driver_event_t event,
-        void *arg)
+                                              const hid_host_driver_event_t event,
+                                              void *arg)
 {
     if (event == HID_HOST_DRIVER_EVENT_CONNECTED) {
         // Device connected
@@ -66,8 +66,8 @@ static void test_hid_host_event_callback_stub(hid_host_device_handle_t hid_devic
  *
  */
 static void test_hid_host_event_callback_open(hid_host_device_handle_t hid_device_handle,
-        const hid_host_driver_event_t event,
-        void *arg)
+                                              const hid_host_driver_event_t event,
+                                              void *arg)
 {
     if (event == HID_HOST_DRIVER_EVENT_CONNECTED) {
         const hid_host_device_config_t dev_config = {

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2022-2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2022-2025 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -132,9 +132,9 @@ void hid_host_test_interface_callback(hid_host_device_handle_t hid_device_handle
                dev_params.iface_num);
 
         hid_host_device_get_raw_input_report_data(hid_device_handle,
-                data,
-                64,
-                &data_length);
+                                                  data,
+                                                  64,
+                                                  &data_length);
 
         for (int i = 0; i < data_length; i++) {
             printf("%02x ", data[i]);
@@ -220,8 +220,8 @@ void hid_host_test_concurrent(hid_host_device_handle_t hid_device_handle,
 }
 
 void hid_host_test_device_callback_to_queue(hid_host_device_handle_t hid_device_handle,
-        const hid_host_driver_event_t event,
-        void *arg)
+                                            const hid_host_driver_event_t event,
+                                            void *arg)
 {
     const hid_host_test_event_queue_t evt_queue = {
         .hid_device_handle = hid_device_handle,
@@ -269,7 +269,7 @@ void hid_host_test_requests_callback(hid_host_device_handle_t hid_device_handle,
         // // HID Device info
         hid_host_dev_info_t hid_dev_info;
         TEST_ASSERT_EQUAL(ESP_OK, hid_host_get_device_info(hid_device_handle,
-                          &hid_dev_info) );
+                                                           &hid_dev_info) );
 
         printf("\t VID: 0x%04X\n", hid_dev_info.VID);
         printf("\t PID: 0x%04X\n", hid_dev_info.PID);
@@ -282,7 +282,7 @@ void hid_host_test_requests_callback(hid_host_device_handle_t hid_device_handle,
             rep_len = sizeof(tmp);
             // For testing with ESP32 we used ReportID = 0x01 (Keyboard ReportID)
             if (ESP_OK == hid_class_request_get_report(hid_device_handle,
-                    HID_REPORT_TYPE_INPUT, 0x01, tmp, &rep_len)) {
+                                                       HID_REPORT_TYPE_INPUT, 0x01, tmp, &rep_len)) {
                 printf("HID Get Report, type %d, id %d, length: %d:\n",
                        HID_REPORT_TYPE_INPUT, 0, rep_len);
                 for (int i = 0; i < rep_len; i++) {
@@ -294,7 +294,7 @@ void hid_host_test_requests_callback(hid_host_device_handle_t hid_device_handle,
             rep_len = sizeof(tmp);
             // For testing with ESP32 we used ReportID = 0x02 (Mouse ReportID)
             if (ESP_OK == hid_class_request_get_report(hid_device_handle,
-                    HID_REPORT_TYPE_INPUT, 0x02, tmp, &rep_len)) {
+                                                       HID_REPORT_TYPE_INPUT, 0x02, tmp, &rep_len)) {
                 printf("HID Get Report, type %d, id %d, length: %d:\n",
                        HID_REPORT_TYPE_INPUT, 0, rep_len);
                 for (int i = 0; i < rep_len; i++) {
@@ -313,19 +313,19 @@ void hid_host_test_requests_callback(hid_host_device_handle_t hid_device_handle,
                 uint8_t idle_rate;
                 // hid_class_request_get_idle
                 if (ESP_OK == hid_class_request_get_idle(hid_device_handle,
-                        0, &idle_rate)) {
+                                                         0, &idle_rate)) {
                     printf("HID idle rate: %d\n", idle_rate);
                 }
                 // hid_class_request_set_idle
                 if (ESP_OK == hid_class_request_set_idle(hid_device_handle,
-                        0, 0)) {
+                                                         0, 0)) {
                     printf("HID idle rate set to 0\n");
                 }
 
                 // hid_class_request_get_report
                 rep_len = sizeof(tmp);
                 if (ESP_OK == hid_class_request_get_report(hid_device_handle,
-                        HID_REPORT_TYPE_INPUT, 0x01, tmp, &rep_len)) {
+                                                           HID_REPORT_TYPE_INPUT, 0x01, tmp, &rep_len)) {
                     printf("HID get report type %d, id %d, length: %d\n",
                            HID_REPORT_TYPE_INPUT, 0x00, rep_len);
                 }
@@ -333,7 +333,7 @@ void hid_host_test_requests_callback(hid_host_device_handle_t hid_device_handle,
                 // hid_class_request_set_report
                 uint8_t rep[1] = { 0x00 };
                 if (ESP_OK == hid_class_request_set_report(hid_device_handle,
-                        HID_REPORT_TYPE_OUTPUT, 0x01, rep, 1)) {
+                                                           HID_REPORT_TYPE_OUTPUT, 0x01, rep, 1)) {
                     printf("HID set report type %d, id %d\n", HID_REPORT_TYPE_OUTPUT, 0x00);
                 }
             }
@@ -342,7 +342,7 @@ void hid_host_test_requests_callback(hid_host_device_handle_t hid_device_handle,
                 // hid_class_request_get_report
                 rep_len = sizeof(tmp);
                 if (ESP_OK == hid_class_request_get_report(hid_device_handle,
-                        HID_REPORT_TYPE_INPUT, 0x02, tmp, &rep_len)) {
+                                                           HID_REPORT_TYPE_INPUT, 0x02, tmp, &rep_len)) {
                     printf("HID get report type %d, id %d, length: %d\n",
                            HID_REPORT_TYPE_INPUT, 0x00, rep_len);
                 }
@@ -350,7 +350,7 @@ void hid_host_test_requests_callback(hid_host_device_handle_t hid_device_handle,
 
             // hid_class_request_set_protocol
             if (ESP_OK == hid_class_request_set_protocol(hid_device_handle,
-                    HID_REPORT_PROTOCOL_BOOT)) {
+                                                         HID_REPORT_PROTOCOL_BOOT)) {
                 printf("HID protocol change to BOOT: %d\n", proto);
             }
         }
@@ -405,7 +405,7 @@ static void test_hid_host_device_touch(hid_host_dev_params_t *dev_params,
         // For testing with ESP32 we used ReportID = 0x01 (Keyboard ReportID)
         if (HID_HOST_TEST_TOUCH_WAY_ASSERT == touch_way) {
             TEST_ASSERT_EQUAL(ESP_OK, hid_class_request_get_report(global_hdl,
-                              HID_REPORT_TYPE_INPUT, 0x01, tmp, &rep_len));
+                                                                   HID_REPORT_TYPE_INPUT, 0x01, tmp, &rep_len));
         } else {
             hid_class_request_get_report(global_hdl,
                                          HID_REPORT_TYPE_INPUT, 0x01, tmp, &rep_len);
@@ -419,7 +419,7 @@ static void test_hid_host_device_touch(hid_host_dev_params_t *dev_params,
             rep_len = sizeof(tmp);
             if (HID_HOST_TEST_TOUCH_WAY_ASSERT == touch_way) {
                 TEST_ASSERT_EQUAL(ESP_OK, hid_class_request_get_report(global_hdl,
-                                  HID_REPORT_TYPE_INPUT, 0x01, tmp, &rep_len));
+                                                                       HID_REPORT_TYPE_INPUT, 0x01, tmp, &rep_len));
             } else {
                 hid_class_request_get_report(global_hdl,
                                              HID_REPORT_TYPE_INPUT, 0x01, tmp, &rep_len);
@@ -429,7 +429,7 @@ static void test_hid_host_device_touch(hid_host_dev_params_t *dev_params,
             rep_len = sizeof(tmp);
             if (HID_HOST_TEST_TOUCH_WAY_ASSERT == touch_way) {
                 TEST_ASSERT_EQUAL(ESP_OK, hid_class_request_get_report(global_hdl,
-                                  HID_REPORT_TYPE_INPUT, 0x02, tmp, &rep_len));
+                                                                       HID_REPORT_TYPE_INPUT, 0x02, tmp, &rep_len));
             } else {
                 hid_class_request_get_report(global_hdl,
                                              HID_REPORT_TYPE_INPUT, 0x02, tmp, &rep_len);
@@ -555,10 +555,10 @@ void test_hid_setup(hid_host_driver_event_cb_t device_callback,
                     hid_test_event_handle_t hid_test_event_handle)
 {
     TEST_ASSERT_EQUAL(pdTRUE, xTaskCreatePinnedToCore(usb_lib_task,
-                      "usb_events",
-                      4096,
-                      xTaskGetCurrentTaskHandle(),
-                      2, NULL, 0));
+                                                      "usb_events",
+                                                      4096,
+                                                      xTaskGetCurrentTaskHandle(),
+                                                      2, NULL, 0));
     // Wait for notification from usb_lib_task
     ulTaskNotifyTake(false, 1000);
 

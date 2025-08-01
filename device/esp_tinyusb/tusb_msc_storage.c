@@ -204,9 +204,9 @@ static esp_err_t _write_sector_sdmmc(size_t sector_size,
 #endif
 
 static esp_err_t _msc_storage_read_sector(uint32_t lba,
-        uint32_t offset,
-        size_t size,
-        void *dest)
+                                          uint32_t offset,
+                                          size_t size,
+                                          void *dest)
 {
     assert(s_storage_handle);
     size_t sector_size = tinyusb_msc_storage_get_sector_size();
@@ -214,9 +214,9 @@ static esp_err_t _msc_storage_read_sector(uint32_t lba,
 }
 
 static esp_err_t _msc_storage_write_sector(uint32_t lba,
-        uint32_t offset,
-        size_t size,
-        const void *src)
+                                           uint32_t offset,
+                                           size_t size,
+                                           const void *src)
 {
     assert(s_storage_handle);
     if (s_storage_handle->is_fat_mounted) {
