@@ -3,8 +3,7 @@ CONFIG_TINYUSB_NO_DEFAULT_TASK=n
 CONFIG_TINYUSB_INIT_IN_DEFAULT_TASK=y
 
 # Disable watchdogs, they'd get triggered during unity interactive menu
-CONFIG_ESP_INT_WDT=n
-CONFIG_ESP_TASK_WDT=n
+# CONFIG_ESP_TASK_WDT_INIT is not set
 
 # Run-time checks of Heap and Stack
 CONFIG_HEAP_POISONING_COMPREHENSIVE=y

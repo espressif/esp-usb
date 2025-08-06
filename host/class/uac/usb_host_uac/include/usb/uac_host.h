@@ -67,7 +67,7 @@ typedef enum {
  * @param[in] arg         User argument from UAC driver configuration structure
 */
 typedef void (*uac_host_driver_event_cb_t)(uint8_t addr, uint8_t iface_num,
-        const uac_host_driver_event_t event, void *arg);
+                                           const uac_host_driver_event_t event, void *arg);
 
 /**
  * @brief USB UAC logic device/interface event callback.
@@ -77,7 +77,7 @@ typedef void (*uac_host_driver_event_cb_t)(uint8_t addr, uint8_t iface_num,
  * @param[in] arg                   User argument
 */
 typedef void (*uac_host_device_event_cb_t)(uac_host_device_handle_t uac_device_handle,
-        const uac_host_device_event_t event, void *arg);
+                                           const uac_host_device_event_t event, void *arg);
 
 /**
  * @brief Interface parameters for USB UAC host class descriptor print callback
@@ -237,7 +237,7 @@ esp_err_t uac_host_device_open(const uac_host_device_config_t *config, uac_host_
  * - ESP_ERR_NOT_FOUND if the device is not found
  */
 esp_err_t uac_host_device_open_with_vid_pid(uint16_t vid, uint16_t pid, const uac_host_device_config_t *config,
-        uac_host_device_handle_t *uac_dev_handle);
+                                            uac_host_device_handle_t *uac_dev_handle);
 
 /**
  * @brief Close a UAC logic device/interface

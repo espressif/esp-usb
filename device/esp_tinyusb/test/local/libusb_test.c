@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2024-2025 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -62,8 +62,8 @@ int main()
     rc = libusb_init(&context);
     assert(rc == 0);
     libusb_device_handle *dev_handle = libusb_open_device_with_vid_pid(context,
-                                       TINYUSB_VENDOR,
-                                       TINYUSB_PRODUCT);
+                                                                       TINYUSB_VENDOR,
+                                                                       TINYUSB_PRODUCT);
 
     if (dev_handle != NULL) {
         printf("TinyUSB Device has been found\n");

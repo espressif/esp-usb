@@ -3,7 +3,7 @@ repos:
     rev: v1.0.5
     hooks:
     -   id: astyle_py
-        args: ['--style=otbs', '--attach-namespaces', '--attach-classes', '--indent=spaces=4', '--convert-tabs', '--align-pointer=name', '--align-reference=name', '--keep-one-line-statements', '--pad-header', '--pad-oper']
+        args: ['--style=otbs', '--attach-namespaces', '--attach-classes', '--indent=spaces=4', '--convert-tabs', '--align-pointer=name', '--align-reference=name', '--keep-one-line-statements', '--pad-header', '--pad-oper', '--max-continuation-indent=120']
 
 -   repo: https://github.com/codespell-project/codespell
     rev: v2.2.6
@@ -29,3 +29,21 @@ repos:
         args: ['--fix=lf']
         description: Forces to replace line ending by the UNIX 'lf' character
         exclude: '.*\.uxf'
+    -   id: check-yaml
+
+- repo: https://github.com/espressif/esp-idf-kconfig.git
+  rev: v2.5.0
+  hooks:
+    - id: check-kconfig-files
+    - id: check-deprecated-kconfig-options
+
+- repo: local
+  hooks:
+      - id: cmake-lint
+        name: Check CMake Files Format
+        entry: cmakelint --linelength=120 --spaces=4 --filter=-whitespace/indent
+        language: python
+        additional_dependencies:
+          - cmakelint==1.4.1
+        files: 'CMakeLists.txt$|\.cmake$'
+        exclude: '\/third_party\/'

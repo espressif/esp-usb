@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2024-2025 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -773,7 +773,8 @@ static esp_err_t uac_host_interface_add(uac_device_t *uac_device, uint8_t iface_
                 iface_alt->interval = ep_desc->bInterval;
                 uac_iface->dev_info.type = (ep_desc->bEndpointAddress & UAC_EP_DIR_IN) ? UAC_STREAM_RX : UAC_STREAM_TX;
                 uac_ac_feature_unit_desc_t *feature_unit_desc = _uac_host_device_find_feature_unit((uint8_t *)uac_device->cs_ac_desc,
-                        iface_alt->connected_terminal, !(ep_desc->bEndpointAddress & UAC_EP_DIR_IN));
+                                                                                                   iface_alt->connected_terminal,
+                                                                                                   !(ep_desc->bEndpointAddress & UAC_EP_DIR_IN));
                 if (feature_unit_desc) {
                     iface_alt->feature_unit = feature_unit_desc->bUnitID;
                     uint8_t ch_num = 0;
@@ -941,9 +942,9 @@ static esp_err_t _uac_host_device_connected(uint8_t addr)
 
     // Create UAC interfaces list in RAM, connected to the particular USB dev
     if (is_uac_device) {
-#ifdef CONFIG_PRINTF_UAC_CONFIGURATION_DESCRIPTOR
+#ifdef CONFIG_UAC_PRINTF_CONFIGURATION_DESCRIPTOR
         print_uac_descriptors(config_desc);
-#endif
+#endif // CONFIG_UAC_PRINTF_CONFIGURATION_DESCRIPTOR
         // Create Interfaces list for a possibility to claim Interface
         UAC_RETURN_ON_ERROR(uac_host_interface_check(addr, config_desc), "uac stream interface not found");
     } else {
@@ -1072,7 +1073,7 @@ static esp_err_t uac_host_interface_claim_and_prepare_transfer(uac_iface_t *ifac
     // Claim Interface
 
     UAC_RETURN_ON_ERROR(usb_host_interface_claim(s_uac_driver->client_handle, iface->parent->dev_hdl, iface->dev_info.iface_num,
-                        iface->cur_alt + 1), "Unable to claim Interface");
+                                                 iface->cur_alt + 1), "Unable to claim Interface");
     // alloc a list of usb transfer
     uint32_t packet_size = iface->iface_alt[iface->cur_alt].ep_mps;
     iface->xfer_list = calloc(iface->xfer_num, sizeof(usb_transfer_t *));
@@ -1316,7 +1317,7 @@ static esp_err_t uac_host_interface_resume(uac_iface_t *iface)
     if (iface->iface_alt[iface->cur_alt].freq_ctrl_supported) {
         ESP_LOGI(TAG, "Set EP %02X frequency %"PRIu32, iface->iface_alt[iface->cur_alt].ep_addr, iface->iface_alt[iface->cur_alt].cur_sampling_freq);
         UAC_RETURN_ON_ERROR(uac_cs_request_set_ep_frequency(iface, iface->iface_alt[iface->cur_alt].ep_addr,
-                            iface->iface_alt[iface->cur_alt].cur_sampling_freq), "Unable to set endpoint frequency");
+                                                            iface->iface_alt[iface->cur_alt].cur_sampling_freq), "Unable to set endpoint frequency");
     }
     // for RX, we just submit all the transfers
     if (iface->dev_info.type == UAC_STREAM_RX) {
@@ -1927,7 +1928,7 @@ esp_err_t uac_host_install(const uac_host_driver_config_t *config)
 
     if (config->create_background_task) {
         BaseType_t task_created = xTaskCreatePinnedToCore(event_handler_task, "USB UAC Host", config->stack_size,
-                                  NULL, config->task_priority, NULL, config->core_id);
+                                                          NULL, config->task_priority, NULL, config->core_id);
         UAC_GOTO_ON_FALSE(task_created, ESP_ERR_NO_MEM, "Unable to create USB UAC Host task");
     }
     ESP_LOGI(TAG, "Install Succeed, Version: %d.%d.%d", USB_HOST_UAC_VER_MAJOR, USB_HOST_UAC_VER_MINOR, USB_HOST_UAC_VER_PATCH);

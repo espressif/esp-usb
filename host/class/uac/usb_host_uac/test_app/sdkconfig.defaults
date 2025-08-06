@@ -8,5 +8,4 @@ CONFIG_USB_HOST_CONTROL_TRANSFER_MAX_SIZE=2048
 CONFIG_USB_HOST_HW_BUFFER_BIAS_PERIODIC_OUT=y
 
 # Disable watchdogs, they'd get triggered during unity interactive menu
-CONFIG_ESP_INT_WDT=n
-CONFIG_ESP_TASK_WDT=n
+# CONFIG_ESP_TASK_WDT_INIT is not set

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2024-2025 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -29,7 +29,7 @@ static void _add_mocked_devices(void)
     // Fill mocked devices list
     // CP210x (FS descriptor)
     REQUIRE(ESP_OK == usb_host_mock_add_device(5, (const usb_device_desc_t *)cp210x_device_desc,
-            (const usb_config_desc_t *)cp210x_config_desc));
+                                               (const usb_config_desc_t *)cp210x_config_desc));
 }
 
 
