@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2024-2025 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -20,7 +20,7 @@
 #include "soc/gpio_sig_map.h"
 #include "unity.h"
 #include "tinyusb.h"
-#include "tusb_tasks.h"
+#include "tinyusb_default_config.h"
 
 #define DEVICE_DETACH_TEST_ROUNDS       10
 #define DEVICE_DETACH_ROUND_DELAY_MS    1000
@@ -72,25 +72,27 @@ static const tusb_desc_device_qualifier_t device_qualifier = {
 };
 #endif // TUD_OPT_HIGH_SPEED
 
-// Invoked when device is mounted
-void tud_mount_cb(void)
+/**
+ * @brief TinyUSB callback for device event
+ *
+ * @note
+ * For Linux-based Hosts: Reflects the SetConfiguration() request from the Host Driver.
+ * For Win-based Hosts: SetConfiguration() request is present only with available Class in device descriptor.
+ */
+void test_dconn_event_handler(tinyusb_event_t *event, void *arg)
 {
-    /**
-     * @attention Tests relying on this callback only pass on Linux USB Host!
-     *
-     * This callback is issued after SetConfiguration command from USB Host.
-     * However, Windows issues SetConfiguration only after a USB driver was assigned to the device.
-     * So in case you are implementing a Vendor Specific class, or your device has 0 interfaces, this callback is not issued on Windows host.
-     */
-    printf("%s\n", __FUNCTION__);
-    dev_mounted++;
-}
-
-// Invoked when device is unmounted
-void tud_umount_cb(void)
-{
-    printf("%s\n", __FUNCTION__);
-    dev_umounted++;
+    switch (event->id) {
+    case TINYUSB_EVENT_ATTACHED:
+        printf("%s\n", __FUNCTION__);
+        dev_mounted++;
+        break;
+    case TINYUSB_EVENT_DETACHED:
+        printf("%s\n", __FUNCTION__);
+        dev_umounted++;
+        break;
+    default:
+        break;
+    }
 }
 
 /**
@@ -117,19 +119,13 @@ TEST_CASE("dconn_detection", "[esp_tinyusb][dconn]")
     unsigned int rounds = DEVICE_DETACH_TEST_ROUNDS;
 
     // Install TinyUSB driver
-    const tinyusb_config_t tusb_cfg = {
-        .device_descriptor = &test_device_descriptor,
-        .string_descriptor = NULL,
-        .string_descriptor_count = 0,
-        .external_phy = false,
+    tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG(test_dconn_event_handler);
+    tusb_cfg.descriptor.device = &test_device_descriptor;
+    tusb_cfg.descriptor.full_speed_config = test_configuration_descriptor;
 #if (TUD_OPT_HIGH_SPEED)
-        .fs_configuration_descriptor = test_configuration_descriptor,
-        .hs_configuration_descriptor = test_configuration_descriptor,
-        .qualifier_descriptor = &device_qualifier,
-#else
-        .configuration_descriptor = test_configuration_descriptor,
+    tusb_cfg.descriptor.qualifier = &device_qualifier;
+    tusb_cfg.descriptor.high_speed_config = test_configuration_descriptor;
 #endif // TUD_OPT_HIGH_SPEED
-    };
 
     TEST_ASSERT_EQUAL(ESP_OK, tinyusb_driver_install(&tusb_cfg));
 

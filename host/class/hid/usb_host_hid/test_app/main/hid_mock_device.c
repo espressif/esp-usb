@@ -1,11 +1,12 @@
 /*
- * SPDX-FileCopyrightText: 2022-2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2022-2025 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
 
 #include <stdint.h>
 #include "tinyusb.h"
+#include "tinyusb_default_config.h"
 #include "class/hid/hid_device.h"
 #include "hid_mock_device.h"
 
@@ -194,19 +195,15 @@ void hid_mock_device(tusb_iface_count_t iface_count)
     // Global Interfaces count value
     tusb_iface_count = iface_count;
 
-    const tinyusb_config_t tusb_cfg = {
-        .device_descriptor = NULL,
-        .string_descriptor = hid_string_descriptor,
-        .string_descriptor_count = sizeof(hid_string_descriptor) / sizeof(hid_string_descriptor[0]),
-        .external_phy = false,
+    tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG();
+    tusb_cfg.descriptor.full_speed_config = hid_configuration_descriptor_list[tusb_iface_count];
 #if (TUD_OPT_HIGH_SPEED)
-        .fs_configuration_descriptor = hid_configuration_descriptor_list[tusb_iface_count],
-        .hs_configuration_descriptor = hid_configuration_descriptor_list[tusb_iface_count],
-        .qualifier_descriptor = &device_qualifier,
-#else
-        .configuration_descriptor = hid_configuration_descriptor_list[tusb_iface_count],
+    tusb_cfg.descriptor.high_speed_config = hid_configuration_descriptor_list[tusb_iface_count];
+    tusb_cfg.descriptor.qualifier = &device_qualifier;
 #endif // TUD_OPT_HIGH_SPEED
-    };
+    tusb_cfg.descriptor.string = hid_string_descriptor;
+    tusb_cfg.descriptor.string_count = sizeof(hid_string_descriptor) / sizeof(hid_string_descriptor[0]);
+
     ESP_ERROR_CHECK(tinyusb_driver_install(&tusb_cfg));
 
     printf("HID mock device with %s has been started\n",
