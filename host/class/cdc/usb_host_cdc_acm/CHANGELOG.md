@@ -1,3 +1,7 @@
+## [unreleased]
+
+- Added global suspend/resume support
+
 ## 2.1.0
 
 - Added option to implement custom CDC-ACM like devices with C API
