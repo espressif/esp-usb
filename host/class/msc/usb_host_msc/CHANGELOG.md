@@ -1,6 +1,7 @@
 ## [Unreleased]
 
 - Added public API support for formatting
+- Added global suspend/resume support
 
 ## 1.1.3
 
