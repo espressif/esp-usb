@@ -26,13 +26,17 @@ DEFAULT:
   espressif_copyright: '{years} Espressif Systems (Shanghai) CO LTD'
 
 # You can create your own rules for files or group of files
-libuvc:
+unit_tests:
   include:
-   - 'host/class/uvc/usb_host_uvc/**'
+   - '**/test_apps/**'
+   - '**/test_app/**'
+   - '**/host_test/**'
+   - '**/pytest_*.py'
   allowed_licenses:
   - Apache-2.0
-  - LGPL-2.1-or-later
-  license_for_new_files: Apache-2.0
+  - Unlicense
+  - CC0-1.0
+  license_for_new_files: Unlicense OR CC0-1.0
 
 tinyusb:
   include:
