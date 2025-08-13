@@ -1,6 +1,6 @@
 
 /*
- * SPDX-FileCopyrightText: 2015-2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2015-2025 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -34,7 +34,6 @@ static QueueHandle_t app_queue;
 static SemaphoreHandle_t ready_to_deinit_usb;
 static msc_host_device_handle_t device;
 static msc_host_vfs_handle_t vfs_handle;
-static volatile bool waiting_for_sudden_disconnect;
 
 // usb_host_lib_set_root_port_power is used to force toggle connection, primary developed for esp32p4
 // esp32p4 is supported from IDF 5.3
@@ -94,22 +93,61 @@ static void delete_phy(void) {}
 
 static void msc_event_cb(const msc_host_event_t *event, void *arg)
 {
-    if (waiting_for_sudden_disconnect) {
-        waiting_for_sudden_disconnect = false;
-        TEST_ASSERT_EQUAL(MSC_DEVICE_DISCONNECTED, event->event);
-    }
-
-    if (event->event == MSC_DEVICE_CONNECTED) {
+    switch (event->event) {
+    case MSC_DEVICE_CONNECTED:
         printf("MSC_DEVICE_CONNECTED\n");
-    } else {
+        break;
+    case MSC_DEVICE_DISCONNECTED:
         printf("MSC_DEVICE_DISCONNECTED\n");
+        break;
+#ifdef MSC_HOST_SUSPEND_RESUME_API_SUPPORTED
+    case MSC_DEVICE_SUSPENDED:
+        printf("MSC_DEVICE_SUSPENDED\n");
+        TEST_ASSERT_EQUAL_PTR_MESSAGE(device, event->device.handle, "Device handles not matching");
+        break;
+    case MSC_DEVICE_RESUMED:
+        printf("MSC_DEVICE_RESUMED\n");
+        TEST_ASSERT_EQUAL_PTR_MESSAGE(device, event->device.handle, "Device handles not matching");
+        break;
+#endif // MSC_HOST_SUSPEND_RESUME_API_SUPPORTED
+    default:
+        printf("Unrecognized MSC Client event\n");
+        return;
     }
 
     xQueueSend(app_queue, event, 10);
 }
 
+/**
+ * @brief Wait for app event
+ *
+ * @param expected_app_event expected event (NULL for no event expected)
+ * @param ticks ticks to wait for an event
+ */
+static void wait_for_app_event(msc_host_event_t *expected_app_event, TickType_t ticks)
+{
+    msc_host_event_t app_event;
+
+    // Check, that no event is delivered
+    if (expected_app_event == NULL) {
+        if (pdFALSE == xQueueReceive(app_queue, &app_event, ticks)) {
+            return;
+        } else {
+            TEST_FAIL_MESSAGE("Expecting NO event, but an event delivered");
+        }
+    }
+
+    // Check that an event is delivered
+    if (pdTRUE == xQueueReceive(app_queue, &app_event, ticks)) {
+        TEST_ASSERT_EQUAL_MESSAGE(expected_app_event->event, app_event.event, "Unexpected app event");
+    } else {
+        TEST_ASSERT_MESSAGE(false, "App event not generated on time");
+    }
+}
+
 static const char *TEST_STRING = "Hello World!";
 static const char *FILE_NAME = "/usb/ESP32.txt";
+static const char *BASE_PATH = "/usb";
 
 static void write_read_file(const char *file_path)
 {
@@ -164,6 +202,19 @@ static void handle_usb_events(void *args)
             xSemaphoreGive(ready_to_deinit_usb);
             break;
         }
+
+#ifdef MSC_HOST_SUSPEND_RESUME_API_SUPPORTED
+        if (event_flags & USB_HOST_LIB_EVENT_FLAGS_AUTO_SUSPEND) {
+            printf("USB_HOST_LIB_EVENT_FLAGS_AUTO_SUSPEND\n");
+            usb_host_lib_root_port_suspend();
+        }
+
+        if (event_flags & USB_HOST_LIB_EVENT_FLAGS_AUTO_RESUME) {
+            printf("USB_HOST_LIB_EVENT_FLAGS_AUTO_RESUME\n");
+            usb_host_lib_root_port_resume();
+        }
+#endif // MSC_HOST_SUSPEND_RESUME_API_SUPPORTED
+
     }
     vTaskDelete(NULL);
 }
@@ -189,7 +240,7 @@ static void check_sudden_disconnect(void)
     uint8_t data[512];
     const size_t DATA_SIZE = sizeof(data);
 
-    ESP_LOGI(TAG, "Creating test.tx");
+    ESP_LOGI(TAG, "Creating test.txt");
     FILE *file = fopen("/usb/test.txt", "w");
     TEST_ASSERT(file);
 
@@ -199,13 +250,10 @@ static void check_sudden_disconnect(void)
     TEST_ASSERT_EQUAL(0, fflush(file));
 
     ESP_LOGI(TAG, "Trigger a disconnect");
-    // Trigger a disconnect
-    waiting_for_sudden_disconnect = true;
     force_conn_state(false, 0);
 
-    // Make sure flag was leared in callback
-    vTaskDelay( pdMS_TO_TICKS(100) );
-    TEST_ASSERT_FALSE(waiting_for_sudden_disconnect);
+    msc_host_event_t expected_event = {.event = MSC_DEVICE_DISCONNECTED};
+    wait_for_app_event(&expected_event, 100);
 
     ESP_LOGI(TAG, "Write data after disconnect");
     TEST_ASSERT_NOT_EQUAL( DATA_SIZE, fwrite(data, 1, DATA_SIZE, file));
@@ -239,7 +287,7 @@ static void msc_test_wait_and_install_device(void)
     uint8_t device_addr = app_event.device.address;
 
     ESP_OK_ASSERT( msc_host_install_device(device_addr, &device) );
-    ESP_OK_ASSERT( msc_host_vfs_register(device, "/usb", &mount_config, &vfs_handle) );
+    ESP_OK_ASSERT( msc_host_vfs_register(device, BASE_PATH, &mount_config, &vfs_handle) );
 }
 
 static void msc_setup(void)
@@ -553,6 +601,325 @@ TEST_CASE("no_background_task_2", "[usb_msc]")
 
     msc_test_deinit();
 }
+
+#ifdef MSC_HOST_SUSPEND_RESUME_API_SUPPORTED
+/**
+ * @brief USB MSC driver Suspend/Resume
+ *
+ * Purpose:
+ *     - Test global Suspend/Resume of the root port with MSC Driver
+ *
+ * Procedure:
+ *     - Install USB Host lib, Install MSC driver, open a device, register VFS
+ *     - Issue global suspend and verify, the MSC_DEVICE_SUSPENDED event is delivered
+ *     - Unregister VFS
+ *     - Issue global resume and verify, the MSC_DEVICE_RESUMED event is delivered
+ *     - Register VFS back, check that a file can be read/written after Suspend/Resume cycle
+ *     - Teardown
+ */
+TEST_CASE("suspend_resume", "[usb_msc]")
+{
+    msc_setup();
+    write_read_file(FILE_NAME);                         // Initial read write check
+    vTaskDelay(10);                                     // Wait some time to finish read_write
+
+    msc_host_event_t expected_event = {.event = MSC_DEVICE_SUSPENDED};
+    ESP_OK_ASSERT(usb_host_lib_root_port_suspend());    // Suspend the root port
+    wait_for_app_event(&expected_event, 10);            // Expect MSC device to be suspended
+
+    // MSC device suspended, unmount storage, verify that the file does not exist
+    TEST_ASSERT_EQUAL(ESP_OK, msc_host_vfs_unregister(vfs_handle));
+    TEST_ASSERT_FALSE(file_exists(FILE_NAME));
+
+    // Resume the device
+    ESP_OK_ASSERT(usb_host_lib_root_port_resume());     // Resume the root port
+    expected_event.event = MSC_DEVICE_RESUMED;          // Expect MSC device to be resumed
+    wait_for_app_event(&expected_event, 10);            // Expect app event
+
+    // MSC Device is resumed, mount storage, verify that the file exist and can be read/written
+    TEST_ASSERT_EQUAL(ESP_OK, msc_host_vfs_register(device, BASE_PATH, &mount_config, &vfs_handle));
+    TEST_ASSERT(file_exists(FILE_NAME));
+    write_read_file(FILE_NAME);                         // Verify read write after suspend/resume cycle
+    msc_teardown();
+}
+
+#define MSC_TEST_AUTO_SUSP_RES_MS    2000
+/**
+ * @brief USB MSC driver automatic Suspend/Resume timer
+ *
+ * Purpose:
+ *     - Test automatic timer for global Suspend/Resume of the root port with MSC Driver
+ *
+ * Procedure:
+ *     - Install USB Host lib, Install MSC driver, open a device, register VFS
+ *     - Set automatic suspend timer to 2000ms
+ *     - Simulate some USB traffic by reading/writing a file multiple times and regularly check that no USB_HOST_LIB event is delivered
+ *     - Once all the traffic is idle, verify the MSC_DEVICE_SUSPENDED event is delivered
+ *     - Measure time from issuing automatic suspend until the suspend event delivery
+ *         - The time shall be greater than, at least 3000 ms (2000ms auto suspend + some time for the USB bus traffic)
+ *     - Set automatic resume timer to 1000ms and verify that the MSC_DEVICE_RESUMED event is delivered
+ *     - Check that a file can be read/written after automatic Suspend/Resume cycle
+ *     - Set automatic suspend timer again, but immediately disable it and make sure no event is delivered
+ *     - Teardown
+ */
+TEST_CASE("auto_suspend_resume", "[usb_msc]")
+{
+    msc_setup();
+
+    // Set automatic suspend timer and start measuring ticks
+    ESP_OK_ASSERT(usb_host_lib_set_auto_pm(USB_HOST_LIB_PM_SUSPEND, MSC_TEST_AUTO_SUSP_RES_MS));
+    TickType_t auto_pm_suspend_tick_start = xTaskGetTickCount();
+    msc_host_event_t peek_event, expected_event;
+
+    // Simulate some traffic, so the root port would not suspend after MSC_TEST_AUTO_SUSP_RES_MS from now,
+    // but after MSC_TEST_AUTO_SUSP_RES_MS, once there is no traffic
+    // Regularly check, that there is no item in queue (check that the timer did not expire)
+    for (int i = 0; i < 5; i++) {
+        write_read_file(FILE_NAME);
+        TEST_ASSERT_EQUAL(pdFALSE, xQueuePeek(app_queue, &peek_event, 0));
+    }
+
+    // Expect MSC device to be suspended, expect app queue and block for MSC_TEST_AUTO_SUSP_RES_MS + some margin
+    expected_event.event = MSC_DEVICE_SUSPENDED;
+    wait_for_app_event(&expected_event, pdMS_TO_TICKS(MSC_TEST_AUTO_SUSP_RES_MS + 500));        // Expect app event
+
+    TickType_t auto_pm_suspend_tick_end = xTaskGetTickCount();      // App event received, stop measuring ticks
+    const uint32_t elapsed_ms = (auto_pm_suspend_tick_end - auto_pm_suspend_tick_start) * portTICK_PERIOD_MS;
+
+    // Check that, the time elapsed between setting the auto suspend timer and MSC_DEVICE_SUSPENDED event
+    // is more than MSC_TEST_AUTO_SUSP_RES_MS + some margin
+    TEST_ASSERT_GREATER_THAN_UINT32_MESSAGE(MSC_TEST_AUTO_SUSP_RES_MS + 500, elapsed_ms, "Auto suspend timer did not expire on time");
+
+    // Set automatic resume timer and expect MSC_DEVICE_RESUMED event
+    // Expect app queue and block for MSC_TEST_AUTO_SUSP_RES_MS + some margin
+    ESP_OK_ASSERT(usb_host_lib_set_auto_pm(USB_HOST_LIB_PM_RESUME, MSC_TEST_AUTO_SUSP_RES_MS));
+    expected_event.event = MSC_DEVICE_RESUMED;
+    wait_for_app_event(&expected_event, pdMS_TO_TICKS(MSC_TEST_AUTO_SUSP_RES_MS + 500));        // Expect app event
+
+    // MSC device resumed, verify read write after suspend/resume cycle
+    write_read_file(FILE_NAME);
+
+    // Set automatic suspend timer, but immediately disable the timer and expect no app event
+    ESP_OK_ASSERT(usb_host_lib_set_auto_pm(USB_HOST_LIB_PM_SUSPEND, MSC_TEST_AUTO_SUSP_RES_MS));
+    // Yield to the timer task
+    vTaskDelay(10);
+    ESP_OK_ASSERT(usb_host_lib_set_auto_pm(USB_HOST_LIB_PM_SUSPEND, 0));
+    // Test that the automatic Suspend/Resume timer can be disabled
+    TEST_ASSERT_EQUAL(pdFALSE, xQueuePeek(app_queue, &peek_event, pdMS_TO_TICKS(MSC_TEST_AUTO_SUSP_RES_MS * 2)));
+    msc_teardown();
+}
+
+/**
+ * @brief USB MSC automatic resume by transfer submit
+ *
+ * Purpose:
+ *     - Test automatic root port resume by submitting a transfer
+ *
+ * Procedure:
+ *     - Install USB Host lib, Install MSC driver, open a device, register VFS
+ *     - Open a file and write some data
+ *     - Issue global suspend and verify, the MSC_DEVICE_SUSPENDED event is delivered
+ *     - Write some data and expect the root port to be automatically resumed, the MSC_DEVICE_RESUMED event is delivered
+ *     - Teardown
+ */
+TEST_CASE("resume_by_transfer_submit", "[usb_msc]")
+{
+    msc_setup();
+
+    write_read_file(FILE_NAME);                         // Initial read write check
+    vTaskDelay(10);                                     // Wait some time to finish read_write
+
+    msc_host_event_t expected_event = {.event = MSC_DEVICE_SUSPENDED,};
+    ESP_OK_ASSERT(usb_host_lib_root_port_suspend());    // Suspend the root port
+    wait_for_app_event(&expected_event, 10);            // Expect MSC device to be suspended
+
+    write_read_file(FILE_NAME);                         // Automatically resume the root port by submitting a transfer
+
+    expected_event.event = MSC_DEVICE_RESUMED;          // Expect MSC device to be automatically resumed after transfer submit
+    wait_for_app_event(&expected_event, 10);            // Expect app event
+    msc_teardown();
+}
+
+/**
+ * @brief Open and close suspended device
+ *
+ * Purpose:
+ *     - Test opening and closing of a device in suspended state by the MSC client
+ *
+ * Procedure:
+ *     - Install USB Host lib, Install MSC driver
+ *     - Suspend the root prot -> make sure no event is delivered
+ *     - Fail to open a suspended device by the MSC driver
+ *     - Resume the root port -> make sure no event is delivered
+ *     - Open the device, register VFS
+ *     - Suspend the root port -> make sure suspend event is delivered
+ *     - Teardown
+ */
+TEST_CASE("suspended_device_open_close", "[usb_msc]")
+{
+    msc_test_init();
+    const msc_host_driver_config_t msc_config = {
+        .create_backround_task = true,
+        .callback = msc_event_cb,
+        .stack_size = 4096,
+        .task_priority = 5,
+    };
+    TEST_ASSERT_EQUAL(ESP_OK, msc_host_install(&msc_config) );
+
+    msc_host_event_t app_event;
+    xQueueReceive(app_queue, &app_event, portMAX_DELAY);
+    TEST_ASSERT_EQUAL(MSC_DEVICE_CONNECTED, app_event.event);
+    uint8_t device_addr = app_event.device.address;
+
+    // Suspend the root port and don't expect any event (device not opened by MSC client)
+    ESP_OK_ASSERT(usb_host_lib_root_port_suspend());
+    wait_for_app_event(NULL, 10);
+
+    // Try to open suspended device
+    TEST_ASSERT_EQUAL(ESP_ERR_INVALID_STATE, msc_host_install_device(device_addr, &device));
+
+    // Resume the root port and don't expect any event (device not opened by MSC client)
+    ESP_OK_ASSERT(usb_host_lib_root_port_resume());
+    wait_for_app_event(NULL, 10);
+
+    // Open the resumed device
+    TEST_ASSERT_EQUAL(ESP_OK, msc_host_install_device(device_addr, &device));
+    TEST_ASSERT_EQUAL(ESP_OK, msc_host_vfs_register(device, BASE_PATH, &mount_config, &vfs_handle));
+
+    // Suspend the device and expect supend event
+    ESP_OK_ASSERT(usb_host_lib_root_port_suspend());
+    msc_host_event_t expected_event = {.event = MSC_DEVICE_SUSPENDED};
+    wait_for_app_event(&expected_event, 10);
+
+    msc_teardown();
+}
+
+/**
+ * @brief Suspend device sudden disconnect
+ *
+ * Purpose:
+ *     - Test disconnection upon a suspended device
+ *
+ * Procedure:
+ *     - Install USB Host lib, Install MSC driver, open device, register VFS
+ *     - Suspend the root prot and disconnect the device -> make sure app events are delivered
+ *     - Teardown
+ */
+TEST_CASE("suspended_device_sudden_disconnect", "[usb_msc]")
+{
+    msc_setup();
+
+    msc_host_event_t expected_event = {.event = MSC_DEVICE_SUSPENDED,};
+    ESP_OK_ASSERT(usb_host_lib_root_port_suspend());
+    wait_for_app_event(&expected_event, 10);
+
+    force_conn_state(false, 0);
+
+    expected_event.event = MSC_DEVICE_DISCONNECTED;
+    wait_for_app_event(&expected_event, 10);
+    msc_teardown();
+}
+
+/**
+ * @brief USB MSC sudden Suspend
+ *
+ * Purpose:
+ *     - Test suspending the root port during file write operation
+ *
+ * Procedure:
+ *     - Install USB Host lib, Install MSC driver, open a device, register VFS
+ *     - Open a file and write some data
+ *     - Issue global suspend and verify, the MSC_DEVICE_SUSPENDED event is delivered
+ *     - Write a data again after the port was suspended, expect data to be written and resume event delivered
+ *     - Teardown
+ */
+static void check_sudden_suspend(void)
+{
+    uint8_t data[512];
+    const size_t DATA_SIZE = sizeof(data);
+
+    ESP_LOGI(TAG, "Creating test.txt");
+    FILE *file = fopen("/usb/test.txt", "w");
+    TEST_ASSERT(file);
+
+    ESP_LOGI(TAG, "Write data");
+    TEST_ASSERT_EQUAL(DATA_SIZE, fwrite(data, 1, DATA_SIZE, file));
+    TEST_ASSERT_EQUAL(DATA_SIZE, fwrite(data, 1, DATA_SIZE, file));
+    TEST_ASSERT_EQUAL(0, fflush(file));
+
+    ESP_LOGI(TAG, "Trigger a suspend");
+    ESP_OK_ASSERT(usb_host_lib_root_port_suspend());
+
+    msc_host_event_t expected_event = {.event = MSC_DEVICE_SUSPENDED,};
+    wait_for_app_event(&expected_event, 10);
+
+    TEST_ASSERT_EQUAL(DATA_SIZE, fwrite(data, 1, DATA_SIZE, file));
+
+    expected_event.event = MSC_DEVICE_RESUMED;
+    wait_for_app_event(&expected_event, 10);
+
+    fclose(file);
+}
+
+TEST_CASE("sudden_suspend", "[usb_msc]")
+{
+    msc_setup();
+    check_sudden_suspend();
+    msc_teardown();
+}
+
+/**
+ * @brief USB MSC sudden Suspend from another task
+ *
+ * Purpose:
+ *     - Test suspending the root port from another task during file write operation
+ *
+ * Procedure:
+ *     - Install USB Host lib, Install MSC driver, open a device, register VFS
+ *     - In another task, Open a file and write some data
+ *     - Issue global suspend and verify, the MSC_DEVICE_SUSPENDED event is delivered
+ *     - Write a data again after the port was suspended, expect not all data to be written
+ *     - Teardown
+ */
+static void write_read_task(void *args)
+{
+    uint8_t data[512];
+    const size_t DATA_SIZE = sizeof(data);
+
+    ESP_LOGI(TAG, "Creating test.txt");
+    FILE *file = fopen("/usb/test.txt", "w");
+    TEST_ASSERT(file);
+
+    ESP_LOGI(TAG, "Write data");
+    TEST_ASSERT_EQUAL(DATA_SIZE, fwrite(data, 1, DATA_SIZE, file));
+    TEST_ASSERT_EQUAL(DATA_SIZE, fwrite(data, 1, DATA_SIZE, file));
+    TEST_ASSERT_EQUAL(0, fflush(file));
+
+    xTaskNotifyGive((TaskHandle_t)args);                // Suspend the root port from the main task
+
+    ESP_LOGI(TAG, "Write data after suspend");
+    TEST_ASSERT_NOT_EQUAL( DATA_SIZE, fwrite(data, 1, DATA_SIZE, file));
+
+    fclose(file);
+    vTaskDelete(NULL);
+}
+
+TEST_CASE("sudden_suspend_from_another_task", "[usb_msc]")
+{
+    msc_setup();
+
+    TEST_ASSERT_EQUAL(pdTRUE, xTaskCreate(write_read_task, "MSC write_read", 4096, xTaskGetCurrentTaskHandle(), 3, NULL));
+    ulTaskNotifyTake(false, portMAX_DELAY);             // Wait for the task writes first data
+
+    msc_host_event_t expected_event = {.event = MSC_DEVICE_SUSPENDED};
+    ESP_OK_ASSERT(usb_host_lib_root_port_suspend());    // Suspend the root port
+    wait_for_app_event(&expected_event, 10);            // Expect MSC device to be suspended
+
+    vTaskDelay(100);                                    // Wait for all the transfer to finish
+    msc_teardown();
+}
+
+#endif // MSC_HOST_SUSPEND_RESUME_API_SUPPORTED
 
 /**
  * @brief USB MSC Device Mock
