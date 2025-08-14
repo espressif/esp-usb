@@ -31,6 +31,7 @@ unit_tests:
    - '**/test_apps/**'
    - '**/test_app/**'
    - '**/host_test/**'
+   - '**/target_test/**'
    - '**/pytest_*.py'
   allowed_licenses:
   - Apache-2.0
