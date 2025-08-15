@@ -1,6 +1,7 @@
 ## 2.0.0
 
 - esp_tinyusb: Added USB Compliance Verification results
+- CDC-ACM: Added a configurable parameter for the endpoint DMA buffer
 
 ### Breaking changes
 
