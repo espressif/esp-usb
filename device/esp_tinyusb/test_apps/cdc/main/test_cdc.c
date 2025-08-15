@@ -20,6 +20,7 @@
 #include "tinyusb_default_config.h"
 #include "tusb_cdc_acm.h"
 #include "vfs_tinyusb.h"
+#include "tusb_config.h"
 
 #define VFS_PATH "/dev/usb-cdc1"
 
@@ -38,13 +39,6 @@ static const tusb_desc_device_t cdc_device_descriptor = {
     .iProduct = 0x02,
     .iSerialNumber = 0x03,
     .bNumConfigurations = 0x01
-};
-
-static const uint16_t cdc_desc_config_len = TUD_CONFIG_DESC_LEN + CFG_TUD_CDC * TUD_CDC_DESC_LEN;
-static const uint8_t cdc_desc_configuration[] = {
-    TUD_CONFIG_DESCRIPTOR(1, 4, 0, cdc_desc_config_len, TUSB_DESC_CONFIG_ATT_REMOTE_WAKEUP, 100),
-    TUD_CDC_DESCRIPTOR(0, 4, 0x81, 8, 0x02, 0x82, (TUD_OPT_HIGH_SPEED ? 512 : 64)),
-    TUD_CDC_DESCRIPTOR(2, 4, 0x83, 8, 0x04, 0x84, (TUD_OPT_HIGH_SPEED ? 512 : 64)),
 };
 
 #if (TUD_OPT_HIGH_SPEED)
@@ -79,6 +73,13 @@ static void tinyusb_cdc_rx_callback(int itf, cdcacm_event_t *event)
  */
 TEST_CASE("tinyusb_cdc", "[esp_tinyusb][cdc]")
 {
+    static const uint16_t cdc_desc_config_len = TUD_CONFIG_DESC_LEN + CFG_TUD_CDC * TUD_CDC_DESC_LEN;
+    static const uint8_t cdc_desc_configuration[] = {
+        TUD_CONFIG_DESCRIPTOR(1, 4, 0, cdc_desc_config_len, TUSB_DESC_CONFIG_ATT_REMOTE_WAKEUP, 100),
+        TUD_CDC_DESCRIPTOR(0, 4, 0x81, 8, 0x02, 0x82, (TUD_OPT_HIGH_SPEED ? 512 : 64)),
+        TUD_CDC_DESCRIPTOR(2, 4, 0x83, 8, 0x04, 0x84, (TUD_OPT_HIGH_SPEED ? 512 : 64)),
+    };
+
     // Install TinyUSB driver
     tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG();
     tusb_cfg.descriptor.device = &cdc_device_descriptor;
@@ -140,6 +141,63 @@ TEST_CASE("tinyusb_cdc", "[esp_tinyusb][cdc]")
             tinyusb_cdcacm_write_flush(itf, 0);
         }
     }
+}
+
+#define CDC_THROUGHPUT_TEST_BUFFER_SIZE (32 * 1024)
+#define CDC_THROUGHPUT_TEST_DURATION_MS 11000*10
+TEST_CASE("tinyusb_cdc_throughput", "[esp_tinyusb][cdc_throughput]")
+{
+    static const uint16_t cdc_desc_config_len = TUD_CONFIG_DESC_LEN + TUD_CDC_DESC_LEN;
+    static const uint8_t cdc_desc_configuration[] = {
+        TUD_CONFIG_DESCRIPTOR(1, 2, 0, cdc_desc_config_len, TUSB_DESC_CONFIG_ATT_REMOTE_WAKEUP, 100),
+        TUD_CDC_DESCRIPTOR(0, 4, 0x81, 8, 0x02, 0x82, (TUD_OPT_HIGH_SPEED ? 512 : 64)),
+    };
+
+    // Install TinyUSB driver
+    tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG();
+    tusb_cfg.descriptor.device = &cdc_device_descriptor;
+    tusb_cfg.descriptor.full_speed_config = cdc_desc_configuration;
+#if (TUD_OPT_HIGH_SPEED)
+    tusb_cfg.descriptor.qualifier = &device_qualifier;
+    tusb_cfg.descriptor.high_speed_config = cdc_desc_configuration;
+#endif // TUD_OPT_HIGH_SPEED
+
+    TEST_ASSERT_EQUAL(ESP_OK, tinyusb_driver_install(&tusb_cfg));
+
+    tinyusb_config_cdcacm_t acm_cfg = {
+        .cdc_port = TINYUSB_CDC_ACM_0,
+        .callback_rx = NULL, // TX only in this test
+        .callback_rx_wanted_char = NULL,
+        .callback_line_state_changed = NULL,
+        .callback_line_coding_changed = NULL
+    };
+    printf("TinyUSB CDC config:\n\tEP_BUFSIZE = %d\n\tTX_BUFSIZE = %d\n\tTEST_BUFSIZE = %d\n", CFG_TUD_CDC_EP_BUFSIZE, CFG_TUD_CDC_TX_BUFSIZE, CDC_THROUGHPUT_TEST_BUFFER_SIZE);
+
+    // Init CDC 0
+    TEST_ASSERT_EQUAL(ESP_OK, tusb_cdc_acm_init(&acm_cfg));
+
+    // Wait for host to open this cdc channel
+    while (!tud_cdc_n_connected(0)) {
+        vTaskDelay(pdMS_TO_TICKS(100));
+    }
+
+    size_t bytes_written = 0;
+    TimeOut_t to;
+    TickType_t remaining = pdMS_TO_TICKS(CDC_THROUGHPUT_TEST_DURATION_MS);
+    vTaskSetTimeOutState(&to);
+
+    uint8_t *tx_buf = malloc(CDC_THROUGHPUT_TEST_BUFFER_SIZE);
+    TEST_ASSERT_NOT_NULL(tx_buf);
+
+    while (tud_cdc_n_connected(0) && xTaskCheckForTimeOut(&to, &remaining) == pdFALSE) {
+        bytes_written += tud_cdc_n_write(0, tx_buf, CDC_THROUGHPUT_TEST_BUFFER_SIZE);
+    }
+
+    free(tx_buf);
+
+    // Cleanup
+    TEST_ASSERT_EQUAL(ESP_OK, tusb_cdc_acm_deinit(0));
+    TEST_ASSERT_EQUAL(ESP_OK, tinyusb_driver_uninstall());
 }
 
 #endif
