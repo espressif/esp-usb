@@ -184,8 +184,6 @@ esp_err_t tinyusb_descriptors_set(tinyusb_port_t port, const tinyusb_desc_config
         s_desc_cfg.dev = config->device;
     }
 
-    assert(&descriptor_dev_default);
-
     // Full-speed configuration descriptor
     if (config->full_speed_config == NULL) {
 #if (CFG_TUD_CDC > 0 || CFG_TUD_MSC > 0 || CFG_TUD_NCM > 0)

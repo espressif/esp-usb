@@ -28,7 +28,7 @@ typedef struct tinyusb_msc_storage_handle_s *tinyusb_msc_storage_handle_t;
  * @brief Storage mount point types
  */
 typedef enum {
-    TINYUSB_MSC_STORAGE_MOUNT_USB = 0,             /*!< Storage is used by USB host */
+    TINYUSB_MSC_STORAGE_MOUNT_USB = 0,             /*!< Storage is exclusively used by USB host */
     TINYUSB_MSC_STORAGE_MOUNT_APP,                 /*!< Storage is used by the application */
 } tinyusb_msc_mount_point_t;
 
