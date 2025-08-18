@@ -17,8 +17,8 @@ extern "C" {
 /**
  * @brief Check the TinyUSB configuration
  *
- * @param port TinyUSB port number
- * @param config TinyUSB Descriptor configuration
+ * @param[in] port TinyUSB port number
+ * @param[in] config TinyUSB Descriptor configuration
  * @retval ESP_ERR_INVALID_ARG if config is NULL or port is invalid
  * @retval ESP_ERR_NOT_SUPPORTED if string_count is greater than USB_STRING_DESCRIPTOR_ARRAY_SIZE
  * @retval ESP_OK if config is valid

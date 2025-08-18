@@ -50,7 +50,7 @@ typedef struct {
                                                 To use this feature, connect VBUS to any free GPIO through a voltage divider or voltage comparator.
                                                 The voltage divider output should be (0.75 * Vdd) if VBUS is 4.4V (lowest valid voltage at device port).
                                                 The comparator thresholds should be set with hysteresis: 4.35V (falling edge) and 4.75V (raising edge). */
-    int vbus_monitor_io;                      /*!< GPIO for VBUS monitoring. Ignored if not self_powered. */
+    int vbus_monitor_io;                      /*!< GPIO for VBUS monitoring, 3.3 V tolerant (use a comparator or a resistior divider to detect the VBUS valid condition). Ignored if not self_powered. */
 } tinyusb_phy_config_t;
 
 /**
@@ -93,11 +93,10 @@ typedef struct {
                                                        Should match the actual number of strings provided. */
 
     const uint8_t *full_speed_config;             /*!< Pointer to the Full-Speed configuration descriptor.
-                                                       Must be provided for all devices. */
+                                                       If NULL, the default descriptor from Kconfig is used, if available for the desired class. */
 
     const uint8_t *high_speed_config;             /*!< Pointer to the High-Speed configuration descriptor.
-                                                       Optional. Required only if the device supports High-Speed mode.
-                                                       Can be NULL for Full-Speed only devices. */
+                                                       If NULL, the default descriptor from Kconfig is used, if available for the desired class and the device supports High-Speed. */
 } tinyusb_desc_config_t;
 
 /**
