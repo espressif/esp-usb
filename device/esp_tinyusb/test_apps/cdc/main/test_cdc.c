@@ -18,7 +18,7 @@
 #include "unity.h"
 #include "tinyusb.h"
 #include "tinyusb_default_config.h"
-#include "tusb_cdc_acm.h"
+#include "tinyusb_cdc_acm.h"
 #include "vfs_tinyusb.h"
 #include "tusb_config.h"
 
@@ -100,16 +100,16 @@ TEST_CASE("tinyusb_cdc", "[esp_tinyusb][cdc]")
     };
 
     // Init CDC 0
-    TEST_ASSERT_FALSE(tusb_cdc_acm_initialized(TINYUSB_CDC_ACM_0));
-    TEST_ASSERT_EQUAL(ESP_OK, tusb_cdc_acm_init(&acm_cfg));
-    TEST_ASSERT_TRUE(tusb_cdc_acm_initialized(TINYUSB_CDC_ACM_0));
+    TEST_ASSERT_FALSE(tinyusb_cdcacm_initialized(TINYUSB_CDC_ACM_0));
+    TEST_ASSERT_EQUAL(ESP_OK, tinyusb_cdcacm_init(&acm_cfg));
+    TEST_ASSERT_TRUE(tinyusb_cdcacm_initialized(TINYUSB_CDC_ACM_0));
 
     // Init CDC 1
     acm_cfg.cdc_port = TINYUSB_CDC_ACM_1;
     acm_cfg.callback_rx = NULL;
-    TEST_ASSERT_FALSE(tusb_cdc_acm_initialized(TINYUSB_CDC_ACM_1));
-    TEST_ASSERT_EQUAL(ESP_OK, tusb_cdc_acm_init(&acm_cfg));
-    TEST_ASSERT_TRUE(tusb_cdc_acm_initialized(TINYUSB_CDC_ACM_1));
+    TEST_ASSERT_FALSE(tinyusb_cdcacm_initialized(TINYUSB_CDC_ACM_1));
+    TEST_ASSERT_EQUAL(ESP_OK, tinyusb_cdcacm_init(&acm_cfg));
+    TEST_ASSERT_TRUE(tinyusb_cdcacm_initialized(TINYUSB_CDC_ACM_1));
 
     // Install VFS to CDC 1
     TEST_ASSERT_EQUAL(ESP_OK, esp_vfs_tusb_cdc_register(TINYUSB_CDC_ACM_1, VFS_PATH));
@@ -174,7 +174,7 @@ TEST_CASE("tinyusb_cdc_throughput", "[esp_tinyusb][cdc_throughput]")
     printf("TinyUSB CDC config:\n\tEP_BUFSIZE = %d\n\tTX_BUFSIZE = %d\n\tTEST_BUFSIZE = %d\n", CFG_TUD_CDC_EP_BUFSIZE, CFG_TUD_CDC_TX_BUFSIZE, CDC_THROUGHPUT_TEST_BUFFER_SIZE);
 
     // Init CDC 0
-    TEST_ASSERT_EQUAL(ESP_OK, tusb_cdc_acm_init(&acm_cfg));
+    TEST_ASSERT_EQUAL(ESP_OK, tinyusb_cdcacm_init(&acm_cfg));
 
     // Wait for host to open this cdc channel
     while (!tud_cdc_n_connected(0)) {
@@ -196,7 +196,7 @@ TEST_CASE("tinyusb_cdc_throughput", "[esp_tinyusb][cdc_throughput]")
     free(tx_buf);
 
     // Cleanup
-    TEST_ASSERT_EQUAL(ESP_OK, tusb_cdc_acm_deinit(0));
+    TEST_ASSERT_EQUAL(ESP_OK, tinyusb_cdcacm_deinit(0));
     TEST_ASSERT_EQUAL(ESP_OK, tinyusb_driver_uninstall());
 }
 

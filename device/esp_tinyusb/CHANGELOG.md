@@ -12,6 +12,7 @@
 - MSC: Removed dedicated callbacks; introduced a single callback with an event ID for each storage
 - MSC: Updated public API; refer to the [MSC Class Migration guide v2](/docs/device/migration-guides/v2/tinyusb_msc.md)
 - Console: Updated public API; refer to the [Console Class Migration guide v2](/docs/device/migration-guides/v2/tinyusb_console.md)
+- CDC-ACM: Updated public API; refer to the [CDC-ACM Class Migration guide v2](/docs/device/migration-guides/v2/tinyusb_cdc_acm.md)
 
 ## 1.7.6~1
 
