@@ -9,7 +9,7 @@
 #include <stdio_ext.h>
 #include "esp_log.h"
 #include "cdc.h"
-#include "tusb_console.h"
+#include "tinyusb_console.h"
 #include "tinyusb.h"
 #include "vfs_tinyusb.h"
 #include "esp_check.h"
@@ -99,7 +99,7 @@ static esp_err_t restore_std_streams(FILE **f_in, FILE **f_out, FILE **f_err)
     return ESP_OK;
 }
 
-esp_err_t esp_tusb_init_console(int cdc_intf)
+esp_err_t tinyusb_console_init(int cdc_intf)
 {
     /* Registering TUSB at VFS */
     ESP_RETURN_ON_ERROR(esp_vfs_tusb_cdc_register(cdc_intf, NULL), TAG, "");
@@ -107,7 +107,7 @@ esp_err_t esp_tusb_init_console(int cdc_intf)
     return ESP_OK;
 }
 
-esp_err_t esp_tusb_deinit_console(int cdc_intf)
+esp_err_t tinyusb_console_deinit(int cdc_intf)
 {
     ESP_RETURN_ON_ERROR(restore_std_streams(&con.in, &con.out, &con.err), TAG, "Failed to restore STD streams");
     esp_vfs_tusb_cdc_unregister(NULL);
