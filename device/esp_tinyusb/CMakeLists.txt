@@ -12,7 +12,7 @@ if(CONFIG_TINYUSB_CDC_ENABLED)
         )
     if(CONFIG_VFS_SUPPORT_IO)
         list(APPEND srcs
-            "tusb_console.c"
+            "tinyusb_console.c"
             "vfs_tinyusb.c"
             )
     endif() # CONFIG_VFS_SUPPORT_IO
