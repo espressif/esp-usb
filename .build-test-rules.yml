@@ -6,6 +6,13 @@ host/class:
   enable:
     - if: SOC_USB_OTG_SUPPORTED == 1
 
+host/usb:
+  enable:
+    - if: SOC_USB_OTG_SUPPORTED == 1
+  disable:
+    - if: IDF_VERSION < "6.0.0"
+      reason: In 1st phase of USB component deployment, we will run USB Component tests only on IDF master with USB component from esp-usb
+
 host/class/uvc/usb_host_uvc/examples/camera_display:
   enable:
     - if: (IDF_VERSION >= "5.3.0")
@@ -27,4 +34,10 @@ host/class/uvc/usb_host_uvc/host_test:
   <<: *host_test_enable_rules
 
 host/class/uac/usb_host_uac/host_test:
+  <<: *host_test_enable_rules
+
+host/usb/test/host_test/usb_host_layer_test:
+  <<: *host_test_enable_rules
+
+host/usb/test/host_test/usbh_layer_test:
   <<: *host_test_enable_rules
