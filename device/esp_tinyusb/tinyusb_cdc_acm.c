@@ -11,7 +11,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "tusb.h"
-#include "tusb_cdc_acm.h"
+#include "tinyusb_cdc_acm.h"
 #include "cdc.h"
 #include "sdkconfig.h"
 
@@ -309,7 +309,7 @@ static esp_err_t obj_free(tinyusb_cdcacm_itf_t itf)
     return ESP_OK;
 }
 
-esp_err_t tusb_cdc_acm_init(const tinyusb_config_cdcacm_t *cfg)
+esp_err_t tinyusb_cdcacm_init(const tinyusb_config_cdcacm_t *cfg)
 {
     esp_err_t ret = ESP_OK;
     int itf = (int)cfg->cdc_port;
@@ -342,7 +342,7 @@ fail:
     return ret;
 }
 
-esp_err_t tusb_cdc_acm_deinit(int itf)
+esp_err_t tinyusb_cdcacm_deinit(int itf)
 {
     esp_err_t ret = ESP_OK;
     ESP_RETURN_ON_ERROR(obj_free(itf), TAG, "obj_free failed");
@@ -350,7 +350,7 @@ esp_err_t tusb_cdc_acm_deinit(int itf)
     return ret;
 }
 
-bool tusb_cdc_acm_initialized(tinyusb_cdcacm_itf_t itf)
+bool tinyusb_cdcacm_initialized(tinyusb_cdcacm_itf_t itf)
 {
     esp_tusb_cdcacm_t *acm = get_acm(itf);
     if (acm) {

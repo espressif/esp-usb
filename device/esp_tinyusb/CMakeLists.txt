@@ -8,7 +8,7 @@ set(srcs
 if(CONFIG_TINYUSB_CDC_ENABLED)
     list(APPEND srcs
         "cdc.c"
-        "tusb_cdc_acm.c"
+        "tinyusb_cdc_acm.c"
         )
     if(CONFIG_VFS_SUPPORT_IO)
         list(APPEND srcs
