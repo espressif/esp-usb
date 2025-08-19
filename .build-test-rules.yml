@@ -6,6 +6,10 @@ host/class:
   enable:
     - if: SOC_USB_OTG_SUPPORTED == 1
 
+host/usb:
+  enable:
+    - if: SOC_USB_OTG_SUPPORTED == 1
+
 host/class/uvc/usb_host_uvc/examples/camera_display:
   enable:
     - if: (IDF_VERSION_MAJOR >= 5 and IDF_VERSION_MINOR >= 3)
