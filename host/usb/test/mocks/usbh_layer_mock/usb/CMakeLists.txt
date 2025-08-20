@@ -15,8 +15,8 @@ idf_component_mock(INCLUDE_DIRS "${original_usb_dir}/include"
 
 
 # We do not mock usbh.c, we use the original implementation of it
-target_sources(${COMPONENT_LIB} PRIVATE "${original_usb_dir}/usbh.c")
+target_sources(${COMPONENT_LIB} PRIVATE "${original_usb_dir}/src/usbh.c")
 # Additionally, we include following src files from the above layers
-target_sources(${COMPONENT_LIB} PRIVATE "${original_usb_dir}/usb_host.c")
-target_sources(${COMPONENT_LIB} PRIVATE "${original_usb_dir}/enum.c")
-target_sources(${COMPONENT_LIB} PRIVATE "${original_usb_dir}/hub.c")
+target_sources(${COMPONENT_LIB} PRIVATE "${original_usb_dir}/src/usb_host.c")
+target_sources(${COMPONENT_LIB} PRIVATE "${original_usb_dir}/src/enum.c")
+target_sources(${COMPONENT_LIB} PRIVATE "${original_usb_dir}/src/hub.c")
