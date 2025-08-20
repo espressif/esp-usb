@@ -18,20 +18,20 @@ host/class/uvc/usb_host_uvc/examples/camera_display:
 # Host tests
 host/class/cdc/usb_host_cdc_acm/host_test:
   enable:
-    - if: IDF_TARGET in ["linux"] and (IDF_VERSION_MAJOR >= 5 and IDF_VERSION_MINOR >= 5)
+    - if: IDF_TARGET in ["linux"] and (IDF_VERSION_MAJOR >= 6 and IDF_VERSION_MINOR >= 0)
       reason: USB mocks are run only for the latest version of IDF
 
 host/class/hid/usb_host_hid/host_test:
   enable:
-    - if: IDF_TARGET in ["linux"] and (IDF_VERSION_MAJOR >= 5 and IDF_VERSION_MINOR >= 5)
+    - if: IDF_TARGET in ["linux"] and (IDF_VERSION_MAJOR >= 6 and IDF_VERSION_MINOR >= 0)
       reason: USB mocks are run only for the latest version of IDF
 
 host/class/uvc/usb_host_uvc/host_test:
   enable:
-    - if: IDF_TARGET in ["linux"] and (IDF_VERSION_MAJOR >= 5 and IDF_VERSION_MINOR >= 5)
+    - if: IDF_TARGET in ["linux"] and (IDF_VERSION_MAJOR >= 6 and IDF_VERSION_MINOR >= 0)
       reason: USB mocks are run only for the latest version of IDF
 
 host/class/uac/usb_host_uac/host_test:
   enable:
-    - if: IDF_TARGET in ["linux"] and (IDF_VERSION_MAJOR >= 5 and IDF_VERSION_MINOR >= 5)
+    - if: IDF_TARGET in ["linux"] and (IDF_VERSION_MAJOR >= 6 and IDF_VERSION_MINOR >= 0)
       reason: USB mocks are run only for the latest version of IDF
