@@ -19,6 +19,10 @@
 #define MIN(x, y) (((x) < (y)) ? (x) : (y))
 #endif
 
+#if (CFG_TUD_CDC_EP_BUFSIZE > CFG_TUD_CDC_RX_BUFSIZE)
+#warning "CDC EP buffer size is larger than RX buffer size. Receive path will not work correctly. Use this configuration only for transmit-only devices."
+#endif
+
 // CDC-ACM spinlock
 static portMUX_TYPE cdc_acm_lock = portMUX_INITIALIZER_UNLOCKED;
 #define CDC_ACM_ENTER_CRITICAL()   portENTER_CRITICAL(&cdc_acm_lock)

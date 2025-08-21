@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2022-2024 Espressif Systems (Shanghai) CO LTD
+# SPDX-FileCopyrightText: 2022-2025 Espressif Systems (Shanghai) CO LTD
 # SPDX-License-Identifier: Apache-2.0
 
 import pytest
@@ -12,10 +12,10 @@ from serial.tools.list_ports import comports
 @pytest.mark.esp32s3
 @pytest.mark.esp32p4
 @pytest.mark.usb_device
-def test_usb_device_cdc(dut) -> None:
+def test_usb_device_cdc(dut: IdfDut) -> None:
     '''
     Running the test locally:
-    1. Build the testa app for your DUT (ESP32-S2 or S3)
+    1. Build the test_app for your DUT (ESP32-S2/S3/P4)
     2. Connect you DUT to your test runner (local machine) with USB port and flashing port
     3. Run `pytest --target esp32s3`
 
@@ -63,10 +63,10 @@ def test_usb_device_cdc(dut) -> None:
                 dut.expect_exact("Intf 0, RX 100 bytes")
 
                 # Write more than RX buffer, check correct reception
-                novfs_cdc.write(bytes(600))
+                novfs_cdc.write(bytes(550))
                 transfer_len1 = int(dut.expect(r'Intf 0, RX (\d+) bytes')[1].decode())
                 transfer_len2 = int(dut.expect(r'Intf 0, RX (\d+) bytes')[1].decode())
-                assert transfer_len1 + transfer_len2 == 600
+                assert transfer_len1 + transfer_len2 == 550
 
                 # The VFS is setup for CRLF RX and LF TX
                 vfs_cdc.write('text\r\n'.encode())

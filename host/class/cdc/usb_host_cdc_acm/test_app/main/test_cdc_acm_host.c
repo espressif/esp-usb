@@ -552,6 +552,19 @@ TEST_CASE("new_device_connection_2", "[cdc_acm]")
     vTaskDelay(20); // Short delay to allow task to be cleaned up
 }
 
+/**
+ * @brief CDC-ACM RX Buffer Test
+ *
+ * This test case verifies the behavior of the CDC-ACM driver when handling RX buffers.
+ * The RX callback can return 'false' to signal that the received data was not processed, which means that next RX data should be appended to the current buffer.
+ *
+ * In case the RX is full, the driver should notify the application.
+ *
+ * -# Install the CDC-ACM driver
+ * -# Open a device with in_buffer_size=512
+ * -# Receive >512 bytes of data in normal operation mode -> no error
+ * -# Receive >512 bytes of data in 'not processed' mode -> error
+ */
 TEST_CASE("rx_buffer", "[cdc_acm]")
 {
     test_install_cdc_driver();
@@ -571,8 +584,9 @@ TEST_CASE("rx_buffer", "[cdc_acm]")
     TEST_ASSERT_NOT_NULL(cdc_dev);
 
     // 1. Send > in_buffer_size bytes of data in normal operation: Expect no error
-    uint8_t tx_data[64] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0xa, 0xb, 0xc, 0xd, 0xe, 0xf};
-    for (int i = 0; i < 10; i++) {
+    // Send 63 bytes of data. 63 because we do not want to send MPS sized packet for Full Speed devices
+    uint8_t tx_data[63] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0xa, 0xb, 0xc, 0xd, 0xe, 0xf};
+    for (int i = 0; i < 10; i++) { // 630 (bytes sent) > 512 (in_buffer_size)
         TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_data_tx_blocking(cdc_dev, tx_data, sizeof(tx_data), 1000));
         vTaskDelay(5);
     }

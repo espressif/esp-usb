@@ -134,14 +134,23 @@ menu "TinyUSB Stack"
             default 512
             range 64 10000
             help
-                CDC FIFO size of RX channel.
+                This buffer size defines maximum data length in bytes that you can receive at once.
+                Must be greater or equal to TINYUSB_CDC_EP_BUFSIZE for correct receiving.
 
         config TINYUSB_CDC_TX_BUFSIZE
             depends on TINYUSB_CDC_ENABLED
             int "CDC FIFO size of TX channel"
             default 512
             help
-                CDC FIFO size of TX channel.
+                This buffer size defines maximum data length in bytes that you can transmit at once.
+
+        config TINYUSB_CDC_EP_BUFSIZE
+            depends on TINYUSB_CDC_ENABLED
+            int "CDC Endpoint buffer size"
+            default 512
+            help
+                This low layer buffer has the most significant impact on performance. Set to 8192 for best performance.
+                Sizes above 8192 bytes bring only little performance improvement.
     endmenu # "Communication Device Class"
 
     menu "Musical Instrument Digital Interface (MIDI)"
