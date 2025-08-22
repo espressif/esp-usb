@@ -1264,9 +1264,13 @@ static esp_err_t uac_host_interface_suspend(uac_iface_t *iface)
     iface->state = UAC_INTERFACE_STATE_SUSPENDING;
 
     // Set Interface alternate setting to 0
-    usb_setup_packet_t request;
-    USB_SETUP_PACKET_INIT_SET_INTERFACE(&request, iface->dev_info.iface_num, 0);
-    esp_err_t ret = uac_cs_request_set(iface->parent, (uac_cs_request_t *)&request);
+    usb_setup_packet_t usb_request;
+    USB_SETUP_PACKET_INIT_SET_INTERFACE(&usb_request, iface->dev_info.iface_num, 0);
+
+    // memcpy, because of alignment warning
+    uac_cs_request_t uac_request = {0};
+    memcpy(&uac_request, &usb_request, sizeof(usb_setup_packet_t));
+    esp_err_t ret = uac_cs_request_set(iface->parent, &uac_request);
     if (ret != ESP_OK) {
         ESP_LOGW(TAG, "Set Interface %d-%d Failed", iface->dev_info.iface_num, 0);
     } else {
@@ -1309,9 +1313,13 @@ static esp_err_t uac_host_interface_resume(uac_iface_t *iface)
     UAC_RETURN_ON_FALSE((UAC_INTERFACE_STATE_READY == iface->state), ESP_ERR_INVALID_STATE, "Interface wrong state");
 
     // Set Interface alternate setting
-    usb_setup_packet_t request;
-    USB_SETUP_PACKET_INIT_SET_INTERFACE(&request, iface->dev_info.iface_num, iface->cur_alt + 1);
-    UAC_RETURN_ON_ERROR(uac_cs_request_set(iface->parent, (uac_cs_request_t *)&request), "Unable to set Interface alternate");
+    usb_setup_packet_t usb_request;
+    USB_SETUP_PACKET_INIT_SET_INTERFACE(&usb_request, iface->dev_info.iface_num, iface->cur_alt + 1);
+
+    // memcpy, because of alignment warning
+    uac_cs_request_t uac_request = {0};
+    memcpy(&uac_request, &usb_request, sizeof(usb_setup_packet_t));
+    UAC_RETURN_ON_ERROR(uac_cs_request_set(iface->parent, &uac_request), "Unable to set Interface alternate");
     ESP_LOGI(TAG, "Set Interface %d-%d", iface->dev_info.iface_num, iface->cur_alt + 1);
     // Set endpoint frequency control
     if (iface->iface_alt[iface->cur_alt].freq_ctrl_supported) {
