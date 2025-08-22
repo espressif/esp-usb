@@ -1,3 +1,19 @@
+## 2.0.0
+
+- esp_tinyusb: Added USB Compliance Verification results
+- CDC-ACM: Added a configurable parameter for the endpoint DMA buffer
+
+### Breaking changes
+
+- esp_tinyusb: External PHY is no longer initialized automatically. If an external PHY is required, it must be explicitly initialized by the user with configuration parameter `phy.skip_setup = true`
+- esp_tinyusb: Added run-time configuration for peripheral port selection, task settings, and descriptors. For more details, refer to the [Espressif's Addition to TinyUSB Mirgation guide v2](/docs/device/migration-guides/v2/tinyusb.md)
+- esp_tinyusb: Added USB Device event callback to handle different USB Device events. For the list of supported USB Device events, refer to to [Espressif's Addition to TinyUSB - README](/device/esp_tinyusb/README.md)
+- esp_tinyusb: Removed configuration option to handle TinyUSB events outside of this driver
+- MSC: Removed dedicated callbacks; introduced a single callback with an event ID for each storage
+- MSC: Updated public API; refer to the [MSC Class Migration guide v2](/docs/device/migration-guides/v2/tinyusb_msc.md)
+- Console: Updated public API; refer to the [Console Class Migration guide v2](/docs/device/migration-guides/v2/tinyusb_console.md)
+- CDC-ACM: Updated public API; refer to the [CDC-ACM Class Migration guide v2](/docs/device/migration-guides/v2/tinyusb_cdc_acm.md)
+
 ## 1.7.6~1
 
 - esp_tinyusb: Added documentation to README.md
@@ -9,6 +25,10 @@
 ## 1.7.5
 
 - esp_tinyusb: Provide forward compatibility with IDF 6.0
+
+## 1.7.4~1
+
+- esp_tinyusb: Claim forward compatibility with IDF 6.0
 
 ## 1.7.4
 

@@ -4,109 +4,165 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <string.h>
 #include "sdkconfig.h"
 #include "esp_log.h"
 #include "esp_check.h"
 #include "esp_err.h"
 #include "esp_private/usb_phy.h"
 #include "tinyusb.h"
-#include "descriptors_control.h"
+#include "tinyusb_task.h"
 #include "tusb.h"
-#include "tusb_tasks.h"
+
+#if (CONFIG_TINYUSB_MSC_ENABLED)
+#include "tinyusb_msc.h"
+#include "msc_storage.h"
+#endif // CONFIG_TINYUSB_MSC_ENABLED
 
 const static char *TAG = "TinyUSB";
-static usb_phy_handle_t phy_hdl;
+
+/**
+ * @brief TinyUSB context
+ */
+typedef struct {
+    tinyusb_port_t port;                      /*!< USB Peripheral hardware port number. Available when hardware has several available peripherals. */
+    usb_phy_handle_t phy_hdl;                 /*!< USB PHY handle */
+    tinyusb_event_cb_t event_cb;              /*!< Callback function that will be called when USB events occur. */
+    void *event_arg;                          /*!< Pointer to the argument passed to the callback */
+} tinyusb_ctx_t;
+
+static tinyusb_ctx_t s_ctx; // TinyUSB context
 
 // For the tinyusb component without tusb_teardown() implementation
 #ifndef tusb_teardown
 #   define tusb_teardown()   (true)
 #endif // tusb_teardown
 
-esp_err_t tinyusb_driver_install(const tinyusb_config_t *config)
-{
-    ESP_RETURN_ON_FALSE(config, ESP_ERR_INVALID_ARG, TAG, "Config can't be NULL");
+// ==================================================================================
+// ============================= TinyUSB Callbacks ==================================
+// ==================================================================================
 
-    // Configure USB PHY
-    usb_phy_config_t phy_conf = {
-        .controller = USB_PHY_CTRL_OTG,
-        .otg_mode = USB_OTG_MODE_DEVICE,
-#if (USB_PHY_SUPPORTS_P4_OTG11)
-        .otg_speed = (TUD_OPT_HIGH_SPEED) ? USB_PHY_SPEED_HIGH : USB_PHY_SPEED_FULL,
-#else
-#if (CONFIG_IDF_TARGET_ESP32P4 && CONFIG_TINYUSB_RHPORT_FS)
-#error "USB PHY for OTG1.1 is not supported, please update your esp-idf."
-#endif // IDF_TARGET_ESP32P4 && CONFIG_TINYUSB_RHPORT_FS
-#endif // USB_PHY_SUPPORTS_P4_OTG11
+/**
+ * @brief Callback function invoked when device is mounted (configured)
+ *
+ * This function is called by TinyUSB stack when:
+ *
+ * - SetConfiguration(n) is called by the host, where n is the configuration number and not zero.
+ *
+ * @note
+ * For Win-based Hosts: SetConfiguration(n) request is present only with available Class in Device Descriptor.
+ */
+void tud_mount_cb(void)
+{
+#if (CONFIG_TINYUSB_MSC_ENABLED)
+    msc_storage_mount_to_usb();
+#endif // CONFIG_TINYUSB_MSC_ENABLED
+    tinyusb_event_t event = {
+        .id = TINYUSB_EVENT_ATTACHED,
+        .rhport = s_ctx.port,
     };
 
-    /*
-    Following ext. PHY IO configuration is here to provide compatibility with IDFv5.x releases,
-    where ext. PHY IOs were mapped to predefined GPIOs.
-    In reality, ESP32-S2 and ESP32-S3 can map ext. PHY IOs to any GPIOs.
-    This option is implemented in esp_tinyusb v2.0.0 and later.
-    */
-    usb_phy_ext_io_conf_t ext_io_conf;
-    // Use memset to be compatible with IDF < 5.4.1 where suspend_n_io_num and fs_edge_sel_io_num were added
-    memset(&ext_io_conf, -1, sizeof(usb_phy_ext_io_conf_t));
-#if CONFIG_IDF_TARGET_ESP32S2
-    ext_io_conf.vp_io_num  = 33;
-    ext_io_conf.vm_io_num  = 34;
-    ext_io_conf.rcv_io_num = 35;
-    ext_io_conf.oen_io_num = 36;
-    ext_io_conf.vpo_io_num = 37;
-    ext_io_conf.vmo_io_num = 38;
-#elif CONFIG_IDF_TARGET_ESP32S3
-    ext_io_conf.vp_io_num  = 42;
-    ext_io_conf.vm_io_num  = 41;
-    ext_io_conf.rcv_io_num = 21;
-    ext_io_conf.oen_io_num = 40;
-    ext_io_conf.vpo_io_num = 39;
-    ext_io_conf.vmo_io_num = 38;
-#endif // IDF_TARGET_ESP32S3
-
-    if (config->external_phy) {
-        phy_conf.target = USB_PHY_TARGET_EXT;
-        phy_conf.ext_io_conf = &ext_io_conf;
-
-        /*
-        There is a bug in esp-idf that does not allow device speed selection
-        when External PHY is used.
-        Remove this when proper fix is implemented in IDF-11144
-        */
-        phy_conf.otg_speed = USB_PHY_SPEED_UNDEFINED;
-    } else {
-        phy_conf.target = USB_PHY_TARGET_INT;
+    if (s_ctx.event_cb) {
+        s_ctx.event_cb(&event, s_ctx.event_arg);
     }
+}
 
-    // OTG IOs config
-    const usb_phy_otg_io_conf_t otg_io_conf = USB_PHY_SELF_POWERED_DEVICE(config->vbus_monitor_io);
-    if (config->self_powered) {
-        phy_conf.otg_io_conf = &otg_io_conf;
+/**
+ * @brief Callback function invoked when device is unmounted
+ *
+ * This function is called by TinyUSB stack when:
+ *
+ * - SetConfiguration(0) is called by the host.
+ * - Device is disconnected (DCD_EVENT_UNPLUGGED) from the host.
+ */
+void tud_umount_cb(void)
+{
+#if (CONFIG_TINYUSB_MSC_ENABLED)
+    msc_storage_mount_to_app();
+#endif // CONFIG_TINYUSB_MSC_ENABLED
+    tinyusb_event_t event = {
+        .id = TINYUSB_EVENT_DETACHED,
+        .rhport = s_ctx.port,
+    };
+
+    if (s_ctx.event_cb) {
+        s_ctx.event_cb(&event, s_ctx.event_arg);
     }
-    ESP_RETURN_ON_ERROR(usb_new_phy(&phy_conf, &phy_hdl), TAG, "Install USB PHY failed");
+}
 
-    // Descriptors config
-    ESP_RETURN_ON_ERROR(tinyusb_set_descriptors(config), TAG, "Descriptors config failed");
+// ==================================================================================
+// ============================= ESP TinyUSB Driver =================================
+// ==================================================================================
 
-    // Init
-#if !CONFIG_TINYUSB_INIT_IN_DEFAULT_TASK
-    ESP_RETURN_ON_FALSE(tusb_init(), ESP_FAIL, TAG, "Init TinyUSB stack failed");
-#endif
-#if !CONFIG_TINYUSB_NO_DEFAULT_TASK
-    ESP_RETURN_ON_ERROR(tusb_run_task(), TAG, "Run TinyUSB task failed");
-#endif
-    ESP_LOGI(TAG, "TinyUSB Driver installed");
+/**
+ * @brief Check the TinyUSB configuration
+ */
+static esp_err_t tinyusb_check_config(const tinyusb_config_t *config)
+{
+    ESP_RETURN_ON_FALSE(config, ESP_ERR_INVALID_ARG, TAG, "Config can't be NULL");
+    ESP_RETURN_ON_FALSE(config->port < TINYUSB_PORT_MAX, ESP_ERR_INVALID_ARG, TAG, "Port number should be supported by the hardware");
+#if (CONFIG_IDF_TARGET_ESP32P4)
+#ifndef USB_PHY_SUPPORTS_P4_OTG11
+    ESP_RETURN_ON_FALSE(config->port != TINYUSB_PORT_0, ESP_ERR_INVALID_ARG, TAG, "USB PHY support for OTG1.1 has not been implemented, please update your esp-idf");
+#endif // ESP-IDF supports OTG1.1 peripheral
+#endif // CONFIG_IDF_TARGET_ESP32P4
     return ESP_OK;
+}
+
+esp_err_t tinyusb_driver_install(const tinyusb_config_t *config)
+{
+    ESP_RETURN_ON_ERROR(tinyusb_check_config(config), TAG, "TinyUSB configuration check failed");
+    ESP_RETURN_ON_ERROR(tinyusb_task_check_config(&config->task), TAG, "TinyUSB task configuration check failed");
+
+    esp_err_t ret;
+    usb_phy_handle_t phy_hdl = NULL;
+    if (!config->phy.skip_setup) {
+        // Configure USB PHY
+        usb_phy_config_t phy_conf = {
+            .controller = USB_PHY_CTRL_OTG,
+            .target = USB_PHY_TARGET_INT,
+            .otg_mode = USB_OTG_MODE_DEVICE,
+            .otg_speed = USB_PHY_SPEED_FULL,
+        };
+
+#if (SOC_USB_OTG_PERIPH_NUM > 1)
+        if (config->port == TINYUSB_PORT_HIGH_SPEED_0) {
+            // Default PHY for OTG2.0 is UTMI
+            phy_conf.target = USB_PHY_TARGET_UTMI;
+            phy_conf.otg_speed = USB_PHY_SPEED_HIGH;
+        }
+#endif // (SOC_USB_OTG_PERIPH_NUM > 1)
+
+        // OTG IOs config
+        const usb_phy_otg_io_conf_t otg_io_conf = USB_PHY_SELF_POWERED_DEVICE(config->phy.vbus_monitor_io);
+        if (config->phy.self_powered) {
+            phy_conf.otg_io_conf = &otg_io_conf;
+        }
+        ESP_RETURN_ON_ERROR(usb_new_phy(&phy_conf, &phy_hdl), TAG, "Install USB PHY failed");
+    }
+    // Init TinyUSB stack in task
+    ESP_GOTO_ON_ERROR(tinyusb_task_start(config->port, &config->task, &config->descriptor), del_phy, TAG, "Init TinyUSB task failed");
+
+    s_ctx.port = config->port;              // Save the port number
+    s_ctx.phy_hdl = phy_hdl;                // Save the PHY handle for uninstallation
+    s_ctx.event_cb = config->event_cb;      // Save the event callback
+    s_ctx.event_arg = config->event_arg;    // Save the event callback argument
+
+    ESP_LOGI(TAG, "TinyUSB Driver installed on port %d", config->port);
+    return ESP_OK;
+
+del_phy:
+    if (!config->phy.skip_setup) {
+        usb_del_phy(phy_hdl);
+    }
+    return ret;
 }
 
 esp_err_t tinyusb_driver_uninstall(void)
 {
-#if !CONFIG_TINYUSB_NO_DEFAULT_TASK
-    ESP_RETURN_ON_ERROR(tusb_stop_task(), TAG, "Unable to stop TinyUSB task");
-#endif // !CONFIG_TINYUSB_NO_DEFAULT_TASK
-    ESP_RETURN_ON_FALSE(tusb_teardown(), ESP_ERR_NOT_FINISHED, TAG, "Unable to teardown TinyUSB");
-    tinyusb_free_descriptors();
-    ESP_RETURN_ON_ERROR(usb_del_phy(phy_hdl), TAG, "Unable to delete PHY");
+    ESP_RETURN_ON_ERROR(tinyusb_task_stop(), TAG, "Deinit TinyUSB task failed");
+    if (s_ctx.phy_hdl) {
+        ESP_RETURN_ON_ERROR(usb_del_phy(s_ctx.phy_hdl), TAG, "Unable to delete PHY");
+        s_ctx.phy_hdl = NULL;
+    }
     return ESP_OK;
 }

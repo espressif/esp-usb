@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2024-2025 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -17,6 +17,7 @@
 
 #include "unity.h"
 #include "tinyusb.h"
+#include "tinyusb_default_config.h"
 
 static const char *TAG = "vendor_test";
 
@@ -52,20 +53,8 @@ bool tud_vendor_control_xfer_cb(uint8_t rhport, uint8_t stage, tusb_control_requ
 TEST_CASE("tinyusb_vendor", "[esp_tinyusb][vendor]")
 {
     // Install TinyUSB driver
-    const tinyusb_config_t tusb_cfg = {
-        .external_phy = false,
-        .device_descriptor = NULL,
-#if (TUD_OPT_HIGH_SPEED)
-        .fs_configuration_descriptor = NULL,
-        .hs_configuration_descriptor = NULL,
-        .qualifier_descriptor = NULL,
-#else
-        .configuration_descriptor = NULL,
-#endif // TUD_OPT_HIGH_SPEED
-    };
+    tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG();
     TEST_ASSERT_EQUAL(ESP_OK, tinyusb_driver_install(&tusb_cfg));
-
-
 }
 
 #endif

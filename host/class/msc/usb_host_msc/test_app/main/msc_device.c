@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2022-2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2022-2025 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -7,11 +7,12 @@
 
 #include "esp_log.h"
 #include "tinyusb.h"
+#include "tinyusb_default_config.h"
 #include "soc/soc_caps.h"
 #include "test_common.h"
 #include "esp_check.h"
 #include "driver/gpio.h"
-#include "tusb_msc_storage.h"
+#include "tinyusb_msc.h"
 #if SOC_SDMMC_HOST_SUPPORTED
 #include "diskio_impl.h"
 #include "diskio_sdmmc.h"
@@ -122,21 +123,17 @@ static void storage_init(void)
 {
     ESP_LOGI(TAG, "USB MSC initialization");
 
-    const tinyusb_config_t tusb_cfg = {
-        .device_descriptor = &descriptor_config,
-        .string_descriptor = string_desc_arr,
-        .string_descriptor_count = sizeof(string_desc_arr) / sizeof(string_desc_arr[0]),
-        .external_phy = false,
+    tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG();
+    tusb_cfg.descriptor.device = &descriptor_config;
+    tusb_cfg.descriptor.full_speed_config = msc_fs_desc_configuration;
 #if (TUD_OPT_HIGH_SPEED)
-        .fs_configuration_descriptor = msc_fs_desc_configuration,
-        .hs_configuration_descriptor = msc_hs_desc_configuration,
-        .qualifier_descriptor = &device_qualifier,
-#else
-        .configuration_descriptor = msc_fs_desc_configuration,
+    tusb_cfg.descriptor.high_speed_config = msc_hs_desc_configuration;
+    tusb_cfg.descriptor.qualifier = &device_qualifier;
 #endif // TUD_OPT_HIGH_SPEED
-        .self_powered = true,
-        .vbus_monitor_io = VBUS_MONITORING_GPIO_NUM
-    };
+    tusb_cfg.descriptor.string = string_desc_arr;
+    tusb_cfg.descriptor.string_count = sizeof(string_desc_arr) / sizeof(string_desc_arr[0]);
+    tusb_cfg.phy.self_powered = true;
+    tusb_cfg.phy.vbus_monitor_io = VBUS_MONITORING_GPIO_NUM;
 
     ESP_ERROR_CHECK(tinyusb_driver_install(&tusb_cfg));
     ESP_LOGI(TAG, "USB initialization DONE");
@@ -163,10 +160,11 @@ void device_app(void)
     static wl_handle_t wl_handle = WL_INVALID_HANDLE;
     ESP_ERROR_CHECK(storage_init_spiflash(&wl_handle));
 
-    const tinyusb_msc_spiflash_config_t config_spi = {
-        .wl_handle = wl_handle,
+    const tinyusb_msc_storage_config_t config = {
+        .medium.wl_handle = wl_handle,  // Set the medium of the storage to the wear leveling
     };
-    ESP_ERROR_CHECK(tinyusb_msc_storage_init_spiflash(&config_spi));
+    ESP_ERROR_CHECK(tinyusb_msc_new_storage_spiflash(&config, NULL));
+
     storage_init();
     while (1) {
         vTaskDelay(100);
@@ -253,9 +251,10 @@ void device_app_sdmmc(void)
     static sdmmc_card_t *card = NULL;
     ESP_ERROR_CHECK(storage_init_sdmmc(&card));
 
-    tinyusb_msc_sdmmc_config_t config_sdmmc;
-    config_sdmmc.card = card;
-    ESP_ERROR_CHECK(tinyusb_msc_storage_init_sdmmc(&config_sdmmc));
+    const tinyusb_msc_storage_config_t config = {
+        .medium.card = card,  // Set the medium of the storage to the SDMMC card
+    };
+    ESP_ERROR_CHECK(tinyusb_msc_new_storage_sdmmc(&config, NULL));
 
     storage_init();
     while (1) {

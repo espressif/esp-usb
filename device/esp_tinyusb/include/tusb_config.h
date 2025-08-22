@@ -84,10 +84,12 @@ extern "C" {
 #   define CONFIG_TINYUSB_DEBUG_LEVEL 0
 #endif
 
-#ifdef CONFIG_TINYUSB_RHPORT_HS
-#   define CFG_TUSB_RHPORT1_MODE    OPT_MODE_DEVICE | OPT_MODE_HIGH_SPEED
+#define CFG_TUD_ENABLED                 1       // TinyUSB Device enabled
+
+#if (CONFIG_IDF_TARGET_ESP32P4)
+#define CFG_TUD_MAX_SPEED               OPT_MODE_HIGH_SPEED
 #else
-#   define CFG_TUSB_RHPORT0_MODE    OPT_MODE_DEVICE | OPT_MODE_FULL_SPEED
+#define CFG_TUD_MAX_SPEED               OPT_MODE_FULL_SPEED
 #endif
 
 // ------------------------------------------------------------------------
@@ -142,6 +144,7 @@ extern "C" {
 // CDC FIFO size of TX and RX
 #define CFG_TUD_CDC_RX_BUFSIZE      CONFIG_TINYUSB_CDC_RX_BUFSIZE
 #define CFG_TUD_CDC_TX_BUFSIZE      CONFIG_TINYUSB_CDC_TX_BUFSIZE
+#define CFG_TUD_CDC_EP_BUFSIZE      CONFIG_TINYUSB_CDC_EP_BUFSIZE
 
 // MSC Buffer size of Device Mass storage
 #define CFG_TUD_MSC_BUFSIZE         CONFIG_TINYUSB_MSC_BUFSIZE

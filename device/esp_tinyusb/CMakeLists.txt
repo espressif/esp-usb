@@ -2,20 +2,17 @@ set(srcs
     "descriptors_control.c"
     "tinyusb.c"
     "usb_descriptors.c"
+    "tinyusb_task.c"
     )
-
-if(NOT CONFIG_TINYUSB_NO_DEFAULT_TASK)
-    list(APPEND srcs "tusb_tasks.c")
-endif() # CONFIG_TINYUSB_NO_DEFAULT_TASK
 
 if(CONFIG_TINYUSB_CDC_ENABLED)
     list(APPEND srcs
         "cdc.c"
-        "tusb_cdc_acm.c"
+        "tinyusb_cdc_acm.c"
         )
     if(CONFIG_VFS_SUPPORT_IO)
         list(APPEND srcs
-            "tusb_console.c"
+            "tinyusb_console.c"
             "vfs_tinyusb.c"
             )
     endif() # CONFIG_VFS_SUPPORT_IO
@@ -23,13 +20,20 @@ endif() # CONFIG_TINYUSB_CDC_ENABLED
 
 if(CONFIG_TINYUSB_MSC_ENABLED)
     list(APPEND srcs
-        tusb_msc_storage.c
+        "tinyusb_msc.c"
+        "storage_spiflash.c"
         )
+    if(CONFIG_SOC_SDMMC_HOST_SUPPORTED)
+        list(APPEND srcs
+            "storage_sdmmc.c"
+            )
+    endif() # CONFIG_SOC_SDMMC_HOST_SUPPORTED
 endif() # CONFIG_TINYUSB_MSC_ENABLED
+
 
 if(CONFIG_TINYUSB_NET_MODE_NCM)
     list(APPEND srcs
-         tinyusb_net.c
+         "tinyusb_net.c"
          )
 endif() # CONFIG_TINYUSB_NET_MODE_NCM
 

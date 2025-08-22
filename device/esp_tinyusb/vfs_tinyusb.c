@@ -18,7 +18,7 @@
 #include "esp_vfs.h"
 #include "esp_vfs_dev.h"
 #include "tinyusb.h"
-#include "tusb_cdc_acm.h"
+#include "tinyusb_cdc_acm.h"
 #include "vfs_tinyusb.h"
 #include "sdkconfig.h"
 
@@ -259,7 +259,7 @@ esp_err_t esp_vfs_tusb_cdc_register(int cdc_intf, char const *path)
 {
     ESP_LOGD(TAG, "Registering CDC-VFS driver");
     int res;
-    if (!tusb_cdc_acm_initialized(cdc_intf)) {
+    if (!tinyusb_cdcacm_initialized(cdc_intf)) {
         ESP_LOGE(TAG, "TinyUSB CDC#%d is not initialized", cdc_intf);
         return ESP_ERR_INVALID_STATE;
     }
