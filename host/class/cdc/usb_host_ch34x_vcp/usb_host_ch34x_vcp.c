@@ -196,7 +196,21 @@ static esp_err_t ch34x_line_coding_set(cdc_acm_dev_hdl_t cdc_hdl, const cdc_acm_
 
 esp_err_t ch34x_vcp_open(uint16_t pid, uint8_t interface_idx, const cdc_acm_host_device_config_t *dev_config, cdc_acm_dev_hdl_t *cdc_hdl_ret)
 {
-    esp_err_t ret = cdc_acm_host_open(NANJING_QINHENG_MICROE_VID, pid, interface_idx, dev_config, cdc_hdl_ret);
+    esp_err_t ret;
+    if (pid == CH34X_PID_AUTO) {
+        static const uint16_t supported_pids[] = {CH340_PID, CH340_PID_1, CH341_PID};
+        static const size_t num_pids = sizeof(supported_pids) / sizeof(supported_pids[0]);
+
+        ret = ESP_ERR_NOT_FOUND;
+        for (size_t i = 0; i < num_pids; i++) {
+            ret = cdc_acm_host_open(NANJING_QINHENG_MICROE_VID, supported_pids[i], interface_idx, dev_config, cdc_hdl_ret);
+            if (ret == ESP_OK) {
+                break;
+            }
+        }
+    } else {
+        ret = cdc_acm_host_open(NANJING_QINHENG_MICROE_VID, pid, interface_idx, dev_config, cdc_hdl_ret);
+    }
 
     // Set custom function for this driver
     if (ret == ESP_OK) {

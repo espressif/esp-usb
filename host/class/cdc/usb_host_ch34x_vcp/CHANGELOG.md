@@ -1,3 +1,6 @@
+## 2.2.0
+- Added PID autodetection
+
 ## 2.1.0
 - Added C API
 

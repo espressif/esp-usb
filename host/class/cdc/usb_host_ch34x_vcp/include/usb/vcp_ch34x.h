@@ -14,6 +14,9 @@
 #define CH340_PID_1                (0x7523)
 #define CH341_PID                  (0x5523)
 
+// Auto detect supported PIDs
+#define CH34X_PID_AUTO             (0)
+
 #ifdef __cplusplus
 extern "C" {
 #endif
