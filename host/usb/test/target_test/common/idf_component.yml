@@ -1,3 +1,7 @@
+## IDF Component Manager Manifest File
 dependencies:
-  usb:
+  espressif/usb:
+    version: "*"
     override_path: "../../../"
+    rules:
+      - if: "idf_version >=6.0" # Override native esp-idf/usb component only for 6.0 and above
