@@ -12,7 +12,7 @@ host/usb:
 
 host/class/uvc/usb_host_uvc/examples/camera_display:
   enable:
-    - if: (IDF_VERSION_MAJOR >= 5 and IDF_VERSION_MINOR >= 3)
+    - if: ((IDF_VERSION_MAJOR >= 5 and IDF_VERSION_MINOR >= 3) or (IDF_VERSION_MAJOR >=6))
       reason: This example uses esp_lcd API introduced in v5.3
 
 # Host tests
