@@ -101,7 +101,22 @@ static esp_err_t cp210x_send_break(cdc_acm_dev_hdl_t cdc_hdl, uint16_t duration_
 
 esp_err_t cp210x_vcp_open(uint16_t pid, uint8_t interface_idx, const cdc_acm_host_device_config_t *dev_config, cdc_acm_dev_hdl_t *cdc_hdl_ret)
 {
-    esp_err_t ret = cdc_acm_host_open(SILICON_LABS_VID, pid, interface_idx, dev_config, cdc_hdl_ret);
+    esp_err_t ret;
+    if (pid == CP210X_PID_AUTO) {
+        static const uint16_t supported_pids[] = {CP210X_PID, CP2105_PID, CP2108_PID};
+        static const size_t num_pids = sizeof(supported_pids) / sizeof(supported_pids[0]);
+
+        ret = ESP_ERR_NOT_FOUND;
+        for (size_t i = 0; i < num_pids; i++) {
+            ret = cdc_acm_host_open(SILICON_LABS_VID, supported_pids[i], interface_idx, dev_config, cdc_hdl_ret);
+            if (ret == ESP_OK) {
+                break;
+            }
+        }
+    } else {
+        ret = cdc_acm_host_open(SILICON_LABS_VID, pid, interface_idx, dev_config, cdc_hdl_ret);
+    }
+
     // Set custom function for this driver
     if (ret == ESP_OK) {
         cdc_acm_dev_hdl_t cdc_hdl = *cdc_hdl_ret;
