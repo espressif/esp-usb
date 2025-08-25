@@ -53,9 +53,9 @@ Or simply run:
 idf.py add-dependency esp_tinyusb~2.0.0
 ```
 
-## Breaking changes
+## Breaking changes migration guides
 
-- [v2.0.0](https://docs.espressif.com/projects/esp-usb/docs/device/migration-guide/v2)
+- [v2.0.0](/docs/device/migration-guides/v2)
 
 ## USB Device Stack: usage, installation & configuration
 
