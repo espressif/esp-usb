@@ -1,0 +1,3 @@
+## IDF Component Manager Manifest File
+version: "1.0.0"
+description: USB Host driver

@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 #
-# SPDX-FileCopyrightText: 2024 Espressif Systems (Shanghai) CO LTD
+# SPDX-FileCopyrightText: 2024-2025 Espressif Systems (Shanghai) CO LTD
 # SPDX-License-Identifier: Apache-2.0
 
 import sys
@@ -10,6 +10,33 @@ from pathlib import Path
 from glob import glob
 from idf_component_tools.manager import ManifestManager
 
+def find_apps_with_manifest(apps):
+    """
+    Given a list of paths or glob patterns, return a list of directories
+    that contain 'main/idf_component.yml'. Checks one level of subfolders.
+    """
+    apps_with_glob = []
+
+    for app in apps:
+        # Expand wildcards
+        for match in glob(app):
+            p = Path(match)
+
+            if p.is_dir():
+                # Check main/idf_component.yml directly inside
+                manifest = p / "main" / "idf_component.yml"
+                if manifest.exists():
+                    apps_with_glob.append(str(p))
+                    continue  # already found, no need to check subfolders
+
+                # Check one level of subfolders
+                for sub in p.iterdir():
+                    if sub.is_dir():
+                        manifest = sub / "main" / "idf_component.yml"
+                        if manifest.exists():
+                            apps_with_glob.append(str(sub))
+
+    return apps_with_glob
 
 def override_with_local_component(component, local_path, app):
     app_path = Path(app)
@@ -42,9 +69,7 @@ def override_with_local_component(component, local_path, app):
 
 def override_with_local_component_all(component, local_path, apps):
     # Process wildcard, e.g. "app_prefix_*"
-    apps_with_glob = list()
-    for app in apps:
-        apps_with_glob += glob(app)
+    apps_with_glob = find_apps_with_manifest(apps)
 
     # Go through all collected apps
     for app in apps_with_glob:

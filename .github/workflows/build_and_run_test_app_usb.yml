@@ -10,8 +10,9 @@ jobs:
   build:
     name: Build USB TestApps
     strategy:
+      fail-fast: false
       matrix:
-        idf_ver: ["release-v5.0", "release-v5.1", "release-v5.2", "release-v5.3", "release-v5.4", "release-v5.5", "latest"]
+        idf_ver: ["release-v5.1", "release-v5.2", "release-v5.3", "release-v5.4", "release-v5.5", "latest"]
     runs-on: ubuntu-latest
     container: espressif/idf:${{ matrix.idf_ver }}
     steps:
@@ -22,6 +23,7 @@ jobs:
         shell: bash
         run: |
           . ${IDF_PATH}/export.sh
+          git config --global safe.directory $(pwd)
           pip install idf-build-apps==2.4.3 --upgrade
           export PEDANTIC_FLAGS="-DIDF_CI_BUILD -Werror -Werror=deprecated-declarations -Werror=unused-variable -Werror=unused-but-set-variable -Werror=unused-function"
           export EXTRA_CFLAGS="${PEDANTIC_FLAGS} -Wstrict-prototypes"
@@ -46,13 +48,11 @@ jobs:
     needs: build
     strategy:
       matrix:
-        idf_ver: ["release-v5.0", "release-v5.1", "release-v5.2", "release-v5.3", "release-v5.4", "release-v5.5", "latest"]
+        idf_ver: ["release-v5.1", "release-v5.2", "release-v5.3", "release-v5.4", "release-v5.5", "latest"]
         idf_target: ["esp32s2", "esp32p4"]
         runner_tag: ["usb_host", "usb_device"]
         exclude:
           # Exclude esp32p4 for releases before IDF 5.3 for all runner tags (esp32p4 support starts in IDF 5.3)
-          - idf_ver: "release-v5.0"
-            idf_target: "esp32p4"
           - idf_ver: "release-v5.1"
             idf_target: "esp32p4"
           - idf_ver: "release-v5.2"

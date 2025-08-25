@@ -279,6 +279,9 @@ void test_hcd_pipe_free(hcd_pipe_handle_t pipe_hdl)
     vQueueDelete(pipe_evt_queue);
 }
 
+#include "esp_idf_version.h"
+
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 3, 0)         // MALLOC_CAP_CACHE_ALIGNED firstly defined in IDF 5.3
 #include "esp_private/esp_cache_private.h"
 
 #define ALIGN_UP(num, align)    ((align) == 0 ? (num) : (((num) + ((align) - 1)) & ~((align) - 1)))
@@ -289,14 +292,21 @@ void test_hcd_pipe_free(hcd_pipe_handle_t pipe_hdl)
 #define DATA_BUFFER_CAPS                     (MALLOC_CAP_DMA | MALLOC_CAP_CACHE_ALIGNED | MALLOC_CAP_INTERNAL)
 #endif
 
+#else   // ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 3, 0)
+#define DATA_BUFFER_CAPS                     MALLOC_CAP_DMA
+#endif  // ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 3, 0)
+
 urb_t *test_hcd_alloc_urb(int num_isoc_packets, size_t data_buffer_size)
 {
     // Allocate a URB and data buffer
     urb_t *urb = heap_caps_calloc(1, sizeof(urb_t) + (sizeof(usb_isoc_packet_desc_t) * num_isoc_packets), MALLOC_CAP_DEFAULT);
 
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 3, 0)     // MALLOC_CAP_CACHE_ALIGNED firstly defined in IDF 5.3
     size_t cache_align = 0;
     esp_cache_get_alignment(DATA_BUFFER_CAPS, &cache_align);
     data_buffer_size = ALIGN_UP(data_buffer_size, cache_align);
+#endif  // ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 3, 0)
+
     void *data_buffer = heap_caps_malloc(data_buffer_size, DATA_BUFFER_CAPS);
 
     TEST_ASSERT_NOT_NULL_MESSAGE(urb, "Failed to allocate URB");

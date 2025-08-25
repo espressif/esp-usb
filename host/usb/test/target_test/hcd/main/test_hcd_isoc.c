@@ -13,11 +13,17 @@
 #include "dev_isoc.h"
 #include "usb/usb_types_ch9.h"
 #include "hcd_common.h"
+#include "esp_idf_version.h"
 
 #define NUM_URBS                3
 #define NUM_PACKETS_PER_URB     3
 #define POST_ENQUEUE_DELAY_US   20
+
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 3, 0)     // esp32p4 support was added in IDF 5.3
 #define ENQUEUE_DELAY (usb_dwc_ll_ghwcfg_get_hsphy_type(USB_DWC_LL_GET_HW(0)) ? 100 : 500) // With this delay we want to enqueue the URBs at different times
+#else
+#define ENQUEUE_DELAY (OTG_HSPHY_INTERFACE ? 100 : 500) // With this delay we want to enqueue the URBs at different times
+#endif // ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 3, 0)
 
 /*
 Test HCD ISOC pipe URBs
@@ -124,12 +130,19 @@ TEST_CASE("Test HCD isochronous pipe URBs all", "[isoc][full_speed][high_speed]"
     uint8_t dev_addr = test_hcd_enum_device(default_pipe);
 
     urb_t *urb_list[NUM_URBS];
-    hcd_pipe_handle_t unused_pipes[16];
     const usb_ep_desc_t *out_ep_desc = dev_isoc_get_out_ep_desc(port_speed);
     const int isoc_packet_size = USB_EP_DESC_GET_MPS(out_ep_desc);
 
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 3, 0)
+    hcd_pipe_handle_t unused_pipes[16];
+    const int host_channels = usb_dwc_ll_ghwcfg_get_channel_num(USB_DWC_LL_GET_HW(0)) - 1;
+#else
+    hcd_pipe_handle_t unused_pipes[OTG_NUM_HOST_CHAN];
+    const int host_channels = OTG_NUM_HOST_CHAN - 1;
+#endif // ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 3, 0)
+
     // For all channels (except channel allocated for EP0)
-    for (int channel = 0; channel < usb_dwc_ll_ghwcfg_get_channel_num(USB_DWC_LL_GET_HW(0)) - 1; channel++) {
+    for (int channel = 0; channel < host_channels; channel++) {
         // Allocate unused pipes, so the active isoc_out_pipe uses different channel index
         for (int ch = 0; ch < channel; ch++) {
             unused_pipes[ch] = test_hcd_pipe_alloc(port_hdl, out_ep_desc, dev_addr + 1, port_speed);
