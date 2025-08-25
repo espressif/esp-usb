@@ -25,6 +25,7 @@ body:
         - host/hid
         - host/msc
         - host/uvc
+        - host/usb
         - Other
     validations:
       required: true
