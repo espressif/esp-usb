@@ -37,63 +37,6 @@
 //
 // ========================== TinyUSB General Device Descriptors ===============================
 //
-#define TUSB_DESC_TOTAL_LEN (TUD_CONFIG_DESC_LEN + TUD_MSC_DESC_LEN)
-
-
-static tusb_desc_device_t test_device_descriptor = {
-    .bLength = sizeof(test_device_descriptor),
-    .bDescriptorType = TUSB_DESC_DEVICE,
-    .bcdUSB = 0x0200,
-    .bDeviceClass = TUSB_CLASS_MISC,
-    .bDeviceSubClass = MISC_SUBCLASS_COMMON,
-    .bDeviceProtocol = MISC_PROTOCOL_IAD,
-    .bMaxPacketSize0 = CFG_TUD_ENDPOINT0_SIZE,
-    .idVendor = 0x303A, // This is Espressif VID. This needs to be changed according to Users / Customers
-    .idProduct = 0x4002,
-    .bcdDevice = 0x100,
-    .iManufacturer = 0x01,
-    .iProduct = 0x02,
-    .iSerialNumber = 0x03,
-    .bNumConfigurations = 0x01
-};
-
-static uint8_t const test_fs_configuration_desc[] = {
-    // Config number, interface count, string index, total length, attribute, power in mA
-    TUD_CONFIG_DESCRIPTOR(1, 1, 0, TUSB_DESC_TOTAL_LEN, TUSB_DESC_CONFIG_ATT_REMOTE_WAKEUP, 100),
-    // Interface number, string index, EP Out & EP In address, EP size
-    TUD_MSC_DESCRIPTOR(0, 4, 0x01, 0x81, 64),
-};
-
-#if (TUD_OPT_HIGH_SPEED)
-static const tusb_desc_device_qualifier_t test_device_qualifier = {
-    .bLength = sizeof(tusb_desc_device_qualifier_t),
-    .bDescriptorType = TUSB_DESC_DEVICE_QUALIFIER,
-    .bcdUSB = 0x0200,
-    .bDeviceClass = TUSB_CLASS_MISC,
-    .bDeviceSubClass = MISC_SUBCLASS_COMMON,
-    .bDeviceProtocol = MISC_PROTOCOL_IAD,
-    .bMaxPacketSize0 = CFG_TUD_ENDPOINT0_SIZE,
-    .bNumConfigurations = 0x01,
-    .bReserved = 0
-};
-
-static uint8_t const test_hs_configuration_desc[] = {
-    // Config number, interface count, string index, total length, attribute, power in mA
-    TUD_CONFIG_DESCRIPTOR(1, 1, 0, TUSB_DESC_TOTAL_LEN, TUSB_DESC_CONFIG_ATT_REMOTE_WAKEUP, 100),
-    // Interface number, string index, EP Out & EP In address, EP size
-    TUD_MSC_DESCRIPTOR(0, 4, 0x01, 0x81, 512),
-};
-#endif // TUD_OPT_HIGH_SPEED
-
-static char const *string_desc_arr[] = {
-    (const char[]) { 0x09, 0x04 },  // 0: is supported language is English (0x0409)
-    "TinyUSB",                      // 1: Manufacturer
-    "TinyUSB Device",               // 2: Product
-    "123456",                       // 3: Serials
-    "Test MSC Class",               // 4. MSC
-};
-
-//
 typedef struct {
     tinyusb_msc_event_id_t event_id;  /*!< Event ID */
 } test_storage_event_t;
@@ -234,16 +177,6 @@ TEST_CASE("MSC: driver install & uninstall without storage", "[ci][driver]")
 
     // Install TinyUSB driver
     tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG(test_device_event_handler);
-
-    tusb_cfg.descriptor.device = &test_device_descriptor;
-    tusb_cfg.descriptor.full_speed_config = test_fs_configuration_desc;
-#if (TUD_OPT_HIGH_SPEED)
-    tusb_cfg.descriptor.qualifier = &test_device_qualifier;
-    tusb_cfg.descriptor.high_speed_config = test_hs_configuration_desc;
-#endif // TUD_OPT_HIGH_SPEED
-    tusb_cfg.descriptor.string = string_desc_arr;
-    tusb_cfg.descriptor.string_count = sizeof(string_desc_arr) / sizeof(string_desc_arr[0]);
-
     TEST_ASSERT_EQUAL(ESP_OK, tinyusb_driver_install(&tusb_cfg));
     test_device_wait();
 
@@ -291,16 +224,6 @@ TEST_CASE("MSC: enable storage without driver install", "[ci][driver]")
 
     // Install TinyUSB driver
     tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG(test_device_event_handler);
-
-    tusb_cfg.descriptor.device = &test_device_descriptor;
-    tusb_cfg.descriptor.full_speed_config = test_fs_configuration_desc;
-#if (TUD_OPT_HIGH_SPEED)
-    tusb_cfg.descriptor.qualifier = &test_device_qualifier;
-    tusb_cfg.descriptor.high_speed_config = test_hs_configuration_desc;
-#endif // TUD_OPT_HIGH_SPEED
-    tusb_cfg.descriptor.string = string_desc_arr;
-    tusb_cfg.descriptor.string_count = sizeof(string_desc_arr) / sizeof(string_desc_arr[0]);
-
     TEST_ASSERT_EQUAL(ESP_OK, tinyusb_driver_install(&tusb_cfg));
     test_device_wait();
     vTaskDelay(pdMS_TO_TICKS(TEST_STORAGE_DISK_PRESENCE_TIMEOUT_MS)); // Allow some time for the device to be recognized
@@ -323,7 +246,7 @@ TEST_CASE("MSC: enable storage without driver install", "[ci][driver]")
  * 7. Uninstall TinyUSB driver and deinitialize SPIFLASH storage.
  * 8. Delete the storage event queue.
  */
-TEST_CASE("MSC: storage SPIFLASH", "[ci][storage][spiflash]")
+TEST_CASE("MSC: storage SPI Flash", "[ci][storage][spiflash]")
 {
     _test_storage_event_queue = xQueueCreate(TEST_QUEUE_LEN, sizeof(test_storage_event_t));
     TEST_ASSERT_NOT_NULL(_test_storage_event_queue);
@@ -357,16 +280,6 @@ TEST_CASE("MSC: storage SPIFLASH", "[ci][storage][spiflash]")
 
     // Install TinyUSB driver
     tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG(test_device_event_handler);
-
-    tusb_cfg.descriptor.device = &test_device_descriptor;
-    tusb_cfg.descriptor.full_speed_config = test_fs_configuration_desc;
-#if (TUD_OPT_HIGH_SPEED)
-    tusb_cfg.descriptor.qualifier = &test_device_qualifier;
-    tusb_cfg.descriptor.high_speed_config = test_hs_configuration_desc;
-#endif // TUD_OPT_HIGH_SPEED
-    tusb_cfg.descriptor.string = string_desc_arr;
-    tusb_cfg.descriptor.string_count = sizeof(string_desc_arr) / sizeof(string_desc_arr[0]);
-
     TEST_ASSERT_EQUAL(ESP_OK, tinyusb_driver_install(&tusb_cfg));
     test_device_wait();
     test_storage_wait_callback(TINYUSB_MSC_EVENT_MOUNT_START);
@@ -395,14 +308,14 @@ TEST_CASE("MSC: storage SPIFLASH", "[ci][storage][spiflash]")
  * 7. Uninstall TinyUSB driver and deinitialize SDMMC storage.
  * 8. Delete the storage event queue.
  */
-TEST_CASE("MSC: storage SDMMC", "[storage][sdmmc]")
+TEST_CASE("MSC: storage SD/MMC", "[storage][sdmmc]")
 {
     _test_storage_event_queue = xQueueCreate(TEST_QUEUE_LEN, sizeof(test_storage_event_t));
     TEST_ASSERT_NOT_NULL(_test_storage_event_queue);
 
     sdmmc_card_t *card = NULL;
     storage_init_sdmmc(&card);
-    TEST_ASSERT_NOT_NULL_MESSAGE(card, "SDMMC card handle is NULL, check the SDMMC configuration");
+    TEST_ASSERT_NOT_NULL_MESSAGE(card, "SD/MMC card handle is NULL, check the SDMMC configuration");
 
     tinyusb_msc_driver_config_t driver_cfg = {
         .callback = test_storage_event_cb,                  // Register the callback for mount changed events
@@ -429,16 +342,6 @@ TEST_CASE("MSC: storage SDMMC", "[storage][sdmmc]")
 
     // Install TinyUSB driver
     tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG(test_device_event_handler);
-
-    tusb_cfg.descriptor.device = &test_device_descriptor;
-    tusb_cfg.descriptor.full_speed_config = test_fs_configuration_desc;
-#if (TUD_OPT_HIGH_SPEED)
-    tusb_cfg.descriptor.qualifier = &test_device_qualifier;
-    tusb_cfg.descriptor.high_speed_config = test_hs_configuration_desc;
-#endif // TUD_OPT_HIGH_SPEED
-    tusb_cfg.descriptor.string = string_desc_arr;
-    tusb_cfg.descriptor.string_count = sizeof(string_desc_arr) / sizeof(string_desc_arr[0]);
-
     TEST_ASSERT_EQUAL(ESP_OK, tinyusb_driver_install(&tusb_cfg));
     test_device_wait();
     test_storage_wait_callback(TINYUSB_MSC_EVENT_MOUNT_START);
@@ -510,16 +413,6 @@ TEST_CASE("MSC: storage specific base path", "[ci][storage][spiflash]")
 
     // Install TinyUSB driver
     tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG(test_device_event_handler);
-
-    tusb_cfg.descriptor.device = &test_device_descriptor;
-    tusb_cfg.descriptor.full_speed_config = test_fs_configuration_desc;
-#if (TUD_OPT_HIGH_SPEED)
-    tusb_cfg.descriptor.qualifier = &test_device_qualifier;
-    tusb_cfg.descriptor.high_speed_config = test_hs_configuration_desc;
-#endif // TUD_OPT_HIGH_SPEED
-    tusb_cfg.descriptor.string = string_desc_arr;
-    tusb_cfg.descriptor.string_count = sizeof(string_desc_arr) / sizeof(string_desc_arr[0]);
-
     TEST_ASSERT_EQUAL(ESP_OK, tinyusb_driver_install(&tusb_cfg));
     test_device_wait();
     test_storage_wait_callback(TINYUSB_MSC_EVENT_MOUNT_START);
@@ -535,7 +428,68 @@ TEST_CASE("MSC: storage specific base path", "[ci][storage][spiflash]")
 }
 
 /**
- * @brief Test case for initializing TinyUSB MSC storage with SPIFLASH and do not format option
+ * @brief Test case for initializing TinyUSB MSC storage with empty SPIFLASH
+ *
+ * Scenario:
+ * 1. Create a queue for storage events.
+ * 2. Erase the SPIFLASH storage.
+ * 3. Initialize SPIFLASH storage with wear levelling.
+ * 4. Configure TinyUSB MSC with the SPIFLASH storage and mounting to APP.
+ * 5. Verify callback presence for mount START and COMPLETE events.
+ * 6. Uninstall TinyUSB MSC driver and deinitialize SPIFLASH storage.
+ * 7. Delete the storage event queue.
+ */
+TEST_CASE("MSC: auto format storage SPI Flash", "[ci][storage][spiflash]")
+{
+    _test_storage_event_queue = xQueueCreate(TEST_QUEUE_LEN, sizeof(test_storage_event_t));
+    TEST_ASSERT_NOT_NULL(_test_storage_event_queue);
+
+    storage_erase_spiflash();
+
+    wl_handle_t wl_handle = WL_INVALID_HANDLE;
+    storage_init_spiflash(&wl_handle);
+    TEST_ASSERT_NOT_EQUAL_MESSAGE(WL_INVALID_HANDLE, wl_handle, "Wear leveling handle is invalid, check the partition configuration");
+
+
+    tinyusb_msc_driver_config_t driver_cfg = {
+        .callback = test_storage_event_cb,                  // Register the callback for mount changed events
+        .callback_arg = NULL,                               // No additional argument for the callback
+    };
+    TEST_ASSERT_EQUAL_MESSAGE(ESP_OK, tinyusb_msc_install_driver(&driver_cfg), "Failed to install TinyUSB MSC driver");
+
+    tinyusb_msc_storage_config_t config = {
+        .medium.wl_handle = wl_handle,                      // Set the context to the wear leveling handle
+        .mount_point = TINYUSB_MSC_STORAGE_MOUNT_APP,       // Initial mount point to APP
+        .fat_fs = {
+            .base_path = NULL,                              // Use default base path
+            .config.max_files = 5,                          // Maximum number of files that can be opened simultaneously
+            .format_flags = 0,                              // No special format flags
+        },
+    };
+
+    // Initialize TinyUSB MSC storage
+    tinyusb_msc_storage_handle_t storage_hdl = NULL;
+    TEST_ASSERT_EQUAL(ESP_OK, tinyusb_msc_new_storage_spiflash(&config, &storage_hdl));
+    test_storage_wait_callback(TINYUSB_MSC_EVENT_MOUNT_START);
+    test_storage_wait_callback(TINYUSB_MSC_EVENT_MOUNT_COMPLETE);
+    // Install TinyUSB driver
+    tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG(test_device_event_handler);
+    TEST_ASSERT_EQUAL(ESP_OK, tinyusb_driver_install(&tusb_cfg));
+    test_device_wait();
+    test_storage_wait_callback(TINYUSB_MSC_EVENT_MOUNT_START);
+    test_storage_wait_callback(TINYUSB_MSC_EVENT_MOUNT_COMPLETE);
+
+    vTaskDelay(pdMS_TO_TICKS(TEST_STORAGE_DISK_PRESENCE_TIMEOUT_MS)); // Allow some time for the device to be recognized
+
+    TEST_ASSERT_EQUAL(ESP_OK, tinyusb_driver_uninstall());
+    TEST_ASSERT_EQUAL_MESSAGE(ESP_OK, tinyusb_msc_delete_storage(storage_hdl), "Failed to delete TinyUSB MSC storage");
+    TEST_ASSERT_EQUAL_MESSAGE(ESP_OK, tinyusb_msc_uninstall_driver(), "Failed to uninstall TinyUSB MSC driver");
+    storage_deinit_spiflash(wl_handle);
+    vQueueDelete(_test_storage_event_queue);
+}
+
+/**
+ * @brief Test case for initializing TinyUSB MSC storage with SPIFLASH and do not format option when initial mount point is APP
  *
  * Scenario:
  * 1. Create a queue for storage events.
@@ -543,10 +497,14 @@ TEST_CASE("MSC: storage specific base path", "[ci][storage][spiflash]")
  * 3. Initialize SPIFLASH storage with wear levelling.
  * 4. Configure TinyUSB MSC with the SPIFLASH storage and mounting to APP with do not format option.
  * 5. Verify callback presence for mount START and FORMAT_REQUIRED events.
- * 6. Uninstall TinyUSB MSC driver and deinitialize SPIFLASH storage.
- * 7. Delete the storage event queue.
+ * 6. Check that the storage is still mounted to APP.
+ * 7. Format the storage.
+ * 8. Install TinyUSB driver.
+ * 9. Wait for the storage to be mounted, verify that re-mount callbacks are received.
+ * 10. Uninstall TinyUSB MSC driver and deinitialize SPIFLASH storage.
+ * 11. Delete the storage event queue.
  */
-TEST_CASE("MSC: storage do not format", "[ci][storage][spiflash]")
+TEST_CASE("MSC: format storage SPI Flash, mounted to APP", "[ci][storage][spiflash]")
 {
     _test_storage_event_queue = xQueueCreate(TEST_QUEUE_LEN, sizeof(test_storage_event_t));
     TEST_ASSERT_NOT_NULL(_test_storage_event_queue);
@@ -577,17 +535,180 @@ TEST_CASE("MSC: storage do not format", "[ci][storage][spiflash]")
 
     // Initialize TinyUSB MSC storage
     tinyusb_msc_storage_handle_t storage_hdl = NULL;
-    TEST_ASSERT_EQUAL(ESP_ERR_NOT_FOUND, tinyusb_msc_new_storage_spiflash(&config, &storage_hdl));
+    TEST_ASSERT_EQUAL(ESP_OK, tinyusb_msc_new_storage_spiflash(&config, &storage_hdl));
     test_storage_wait_callback(TINYUSB_MSC_EVENT_MOUNT_START);
     test_storage_wait_callback(TINYUSB_MSC_EVENT_FORMAT_REQUIRED);
+    // Mount wasn't completed, so the storage mount point is APP
+    tinyusb_msc_mount_point_t mount_point;
+    TEST_ASSERT_EQUAL(ESP_OK, tinyusb_msc_get_storage_mount_point(storage_hdl, &mount_point));
+    TEST_ASSERT_EQUAL(TINYUSB_MSC_STORAGE_MOUNT_APP, mount_point);
+    TEST_ASSERT_EQUAL(ESP_OK, tinyusb_msc_format_storage(storage_hdl));
+    // Install TinyUSB driver
+    tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG(test_device_event_handler);
+    TEST_ASSERT_EQUAL(ESP_OK, tinyusb_driver_install(&tusb_cfg));
+    test_device_wait();
+    test_storage_wait_callback(TINYUSB_MSC_EVENT_MOUNT_START);
+    test_storage_wait_callback(TINYUSB_MSC_EVENT_MOUNT_COMPLETE);
+    vTaskDelay(pdMS_TO_TICKS(TEST_STORAGE_DISK_PRESENCE_TIMEOUT_MS)); // Allow some time for the device to be recognized
 
-    // 4.TODO: Storage Format support
-
+    TEST_ASSERT_EQUAL(ESP_OK, tinyusb_driver_uninstall());
     TEST_ASSERT_EQUAL_MESSAGE(ESP_OK, tinyusb_msc_delete_storage(storage_hdl), "Failed to delete TinyUSB MSC storage");
     TEST_ASSERT_EQUAL_MESSAGE(ESP_OK, tinyusb_msc_uninstall_driver(), "Failed to uninstall TinyUSB MSC driver");
     storage_deinit_spiflash(wl_handle);
     vQueueDelete(_test_storage_event_queue);
 }
+
+/**
+ * @brief Test case for initializing TinyUSB MSC storage with SPIFLASH and do not format option when initial mount point is USB
+ *
+ * Scenario:
+ * 1. Create a queue for storage events.
+ * 2. Erase the SPIFLASH storage.
+ * 3. Initialize SPIFLASH storage with wear levelling.
+ * 4. Configure TinyUSB MSC with the SPIFLASH storage and mounting to USB with do not format option.
+ * 6. Check that the storage is still mounted to USB.
+ * 7. Install TinyUSB driver.
+ * 8. Change the mount point to APP.
+ * 9. Verify callback presence for mount START and FORMAT_REQUIRED events.
+ * 10. Check that the storage is still mounted to USB.
+ * 11. Uninstall TinyUSB MSC driver and deinitialize SPIFLASH storage.
+ * 12. Delete the storage event queue.
+ */
+TEST_CASE("MSC: format storage SPI Flash, mounted to USB", "[ci][storage][spiflash]")
+{
+    _test_storage_event_queue = xQueueCreate(TEST_QUEUE_LEN, sizeof(test_storage_event_t));
+    TEST_ASSERT_NOT_NULL(_test_storage_event_queue);
+
+    storage_erase_spiflash();
+
+    wl_handle_t wl_handle = WL_INVALID_HANDLE;
+    storage_init_spiflash(&wl_handle);
+    TEST_ASSERT_NOT_EQUAL_MESSAGE(WL_INVALID_HANDLE, wl_handle, "Wear leveling handle is invalid, check the partition configuration");
+
+
+    tinyusb_msc_driver_config_t driver_cfg = {
+        .callback = test_storage_event_cb,                  // Register the callback for mount changed events
+        .callback_arg = NULL,                               // No additional argument for the callback
+    };
+    TEST_ASSERT_EQUAL_MESSAGE(ESP_OK, tinyusb_msc_install_driver(&driver_cfg), "Failed to install TinyUSB MSC driver");
+
+    tinyusb_msc_storage_config_t config = {
+        .medium.wl_handle = wl_handle,                      // Set the context to the wear leveling handle
+        .fat_fs = {
+            .base_path = NULL,                              // Use default base path
+            .do_not_format = true,                          // Do not format the drive if filesystem is not present
+            .config.max_files = 5,                          // Maximum number of files that can be opened simultaneously
+            .format_flags = 0,                              // No special format flags
+        },
+    };
+
+    // Initialize TinyUSB MSC storage
+    tinyusb_msc_storage_handle_t storage_hdl = NULL;
+    TEST_ASSERT_EQUAL(ESP_OK, tinyusb_msc_new_storage_spiflash(&config, &storage_hdl));
+    // We don't get the mount start event, since the storage is not mounted to the APP
+    // The storage should be mounted to USB
+    tinyusb_msc_mount_point_t mount_point;
+    TEST_ASSERT_EQUAL(ESP_OK, tinyusb_msc_get_storage_mount_point(storage_hdl, &mount_point));
+    TEST_ASSERT_EQUAL(TINYUSB_MSC_STORAGE_MOUNT_USB, mount_point);
+    // Install TinyUSB driver
+    tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG(test_device_event_handler);
+    TEST_ASSERT_EQUAL(ESP_OK, tinyusb_driver_install(&tusb_cfg));
+    test_device_wait();
+    // We don't expect to receive the mount start event again, since the storage was exposed to the USB
+    vTaskDelay(pdMS_TO_TICKS(TEST_STORAGE_DISK_PRESENCE_TIMEOUT_MS)); // Allow some time for the device to be recognized
+    TEST_ASSERT_EQUAL(ESP_OK, tinyusb_driver_uninstall());
+    // Remount the storage to APP
+    TEST_ASSERT_EQUAL(ESP_OK, tinyusb_msc_set_storage_mount_point(storage_hdl, TINYUSB_MSC_STORAGE_MOUNT_APP));
+    // Wait for the storage to be mounted
+    test_storage_wait_callback(TINYUSB_MSC_EVENT_MOUNT_START);
+    test_storage_wait_callback(TINYUSB_MSC_EVENT_FORMAT_REQUIRED);
+    // Mount was completed with ESP_OK, so the storage mount point should be APP now
+    TEST_ASSERT_EQUAL(ESP_OK, tinyusb_msc_get_storage_mount_point(storage_hdl, &mount_point));
+    TEST_ASSERT_EQUAL_MESSAGE(TINYUSB_MSC_STORAGE_MOUNT_APP, mount_point, "Storage mount point is not APP after the format");
+    TEST_ASSERT_EQUAL(ESP_OK, tinyusb_msc_format_storage(storage_hdl));
+    // Remount the storage to USB once again
+    TEST_ASSERT_EQUAL(ESP_OK, tinyusb_msc_set_storage_mount_point(storage_hdl, TINYUSB_MSC_STORAGE_MOUNT_USB));
+    // Wait for the storage to be mounted
+    test_storage_wait_callback(TINYUSB_MSC_EVENT_MOUNT_START);
+    test_storage_wait_callback(TINYUSB_MSC_EVENT_MOUNT_COMPLETE);
+    // Check the mount point again
+    TEST_ASSERT_EQUAL(ESP_OK, tinyusb_msc_get_storage_mount_point(storage_hdl, &mount_point));
+    TEST_ASSERT_EQUAL_MESSAGE(TINYUSB_MSC_STORAGE_MOUNT_USB, mount_point, "Storage mount point is not USB");
+    TEST_ASSERT_EQUAL_MESSAGE(ESP_OK, tinyusb_msc_delete_storage(storage_hdl), "Failed to delete TinyUSB MSC storage");
+    TEST_ASSERT_EQUAL_MESSAGE(ESP_OK, tinyusb_msc_uninstall_driver(), "Failed to uninstall TinyUSB MSC driver");
+    storage_deinit_spiflash(wl_handle);
+    vQueueDelete(_test_storage_event_queue);
+}
+
+#if (SOC_SDMMC_HOST_SUPPORTED)
+/**
+ * @brief Test case for initializing TinyUSB MSC storage with SD/MMC and do not format option when initial mount point is APP
+ *
+ * Scenario:
+ * 1. Create a queue for storage events.
+ * 2. Initialize SD/MMC storage.
+ * 3. Erase the SD/MMC storage.
+ * 4. Configure TinyUSB MSC with the SD/MMC storage and mounting to APP with do not format option.
+ * 5. Verify callback presence for mount START and FORMAT_REQUIRED events.
+ * 6. Uninstall TinyUSB MSC driver and deinitialize SD/MMC storage.
+ * 7. Delete the storage event queue.
+ */
+TEST_CASE("MSC: format storage SD/MMC, mounted to APP", "[storage][sdmmc]")
+{
+    _test_storage_event_queue = xQueueCreate(TEST_QUEUE_LEN, sizeof(test_storage_event_t));
+    TEST_ASSERT_NOT_NULL(_test_storage_event_queue);
+
+    sdmmc_card_t *card = NULL;
+    storage_init_sdmmc(&card);
+    TEST_ASSERT_NOT_NULL_MESSAGE(card, "SD/MMC card handle is NULL, check the SDMMC configuration");
+    storage_erase_sdmmc(card);
+
+    tinyusb_msc_driver_config_t driver_cfg = {
+        .callback = test_storage_event_cb,                  // Register the callback for mount changed events
+        .callback_arg = NULL,                               // No additional argument for the callback
+    };
+    TEST_ASSERT_EQUAL_MESSAGE(ESP_OK, tinyusb_msc_install_driver(&driver_cfg), "Failed to install TinyUSB MSC driver");
+
+    tinyusb_msc_storage_config_t config = {
+        .medium.card = card,                                // Set the context to the SDMMC card handle
+        .mount_point = TINYUSB_MSC_STORAGE_MOUNT_APP,       // Initial mount point to APP
+        .fat_fs = {
+            .base_path = NULL,                              // Use default base path
+            .config.max_files = 5,                          // Maximum number of files that can be opened simultaneously
+            .format_flags = 0,                              // No special format flags
+            .do_not_format = true,                          // Do not format the drive if filesystem is not present
+        },
+    };
+
+    // Initialize TinyUSB MSC storage
+    tinyusb_msc_storage_handle_t storage_hdl = NULL;
+    TEST_ASSERT_EQUAL(ESP_OK, tinyusb_msc_new_storage_sdmmc(&config, &storage_hdl));
+    // Wait for the storage to be mounted
+    test_storage_wait_callback(TINYUSB_MSC_EVENT_MOUNT_START);
+    test_storage_wait_callback(TINYUSB_MSC_EVENT_FORMAT_REQUIRED);
+    // Mount was completed with ESP_OK, so the storage mount point should be APP now
+    tinyusb_msc_mount_point_t mount_point;
+    TEST_ASSERT_EQUAL(ESP_OK, tinyusb_msc_get_storage_mount_point(storage_hdl, &mount_point));
+    TEST_ASSERT_EQUAL(TINYUSB_MSC_STORAGE_MOUNT_APP, mount_point);
+    // Format the storage
+    TEST_ASSERT_EQUAL(ESP_OK, tinyusb_msc_format_storage(storage_hdl));
+    // Install TinyUSB driver
+    tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG(test_device_event_handler);
+    TEST_ASSERT_EQUAL(ESP_OK, tinyusb_driver_install(&tusb_cfg));
+    test_device_wait();
+    // Wait for the storage to be mounted
+    test_storage_wait_callback(TINYUSB_MSC_EVENT_MOUNT_START);
+    test_storage_wait_callback(TINYUSB_MSC_EVENT_MOUNT_COMPLETE);
+
+    vTaskDelay(pdMS_TO_TICKS(TEST_STORAGE_DISK_PRESENCE_TIMEOUT_MS)); // Allow some time for the device to be recognized
+
+    TEST_ASSERT_EQUAL(ESP_OK, tinyusb_driver_uninstall());
+    TEST_ASSERT_EQUAL_MESSAGE(ESP_OK, tinyusb_msc_delete_storage(storage_hdl), "Failed to delete TinyUSB MSC storage");
+    TEST_ASSERT_EQUAL_MESSAGE(ESP_OK, tinyusb_msc_uninstall_driver(), "Failed to uninstall TinyUSB MSC driver");
+    storage_deinit_sdmmc(card);
+    vQueueDelete(_test_storage_event_queue);
+}
+#endif // SOC_SDMMC_HOST_SUPPORTED
 
 
 #endif // SOC_USB_OTG_SUPPORTED
