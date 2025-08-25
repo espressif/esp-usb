@@ -14,6 +14,9 @@
 #define CP2105_PID       (0xEA70) // Dual
 #define CP2108_PID       (0xEA71) // Quad
 
+// Auto detect supported PIDs
+#define CP210X_PID_AUTO  (0)
+
 #ifdef __cplusplus
 extern "C" {
 #endif
