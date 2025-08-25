@@ -1,4 +1,4 @@
-source "../../common/Kconfig.common"
+orsource "../../common/Kconfig.common"
 
 menu "USB Host External Port test"
 
