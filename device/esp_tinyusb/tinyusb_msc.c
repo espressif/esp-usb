@@ -698,9 +698,12 @@ esp_err_t tinyusb_msc_new_storage_sdmmc(const tinyusb_msc_storage_config_t *conf
 
 esp_err_t tinyusb_msc_delete_storage(tinyusb_msc_storage_handle_t handle)
 {
-    ESP_RETURN_ON_FALSE(p_msc_driver != NULL, ESP_ERR_INVALID_STATE, TAG, "MSC driver is not initialized");
     ESP_RETURN_ON_FALSE(handle != NULL, ESP_ERR_INVALID_ARG, TAG, "Storage handle can't be NULL");
-    ESP_RETURN_ON_FALSE(p_msc_driver->dynamic.lun_count > 0, ESP_ERR_INVALID_STATE, TAG, "Storage should be created before deleting");
+
+    MSC_ENTER_CRITICAL();
+    MSC_CHECK_ON_CRITICAL(p_msc_driver != NULL, ESP_ERR_INVALID_STATE);
+    MSC_CHECK_ON_CRITICAL(p_msc_driver->dynamic.lun_count > 0, ESP_ERR_INVALID_STATE);
+    MSC_EXIT_CRITICAL();
 
     msc_storage_obj_t *storage = (msc_storage_obj_t *)handle;
 
@@ -724,9 +727,12 @@ esp_err_t tinyusb_msc_delete_storage(tinyusb_msc_storage_handle_t handle)
 
 esp_err_t tinyusb_msc_get_storage_capacity(tinyusb_msc_storage_handle_t handle, uint32_t *sector_count)
 {
-    ESP_RETURN_ON_FALSE(p_msc_driver != NULL, ESP_ERR_INVALID_STATE, TAG, "MSC driver is not initialized");
     ESP_RETURN_ON_FALSE(handle != NULL, ESP_ERR_INVALID_STATE, TAG, "MSC storage is not initialized");
     ESP_RETURN_ON_FALSE(sector_count != NULL, ESP_ERR_INVALID_ARG, TAG, "Sector count pointer can't be NULL");
+
+    MSC_ENTER_CRITICAL();
+    MSC_CHECK_ON_CRITICAL(p_msc_driver != NULL, ESP_ERR_INVALID_STATE);
+    MSC_EXIT_CRITICAL();
 
     msc_storage_obj_t *storage = (msc_storage_obj_t *) handle;
     *sector_count = storage->sector_count;
