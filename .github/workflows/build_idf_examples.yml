@@ -33,12 +33,12 @@ jobs:
         run: |
           . ${IDF_PATH}/export.sh
           pip install idf-component-manager>=2.1.2 idf-build-apps==2.4.3 pyyaml  --upgrade
-          python .github/ci/override_managed_component.py esp_tinyusb device/esp_tinyusb ${IDF_PATH}/${USB_DEVICE_PATH}/tusb_*
+          #python .github/ci/override_managed_component.py esp_tinyusb device/esp_tinyusb ${IDF_PATH}/${USB_DEVICE_PATH}/tusb_*
           python .github/ci/override_managed_component.py usb host/usb ${IDF_PATH}/${USB_HOST_PATH}/*
           cd ${IDF_PATH}
 
           # don't use esp-idf default .idf_build_apps.toml, as it contains configs we don't want to use in following commands
           # create a dummy config .toml and use it instead
           touch .dummy.toml
-          idf-build-apps find --config-file .dummy.toml --path ${USB_DEVICE_PATH} ${USB_HOST_PATH} --recursive --target all --manifest-file ${MANIFEST_PATH} --build-dir build_@t_@w --work-dir @f_@t_@w
-          idf-build-apps build --config-file .dummy.toml --path ${USB_DEVICE_PATH} ${USB_HOST_PATH} --recursive --target all --manifest-file ${MANIFEST_PATH} --build-dir build_@t_@w --work-dir @f_@t_@w
+          idf-build-apps find --config-file .dummy.toml --path ${USB_HOST_PATH} --recursive --target all --manifest-file ${MANIFEST_PATH} --build-dir build_@t_@w --work-dir @f_@t_@w
+          idf-build-apps build --config-file .dummy.toml --path ${USB_HOST_PATH} --recursive --target all --manifest-file ${MANIFEST_PATH} --build-dir build_@t_@w --work-dir @f_@t_@w
