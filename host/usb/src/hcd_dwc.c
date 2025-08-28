@@ -18,7 +18,6 @@
 #include "esp_log.h"
 
 #include "soc/soc_caps.h"
-#include "soc/usb_periph.h"
 #include "hal/usb_dwc_hal.h"
 #include "hcd.h"
 #include "usb_private.h"
@@ -26,6 +25,14 @@
 
 #include "esp_cache.h"
 #include "esp_private/esp_cache_private.h"
+
+#include "esp_idf_version.h"
+// For USB PHY Compatibility in IDF 5.x
+#if ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(6, 0, 0)
+#include "soc/usb_dwc_periph.h"
+#else
+#include "soc/usb_periph.h"
+#endif
 
 // ----------------------------------------------------- Macros --------------------------------------------------------
 

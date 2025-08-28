@@ -1,11 +1,13 @@
 name: Build ESP-IDF USB examples
 
 on:
-  workflow_call: # TODO: Only runs when called explicitly from another workflow. See issue IDF-13618 for tracking.
+  pull_request:
+    types: [opened, reopened, synchronize]
 
 jobs:
   build:
     strategy:
+      fail-fast: false
       matrix:
         idf_ver:
           [
@@ -18,20 +20,25 @@ jobs:
           ]
     runs-on: ubuntu-latest
     container: espressif/idf:${{ matrix.idf_ver }}
+    env:
+      USB_DEVICE_PATH: examples/peripherals/usb/device
+      USB_HOST_PATH: examples/peripherals/usb/host
+      MANIFEST_PATH: examples/peripherals/.build-test-rules.yml
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: "true"
-      - name: Build ESP-IDF USB examples
+      - name: Build ESP-IDF ${{ matrix.idf_ver }} USB examples
         shell: bash
         run: |
           . ${IDF_PATH}/export.sh
           pip install idf-component-manager>=2.1.2 idf-build-apps==2.4.3 pyyaml  --upgrade
-          python .github/ci/override_managed_component.py esp_tinyusb device/esp_tinyusb ${IDF_PATH}/examples/peripherals/usb/device/tusb_*
+          python .github/ci/override_managed_component.py esp_tinyusb device/esp_tinyusb ${IDF_PATH}/${USB_DEVICE_PATH}/tusb_*
+          python .github/ci/override_managed_component.py usb host/usb ${IDF_PATH}/${USB_HOST_PATH}/*
           cd ${IDF_PATH}
 
           # don't use esp-idf default .idf_build_apps.toml, as it contains configs we don't want to use in following commands
           # create a dummy config .toml and use it instead
           touch .dummy.toml
-          idf-build-apps find --config-file .dummy.toml --path examples/peripherals/usb/device/ --recursive --target all --manifest-file examples/peripherals/.build-test-rules.yml --build-dir build_@t_@w --work-dir @f_@t_@w
-          idf-build-apps build --config-file .dummy.toml --path examples/peripherals/usb/device/ --recursive --target all --manifest-file examples/peripherals/.build-test-rules.yml --build-dir build_@t_@w --work-dir @f_@t_@w
+          idf-build-apps find --config-file .dummy.toml --path ${USB_DEVICE_PATH} ${USB_HOST_PATH} --recursive --target all --manifest-file ${MANIFEST_PATH} --build-dir build_@t_@w --work-dir @f_@t_@w
+          idf-build-apps build --config-file .dummy.toml --path ${USB_DEVICE_PATH} ${USB_HOST_PATH} --recursive --target all --manifest-file ${MANIFEST_PATH} --build-dir build_@t_@w --work-dir @f_@t_@w
