@@ -1,11 +1,21 @@
+# This workflow builds esp-idf examples:
+#
+#   - usb device examples: with overridden esp_tinyusb from esp-usb/device/esp_tinyusb
+#     - All (service + maintenance IDF releases)
+#
+#   - usb host examples: with overridden usb component from esp-usb/host/usb
+#     - Only service IDF releases
+
 name: Build ESP-IDF USB examples
 
 on:
-  workflow_call: # TODO: Only runs when called explicitly from another workflow. See issue IDF-13618 for tracking.
+  pull_request:
+    types: [opened, reopened, synchronize]
 
 jobs:
   build:
     strategy:
+      fail-fast: true
       matrix:
         idf_ver:
           [
@@ -18,20 +28,27 @@ jobs:
           ]
     runs-on: ubuntu-latest
     container: espressif/idf:${{ matrix.idf_ver }}
+    env:
+      CONFIG_PATH: ${{ github.workspace }}/.github/ci/.idf_build_examples_config.toml
+      MANIFEST_PATH: ${{ github.workspace }}/.github/ci/.idf-build-examples-rules.yml
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: "true"
-      - name: Build ESP-IDF USB examples
+      - name: Install Python deps
         shell: bash
         run: |
           . ${IDF_PATH}/export.sh
-          pip install idf-component-manager>=2.1.2 idf-build-apps==2.4.3 pyyaml  --upgrade
-          python .github/ci/override_managed_component.py esp_tinyusb device/esp_tinyusb ${IDF_PATH}/examples/peripherals/usb/device/tusb_*
+          pip install idf-component-manager>=2.1.2 idf-build-apps==2.4.3 pyyaml --upgrade
+      - name: Build ESP-IDF ${{ matrix.idf_ver }} USB examples
+        shell: bash
+        run: |
+          . ${IDF_PATH}/export.sh
+
+          # TODO: Uncomment the below line to run esp-idf USB Device examples in CI. See issue IDF-13618 for tracking.
+          #python .github/ci/override_managed_component.py esp_tinyusb device/esp_tinyusb ${IDF_PATH}/examples/peripherals/usb/device/*
+          python .github/ci/override_managed_component.py usb host/usb ${IDF_PATH}/examples/peripherals/usb/host/*
           cd ${IDF_PATH}
 
-          # don't use esp-idf default .idf_build_apps.toml, as it contains configs we don't want to use in following commands
-          # create a dummy config .toml and use it instead
-          touch .dummy.toml
-          idf-build-apps find --config-file .dummy.toml --path examples/peripherals/usb/device/ --recursive --target all --manifest-file examples/peripherals/.build-test-rules.yml --build-dir build_@t_@w --work-dir @f_@t_@w
-          idf-build-apps build --config-file .dummy.toml --path examples/peripherals/usb/device/ --recursive --target all --manifest-file examples/peripherals/.build-test-rules.yml --build-dir build_@t_@w --work-dir @f_@t_@w
+          idf-build-apps find --config-file ${CONFIG_PATH} --manifest-file ${MANIFEST_PATH}
+          idf-build-apps build --config-file ${CONFIG_PATH} --manifest-file ${MANIFEST_PATH}

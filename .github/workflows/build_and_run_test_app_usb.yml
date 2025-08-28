@@ -1,8 +1,6 @@
 name: Build and Run USB Test Application
 
 on:
-  schedule:
-    - cron: '0 0 * * 0' # Every Sunday at midnight
   pull_request:
     types: [opened, reopened, synchronize]
 

@@ -1,0 +1,20 @@
+# Manifest file for build_idf_examples.yml CI workflow
+
+# TODO: Uncomment the below lines to run esp-idf USB Device examples in CI. See issue IDF-13618 for tracking.
+#examples/peripherals/usb/device:
+#  disable:
+#    - if: SOC_USB_OTG_SUPPORTED != 1
+
+examples/peripherals/usb/host:
+  enable:
+    - if: (IDF_VERSION >= "5.4.0")
+      reason: Run USB Host examples with overridden (esp-usb) USB component only for service releases
+  disable:
+    - if: SOC_USB_OTG_SUPPORTED != 1
+
+examples/peripherals/usb/host/uvc:
+  enable:
+    - if: (IDF_VERSION >= "5.5.0")
+      reason: Run UVC example starts using UVC driver 2.0 only on IDF version 5.5
+  disable:
+    - if: SOC_USB_OTG_SUPPORTED != 1
