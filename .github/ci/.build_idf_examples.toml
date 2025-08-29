@@ -1,10 +1,10 @@
 paths = [
     #"${IDF_PATH}/examples/peripherals/usb/device",     # USB Device examples
-    "${IDF_PATH}/examples/peripherals/usb/host",        # USB Host examples
+    "examples/peripherals/usb/host",        # USB Host examples
 ]
 
 recursive = true
-manifest_file = "${IDF_PATH}/examples/peripherals/.build-test-rules.yml"
+manifest_file = "$examples/peripherals/.build-test-rules.yml"
 check_warnings = true
 target = "all"
 
