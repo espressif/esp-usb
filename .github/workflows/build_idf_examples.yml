@@ -44,4 +44,4 @@ jobs:
           # idf-build-apps find --config-file .dummy.toml --path ${USB_HOST_PATH} --recursive --target all --manifest-file ${MANIFEST_PATH} --build-dir build_@t_@w --work-dir @f_@t_@w
           # idf-build-apps build --config-file .dummy.toml --path ${USB_HOST_PATH} --recursive --target all --manifest-file ${MANIFEST_PATH} --build-dir build_@t_@w --work-dir @f_@t_@w
           idf-build-apps find --config-file ${GITHUB_WORKSPACE}/.github/ci/.build_idf_examples.toml
-          idf-build-apps build --config-file ${CONFIG_PATH}
+          idf-build-apps build --config-file ${GITHUB_WORKSPACE}/.github/ci/.build_idf_examples.toml
