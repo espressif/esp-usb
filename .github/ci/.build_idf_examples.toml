@@ -4,7 +4,7 @@ paths = [
 ]
 
 recursive = true
-manifest_file = "$examples/peripherals/.build-test-rules.yml"
+manifest_file = "examples/peripherals/.build-test-rules.yml"
 check_warnings = true
 target = "all"
 
