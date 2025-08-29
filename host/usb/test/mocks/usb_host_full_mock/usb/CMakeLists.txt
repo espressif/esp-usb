@@ -7,7 +7,7 @@ message(STATUS "building full USB HOST MOCKS")
 idf_component_get_property(original_usb_dir usb COMPONENT_OVERRIDEN_DIR)
 idf_component_get_property(original_esp_hw_support_dir esp_hw_support COMPONENT_OVERRIDEN_DIR)
 if(NOT original_esp_hw_support_dir)
-    idf_component_get_property(original_esp_hw_support_dir esp_hw_support COMPONENT_SRCDIR)
+    idf_component_get_property(original_esp_hw_support_dir esp_hw_support COMPONENT_DIR)
 endif()
 
 idf_component_mock(INCLUDE_DIRS "${original_usb_dir}/include"
@@ -22,9 +22,9 @@ idf_component_mock(INCLUDE_DIRS "${original_usb_dir}/include"
 
 # We do not mock usb_helpers. We use the original implementation.
 # This way, we can test Class drivers descriptor parsing
-target_sources(${COMPONENT_LIB} PRIVATE "${original_usb_dir}/usb_helpers.c")
+target_sources(${COMPONENT_LIB} PRIVATE "${original_usb_dir}/src/usb_helpers.c")
 # Original implementation of usb_private.c to allocate memory for transfers
-target_sources(${COMPONENT_LIB} PRIVATE "${original_usb_dir}/usb_private.c")
+target_sources(${COMPONENT_LIB} PRIVATE "${original_usb_dir}/src/usb_private.c")
 
 # Add the extra src files for USB device mocking
 target_sources(${COMPONENT_LIB} PRIVATE "mock_add_usb_device.c")

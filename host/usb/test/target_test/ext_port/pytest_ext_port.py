@@ -4,8 +4,8 @@ import pytest
 from pytest_embedded import Dut
 from pytest_embedded_idf.utils import idf_parametrize
 
+# No runner marker, skip this test in CI.. reason: No runner with external hub yet available
 
-@pytest.mark.temp_skip_ci(targets=['esp32s2', 'esp32s3', 'esp32p4'], reason='no runner with external hub available')
 @idf_parametrize('target', ['esp32s2', 'esp32s3', 'esp32p4'], indirect=['target'])
 def test_usb_ext_port(dut: Dut) -> None:
     if dut.target == 'esp32p4':

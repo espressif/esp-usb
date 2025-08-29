@@ -18,21 +18,21 @@ if(${target} STREQUAL "esp32p4")
 endif()
 
 if(CONFIG_SOC_USB_OTG_SUPPORTED)
-    list(APPEND srcs "hcd_dwc.c"
-                     "enum.c"
-                     "hub.c"
-                     "usb_helpers.c"
-                     "usb_host.c"
-                     "usb_private.c"
-                     "usbh.c"
+    list(APPEND srcs "src/hcd_dwc.c"
+                     "src/enum.c"
+                     "src/hub.c"
+                     "src/usb_helpers.c"
+                     "src/usb_host.c"
+                     "src/usb_private.c"
+                     "src/usbh.c"
                      )
     list(APPEND include "include")
     list(APPEND priv_includes "private_include")
 endif()
 
 if(CONFIG_USB_HOST_HUBS_SUPPORTED)
-    list(APPEND srcs "ext_hub.c"
-                     "ext_port.c")
+    list(APPEND srcs "src/ext_hub.c"
+                     "src/ext_port.c")
 endif()
 
 idf_component_register(SRCS ${srcs}

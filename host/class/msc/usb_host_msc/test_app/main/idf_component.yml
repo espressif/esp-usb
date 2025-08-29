@@ -1,9 +1,14 @@
 ## IDF Component Manager Manifest File
 dependencies:
   # Needed as DUT
-  espressif/usb_host_uvc:
+  espressif/usb_host_msc:
     version: "*"
-    override_path: "../../../usb_host_uvc"
+    override_path: "../../../usb_host_msc"
+
+  # Needed for MSC mock device
+  espressif/esp_tinyusb:
+    version: "*"
+    override_path: "../../../../../../device/esp_tinyusb"
 
   espressif/usb:
     version: "*"

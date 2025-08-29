@@ -23,9 +23,9 @@ idf_component_mock(INCLUDE_DIRS "${original_usb_dir}/include"
                    REQUIRES freertos)
 
 # We do not mock usb_host.c, we use the original implementation of it
-target_sources(${COMPONENT_LIB} PRIVATE "${original_usb_dir}/usb_host.c")
+target_sources(${COMPONENT_LIB} PRIVATE "${original_usb_dir}/src/usb_host.c")
 # Original implementation of usb_private.c to allocate memory for transfers
-target_sources(${COMPONENT_LIB} PRIVATE "${original_usb_dir}/usb_private.c")
+target_sources(${COMPONENT_LIB} PRIVATE "${original_usb_dir}/src/usb_private.c")
 # We do not mock usb_helpers. We use the original implementation
 # This way, we can test descriptor parsing
-target_sources(${COMPONENT_LIB} PRIVATE "${original_usb_dir}/usb_helpers.c")
+target_sources(${COMPONENT_LIB} PRIVATE "${original_usb_dir}/src/usb_helpers.c")
