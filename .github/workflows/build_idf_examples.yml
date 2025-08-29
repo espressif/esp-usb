@@ -65,4 +65,4 @@ jobs:
           cd ${IDF_PATH}
 
           idf-build-apps find --config-file ${CONFIG_PATH} --manifest-file ${MANIFEST_PATH}
-          idf-build-apps build --config-file ${CONFIG_PATH} --manifest-path ${MANIFEST_PATH}
+          idf-build-apps build --config-file ${CONFIG_PATH} --manifest-file ${MANIFEST_PATH}
