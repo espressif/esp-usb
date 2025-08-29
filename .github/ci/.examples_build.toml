@@ -1,10 +1,10 @@
 paths = [
-    #"${IDF_PATH}/examples/peripherals/usb/device",     # USB Device examples
+    "examples/peripherals/usb/device",     # USB Device examples
     "examples/peripherals/usb/host",        # USB Host examples
 ]
 
 recursive = true
-manifest_file = "examples/peripherals/.build-test-rules.yml"
+#manifest_file = "examples/peripherals/.build-test-rules.yml"        # Extra manifest file from esp-idf
 check_warnings = true
 target = "all"
 
