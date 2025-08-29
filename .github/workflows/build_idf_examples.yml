@@ -21,7 +21,7 @@ jobs:
     runs-on: ubuntu-latest
     container: espressif/idf:${{ matrix.idf_ver }}
     env:
-      CONFIG_PATH: ${{ GITHUB_WORKSPACE }}/.github/ci/.build_idf_examples.toml
+      CONFIG_PATH: ${{ github.workspace }}/.github/ci/.build_idf_examples.toml
     steps:
       - uses: actions/checkout@v4
         with:
