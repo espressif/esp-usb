@@ -18,32 +18,11 @@ jobs:
             "release-v5.5",
             "latest",
           ]
-#        idf_example:
-#          [
-#            "device",
-#            "host",
-#          ]
-#        exclude:
-#          - idf_ver: "release-v5.1"
-#            idf_example: "host"
-#          - idf_ver: "release-v5.2"
-#            idf_example: "host"
-#          - idf_ver: "release-v5.3"
-#            idf_example: "host"
-#        include:
-#          - idf_example: "device"
-#            override_component: "esp_tinyusb"
-#            override_path: "device/esp_tinyusb"
-#            example_path: "examples/peripherals/usb/device"
-#          - idf_example: "host"
-#            override_component: "usb"
-#            override_path: "host/usb"
-#            example_path: "examples/peripherals/usb/host"
     runs-on: ubuntu-latest
     container: espressif/idf:${{ matrix.idf_ver }}
     env:
-      CONFIG_PATH: ${{ github.workspace }}/.github/ci/.examples_build.toml
-      MANIFEST_PATH: ${{ github.workspace }}/.github/ci/.examples-rules.yml
+      CONFIG_PATH: ${{ github.workspace }}/.github/ci/build_idf_examples/.idf_build_examples.toml
+      MANIFEST_PATH: ${{ github.workspace }}/.github/ci/build_idf_examples/.build-test-rules.yml
 
     steps:
       - uses: actions/checkout@v4
@@ -54,12 +33,12 @@ jobs:
         run: |
           . ${IDF_PATH}/export.sh
           pip install idf-component-manager>=2.1.2 idf-build-apps==2.4.3 pyyaml --upgrade
-      - name: Build ESP-IDF ${{ matrix.idf_ver }} USB ${{ matrix.idf_example }} examples
+      - name: Build ESP-IDF ${{ matrix.idf_ver }} USB examples
         shell: bash
         run: |
           . ${IDF_PATH}/export.sh
-          #python .github/ci/override_managed_component.py ${{ matrix.override_component }} ${{ matrix.override_path }} ${IDF_PATH}/${{ matrix.example_path }}/*
 
+          # Uncomment the below line to enable device tests
           #python .github/ci/override_managed_component.py esp_tinyusb device/esp_tinyusb ${IDF_PATH}/examples/peripherals/usb/device/*
           python .github/ci/override_managed_component.py usb host/usb ${IDF_PATH}/examples/peripherals/usb/host/*
           cd ${IDF_PATH}
