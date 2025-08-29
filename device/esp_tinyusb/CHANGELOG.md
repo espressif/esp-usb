@@ -9,6 +9,8 @@
 - esp_tinyusb: Added run-time configuration for peripheral port selection, task settings, and descriptors. For more details, refer to the [Espressif's Addition to TinyUSB Mirgation guide v2](/docs/device/migration-guides/v2/tinyusb.md)
 - esp_tinyusb: Added USB Device event callback to handle different USB Device events. For the list of supported USB Device events, refer to to [Espressif's Addition to TinyUSB - README](/device/esp_tinyusb/README.md)
 - esp_tinyusb: Removed configuration option to handle TinyUSB events outside of this driver
+- NCM: Added possibility to deinit the driver
+- NCM: Updated public API; refer to the [NCM Class Migration guide v2](/docs/device/migration-guides/v2/tinyusb_ncm.md)
 - MSC: Removed dedicated callbacks; introduced a single callback with an event ID for each storage
 - MSC: Added storage format support
 - MSC: Added dual storage support (SPI/Flash and SD/MMC)
