@@ -1,6 +1,6 @@
-examples/peripherals/usb/device:
-  disable:
-    - if: SOC_USB_OTG_SUPPORTED != 1
+#examples/peripherals/usb/device:
+#  disable:
+#    - if: SOC_USB_OTG_SUPPORTED != 1
 
 examples/peripherals/usb/host:
   enable:

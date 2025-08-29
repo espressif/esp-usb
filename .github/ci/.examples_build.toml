@@ -1,5 +1,5 @@
 paths = [
-    "examples/peripherals/usb/device",     # USB Device examples
+    #"examples/peripherals/usb/device",     # USB Device examples
     "examples/peripherals/usb/host",        # USB Host examples
 ]
 

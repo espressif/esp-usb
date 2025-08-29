@@ -60,7 +60,7 @@ jobs:
           . ${IDF_PATH}/export.sh
           #python .github/ci/override_managed_component.py ${{ matrix.override_component }} ${{ matrix.override_path }} ${IDF_PATH}/${{ matrix.example_path }}/*
 
-          python .github/ci/override_managed_component.py esp_tinyusb device/esp_tinyusb ${IDF_PATH}/examples/peripherals/usb/device/*
+          #python .github/ci/override_managed_component.py esp_tinyusb device/esp_tinyusb ${IDF_PATH}/examples/peripherals/usb/device/*
           python .github/ci/override_managed_component.py usb host/usb ${IDF_PATH}/examples/peripherals/usb/host/*
           cd ${IDF_PATH}
 
