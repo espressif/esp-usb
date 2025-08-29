@@ -207,6 +207,7 @@ esp_err_t tinyusb_msc_new_storage_sdmmc(const tinyusb_msc_storage_config_t *conf
  *
  * @return
  *   - ESP_OK: Deletion successful
+ *   - ESP_ERR_INVALID_ARG: Invalid input argument, handle is NULL
  *   - ESP_ERR_INVALID_STATE: Driver is not installed or storage is still mounted
  */
 esp_err_t tinyusb_msc_delete_storage(tinyusb_msc_storage_handle_t handle);
