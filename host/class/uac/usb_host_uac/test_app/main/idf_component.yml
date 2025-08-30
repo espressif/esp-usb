@@ -1,0 +1,12 @@
+## IDF Component Manager Manifest File
+dependencies:
+  # Needed as DUT
+  espressif/usb_host_uac:
+    version: "*"
+    override_path: "../../../usb_host_uac"
+
+  espressif/usb:
+    version: "*"
+    override_path: "../../../../../usb"
+    rules:
+      - if: "idf_version >=6.0" # Override native esp-idf/usb component only for 6.0 and above

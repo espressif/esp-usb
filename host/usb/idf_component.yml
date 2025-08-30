@@ -1,0 +1,11 @@
+## IDF Component Manager Manifest File
+description: USB Host library
+version: "1.0.0-rc0"
+url: https://github.com/espressif/esp-usb/tree/master/host/usb
+dependencies:
+  idf: ">=6.0"
+targets:
+  - esp32s2
+  - esp32s3
+  - esp32p4
+  - linux

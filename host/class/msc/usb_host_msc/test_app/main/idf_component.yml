@@ -1,0 +1,17 @@
+## IDF Component Manager Manifest File
+dependencies:
+  # Needed as DUT
+  espressif/usb_host_msc:
+    version: "*"
+    override_path: "../../../usb_host_msc"
+
+  # Needed for MSC mock device
+  espressif/esp_tinyusb:
+    version: "*"
+    override_path: "../../../../../../device/esp_tinyusb"
+
+  espressif/usb:
+    version: "*"
+    override_path: "../../../../../usb"
+    rules:
+      - if: "idf_version >=6.0" # Override native esp-idf/usb component only for 6.0 and above
