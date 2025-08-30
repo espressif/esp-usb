@@ -1,17 +1,15 @@
-name: Build and Run USB Test Application
+name: Build and Run Overridden USB Test Application
 
-#on:
-#  schedule:
-#    - cron: '0 0 * * 0' # Every Sunday at midnight
-#  pull_request:
-#    types: [opened, reopened, synchronize]
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
 
 jobs:
   build:
-    name: Build USB TestApps
+    name: Build Overridden USB TestApps
     strategy:
       matrix:
-        idf_ver: ["release-v5.1", "release-v5.2", "release-v5.3", "release-v5.4", "release-v5.5", "latest"]
+        idf_ver: ["release-v5.4", "release-v5.5", "latest"]
     runs-on: ubuntu-latest
     container: espressif/idf:${{ matrix.idf_ver }}
     steps:
@@ -23,12 +21,12 @@ jobs:
         run: |
           . ${IDF_PATH}/export.sh
           git config --global safe.directory $(pwd)
-          pip install idf-build-apps==2.4.3 --upgrade
+          pip install idf-build-apps==2.12.2 --upgrade
           export PEDANTIC_FLAGS="-DIDF_CI_BUILD -Werror -Werror=deprecated-declarations -Werror=unused-variable -Werror=unused-but-set-variable -Werror=unused-function"
           export EXTRA_CFLAGS="${PEDANTIC_FLAGS} -Wstrict-prototypes"
           export EXTRA_CXXFLAGS="${PEDANTIC_FLAGS}"
-          idf-build-apps find
-          idf-build-apps build
+          idf-build-apps find --override-sdkconfig-items CONFIG_USB_COMPONENT_OVERRIDE=y --exclude device/esp_tinyusb host/usb clang_tidy -v
+          idf-build-apps build --override-sdkconfig-items CONFIG_USB_COMPONENT_OVERRIDE=y --exclude device/esp_tinyusb host/usb clang_tidy
       - uses: actions/upload-artifact@v4
         with:
           name: usb_test_app_bin_${{ matrix.idf_ver }}
@@ -42,22 +40,15 @@ jobs:
           if-no-files-found: error
 
   run-target:
-    name: Run USB Host and Device TestApps on target
+    name: Run overridden USB Host TestApps on target
     if: ${{ github.repository_owner == 'espressif' }}
     needs: build
     strategy:
       matrix:
-        idf_ver: ["release-v5.1", "release-v5.2", "release-v5.3", "release-v5.4", "release-v5.5", "latest"]
+        idf_ver: ["release-v5.4", "release-v5.5", "latest"]
         idf_target: ["esp32s2", "esp32p4"]
-        runner_tag: ["usb_host", "usb_device"]
-        exclude:
-          # Exclude esp32p4 for releases before IDF 5.3 for all runner tags (esp32p4 support starts in IDF 5.3)
-          - idf_ver: "release-v5.1"
-            idf_target: "esp32p4"
-          - idf_ver: "release-v5.2"
-            idf_target: "esp32p4"
 
-    runs-on: [self-hosted, linux, docker, "${{ matrix.idf_target }}", "${{ matrix.runner_tag }}"]
+    runs-on: [self-hosted, linux, docker, "${{ matrix.idf_target }}", "usb_host"]
     container:
       image: python:3.11-bookworm
       options: --privileged --device-cgroup-rule="c 188:* rmw" --device-cgroup-rule="c 166:* rmw"
@@ -75,4 +66,4 @@ jobs:
           PIP_EXTRA_INDEX_URL: "https://dl.espressif.com/pypi/"
         run: pip install --only-binary cryptography pytest-embedded pytest-embedded-serial-esp pytest-embedded-idf pyserial pyusb
       - name: Run USB Test App on target
-        run: pytest --embedded-services esp,idf --target=${{ matrix.idf_target }} -m ${{ matrix.runner_tag }} --build-dir=build_${{ matrix.idf_target }}
+        run: pytest --embedded-services esp,idf --target=${{ matrix.idf_target }} -m usb_host --build-dir=build_${{ matrix.idf_target }}

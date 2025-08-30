@@ -17,6 +17,11 @@ if(${target} STREQUAL "esp32p4")
     list(APPEND priv_requires esp_psram)
 endif()
 
+# usb_phy driver is not present inside usb component in IDF 6.0 anymore
+if("${IDF_VERSION_MAJOR}.${IDF_VERSION_MINOR}" VERSION_LESS "6.0")
+    list(APPEND priv_requires esp_driver_gpio)      # usb_phy driver relies on gpio driver API
+endif()
+
 if(CONFIG_SOC_USB_OTG_SUPPORTED)
     list(APPEND srcs "src/hcd_dwc.c"
                      "src/enum.c"
@@ -28,6 +33,19 @@ if(CONFIG_SOC_USB_OTG_SUPPORTED)
                      )
     list(APPEND include "include")
     list(APPEND priv_includes "private_include")
+
+    # usb_phy driver is not present inside usb component in IDF 6.0 anymore
+    if("${IDF_VERSION_MAJOR}.${IDF_VERSION_MINOR}" VERSION_LESS "6.0")
+        # Get path to usb component inside esp-idf
+        idf_component_get_property(esp_idf_usb_dir usb COMPONENT_OVERRIDEN_DIR)
+
+        # Explicitly add usb_phy.c and usb_phy.h from overridden usb component in esp-idf
+        list(APPEND srcs "${esp_idf_usb_dir}/usb_phy.c")
+
+        # This append must be under the first "include" append,
+        # so usb_host.h (an the rest of the files in /include/usb/) are used from esp-usb, not from esp-idf
+        list(APPEND include "${esp_idf_usb_dir}/include")
+    endif()
 endif()
 
 if(CONFIG_USB_HOST_HUBS_SUPPORTED)

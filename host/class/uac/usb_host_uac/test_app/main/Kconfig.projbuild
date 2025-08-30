@@ -1,0 +1,5 @@
+menu "USB Component override"
+    config USB_COMPONENT_OVERRIDE
+        bool "Override esp-idf USB Component with esp-usb USB Component"
+        default n
+endmenu
