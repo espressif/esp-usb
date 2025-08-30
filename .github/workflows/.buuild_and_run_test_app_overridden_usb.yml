@@ -21,11 +21,11 @@ jobs:
         run: |
           . ${IDF_PATH}/export.sh
           git config --global safe.directory $(pwd)
-          pip install idf-build-apps==2.4.3 --upgrade
+          pip install idf-build-apps==2.12.2 --upgrade
           export PEDANTIC_FLAGS="-DIDF_CI_BUILD -Werror -Werror=deprecated-declarations -Werror=unused-variable -Werror=unused-but-set-variable -Werror=unused-function"
           export EXTRA_CFLAGS="${PEDANTIC_FLAGS} -Wstrict-prototypes"
           export EXTRA_CXXFLAGS="${PEDANTIC_FLAGS}"
-          idf-build-apps find --override-sdkconfig-items CONFIG_USB_COMPONENT_OVERRIDE=y --exclude device/esp_tinyusb
+          idf-build-apps find --override-sdkconfig-items CONFIG_USB_COMPONENT_OVERRIDE=y --exclude device/esp_tinyusb -v
           idf-build-apps build --override-sdkconfig-items CONFIG_USB_COMPONENT_OVERRIDE=y --exclude device/esp_tinyusb
       - uses: actions/upload-artifact@v4
         with:
