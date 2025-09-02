@@ -4,6 +4,12 @@ set(srcs
     "usb_descriptors.c"
     )
 
+set(priv_req "")
+
+if(${IDF_VERSION_MAJOR} LESS 6)
+    list(APPEND priv_req "usb")
+endif()
+
 if(NOT CONFIG_TINYUSB_NO_DEFAULT_TASK)
     list(APPEND srcs "tusb_tasks.c")
 endif() # CONFIG_TINYUSB_NO_DEFAULT_TASK
@@ -36,7 +42,7 @@ endif() # CONFIG_TINYUSB_NET_MODE_NCM
 idf_component_register(SRCS ${srcs}
                        INCLUDE_DIRS "include"
                        PRIV_INCLUDE_DIRS "include_private"
-                       PRIV_REQUIRES usb
+                       PRIV_REQUIRES ${priv_req}
                        REQUIRES fatfs vfs
                        )
 
