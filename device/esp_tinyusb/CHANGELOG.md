@@ -1,3 +1,7 @@
+## 1.7.6~2 [Unreleased]
+
+- esp_tinyusb: Added support for IDF 6.0 after removal of the USB component
+
 ## 1.7.6~1
 
 - esp_tinyusb: Added documentation to README.md
