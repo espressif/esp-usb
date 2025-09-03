@@ -1,0 +1,23 @@
+# This is the main workflow for:
+#
+#   - build_and_run_test_app_usb.yml
+#
+# It triggers reusable workflows with input arguments
+
+name: Build and Run Test apps
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+
+# Cancel previous runs of this workflow for the same PR when a new commit is pushed
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  build_run:
+    uses: ./.github/workflows/build_and_run_test_app_usb.yml
+    with:
+      idf_releases: '["release-v5.1", "release-v5.2", "release-v5.3", "release-v5.4", "release-v5.5", "latest"]'
+      idf_targets: '["esp32s2", "esp32p4"]'

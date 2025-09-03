@@ -1,6 +1,7 @@
 # USB Host Library
 
 [![Component Registry](https://components.espressif.com/components/espressif/usb/badge.svg)](https://components.espressif.com/components/espressif/usb)
+![maintenance-status](https://img.shields.io/badge/maintenance-actively--developed-brightgreen.svg)
 
 This directory contains an implementation of a USB Host Library [USB Host Library](https://docs.espressif.com/projects/esp-idf/en/latest/esp32s2/api-reference/peripherals/usb_host.html).
 

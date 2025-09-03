@@ -13,3 +13,7 @@ This test requires two ESP32 development board with USB-OTG support. The develop
 one acting as host running CDC-ACM host driver and another CDC-ACM device driver (tinyusb).
 
 This test expects that TinyUSB dual CDC device with VID = 0x303A and PID = 0x4002 is connected to the USB host.
+
+## Selecting the USB Component
+
+To manually select which USB Component shall be used to build this test application, please refer to the following documentation page: [Manual USB component selection](../../../../../docs/host/usb_host_lib/usb_component_manual_selection.md).
