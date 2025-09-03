@@ -26,6 +26,9 @@ jobs:
           export EXTRA_CFLAGS="${PEDANTIC_FLAGS} -Wstrict-prototypes"
           export EXTRA_CXXFLAGS="${PEDANTIC_FLAGS}"
           export BUILD_DEVICE_IN_CI=yes
+
+          # TODO: Investigate
+          export OVERRIDE_USB_COMPONENT=no
           idf-build-apps find
           idf-build-apps build
       - uses: actions/upload-artifact@v4
@@ -77,7 +80,7 @@ jobs:
           idf-build-apps build --build-dir build_@t_@w_${{ matrix.usb_override }}
       - uses: actions/upload-artifact@v4
         with:
-          name: usb_test_app_bin_${{ matrix.idf_ver }}
+          name: usb_test_app_bin_${{ matrix.idf_ver }}_${{ matrix.usb_override }}
           path: |
             **/test_app*/**/build_esp*/bootloader/bootloader.bin
             **/test_app*/**/build_esp*/partition_table/partition-table.bin
