@@ -5,10 +5,17 @@ on:
   # i.e. validate that the component passes all checks for being uploaded.
   pull_request:
 
-  # For pushes to master: actually upload the components to the registry.
+  # For pushes to the following branches: actually upload the components to the registry.
   push:
     branches:
+      # Add more branches as needed and update the UPLOAD_BRANCHES env variable below.
+      # Manual sync of branch names in both on.push.branches and env.UPLOAD_BRANCHES is needed
+      # when adding/removing upload branches.
       - master
+      - esp_tinyusb/v1
+
+env:
+  UPLOAD_BRANCHES: '["master","esp_tinyusb/v1"]'
 
 jobs:
   upload_components:
@@ -17,8 +24,16 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: 'recursive'
-      - run: |
-          echo "${{ ( github.ref_name != 'master' || github.repository_owner != 'espressif' ) && 'Checking' || 'Uploading' }} components"
+      - name: Configure dry-run flag
+        id: set_dry_run
+        run: |
+            if [[ "${{ contains(fromJson(env.UPLOAD_BRANCHES), github.ref_name) && github.repository_owner == 'espressif' }}" == "true" ]]; then
+              echo "dry_run=false" >> $GITHUB_OUTPUT
+              echo "Uploading components"
+            else
+              echo "dry_run=true" >> $GITHUB_OUTPUT
+              echo "Checking components"
+            fi
       - name: Upload components to component service
         uses: espressif/upload-components-ci-action@v1
         with:
@@ -44,7 +59,7 @@ jobs:
             host/class/uac/usb_host_uac;
             host/class/uvc/usb_host_uvc;
           namespace: "espressif"
-          # API token will only be available in the master branch in the main repository.
+          # API token will only be available in the main repository.
           # However, dry-run doesn't require a valid token.
           api_token: ${{ secrets.IDF_COMPONENT_API_TOKEN }}
-          dry_run: ${{ github.ref_name != 'master' || github.repository_owner != 'espressif' }}
+          dry_run: ${{ steps.set_dry_run.outputs.dry_run }}
