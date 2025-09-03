@@ -5,8 +5,8 @@ on:
     types: [opened, reopened, synchronize]
 
 jobs:
-  build:
-    name: Build USB TestApps
+  build-device:
+    name: Build USB Device apps
     strategy:
       matrix:
         idf_ver: ["release-v5.1", "release-v5.2", "release-v5.3", "release-v5.4", "release-v5.5", "latest"]
@@ -25,6 +25,54 @@ jobs:
           export PEDANTIC_FLAGS="-DIDF_CI_BUILD -Werror -Werror=deprecated-declarations -Werror=unused-variable -Werror=unused-but-set-variable -Werror=unused-function"
           export EXTRA_CFLAGS="${PEDANTIC_FLAGS} -Wstrict-prototypes"
           export EXTRA_CXXFLAGS="${PEDANTIC_FLAGS}"
+          export BUILD_DEVICE_IN_CI=yes
+          idf-build-apps find
+          idf-build-apps build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: usb_test_app_bin_${{ matrix.idf_ver }}
+          path: |
+            **/test_app*/**/build_esp*/bootloader/bootloader.bin
+            **/test_app*/**/build_esp*/partition_table/partition-table.bin
+            **/test_app*/**/build_esp*/test_app_*.bin
+            **/test_app*/**/build_esp*/test_app_*.elf
+            **/test_app*/**/build_esp*/flasher_args.json
+            **/test_app*/**/build_esp*/config/sdkconfig.json
+          if-no-files-found: error
+
+  build-host:
+    name: Build USB Host apps
+    strategy:
+      matrix:
+        idf_ver: ["release-v5.1", "release-v5.2", "release-v5.3", "release-v5.4", "release-v5.5", "latest"]
+        usb_override: ["yes", "no"]
+        exclude:
+          - idf_ver: "release-v5.1"
+            usb_override: "yes"
+          - idf_ver: "release-v5.2"
+            usb_override: "yes"
+          - idf_ver: "release-v5.3"
+            usb_override: "yes"
+          #- idf_ver: "latest"
+          #  usb_override: "no"
+
+    runs-on: ubuntu-latest
+    container: espressif/idf:${{ matrix.idf_ver }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: 'true'
+      - name: Build USB Test Application
+        shell: bash
+        run: |
+          . ${IDF_PATH}/export.sh
+          git config --global safe.directory $(pwd)
+          pip install idf-build-apps==2.4.3 --upgrade
+          export PEDANTIC_FLAGS="-DIDF_CI_BUILD -Werror -Werror=deprecated-declarations -Werror=unused-variable -Werror=unused-but-set-variable -Werror=unused-function"
+          export EXTRA_CFLAGS="${PEDANTIC_FLAGS} -Wstrict-prototypes"
+          export EXTRA_CXXFLAGS="${PEDANTIC_FLAGS}"
+          export OVERRIDE_USB_COMPONENT=${{ matrix.usb_override }}
+          export BUILD_DEVICE_IN_CI=no
           idf-build-apps find
           idf-build-apps build
       - uses: actions/upload-artifact@v4
