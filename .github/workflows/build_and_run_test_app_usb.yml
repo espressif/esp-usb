@@ -74,7 +74,7 @@ jobs:
           export OVERRIDE_USB_COMPONENT=${{ matrix.usb_override }}
           export BUILD_DEVICE_IN_CI=no
           idf-build-apps find
-          idf-build-apps build
+          idf-build-apps build --build-dir build_@t_@w_${{ matrix.usb_override }}
       - uses: actions/upload-artifact@v4
         with:
           name: usb_test_app_bin_${{ matrix.idf_ver }}
@@ -90,7 +90,7 @@ jobs:
   run-target:
     name: Run USB Host and Device TestApps on target
     if: ${{ github.repository_owner == 'espressif' }}
-    needs: build
+    needs: [build-device, build-host]
     strategy:
       matrix:
         idf_ver: ["release-v5.1", "release-v5.2", "release-v5.3", "release-v5.4", "release-v5.5", "latest"]
