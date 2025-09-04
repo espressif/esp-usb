@@ -78,7 +78,7 @@ jobs:
           #export BUILD_DEVICE_IN_CI=no
 
           idf-build-apps find --paths host/
-          idf-build-apps build --paths host/ --build-dir build_@t_@w_${{ matrix.usb_override }}
+          idf-build-apps build --paths host/
       - uses: actions/upload-artifact@v4
         with:
           name: usb_host_test_app_bin_${{ matrix.idf_ver }}_${{ matrix.usb_override }}
@@ -166,4 +166,4 @@ jobs:
           PIP_EXTRA_INDEX_URL: "https://dl.espressif.com/pypi/"
         run: pip install --only-binary cryptography pytest-embedded pytest-embedded-serial-esp pytest-embedded-idf pyserial pyusb
       - name: Run USB Test App on target
-        run: pytest --embedded-services esp,idf --target=${{ matrix.idf_target }} -m usb_host --build-dir=build_${{ matrix.idf_target }}_${{ matrix.usb_override }}
+        run: pytest --embedded-services esp,idf --target=${{ matrix.idf_target }} -m usb_host --build-dir=build_${{ matrix.idf_target }}
