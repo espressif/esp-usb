@@ -25,12 +25,12 @@ jobs:
           export PEDANTIC_FLAGS="-DIDF_CI_BUILD -Werror -Werror=deprecated-declarations -Werror=unused-variable -Werror=unused-but-set-variable -Werror=unused-function"
           export EXTRA_CFLAGS="${PEDANTIC_FLAGS} -Wstrict-prototypes"
           export EXTRA_CXXFLAGS="${PEDANTIC_FLAGS}"
-          export BUILD_DEVICE_IN_CI=yes
+          #export BUILD_DEVICE_IN_CI=yes
 
           # TODO: Investigate
           export OVERRIDE_USB_COMPONENT=no
-          idf-build-apps find
-          idf-build-apps build
+          idf-build-apps find --paths device/esp_tinyusb
+          idf-build-apps build --paths device/esp_tinyusb
       - uses: actions/upload-artifact@v4
         with:
           name: usb_test_app_bin_${{ matrix.idf_ver }}
@@ -75,9 +75,10 @@ jobs:
           export EXTRA_CFLAGS="${PEDANTIC_FLAGS} -Wstrict-prototypes"
           export EXTRA_CXXFLAGS="${PEDANTIC_FLAGS}"
           export OVERRIDE_USB_COMPONENT=${{ matrix.usb_override }}
-          export BUILD_DEVICE_IN_CI=no
-          idf-build-apps find
-          idf-build-apps build --build-dir build_@t_@w_${{ matrix.usb_override }}
+          #export BUILD_DEVICE_IN_CI=no
+
+          idf-build-apps find --paths host/
+          idf-build-apps build --paths host/ --build-dir build_@t_@w_${{ matrix.usb_override }}
       - uses: actions/upload-artifact@v4
         with:
           name: usb_test_app_bin_${{ matrix.idf_ver }}_${{ matrix.usb_override }}

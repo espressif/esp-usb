@@ -1,8 +1,8 @@
 device/esp_tinyusb:
   enable:
     - if: SOC_USB_OTG_SUPPORTED == 1
-  disable:
-    - if: BUILD_DEVICE_IN_CI == "no"
+  #disable:
+  #  - if: BUILD_DEVICE_IN_CI == "no"
 
 host/class:
   enable:
