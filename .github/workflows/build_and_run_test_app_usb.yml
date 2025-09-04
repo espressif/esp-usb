@@ -33,7 +33,7 @@ jobs:
           idf-build-apps build --paths device/esp_tinyusb
       - uses: actions/upload-artifact@v4
         with:
-          name: usb_test_app_bin_${{ matrix.idf_ver }}
+          name: usb_device_test_app_bin_${{ matrix.idf_ver }}
           path: |
             **/test_app*/**/build_esp*/bootloader/bootloader.bin
             **/test_app*/**/build_esp*/partition_table/partition-table.bin
@@ -81,7 +81,7 @@ jobs:
           idf-build-apps build --paths host/ --build-dir build_@t_@w_${{ matrix.usb_override }}
       - uses: actions/upload-artifact@v4
         with:
-          name: usb_test_app_bin_${{ matrix.idf_ver }}_${{ matrix.usb_override }}
+          name: usb_host_test_app_bin_${{ matrix.idf_ver }}_${{ matrix.usb_override }}
           path: |
             **/test_app*/**/build_esp*/bootloader/bootloader.bin
             **/test_app*/**/build_esp*/partition_table/partition-table.bin
@@ -91,15 +91,14 @@ jobs:
             **/test_app*/**/build_esp*/config/sdkconfig.json
           if-no-files-found: error
 
-  run-target:
-    name: Run USB Host and Device TestApps on target
+  run-target-device:
+    name: Run USB Device TestApps on target
     if: ${{ github.repository_owner == 'espressif' }}
-    needs: [build-device, build-host]
+    needs: build-device
     strategy:
       matrix:
         idf_ver: ["release-v5.1", "release-v5.2", "release-v5.3", "release-v5.4", "release-v5.5", "latest"]
         idf_target: ["esp32s2", "esp32p4"]
-        runner_tag: ["usb_host", "usb_device"]
         exclude:
           # Exclude esp32p4 for releases before IDF 5.3 for all runner tags (esp32p4 support starts in IDF 5.3)
           - idf_ver: "release-v5.1"
@@ -107,7 +106,7 @@ jobs:
           - idf_ver: "release-v5.2"
             idf_target: "esp32p4"
 
-    runs-on: [self-hosted, linux, docker, "${{ matrix.idf_target }}", "${{ matrix.runner_tag }}"]
+    runs-on: [self-hosted, linux, docker, "${{ matrix.idf_target }}", "usb_device"]
     container:
       image: python:3.11-bookworm
       options: --privileged --device-cgroup-rule="c 188:* rmw" --device-cgroup-rule="c 166:* rmw"
@@ -115,7 +114,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
-          name: usb_test_app_bin_${{ matrix.idf_ver }}
+          name: usb_device_test_app_bin_${{ matrix.idf_ver }}
       - name: ⚙️ Install System tools
         run: |
           apt update
@@ -125,4 +124,47 @@ jobs:
           PIP_EXTRA_INDEX_URL: "https://dl.espressif.com/pypi/"
         run: pip install --only-binary cryptography pytest-embedded pytest-embedded-serial-esp pytest-embedded-idf pyserial pyusb
       - name: Run USB Test App on target
-        run: pytest --embedded-services esp,idf --target=${{ matrix.idf_target }} -m ${{ matrix.runner_tag }} --build-dir=build_${{ matrix.idf_target }}
+        run: pytest --embedded-services esp,idf --target=${{ matrix.idf_target }} -m usb_device --build-dir=build_${{ matrix.idf_target }}
+
+  run-target-host:
+    name: Run USB Host TestApps on target
+    if: ${{ github.repository_owner == 'espressif' }}
+    needs: build-host
+    strategy:
+      matrix:
+        idf_ver: ["release-v5.1", "release-v5.2", "release-v5.3", "release-v5.4", "release-v5.5", "latest"]
+        usb_override: ["yes", "no"]
+        idf_target: ["esp32s2", "esp32p4"]
+        exclude:
+          # Exclude esp32p4 for releases before IDF 5.3 for all runner tags (esp32p4 support starts in IDF 5.3)
+          - idf_ver: "release-v5.1"
+            idf_target: "esp32p4"
+          - idf_ver: "release-v5.2"
+            idf_target: "esp32p4"
+
+          - idf_ver: "release-v5.1"
+            usb_override: "yes"
+          - idf_ver: "release-v5.2"
+            usb_override: "yes"
+          - idf_ver: "release-v5.3"
+            usb_override: "yes"
+
+    runs-on: [self-hosted, linux, docker, "${{ matrix.idf_target }}", "usb_host"]
+    container:
+      image: python:3.11-bookworm
+      options: --privileged --device-cgroup-rule="c 188:* rmw" --device-cgroup-rule="c 166:* rmw"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: usb_host_test_app_bin_${{ matrix.idf_ver }}_${{ matrix.usb_override }}
+      - name: ⚙️ Install System tools
+        run: |
+          apt update
+          apt install -y usbutils
+      - name: Install Python packages
+        env:
+          PIP_EXTRA_INDEX_URL: "https://dl.espressif.com/pypi/"
+        run: pip install --only-binary cryptography pytest-embedded pytest-embedded-serial-esp pytest-embedded-idf pyserial pyusb
+      - name: Run USB Test App on target
+        run: pytest --embedded-services esp,idf --target=${{ matrix.idf_target }} -m ${{ matrix.runner_tag }} --build-dir=build_${{ matrix.idf_target }}_${{ matrix.usb_override }}
