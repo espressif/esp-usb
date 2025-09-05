@@ -26,4 +26,4 @@ jobs:
           pip install pytest idf-build-apps==2.4.3 --upgrade
           idf-build-apps find --target linux
           idf-build-apps build --target linux
-          pytest --embedded-services esp,idf --target=linux -m host_test --build-dir=build_linux
+          pytest --target=linux -m host_test --build-dir=build_linux
