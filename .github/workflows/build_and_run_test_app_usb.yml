@@ -26,10 +26,11 @@ jobs:
             override: "no"  # For the completeness
           - app_type: host
             path: host
-            override: "no"
+            override: "yes"
           - app_type: host-no-override
             path: host
-            override: "yes"
+            override: "no"
+        # Exclude usb component overriding for lower versions, only service releases
         exclude:
           - app_type: host
             idf_ver: "release-v5.1"
@@ -54,7 +55,6 @@ jobs:
           export EXTRA_CFLAGS="${PEDANTIC_FLAGS} -Wstrict-prototypes"
           export EXTRA_CXXFLAGS="${PEDANTIC_FLAGS}"
 
-          # TODO: Investigate
           export OVERRIDE_USB_COMPONENT=${{ matrix.override }}
 
           idf-build-apps find --paths ${{ matrix.path }}
