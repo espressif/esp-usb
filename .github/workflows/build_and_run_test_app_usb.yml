@@ -18,25 +18,25 @@ jobs:
     strategy:
       matrix:
         idf_ver: ${{ fromJson(inputs.idf_releases) }}
-        app_type: ["device", "host", "host-no-override"]
+        test_app: ["device", "host-native", "host-managed"]
         include:
           # Add build paths
-          - app_type: device
+          - test_app: device
             path: device/esp_tinyusb
             override: "no"  # For the completeness
-          - app_type: host
-            path: host
-            override: "yes"
-          - app_type: host-no-override
+          - test_app: host-native
             path: host
             override: "no"
+          - test_app: host-managed
+            path: host
+            override: "yes"
         exclude:
           # Exclude usb component overriding for lower versions, only service releases
-          - app_type: host
+          - test_app: host-managed
             idf_ver: "release-v5.1"
-          - app_type: host
+          - test_app: host-managed
             idf_ver: "release-v5.2"
-          - app_type: host
+          - test_app: host-managed
             idf_ver: "release-v5.3"
 
     runs-on: ubuntu-latest
@@ -61,7 +61,7 @@ jobs:
           idf-build-apps build --paths ${{ matrix.path }}
       - uses: actions/upload-artifact@v4
         with:
-          name: usb_${{ matrix.app_type }}_test_app_bin_${{ matrix.idf_ver }}
+          name: usb_${{ matrix.test_app }}_test_app_bin_${{ matrix.idf_ver }}
           path: |
             **/test_app*/**/build_esp*/bootloader/bootloader.bin
             **/test_app*/**/build_esp*/partition_table/partition-table.bin
@@ -79,14 +79,14 @@ jobs:
       matrix:
         idf_ver: ${{ fromJson(inputs.idf_releases) }}
         idf_target: ${{ fromJson(inputs.idf_targets) }}
-        app_type: ["device", "host", "host-no-override"]
+        test_app: ["device", "host-native", "host-managed"]
         include:
-          # Link runner tag with app_type
-          - app_type: device
+          # Link runner tag with test_app
+          - test_app: device
             runner_tag: "usb_device"
-          - app_type: host
+          - test_app: host-native
             runner_tag: "usb_host"
-          - app_type: host-no-override
+          - test_app: host-override
             runner_tag: "usb_host"
         exclude:
           # Exclude esp32p4 for releases before IDF 5.3 for all runner tags (esp32p4 support starts in IDF 5.3)
@@ -94,6 +94,13 @@ jobs:
             idf_target: "esp32p4"
           - idf_ver: "release-v5.2"
             idf_target: "esp32p4"
+          # Exclude usb component overriding for lower versions, only service releases
+          - test_app: host-managed
+            idf_ver: "release-v5.1"
+          - test_app: host-managed
+            idf_ver: "release-v5.2"
+          - test_app: host-managed
+            idf_ver: "release-v5.3"
 
     runs-on: [self-hosted, linux, docker, "${{ matrix.idf_target }}", "${{ matrix.runner_tag }}"]
     container:
@@ -103,7 +110,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
-          name: usb_${{ matrix.app_type }}_test_app_bin_${{ matrix.idf_ver }}
+          name: usb_${{ matrix.test_app }}_test_app_bin_${{ matrix.idf_ver }}
       - name: ⚙️ Install System tools
         run: |
           apt update
