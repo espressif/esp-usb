@@ -20,23 +20,23 @@ jobs:
         idf_ver: ${{ fromJson(inputs.idf_releases) }}
         include:
           # Device build, where usb_override is not a factor
-          - name: device
+          - device_host: device
             path: device/esp_tinyusb
           # Host build with no override
-          - name: host-no-override
+          - device_host: host-no-override
             path: host/
             usb_override: "no"
           # Host build with override
-          - name: host
+          - device_host: host
             path: host/
             usb_override: "yes"
         exclude:
           - idf_ver: "release-v5.1"
-            name: host
+            device_host: host
           - idf_ver: "release-v5.2"
-            name: host
+            device_host: host
           - idf_ver: "release-v5.3"
-            name: host
+            device_host: host
 
     runs-on: ubuntu-latest
     container: espressif/idf:${{ matrix.idf_ver }}
@@ -60,7 +60,7 @@ jobs:
           idf-build-apps build --paths ${{ matrix.path }}
       - uses: actions/upload-artifact@v4
         with:
-          name: usb_${{ matrix.name }}_test_app_bin_${{ matrix.idf_ver }}
+          name: usb_${{ matrix.device_host }}_test_app_bin_${{ matrix.idf_ver }}
           path: |
             **/test_app*/**/build_esp*/bootloader/bootloader.bin
             **/test_app*/**/build_esp*/partition_table/partition-table.bin
