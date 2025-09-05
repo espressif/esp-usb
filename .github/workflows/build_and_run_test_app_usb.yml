@@ -20,12 +20,16 @@ jobs:
         idf_ver: ${{ fromJson(inputs.idf_releases) }}
         app_type: ["device", "host", "host-no-override"]
         include:
+          # Add build paths
           - app_type: device
             path: device/esp_tinyusb
+            override: "no"  # For the completeness
           - app_type: host
             path: host
+            override: "no"
           - app_type: host-no-override
             path: host
+            override: "yes"
 
     runs-on: ubuntu-latest
     container: espressif/idf:${{ matrix.idf_ver }}
@@ -44,7 +48,8 @@ jobs:
           export EXTRA_CXXFLAGS="${PEDANTIC_FLAGS}"
 
           # TODO: Investigate
-          #export OVERRIDE_USB_COMPONENT=${{ matrix.usb_override }}
+          export OVERRIDE_USB_COMPONENT=${{ matrix.override }}
+
           idf-build-apps find --paths ${{ matrix.path }}
           idf-build-apps build --paths ${{ matrix.path }}
       - uses: actions/upload-artifact@v4
