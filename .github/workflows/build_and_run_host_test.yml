@@ -8,7 +8,7 @@ on:
 
 jobs:
   build:
-    name: Build
+    name: Build and Run
     strategy:
       fail-fast: false
       matrix:
@@ -26,4 +26,4 @@ jobs:
           pip install pytest idf-build-apps==2.4.3 --upgrade
           idf-build-apps find --target linux
           idf-build-apps build --target linux
-          chmod +x $GITHUB_WORKSPACE/run_host_tests.sh && $GITHUB_WORKSPACE/run_host_tests.sh
+          pytest --embedded-services esp,idf --target=linux -m host_test --build-dir=build_linux
