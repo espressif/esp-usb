@@ -3,9 +3,10 @@ description: USB Host library
 version: "1.0.0-rc0"
 url: https://github.com/espressif/esp-usb/tree/master/host/usb
 dependencies:
-  idf: ">=6.0"
+  idf: ">=5.4"
 targets:
   - esp32s2
   - esp32s3
   - esp32p4
+  - esp32h4
   - linux

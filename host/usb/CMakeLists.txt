@@ -17,6 +17,11 @@ if(${target} STREQUAL "esp32p4")
     list(APPEND priv_requires esp_psram)
 endif()
 
+if(${IDF_VERSION_MAJOR} LESS 6)
+    # usb_phy driver is present in USB component only in IDF 5.x
+    list(APPEND priv_requires esp_driver_gpio)      # usb_phy driver relies on gpio driver API
+endif()
+
 if(CONFIG_SOC_USB_OTG_SUPPORTED)
     list(APPEND srcs "src/hcd_dwc.c"
                      "src/enum.c"
@@ -28,6 +33,23 @@ if(CONFIG_SOC_USB_OTG_SUPPORTED)
                      )
     list(APPEND include "include")
     list(APPEND priv_includes "private_include")
+
+    if(${IDF_VERSION_MAJOR} LESS 6)
+        # usb_phy driver is present in USB component only in IDF 5.x
+        # If we want to override usb component from esp-idf with managed usb component from esp-usb, we must provide
+        # usb_phy driver for the managed usb component separately by taking src usb_phy.c and
+        # include esp_private/usb_phy.h from the native usb component in esp-idf
+
+        # Get path to usb component inside esp-idf
+        idf_component_get_property(esp_idf_usb_dir usb COMPONENT_OVERRIDEN_DIR)
+
+        # Explicitly add usb_phy.c and usb_phy.h from overridden usb component in esp-idf
+        list(APPEND srcs "${esp_idf_usb_dir}/usb_phy.c")
+
+        # This append must be under the first "include" append,
+        # so usb_host.h (and the rest of the files in /include/usb/) are used from esp-usb, not from esp-idf
+        list(APPEND include "${esp_idf_usb_dir}/include")
+    endif()
 endif()
 
 if(CONFIG_USB_HOST_HUBS_SUPPORTED)
