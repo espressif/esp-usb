@@ -4,15 +4,15 @@ on:
   pull_request:
     types: [opened, reopened, synchronize]
 
-.idf_versions: &idf_versions
-    idf_ver: ["release-v5.1", "release-v5.2", "release-v5.3", "release-v5.4", "release-v5.5", "latest"]
+env:
+  IDF_VERSION: ${{ toJson(fromJSON('["release-v5.1", "release-v5.2", "release-v5.3", "release-v5.4", "release-v5.5", "latest"]')) }}
 
 jobs:
   build-device:
     name: Build USB Device apps
     strategy:
       matrix:
-        <<: *idf_versions
+        idf_ver: ${{ fromJson(env.IDF_VERSION) }}
     runs-on: ubuntu-latest
     container: espressif/idf:${{ matrix.idf_ver }}
     steps:
@@ -50,7 +50,7 @@ jobs:
     name: Build USB Host apps
     strategy:
       matrix:
-        <<: *idf_versions
+        idf_ver: ${{ fromJson(env.IDF_VERSION) }}
         usb_override: ["yes", "no"]
         exclude:
           - idf_ver: "release-v5.1"
@@ -100,7 +100,7 @@ jobs:
     needs: build-device
     strategy:
       matrix:
-        <<: *idf_versions
+        idf_ver: ${{ fromJson(env.IDF_VERSION) }}
         idf_target: ["esp32s2", "esp32p4"]
         exclude:
           # Exclude esp32p4 for releases before IDF 5.3 for all runner tags (esp32p4 support starts in IDF 5.3)
@@ -135,7 +135,7 @@ jobs:
     needs: build-host
     strategy:
       matrix:
-        <<: *idf_versions
+        idf_ver: ${{ fromJson(env.IDF_VERSION) }}
         usb_override: ["yes", "no"]
         idf_target: ["esp32s2", "esp32p4"]
         exclude:
