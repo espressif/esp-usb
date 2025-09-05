@@ -22,6 +22,7 @@ jobs:
           # Device build, where usb_override is not a factor
           - device_host: device
             path: device/esp_tinyusb
+            usb_override: "no"
           # Host build with no override
           - device_host: host-no-override
             path: host/
@@ -30,13 +31,16 @@ jobs:
           - device_host: host
             path: host/
             usb_override: "yes"
-        exclude:
-          - idf_ver: "release-v5.1"
-            device_host: host
-          - idf_ver: "release-v5.2"
-            device_host: host
-          - idf_ver: "release-v5.3"
-            device_host: host
+            idf_ver: "release-v5.4"
+          - device_host: host
+            path: host/
+            usb_override: "yes"
+            idf_ver: "release-v5.5"
+          - device_host: host
+            path: host/
+            usb_override: "yes"
+            idf_ver: "latest"
+
 
     runs-on: ubuntu-latest
     container: espressif/idf:${{ matrix.idf_ver }}
