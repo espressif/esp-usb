@@ -4,12 +4,20 @@ on:
   pull_request:
     types: [opened, reopened, synchronize]
 
+# Matrix with IDF releases for Build and Run jobs
+x-idf-versions: &idf_versions
+  ["release-v5.1", "release-v5.2", "release-v5.3", "release-v5.4", "release-v5.5", "latest"]
+
+# Matrix with target runners for Run jobs
+x-idf-targets: &idf_targets
+  ["esp32s2", "esp32p4"]
+
 jobs:
   build-device:
     name: Build USB Device apps
     strategy:
       matrix:
-        idf_ver: ["release-v5.1", "release-v5.2", "release-v5.3", "release-v5.4", "release-v5.5", "latest"]
+        idf_ver: *idf_versions
     runs-on: ubuntu-latest
     container: espressif/idf:${{ matrix.idf_ver }}
     steps:
@@ -47,7 +55,7 @@ jobs:
     name: Build USB Host apps
     strategy:
       matrix:
-        idf_ver: ["release-v5.1", "release-v5.2", "release-v5.3", "release-v5.4", "release-v5.5", "latest"]
+        idf_ver: *idf_versions
         usb_override: ["yes", "no"]
         exclude:
           - idf_ver: "release-v5.1"
@@ -97,8 +105,8 @@ jobs:
     needs: build-device
     strategy:
       matrix:
-        idf_ver: ["release-v5.1", "release-v5.2", "release-v5.3", "release-v5.4", "release-v5.5", "latest"]
-        idf_target: ["esp32s2", "esp32p4"]
+        idf_ver: *idf_versions
+        idf_target: *idf_targets
         exclude:
           # Exclude esp32p4 for releases before IDF 5.3 for all runner tags (esp32p4 support starts in IDF 5.3)
           - idf_ver: "release-v5.1"
@@ -132,9 +140,9 @@ jobs:
     needs: build-host
     strategy:
       matrix:
-        idf_ver: ["release-v5.1", "release-v5.2", "release-v5.3", "release-v5.4", "release-v5.5", "latest"]
+        idf_ver: *idf_versions
         usb_override: ["yes", "no"]
-        idf_target: ["esp32s2", "esp32p4"]
+        idf_target: *idf_targets
         exclude:
           # Exclude esp32p4 for releases before IDF 5.3 for all runner tags (esp32p4 support starts in IDF 5.3)
           - idf_ver: "release-v5.1"
