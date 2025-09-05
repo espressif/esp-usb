@@ -14,33 +14,18 @@ on:
 
 jobs:
   build:
-    name: Build USB Device apps
+    name: Build USB apps
     strategy:
       matrix:
         idf_ver: ${{ fromJson(inputs.idf_releases) }}
+        app_type: ["device", "host", "host-no-override"]
         include:
-          # Device build, where usb_override is not a factor
-          - device_host: device
+          - app_type: device
             path: device/esp_tinyusb
-            usb_override: "no"
-          # Host build with no override
-          - device_host: host-no-override
-            path: host/
-            usb_override: "no"
-          # Host build with override
-          - device_host: host
-            path: host/
-            usb_override: "yes"
-            idf_ver: "release-v5.4"
-          - device_host: host
-            path: host/
-            usb_override: "yes"
-            idf_ver: "release-v5.5"
-          - device_host: host
-            path: host/
-            usb_override: "yes"
-            idf_ver: "latest"
-
+          - app_type: host
+            path: host
+          - app_type: host-no-override
+            path: host
 
     runs-on: ubuntu-latest
     container: espressif/idf:${{ matrix.idf_ver }}
@@ -59,7 +44,7 @@ jobs:
           export EXTRA_CXXFLAGS="${PEDANTIC_FLAGS}"
 
           # TODO: Investigate
-          export OVERRIDE_USB_COMPONENT=${{ matrix.usb_override }}
+          #export OVERRIDE_USB_COMPONENT=${{ matrix.usb_override }}
           idf-build-apps find --paths ${{ matrix.path }}
           idf-build-apps build --paths ${{ matrix.path }}
       - uses: actions/upload-artifact@v4
