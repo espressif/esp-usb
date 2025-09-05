@@ -23,7 +23,7 @@ jobs:
         shell: bash
         run: |
           . ${IDF_PATH}/export.sh
-          pip install pytest idf-build-apps==2.4.3 --upgrade
+          pip install pytest-embedded pytest-embedded-serial-esp pytest-embedded-idf
           idf-build-apps find --target linux
           idf-build-apps build --target linux
-          pytest --target=linux -m host_test --build-dir=build_linux
+          pytest --embedded-services esp,idf --target=linux -m host_test --build-dir=build
