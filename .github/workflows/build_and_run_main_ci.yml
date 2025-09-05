@@ -1,0 +1,11 @@
+name: Build and Run USB Test Application main workflow
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+
+jobs:
+  call-reusable-jobs:
+    uses: ${{ github.workspace }}/.github/workflows/build_and_run_test_app_usb.yml@main
+    with:
+      idf_versions: '["release-v5.1", "release-v5.2", "release-v5.3", "release-v5.4", "release-v5.5", "latest"]'
