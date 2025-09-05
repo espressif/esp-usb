@@ -6,6 +6,6 @@ on:
 
 jobs:
   call-reusable-jobs:
-    uses: ${{ github.workspace }}/.github/workflows/build_and_run_test_app_usb.yml@main
+    uses: ./.github/workflows/build_and_run_test_app_usb.yml@main
     with:
       idf_versions: '["release-v5.1", "release-v5.2", "release-v5.3", "release-v5.4", "release-v5.5", "latest"]'
