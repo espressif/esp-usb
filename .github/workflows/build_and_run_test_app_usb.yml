@@ -30,6 +30,13 @@ jobs:
           - app_type: host-no-override
             path: host
             override: "yes"
+        exclude:
+          - app_type: host
+            idf_ver: "release-v5.1"
+          - app_type: host
+            idf_ver: "release-v5.2"
+          - app_type: host
+            idf_ver: "release-v5.3"
 
     runs-on: ubuntu-latest
     container: espressif/idf:${{ matrix.idf_ver }}
