@@ -86,7 +86,7 @@ jobs:
             runner_tag: "usb_device"
           - test_app: host-native
             runner_tag: "usb_host"
-          - test_app: host-override
+          - test_app: host-managed
             runner_tag: "usb_host"
         exclude:
           # Exclude esp32p4 for releases before IDF 5.3 for all runner tags (esp32p4 support starts in IDF 5.3)
