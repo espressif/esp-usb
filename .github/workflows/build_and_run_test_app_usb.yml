@@ -7,61 +7,36 @@ on:
         description: 'The JSON array of idf releases to build and run'
         required: true
         type: string
+      idf_targets:
+        description: 'The JSON array of targets for target runners'
+        required: true
+        type: string
 
 jobs:
-  build-device:
+  build:
     name: Build USB Device apps
     strategy:
       matrix:
         idf_ver: ${{ fromJson(inputs.idf_releases) }}
-    runs-on: ubuntu-latest
-    container: espressif/idf:${{ matrix.idf_ver }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: 'true'
-      - name: Build USB Test Application
-        shell: bash
-        run: |
-          . ${IDF_PATH}/export.sh
-          git config --global safe.directory $(pwd)
-          pip install idf-build-apps==2.4.3 --upgrade
-          export PEDANTIC_FLAGS="-DIDF_CI_BUILD -Werror -Werror=deprecated-declarations -Werror=unused-variable -Werror=unused-but-set-variable -Werror=unused-function"
-          export EXTRA_CFLAGS="${PEDANTIC_FLAGS} -Wstrict-prototypes"
-          export EXTRA_CXXFLAGS="${PEDANTIC_FLAGS}"
-          #export BUILD_DEVICE_IN_CI=yes
-
-          # TODO: Investigate
-          export OVERRIDE_USB_COMPONENT=no
-          idf-build-apps find --paths device/esp_tinyusb
-          idf-build-apps build --paths device/esp_tinyusb
-      - uses: actions/upload-artifact@v4
-        with:
-          name: usb_device_test_app_bin_${{ matrix.idf_ver }}
-          path: |
-            **/test_app*/**/build_esp*/bootloader/bootloader.bin
-            **/test_app*/**/build_esp*/partition_table/partition-table.bin
-            **/test_app*/**/build_esp*/test_app_*.bin
-            **/test_app*/**/build_esp*/test_app_*.elf
-            **/test_app*/**/build_esp*/flasher_args.json
-            **/test_app*/**/build_esp*/config/sdkconfig.json
-          if-no-files-found: error
-
-  build-host:
-    name: Build USB Host apps
-    strategy:
-      matrix:
-        idf_ver: ${{ fromJson(inputs.idf_releases) }}
-        usb_override: ["yes", "no"]
+        include:
+          # Device build, where usb_override is not a factor
+          - name: device
+            path: device/esp_tinyusb
+          # Host build with no override
+          - name: host-no-override
+            path: host/
+            usb_override: "no"
+          # Host build with override
+          - name: host
+            path: host/
+            usb_override: "yes"
         exclude:
           - idf_ver: "release-v5.1"
-            usb_override: "yes"
+            name: host
           - idf_ver: "release-v5.2"
-            usb_override: "yes"
+            name: host
           - idf_ver: "release-v5.3"
-            usb_override: "yes"
-          #- idf_ver: "latest"
-          #  usb_override: "no"
+            name: host
 
     runs-on: ubuntu-latest
     container: espressif/idf:${{ matrix.idf_ver }}
@@ -78,14 +53,14 @@ jobs:
           export PEDANTIC_FLAGS="-DIDF_CI_BUILD -Werror -Werror=deprecated-declarations -Werror=unused-variable -Werror=unused-but-set-variable -Werror=unused-function"
           export EXTRA_CFLAGS="${PEDANTIC_FLAGS} -Wstrict-prototypes"
           export EXTRA_CXXFLAGS="${PEDANTIC_FLAGS}"
-          export OVERRIDE_USB_COMPONENT=${{ matrix.usb_override }}
-          #export BUILD_DEVICE_IN_CI=no
 
-          idf-build-apps find --paths host/
-          idf-build-apps build --paths host/
+          # TODO: Investigate
+          export OVERRIDE_USB_COMPONENT=${{ matrix.usb_override }}
+          idf-build-apps find --paths ${{ matrix.path }}
+          idf-build-apps build --paths ${{ matrix.path }}
       - uses: actions/upload-artifact@v4
         with:
-          name: usb_host_test_app_bin_${{ matrix.idf_ver }}_${{ matrix.usb_override }}
+          name: usb_${{ matrix.name }}_test_app_bin_${{ matrix.idf_ver }}
           path: |
             **/test_app*/**/build_esp*/bootloader/bootloader.bin
             **/test_app*/**/build_esp*/partition_table/partition-table.bin
@@ -98,11 +73,11 @@ jobs:
   run-target-device:
     name: Run USB Device TestApps on target
     if: ${{ github.repository_owner == 'espressif' }}
-    needs: build-device
+    needs: build
     strategy:
       matrix:
         idf_ver: ${{ fromJson(inputs.idf_releases) }}
-        idf_target: ["esp32s2", "esp32p4"]
+        idf_target: ${{ fromJson(inputs.idf_targets) }}
         exclude:
           # Exclude esp32p4 for releases before IDF 5.3 for all runner tags (esp32p4 support starts in IDF 5.3)
           - idf_ver: "release-v5.1"
@@ -133,12 +108,12 @@ jobs:
   run-target-host:
     name: Run USB Host TestApps on target
     if: ${{ github.repository_owner == 'espressif' }}
-    needs: build-host
+    needs: build
     strategy:
       matrix:
         idf_ver: ${{ fromJson(inputs.idf_releases) }}
-        usb_override: ["yes", "no"]
-        idf_target: ["esp32s2", "esp32p4"]
+        host_override: ["host", "host-no-override"]
+        idf_target: ${{ fromJson(inputs.idf_targets) }}
         exclude:
           # Exclude esp32p4 for releases before IDF 5.3 for all runner tags (esp32p4 support starts in IDF 5.3)
           - idf_ver: "release-v5.1"
@@ -147,11 +122,11 @@ jobs:
             idf_target: "esp32p4"
 
           - idf_ver: "release-v5.1"
-            usb_override: "yes"
+            host_override: "host"
           - idf_ver: "release-v5.2"
-            usb_override: "yes"
+            host_override: "host"
           - idf_ver: "release-v5.3"
-            usb_override: "yes"
+            host_override: "host"
 
     runs-on: [self-hosted, linux, docker, "${{ matrix.idf_target }}", "usb_host"]
     container:
@@ -161,7 +136,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
-          name: usb_host_test_app_bin_${{ matrix.idf_ver }}_${{ matrix.usb_override }}
+          name: usb_${{ matrix.usb_override }}_test_app_bin_${{ matrix.idf_ver }}
       - name: ⚙️ Install System tools
         run: |
           apt update
