@@ -71,12 +71,12 @@ jobs:
         with:
           name: usb_${{ matrix.test_app }}_test_app_bin_${{ matrix.idf_ver }}
           path: |
-            **/test_app*/**/build_esp*/bootloader/bootloader.bin
-            **/test_app*/**/build_esp*/partition_table/partition-table.bin
-            **/test_app*/**/build_esp*/test_app_*.bin
-            **/test_app*/**/build_esp*/test_app_*.elf
-            **/test_app*/**/build_esp*/flasher_args.json
-            **/test_app*/**/build_esp*/config/sdkconfig.json
+            **/build_esp*/bootloader/bootloader.bin
+            **/build_esp*/partition_table/partition-table.bin
+            **/build_esp*/test_app_*.bin
+            **/build_esp*/test_app_*.elf
+            **/build_esp*/flasher_args.json
+            **/build_esp*/config/sdkconfig.json
           if-no-files-found: error
 
   run:
@@ -88,15 +88,20 @@ jobs:
         idf_ver: ${{ fromJson(inputs.idf_releases) }}
         idf_target: ${{ fromJson(inputs.idf_targets) }}
         test_app: ["device", "host_native", "host_managed"]
-        include:
-          # Link runner tag with test_app
-          - test_app: device
-            runner_tag: "usb_device"
-          - test_app: host_native
-            runner_tag: "usb_host"
-          - test_app: host_managed
-            runner_tag: "usb_host"
+        runner_tag: ["usb_device", "usb_host", "usb_host_flash_disk"]
+
         exclude:
+          # Exclude runner_tag <-> test_app combinations
+          - test_app: device
+            runner_tag: usb_host
+          - test_app: device
+            runner_tag: usb_host_flash_disk
+          - test_app: host_native
+            runner_tag: usb_device
+          - test_app: host_native
+            runner_tag: usb_host_flash_disk
+          - test_app: host_managed
+            runner_tag: usb_device
           # Exclude esp32p4 for releases before IDF 5.3 for all runner tags (esp32p4 support starts in IDF 5.3)
           - idf_ver: "release-v5.1"
             idf_target: "esp32p4"
