@@ -1,15 +1,53 @@
+# This is a reusable workflow which builds and runs target tests:
+#
+#   - device
+#     - esp_tinyusb test apps -> runner tag: usb_device
+#   - host
+#     - class drivers test apps -> runner tag: usb_host
+#     - class driver examples -> only build
+
 name: Build and Run USB Test Application
 
 on:
-  pull_request:
-    types: [opened, reopened, synchronize]
+  workflow_call:
+    inputs:
+      idf_releases:
+        description: 'The JSON array of idf releases to build and run'
+        required: true
+        type: string
+      idf_targets:
+        description: 'The JSON array of targets for target runners'
+        required: true
+        type: string
 
 jobs:
   build:
-    name: Build USB TestApps
+    name: Build USB apps
     strategy:
       matrix:
-        idf_ver: ["release-v5.1", "release-v5.2", "release-v5.3", "release-v5.4", "release-v5.5", "latest"]
+        idf_ver: ${{ fromJson(inputs.idf_releases) }}
+        test_app: ["device", "host_native", "host_managed"]
+        include:
+          # Add build paths
+          - test_app: device
+            path: device/esp_tinyusb
+            usb_comp_managed: "no"  # For the completeness
+          - test_app: host_native
+            path: host
+            usb_comp_managed: "no"
+          - test_app: host_managed
+            path: host
+            usb_comp_managed: "yes"
+        exclude:
+          # Exclude using managed usb component for older releases, only with service releases
+          - test_app: host_managed
+            idf_ver: "release-v5.1"
+          - test_app: host_managed
+            idf_ver: "release-v5.2"
+          - test_app: host_managed
+            idf_ver: "release-v5.3"
+          # TODO: Exclude native usb component for IDF Latest, once the USB component is removed from the esp-idf Jira issue IDF-14051
+
     runs-on: ubuntu-latest
     container: espressif/idf:${{ matrix.idf_ver }}
     steps:
@@ -25,11 +63,13 @@ jobs:
           export PEDANTIC_FLAGS="-DIDF_CI_BUILD -Werror -Werror=deprecated-declarations -Werror=unused-variable -Werror=unused-but-set-variable -Werror=unused-function"
           export EXTRA_CFLAGS="${PEDANTIC_FLAGS} -Wstrict-prototypes"
           export EXTRA_CXXFLAGS="${PEDANTIC_FLAGS}"
-          idf-build-apps find
-          idf-build-apps build
+          export ENV_VAR_USB_COMP_MANAGED=${{ matrix.usb_comp_managed }}
+
+          idf-build-apps find --paths ${{ matrix.path }}
+          idf-build-apps build --paths ${{ matrix.path }}
       - uses: actions/upload-artifact@v4
         with:
-          name: usb_test_app_bin_${{ matrix.idf_ver }}
+          name: usb_${{ matrix.test_app }}_test_app_bin_${{ matrix.idf_ver }}
           path: |
             **/test_app*/**/build_esp*/bootloader/bootloader.bin
             **/test_app*/**/build_esp*/partition_table/partition-table.bin
@@ -39,21 +79,37 @@ jobs:
             **/test_app*/**/build_esp*/config/sdkconfig.json
           if-no-files-found: error
 
-  run-target:
-    name: Run USB Host and Device TestApps on target
+  run:
+    name: Run TestApps on target
     if: ${{ github.repository_owner == 'espressif' }}
     needs: build
     strategy:
       matrix:
-        idf_ver: ["release-v5.1", "release-v5.2", "release-v5.3", "release-v5.4", "release-v5.5", "latest"]
-        idf_target: ["esp32s2", "esp32p4"]
-        runner_tag: ["usb_host", "usb_device"]
+        idf_ver: ${{ fromJson(inputs.idf_releases) }}
+        idf_target: ${{ fromJson(inputs.idf_targets) }}
+        test_app: ["device", "host_native", "host_managed"]
+        include:
+          # Link runner tag with test_app
+          - test_app: device
+            runner_tag: "usb_device"
+          - test_app: host_native
+            runner_tag: "usb_host"
+          - test_app: host_managed
+            runner_tag: "usb_host"
         exclude:
           # Exclude esp32p4 for releases before IDF 5.3 for all runner tags (esp32p4 support starts in IDF 5.3)
           - idf_ver: "release-v5.1"
             idf_target: "esp32p4"
           - idf_ver: "release-v5.2"
             idf_target: "esp32p4"
+          # Exclude using managed usb component for older releases, only with service releases
+          - test_app: host_managed
+            idf_ver: "release-v5.1"
+          - test_app: host_managed
+            idf_ver: "release-v5.2"
+          - test_app: host_managed
+            idf_ver: "release-v5.3"
+          # TODO: Exclude native usb component for IDF Latest, once the USB component is removed from the esp-idf: Jira issue IDF-14051
 
     runs-on: [self-hosted, linux, docker, "${{ matrix.idf_target }}", "${{ matrix.runner_tag }}"]
     container:
@@ -63,7 +119,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
-          name: usb_test_app_bin_${{ matrix.idf_ver }}
+          name: usb_${{ matrix.test_app }}_test_app_bin_${{ matrix.idf_ver }}
       - name: ⚙️ Install System tools
         run: |
           apt update

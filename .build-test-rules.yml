@@ -8,10 +8,11 @@ host/class:
 
 host/usb:
   enable:
-    - if: SOC_USB_OTG_SUPPORTED == 1
+    - if: SOC_USB_OTG_SUPPORTED == 1 and ENV_VAR_USB_COMP_MANAGED == "yes"
+      reason: USB Component tests with native USB component are already running in esp-idf CI
   disable:
-    - if: IDF_VERSION < "6.0.0"
-      reason: In 1st phase of USB component deployment, we will run USB Component tests only on IDF master with USB component from esp-usb
+    - if: IDF_VERSION < "5.4.0"
+      reason: We will support component overriding only in service releases
 
 host/class/uvc/usb_host_uvc/examples/camera_display:
   enable:
