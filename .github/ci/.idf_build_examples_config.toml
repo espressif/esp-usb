@@ -12,3 +12,10 @@ target = "all"
 # build related options
 build_dir = "build_@t_@w"
 work_dir = "@f_@t_@w"
+
+# config rules
+config_rules = [
+    'sdkconfig.ci=default',
+    'sdkconfig.ci.*=',
+    '=default',
+]
