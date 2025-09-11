@@ -28,6 +28,7 @@ typedef struct {
     usb_phy_handle_t phy_hdl;                 /*!< USB PHY handle */
     tinyusb_event_cb_t event_cb;              /*!< Callback function that will be called when USB events occur. */
     void *event_arg;                          /*!< Pointer to the argument passed to the callback */
+    bool remote_wakeup_en;                    /*!< Remote wakeup enabled flag */
 } tinyusb_ctx_t;
 
 static tinyusb_ctx_t s_ctx; // TinyUSB context
@@ -81,6 +82,37 @@ void tud_umount_cb(void)
 #endif // CONFIG_TINYUSB_MSC_ENABLED
     tinyusb_event_t event = {
         .id = TINYUSB_EVENT_DETACHED,
+        .rhport = s_ctx.port,
+    };
+
+    if (s_ctx.event_cb) {
+        s_ctx.event_cb(&event, s_ctx.event_arg);
+    }
+}
+
+void tud_suspend_cb(bool remote_wakeup_en)
+{
+    tinyusb_event_t event = {
+        .id = TINYUSB_EVENT_SUSPENDED,
+        .rhport = s_ctx.port,
+
+        .suspended = {
+            .remote_wakeup = remote_wakeup_en,
+        },
+    };
+
+    // Save the remote wakeup enabled flag
+    s_ctx.remote_wakeup_en = remote_wakeup_en;
+
+    if (s_ctx.event_cb) {
+        s_ctx.event_cb(&event, s_ctx.event_arg);
+    }
+}
+
+void tud_resume_cb(void)
+{
+    tinyusb_event_t event = {
+        .id = TINYUSB_EVENT_RESUMED,
         .rhport = s_ctx.port,
     };
 
@@ -146,6 +178,7 @@ esp_err_t tinyusb_driver_install(const tinyusb_config_t *config)
     s_ctx.phy_hdl = phy_hdl;                // Save the PHY handle for uninstallation
     s_ctx.event_cb = config->event_cb;      // Save the event callback
     s_ctx.event_arg = config->event_arg;    // Save the event callback argument
+    s_ctx.remote_wakeup_en = false;         // Remote wakeup is disabled by default
 
     ESP_LOGI(TAG, "TinyUSB Driver installed on port %d", config->port);
     return ESP_OK;
@@ -164,5 +197,13 @@ esp_err_t tinyusb_driver_uninstall(void)
         ESP_RETURN_ON_ERROR(usb_del_phy(s_ctx.phy_hdl), TAG, "Unable to delete PHY");
         s_ctx.phy_hdl = NULL;
     }
+    return ESP_OK;
+}
+
+esp_err_t tinyusb_remote_wakeup(void)
+{
+    ESP_RETURN_ON_FALSE(s_ctx.remote_wakeup_en, ESP_ERR_INVALID_STATE, TAG, "Remote wakeup is not enabled by the host");
+    ESP_RETURN_ON_FALSE(tud_remote_wakeup(), ESP_FAIL, TAG, "Remote wakeup request failed");
+    s_ctx.remote_wakeup_en = false; // Remote wakeup can be used only once, disable it until next suspend
     return ESP_OK;
 }

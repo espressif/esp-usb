@@ -105,6 +105,8 @@ typedef struct {
 typedef enum {
     TINYUSB_EVENT_ATTACHED,             /*!< USB device attached to the Host */
     TINYUSB_EVENT_DETACHED,             /*!< USB device detached from the Host */
+    TINYUSB_EVENT_SUSPENDED,            /*!< USB device suspended */
+    TINYUSB_EVENT_RESUMED,              /*!< USB device resumed */
 } tinyusb_event_id_t;
 
 /**
@@ -172,6 +174,17 @@ esp_err_t tinyusb_driver_install(const tinyusb_config_t *config);
  * @retval ESP_OK Uninstall driver, tinyusb stack and USB PHY successfully
  */
 esp_err_t tinyusb_driver_uninstall(void);
+
+/**
+ * @brief Send a remote wakeup signal to the USB host
+ *
+ * @note This function can be called only when the device is suspended and the host has enabled remote wakeup.
+ *
+ * @retval ESP_ERR_INVALID_STATE Remote wakeup is not enabled by the host
+ * @retval ESP_FAIL Remote wakeup request failed
+ * @retval ESP_OK Remote wakeup request sent successfully
+ */
+esp_err_t tinyusb_remote_wakeup(void);
 
 #ifdef __cplusplus
 }

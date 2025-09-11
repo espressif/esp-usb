@@ -1,3 +1,8 @@
+## 2.0.1 [unreleased]
+
+- esp_tinyusb: Added TINYUSB_EVENT_SUSPENDED and TINYUSB_EVENT_RESUMED events
+- esp_tinyusb: Added public API to wake up the Host (via Remote Wakeup)
+
 ## 2.0.0
 
 - esp_tinyusb: Added USB Compliance Verification results
