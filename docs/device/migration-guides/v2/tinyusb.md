@@ -38,6 +38,12 @@ void device_event_handler(tinyusb_event_t *event, void *arg)
     case TINYUSB_EVENT_DETACHED:
         // Device has been detached from the USB Host
         break;
+    case TINYUSB_EVENT_SUSPENDED:
+        // Device has been suspended by the USB Host
+        break;
+    case TINYUSB_EVENT_RESUMED:
+        // Device has been resumed by the USB Host
+        break;
     default:
         break;
     }
@@ -424,7 +430,7 @@ config.port = TINYUSB_PORT_FULL_SPEED_0;
 **Possible error**
 
 ```bash
-multiple definition of `tud_umount_cb'; esp-idf/main/libmain.a(tusb_hid_example_main.c.obj):/esp-idf/examples/peripherals/usb/device/tusb_hid/main/tusb_hid_example_main.c:162: first defined here
+multiple definition of `tud_umount_cb'; esp-idf/main/libmain.a(tusb_hid_example_main.c.obj):/esp-idf/examples/peripherals/usb/device/tusb_hid/main/tusb_hid_example_main.c:156: first defined here
 collect2: error: ld returned 1 exit status
 ```
 
@@ -435,9 +441,29 @@ multiple definition of `tud_mount_cb'; esp-idf/main/libmain.a(tusb_hid_example_m
 collect2: error: ld returned 1 exit status
 ```
 
+or
+
+```bash
+multiple definition of `tud_suspend_cb'; esp-idf/main/libmain.a(tusb_hid_example_main.c.obj):/esp-idf/examples/peripherals/usb/device/tusb_hid/main/tusb_hid_example_main.c:156: first defined here
+collect2: error: ld returned 1 exit status
+```
+
+or
+
+```bash
+multiple definition of `tud_resume_cb'; esp-idf/main/libmain.a(tusb_hid_example_main.c.obj):/esp-idf/examples/peripherals/usb/device/tusb_hid/main/tusb_hid_example_main.c:156: first defined here
+collect2: error: ld returned 1 exit status
+```
+
 **How to fix**
 
-The `tud_mount_cb()` and `tud_umount_cb()` callbacks are now handled internally. To handle attach and detach events in your application, use the USB Device Event callback (`tinyusb_config_t::event_cb`).
+The following callbacks are now handled internally:
+- `tud_mount_cb()`
+- `tud_umount_cb()`
+- `tud_suspend_cb(bool remote_wakeup_en)`
+- `tud_resume_cb()`
+
+To handle such events in your application, use the USB Device Event callback (`tinyusb_config_t::event_cb`).
 
 Update your code from:
 
@@ -450,6 +476,16 @@ void tud_mount_cb(void)
 void tud_umount_cb(void)
 {
     ESP_LOGI(TAG, "USB device detached from the Host");
+}
+
+void tud_suspend_cb(bool remote_wakeup_en)
+{
+    ESP_LOGI(TAG, "USB device suspended, remote_wakeup_en=%d", remote_wakeup_en);
+}
+
+void tud_resume_cb(void)
+{
+    ESP_LOGI(TAG, "USB device resumed");
 }
 
 void main(void)
@@ -470,6 +506,12 @@ void device_event_handler(tinyusb_event_t *event, void *arg)
         break;
     case TINYUSB_EVENT_DETACHED:
         ESP_LOGI(TAG, "USB device detached from the Host");
+        break;
+    case TINYUSB_EVENT_SUSPENDED:
+        ESP_LOGI(TAG, "USB device suspended, remote_wakeup_en=%d", event->suspended.remote_wakeup);
+        break;
+    case TINYUSB_EVENT_RESUMED:
+        ESP_LOGI(TAG, "USB device resumed");
         break;
     default:
         break;
