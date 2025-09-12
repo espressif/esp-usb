@@ -6,17 +6,17 @@
 ### Breaking changes
 
 - esp_tinyusb: External PHY is no longer initialized automatically. If an external PHY is required, it must be explicitly initialized by the user with configuration parameter `phy.skip_setup = true`
-- esp_tinyusb: Added run-time configuration for peripheral port selection, task settings, and descriptors. For more details, refer to the [Espressif's Addition to TinyUSB Mirgation guide v2](/docs/device/migration-guides/v2/tinyusb.md)
-- esp_tinyusb: Added USB Device event callback to handle different USB Device events. For the list of supported USB Device events, refer to to [Espressif's Addition to TinyUSB - README](/device/esp_tinyusb/README.md)
+- esp_tinyusb: Added run-time configuration for peripheral port selection, task settings, and descriptors. For more details, refer to the [Espressif's Addition to TinyUSB Mirgation guide v2](../../docs/device/migration-guides/v2/tinyusb.md)
+- esp_tinyusb: Added USB Device event callback to handle different USB Device events. For the list of supported USB Device events, refer to to [Espressif's Addition to TinyUSB - README](../esp_tinyusb/README.md)
 - esp_tinyusb: Removed configuration option to handle TinyUSB events outside of this driver
 - NCM: Added possibility to deinit the driver
-- NCM: Updated public API; refer to the [NCM Class Migration guide v2](/docs/device/migration-guides/v2/tinyusb_ncm.md)
+- NCM: Updated public API; refer to the [NCM Class Migration guide v2](../../docs/device/migration-guides/v2/tinyusb_ncm.md)
 - MSC: Removed dedicated callbacks; introduced a single callback with an event ID for each storage
 - MSC: Added storage format support
 - MSC: Added dual storage support (SPI/Flash and SD/MMC)
-- MSC: Updated public API; refer to the [MSC Class Migration guide v2](/docs/device/migration-guides/v2/tinyusb_msc.md)
-- Console: Updated public API; refer to the [Console Class Migration guide v2](/docs/device/migration-guides/v2/tinyusb_console.md)
-- CDC-ACM: Updated public API; refer to the [CDC-ACM Class Migration guide v2](/docs/device/migration-guides/v2/tinyusb_cdc_acm.md)
+- MSC: Updated public API; refer to the [MSC Class Migration guide v2](../../docs/device/migration-guides/v2/tinyusb_msc.md)
+- Console: Updated public API; refer to the [Console Class Migration guide v2](../../docs/device/migration-guides/v2/tinyusb_console.md)
+- CDC-ACM: Updated public API; refer to the [CDC-ACM Class Migration guide v2](../../docs/device/migration-guides/v2/tinyusb_cdc_acm.md)
 
 ## 1.7.6~1
 
