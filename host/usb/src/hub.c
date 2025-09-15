@@ -43,6 +43,7 @@ implement the bare minimum to control the root HCD port.
  * @brief Hub driver action flags
  */
 typedef enum {
+    HUB_DRIVER_ACTION_NONE                = 0,
     HUB_DRIVER_ACTION_ROOT_EVENT          = (1 << 0),
     HUB_DRIVER_ACTION_ROOT_REQ            = (1 << 1),
 #if ENABLE_USB_HUBS
@@ -835,7 +836,7 @@ esp_err_t hub_process(void)
 {
     HUB_DRIVER_ENTER_CRITICAL();
     uint32_t action_flags = p_hub_driver_obj->dynamic.flags.actions;
-    p_hub_driver_obj->dynamic.flags.actions = 0;
+    p_hub_driver_obj->dynamic.flags.actions = HUB_DRIVER_ACTION_NONE;
     HUB_DRIVER_EXIT_CRITICAL();
 
     while (action_flags) {
@@ -856,7 +857,7 @@ esp_err_t hub_process(void)
 
         HUB_DRIVER_ENTER_CRITICAL();
         action_flags = p_hub_driver_obj->dynamic.flags.actions;
-        p_hub_driver_obj->dynamic.flags.actions = 0;
+        p_hub_driver_obj->dynamic.flags.actions = HUB_DRIVER_ACTION_NONE;
         HUB_DRIVER_EXIT_CRITICAL();
     }
 
