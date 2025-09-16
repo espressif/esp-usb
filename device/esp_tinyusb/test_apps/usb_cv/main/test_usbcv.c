@@ -208,4 +208,27 @@ TEST_CASE("USBCV: MSC Device", "[msc]")
     test_remote_wakeup_timer_deinit();
 }
 
+#if (SOC_USB_OTG_PERIPH_NUM > 1)
+// ESP32-P4 has both Full-speed and High-speed USB OTG ports, so we can test both
+
+TEST_CASE("USBCV: HID Device on Full-speed port", "[hid][full_speed]")
+{
+    // Initialize the remote wakeup timer
+    test_remote_wakeup_timer_init();
+    // Install TinyUSB driver on Full-speed port
+    tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG(test_device_event_handler);
+
+    tusb_cfg.port = TINYUSB_PORT_FULL_SPEED_0;
+    tusb_cfg.descriptor.full_speed_config = hid_configuration_descriptor;
+
+    TEST_ASSERT_EQUAL(ESP_OK, tinyusb_driver_install(&tusb_cfg));
+
+    printf("Device is configured, launch the USBCV compliance test..\n");
+    vTaskDelay(pdMS_TO_TICKS(TEST_USBCV_TEST_TIMEOUT_MS));
+
+    TEST_ASSERT_EQUAL(ESP_OK, tinyusb_driver_uninstall());
+    test_remote_wakeup_timer_deinit();
+}
+#endif // (SOC_USB_OTG_PERIPH_NUM > 1)
+
 #endif // SOC_USB_OTG_SUPPORTED
