@@ -363,7 +363,17 @@ esp_err_t msc_storage_mount(msc_storage_obj_t *storage)
     ESP_GOTO_ON_ERROR(storage->medium->mount(pdrv), fail, TAG, "Failed pdrv=%d", pdrv);
 
     char drv[3] = {(char)('0' + pdrv), ':', 0};
+
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 3, 0)
+    esp_vfs_fat_conf_t conf = {
+        .base_path = base_path,
+        .fat_drive = drv,
+        .max_files = max_files,
+    };
+    ret = esp_vfs_fat_register_cfg(&conf, &fs);
+#else
     ret = esp_vfs_fat_register(base_path, drv, max_files, &fs);
+#endif
     if (ret == ESP_ERR_INVALID_STATE) {
         ESP_LOGD(TAG, "VFS FAT already registered");
     } else if (ret != ESP_OK) {
