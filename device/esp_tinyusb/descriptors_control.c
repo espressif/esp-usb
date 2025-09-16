@@ -91,7 +91,12 @@ uint8_t const *tud_descriptor_device_qualifier_cb(void)
  */
 uint8_t const *tud_descriptor_other_speed_configuration_cb(uint8_t index)
 {
-    assert(s_desc_cfg.other_speed);
+    if (s_desc_cfg.other_speed == NULL) {
+        // Other speed configuration descriptor is not supported
+        // or the buffer wasn't created
+        // return NULL to STALL the request
+        return NULL;
+    }
 
     const uint8_t *other_speed = (TUSB_SPEED_HIGH == tud_speed_get())
                                  ? s_desc_cfg.fs_cfg
