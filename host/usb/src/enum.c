@@ -733,7 +733,6 @@ static esp_err_t control_request(enum_stage_t stage)
         control_request_string(stage);
         break;
     default:    // Should never occur
-        ret = ESP_ERR_INVALID_STATE;
         abort();
         break;
     }
@@ -832,7 +831,6 @@ static esp_err_t control_response_handling(enum_stage_t stage)
         break;
     default:
         // Should never occurred
-        ret = ESP_ERR_INVALID_STATE;
         abort();
         break;
     }
