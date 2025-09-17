@@ -20,6 +20,11 @@
 extern "C" {
 #endif
 
+// For backward compatibility with IDF versions which do not have suspend/resume api
+#ifdef USB_HOST_LIB_EVENT_FLAGS_AUTO_SUSPEND
+#define UVC_HOST_SUSPEND_RESUME_API_SUPPORTED
+#endif
+
 typedef struct uvc_host_stream_s *uvc_host_stream_hdl_t;
 
 enum uvc_host_driver_event {
@@ -100,6 +105,10 @@ enum uvc_host_dev_event {
     UVC_HOST_FRAME_BUFFER_UNDERFLOW, /**< The received frame was discarded because no available buffer was free for storage.
                                           To address this, either optimize your processing speed or increase the `number_of_frame_buffers` parameter in
                                           `uvc_host_stream_config_t.advanced` to allocate additional buffers. */
+#ifdef UVC_HOST_SUSPEND_RESUME_API_SUPPORTED
+    UVC_HOST_DEVICE_SUSPENDED,      /**< Device was suspended. The stream is stopped. */
+    UVC_HOST_DEVICE_RESUMED,        /**< Device was resumed. */
+#endif // UVC_HOST_SUSPEND_RESUME_API_SUPPORTED
 };
 
 /**
@@ -118,6 +127,11 @@ typedef struct {
         } frame_overflow; // UVC_HOST_FRAME_BUFFER_OVERFLOW
         struct {
         } frame_underflow; // UVC_HOST_FRAME_BUFFER_UNDERFLOW
+#ifdef UVC_HOST_SUSPEND_RESUME_API_SUPPORTED
+        struct {
+            uvc_host_stream_hdl_t stream_hdl;
+        } device_suspended_resumed;
+#endif // UVC_HOST_SUSPEND_RESUME_API_SUPPORTED
     };
 } uvc_host_stream_event_data_t;
 
