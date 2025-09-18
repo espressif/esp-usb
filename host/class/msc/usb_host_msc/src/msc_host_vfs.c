@@ -101,7 +101,16 @@ esp_err_t msc_host_vfs_register(msc_host_device_handle_t device,
     MSC_GOTO_ON_FALSE( vfs->base_path = strdup(base_path), ESP_ERR_NO_MEM );
     vfs->pdrv = pdrv;
 
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 3, 0)
+    esp_vfs_fat_conf_t conf = {
+        .base_path = base_path,
+        .fat_drive = drive,
+        .max_files = mount_config->max_files,
+    };
+    MSC_GOTO_ON_ERROR( esp_vfs_fat_register_cfg(&conf, &fs) );
+#else
     MSC_GOTO_ON_ERROR( esp_vfs_fat_register(base_path, drive, mount_config->max_files, &fs) );
+#endif
 
     FRESULT fresult = f_mount(fs, drive, 1);
 
