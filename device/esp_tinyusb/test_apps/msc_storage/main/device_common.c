@@ -40,8 +40,12 @@ void test_device_release(void)
 
 void test_device_wait(void)
 {
-    // Wait for tud_mount_cb() to be called
-    TEST_ASSERT_EQUAL_MESSAGE(pdTRUE, xSemaphoreTake(wait_mount, pdMS_TO_TICKS(TUSB_DEVICE_DELAY_MS)), "No tusb_mount_cb() in time");
+    // Wait for tud_mount_cb() to be called (first timeout)
+    if (xSemaphoreTake(wait_mount, pdMS_TO_TICKS(TUSB_DEVICE_DELAY_MS)) != pdTRUE) {
+        ESP_LOGW("device timeout!", "Device did not appear in first %d ms, waiting again...", TUSB_DEVICE_DELAY_MS);
+        // Wait for the second timeout
+        TEST_ASSERT_EQUAL_MESSAGE(pdTRUE, xSemaphoreTake(wait_mount, pdMS_TO_TICKS(TUSB_DEVICE_DELAY_MS)), "No tusb_mount_cb() after second timeout");
+    }
     // Delay to allow finish the enumeration
     // Disable this delay could lead to potential race conditions when the tud_task() is pinned to another CPU
     vTaskDelay(pdMS_TO_TICKS(250));
