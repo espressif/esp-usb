@@ -1,9 +1,8 @@
 # Manifest file for build_idf_examples.yml CI workflow
 
-# TODO: Uncomment the below lines to run esp-idf USB Device examples in CI. See issue IDF-13618 for tracking.
-#examples/peripherals/usb/device:
-#  disable:
-#    - if: SOC_USB_OTG_SUPPORTED != 1
+examples/peripherals/usb/device:
+  disable:
+    - if: SOC_USB_OTG_SUPPORTED != 1
 
 examples/peripherals/usb/host:
   enable:
