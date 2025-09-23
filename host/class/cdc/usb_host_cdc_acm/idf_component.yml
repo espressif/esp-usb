@@ -1,5 +1,5 @@
 ## IDF Component Manager Manifest File
-version: "2.1.0"
+version: "2.1.1"
 description: USB Host CDC-ACM driver
 tags:
   - usb
@@ -8,3 +8,20 @@ tags:
 url: https://github.com/espressif/esp-usb/tree/master/host/class/cdc/usb_host_cdc_acm
 dependencies:
   idf: ">=4.4"
+  usb:
+    version: "^1.0.0"
+    public: true
+    override_path: "../../../usb"
+    rules:
+     - if: "idf_version >=6.0"
+     - if: target not in ["linux"]
+targets:
+  - esp32s2
+  - esp32s3
+  - esp32p4
+  - esp32h4
+  - linux
+files:
+  exclude:
+    - "test_app"
+    - "host_test"

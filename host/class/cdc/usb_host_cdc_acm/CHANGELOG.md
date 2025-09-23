@@ -1,3 +1,7 @@
+## 2.1.1
+
+- Added support for ESP32-H4
+
 ## 2.1.0
 
 - Added option to implement custom CDC-ACM like devices with C API

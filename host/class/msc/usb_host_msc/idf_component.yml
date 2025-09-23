@@ -1,10 +1,21 @@
 ## IDF Component Manager Manifest File
-version: "1.1.3"
+version: "1.1.4"
 description: USB Host MSC driver
 url: https://github.com/espressif/esp-usb/tree/master/host/class/msc/usb_host_msc
 dependencies:
   idf: ">=4.4.1"
+  usb:
+    version: "^1.0.0"
+    public: true
+    override_path: "../../../usb"
+    rules:
+      - if: "idf_version >=6.0"
+      - if: target not in ["linux"]
 targets:
   - esp32s2
   - esp32s3
   - esp32p4
+  - esp32h4
+files:
+  exclude:
+    - "test_app"
