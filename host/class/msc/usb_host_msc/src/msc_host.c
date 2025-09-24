@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2015-2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2015-2025 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -375,7 +375,9 @@ static msc_device_t *find_msc_device(usb_device_handle_t device_handle)
 
 static void client_event_cb(const usb_host_client_event_msg_t *event, void *arg)
 {
-    if (event->event == USB_HOST_CLIENT_EVENT_NEW_DEV) {
+    switch (event->event) {
+    case USB_HOST_CLIENT_EVENT_NEW_DEV:
+        ESP_LOGD(TAG, "New device connected");
         if (is_mass_storage_device(event->new_dev.address)) {
             const msc_host_event_t msc_event = {
                 .event = MSC_DEVICE_CONNECTED,
@@ -383,15 +385,47 @@ static void client_event_cb(const usb_host_client_event_msg_t *event, void *arg)
             };
             s_msc_driver->user_cb(&msc_event, s_msc_driver->user_arg);
         }
-    } else if (event->event == USB_HOST_CLIENT_EVENT_DEV_GONE) {
-        msc_device_t *msc_device = find_msc_device(event->dev_gone.dev_hdl);
-        if (msc_device) {
+        break;
+    case USB_HOST_CLIENT_EVENT_DEV_GONE:
+        ESP_LOGD(TAG, "Device suddenly disconnected");
+        msc_device_t *msc_device_gone = find_msc_device(event->dev_gone.dev_hdl);
+        if (msc_device_gone) {
             const msc_host_event_t msc_event = {
                 .event = MSC_DEVICE_DISCONNECTED,
-                .device.handle = msc_device,
+                .device.handle = msc_device_gone,
             };
             s_msc_driver->user_cb(&msc_event, s_msc_driver->user_arg);
         }
+        break;
+
+#ifdef MSC_HOST_SUSPEND_RESUME_API_SUPPORTED
+    case USB_HOST_CLIENT_EVENT_DEV_SUSPENDED:
+        ESP_LOGD(TAG, "Device suspended");
+        msc_device_t *msc_device_susp = find_msc_device(event->dev_suspend_resume.dev_hdl);
+        if (msc_device_susp) {
+            const msc_host_event_t msc_event = {
+                .event = MSC_DEVICE_SUSPENDED,
+                .device.handle = msc_device_susp,
+            };
+            s_msc_driver->user_cb(&msc_event, s_msc_driver->user_arg);
+        }
+        break;
+    case USB_HOST_CLIENT_EVENT_DEV_RESUMED:
+        ESP_LOGD(TAG, "Device resumed");
+        msc_device_t *msc_device_res = find_msc_device(event->dev_suspend_resume.dev_hdl);
+        if (msc_device_res) {
+            const msc_host_event_t msc_event = {
+                .event = MSC_DEVICE_RESUMED,
+                .device.handle = msc_device_res,
+            };
+            s_msc_driver->user_cb(&msc_event, s_msc_driver->user_arg);
+        }
+        break;
+#endif // MSC_HOST_SUSPEND_RESUME_API_SUPPORTED
+
+    default:
+        ESP_LOGW(TAG, "Unrecognized USB Host client event");
+        break;
     }
 }
 
