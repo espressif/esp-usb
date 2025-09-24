@@ -1,3 +1,7 @@
+## 2.3.1
+
+- Added support for ESP32-H4
+
 ## 2.3.0
 
 - Added `uvc_host_stream_format_get()` function that returns current stream's format

@@ -1,5 +1,9 @@
 # Changelog for USB Host UAC
 
+## 1.3.1
+
+1. Added support for ESP32-H4
+
 ## 1.3.0
 
 1. Added Linux target build for the UAC component, host tests (https://github.com/espressif/esp-usb/issues/143)

@@ -1,6 +1,7 @@
-## [Unreleased]
+## 1.1.4
 
 - Added public API support for formatting
+- Added support for ESP32-H4
 
 ## 1.1.3
 
