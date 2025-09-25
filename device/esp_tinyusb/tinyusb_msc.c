@@ -72,6 +72,8 @@ typedef struct {
     } fat_fs;
     // Buffer for storage operations
     msc_storage_buffer_t storage_buffer;        /*!< Buffer for storing data during write operations. */
+    uint32_t deffered_writes;                   /*!< Number of deferred writes pending in the buffer. */
+    SemaphoreHandle_t mux_lock;                 /**< Mutex for storage operations */
 } tinyusb_msc_storage_s;
 
 typedef tinyusb_msc_storage_s msc_storage_obj_t;
@@ -80,6 +82,8 @@ typedef struct {
     struct {
         msc_storage_obj_t *storage[TINYUSB_MSC_STORAGE_MAX_LUNS]; /*!< Storage objects */
         uint8_t lun_count;              /*!< Number of logical units (LUNs) supported by the storage. */
+        tusb_msc_callback_t event_cb;   /*!< Callback for mount changed events. */
+        void *event_arg;                /*!< Argument to pass to the event callback. */
     } dynamic;
 
     struct {
@@ -94,16 +98,31 @@ typedef struct {
             };
             uint32_t val;                           /**< MSC Driver configuration flag value */
         } flags;
-        tusb_msc_callback_t event_cb;               /*!< Callback for mount changed events. */
-        void *event_arg;                            /*!< Argument to pass to the event callback. */
     } constant;
 } tinyusb_msc_driver_t;
 
 static tinyusb_msc_driver_t *p_msc_driver;
 
-// List of TODOs:
-// 2.TODO: Critical section to protect the driver pointer
-// 3.TODO: Critical section to protect the callback
+static portMUX_TYPE msc_lock = portMUX_INITIALIZER_UNLOCKED;
+#define MSC_ENTER_CRITICAL()   portENTER_CRITICAL(&msc_lock)
+#define MSC_EXIT_CRITICAL()    portEXIT_CRITICAL(&msc_lock)
+
+#define MSC_GOTO_ON_FALSE_CRITICAL(cond, err)    \
+    do {                                        \
+        if(!(cond)) {                            \
+            MSC_EXIT_CRITICAL();                \
+            ret = err;                          \
+            goto fail;                          \
+        }                                       \
+    } while(0)
+
+#define MSC_CHECK_ON_CRITICAL(cond, err)  \
+    do {                                        \
+        if(!(cond)) {                            \
+            MSC_EXIT_CRITICAL();                \
+            return err;                         \
+        }                                       \
+    } while(0)
 
 //
 // ========================== TinyUSB MSC Storage Event Handling =================================
@@ -114,12 +133,16 @@ static inline void tinyusb_event_cb(msc_storage_obj_t *storage, tinyusb_msc_even
     assert(p_msc_driver != NULL);
     assert(storage != NULL);
 
+    MSC_ENTER_CRITICAL();
+    tusb_msc_callback_t cb = p_msc_driver->dynamic.event_cb;
+    void *cb_arg = p_msc_driver->dynamic.event_arg;
+    MSC_EXIT_CRITICAL();
+
     tinyusb_msc_event_t event = {
         .id = event_id,
         .mount_point = storage->mount_point,
     };
-
-    p_msc_driver->constant.event_cb((tinyusb_msc_storage_handle_t)storage, &event, p_msc_driver->constant.event_arg);
+    cb((tinyusb_msc_storage_handle_t)storage, &event, cb_arg);
 }
 
 //
@@ -130,71 +153,74 @@ static inline void tinyusb_event_cb(msc_storage_obj_t *storage, tinyusb_msc_even
  * @brief Get the storage object by LUN
  * This function retrieves the storage object associated with the specified LUN.
  *
+ * @note This function must be called from a critical section.
+ *
  * @param[in] lun The logical unit number (LUN) to retrieve the storage for.
  * @param[out] storage Pointer to the storage object pointer that will be set.
  * @return
- *   - ESP_OK: Storage object retrieved successfully.
- *   - ESP_ERR_INVALID_STATE: MSC driver is not initialized.
- *   - ESP_ERR_INVALID_ARG: Invalid LUN or storage pointer is NULL.
- *   - ESP_ERR_NOT_FOUND: Storage medium is not initialized for the specified LUN.
+ *   - true if storage object is found for the specified LUN and not NULL, false otherwise.
  */
-static inline esp_err_t msc_storage_get_by_lun(uint8_t lun, msc_storage_obj_t **storage)
+static inline bool _msc_storage_get_by_lun(uint8_t lun, msc_storage_obj_t **storage)
 {
-    ESP_RETURN_ON_FALSE(p_msc_driver != NULL, ESP_ERR_INVALID_STATE, TAG, "MSC driver is not initialized");
-    ESP_RETURN_ON_FALSE(lun < TINYUSB_MSC_STORAGE_MAX_LUNS, ESP_ERR_INVALID_ARG, TAG, "Invalid LUN %d", lun);
-    ESP_RETURN_ON_FALSE(p_msc_driver->dynamic.storage[lun]->medium != NULL, ESP_ERR_NOT_FOUND, TAG, "MSC storage is not initialized for LUN %d", lun);
-    *storage = p_msc_driver->dynamic.storage[lun];
-    return ESP_OK;
+    if ((lun < TINYUSB_MSC_STORAGE_MAX_LUNS) &&
+            (p_msc_driver->dynamic.storage[lun] != NULL)) {
+        *storage = p_msc_driver->dynamic.storage[lun];
+        return true;
+    }
+    return false;
 }
 
 /**
  * @brief Map a storage object to a specific LUN
  * This function associates a storage object with a logical unit number (LUN).
  *
+ * @note This function must be called from a critical section.
+ *
+ * Storage should have the medium initialized before calling this function.
+ *
  * @param[in] storage Pointer to the storage object to be mapped.
  * @return
- *  - ESP_OK: Storage mapped successfully.
- *  - ESP_ERR_INVALID_STATE: MSC driver is not initialized or storage is not created.
- *  - ESP_ERR_INVALID_ARG: Invalid LUN or storage pointer is NULL.
- *  - ESP_ERR_NOT_FOUND: Storage medium is not initialized for the specified LUN.
+ *  - true if storage is successfully mapped to a LUN, false otherwise.
  */
-static inline esp_err_t msc_storage_map_to_lun(msc_storage_obj_t *storage)
+static inline bool _msc_storage_map_to_lun(msc_storage_obj_t *storage)
 {
-    ESP_RETURN_ON_FALSE(p_msc_driver != NULL, ESP_ERR_INVALID_STATE, TAG, "MSC driver is not initialized");
-    ESP_RETURN_ON_FALSE(storage != NULL, ESP_ERR_INVALID_ARG, TAG, "Storage object can't be NULL");
-    ESP_RETURN_ON_FALSE(storage->medium != NULL, ESP_ERR_NOT_FOUND, TAG, "MSC storage media is not initialized");
+    if (storage == NULL || storage->medium == NULL) {
+        return false;
+    }
+
+    if (p_msc_driver->dynamic.lun_count >= TINYUSB_MSC_STORAGE_MAX_LUNS) {
+        return false;
+    }
 
     p_msc_driver->dynamic.storage[p_msc_driver->dynamic.lun_count] = storage;
     p_msc_driver->dynamic.lun_count++;
-
-    return ESP_OK;
+    return true;
 }
 
 /**
  * @brief Unmap a storage object from a specific LUN
  * This function disassociates a storage object from a logical unit number (LUN).
  *
+ * @note This function must be called from a critical section.
+ *
  * @param[in] lun The logical unit number (LUN) to unmap the storage from.
  * @return
- *  - ESP_OK: Storage unmapped successfully.
- *  - ESP_ERR_INVALID_STATE: MSC driver is not initialized or storage is not created.
- *  - ESP_ERR_INVALID_ARG: Invalid LUN.
- *  - ESP_ERR_NOT_FOUND: Storage is not mapped to a LUN.
+ *  - true if storage is successfully unmapped from a LUN, false otherwise.
  */
-static inline esp_err_t msc_storage_unmap_from_lun(msc_storage_obj_t *storage)
+static inline bool _msc_storage_unmap_from_lun(msc_storage_obj_t *storage)
 {
-    ESP_RETURN_ON_FALSE(p_msc_driver != NULL, ESP_ERR_INVALID_STATE, TAG, "MSC driver is not initialized");
-    ESP_RETURN_ON_FALSE(storage != NULL, ESP_ERR_INVALID_ARG, TAG, "Storage object can't be NULL");
-    ESP_RETURN_ON_FALSE(p_msc_driver->dynamic.lun_count > 0, ESP_ERR_INVALID_STATE, TAG, "No LUNs to remove");
+    if (storage == NULL) {
+        return false;
+    }
 
     for (uint8_t i = 0; i < TINYUSB_MSC_STORAGE_MAX_LUNS; i++) {
         if (p_msc_driver->dynamic.storage[i] == storage) {
             p_msc_driver->dynamic.storage[i] = NULL;
             p_msc_driver->dynamic.lun_count--;
-            return ESP_OK;
+            return true;
         }
     }
-    return ESP_ERR_NOT_FOUND;
+    return false;
 }
 
 /**
@@ -207,12 +233,29 @@ static inline esp_err_t msc_storage_unmap_from_lun(msc_storage_obj_t *storage)
  * @param[in] offset Offset within the sector to read from.
  * @param[in] size Number of bytes to read.
  * @param[out] dest Pointer to the destination buffer where the read data will be stored.
+ *
+ * @return
+ *   - ESP_OK: Read operation successful
+ *   - ESP_ERR_NOT_FOUND: Storage not found for the specified LUN
  */
 static inline esp_err_t msc_storage_read_sector(uint8_t lun, uint32_t lba, uint32_t offset, size_t size, void *dest)
 {
-    msc_storage_obj_t *storage;
-    ESP_RETURN_ON_ERROR(msc_storage_get_by_lun(lun, &storage), TAG, "Failed to get storage by LUN %d", lun);
-    return storage->medium->read(lba, offset, size, dest);
+    msc_storage_obj_t *storage = NULL;
+    esp_err_t ret;
+
+    MSC_ENTER_CRITICAL();
+    bool found = _msc_storage_get_by_lun(lun, &storage);
+    MSC_EXIT_CRITICAL();
+
+    if (!found || storage == NULL) {
+        ESP_LOGE(TAG, "Storage not found for LUN %d", lun);
+        return ESP_ERR_NOT_FOUND;
+    }
+    // Otherwise, take the lock and proceed with the read
+    xSemaphoreTake(storage->mux_lock, portMAX_DELAY);
+    ret = storage->medium->read(lba, offset, size, dest);
+    xSemaphoreGive(storage->mux_lock);
+    return ret;
 }
 
 /**
@@ -225,12 +268,29 @@ static inline esp_err_t msc_storage_read_sector(uint8_t lun, uint32_t lba, uint3
  * @param[in] offset Offset within the sector to write to.
  * @param[in] size Number of bytes to write.
  * @param[in] src Pointer to the source buffer containing the data to write.
+ *
+ * @return
+ *  - ESP_OK: Write operation successful
+ *  - ESP_ERR_NOT_FOUND: Storage not found for the specified LUN
  */
 static inline esp_err_t msc_storage_write_sector(uint8_t lun, uint32_t lba, uint32_t offset, size_t size, const void *src)
 {
-    msc_storage_obj_t *storage;
-    ESP_RETURN_ON_ERROR(msc_storage_get_by_lun(lun, &storage), TAG, "Failed to get storage by LUN %d", lun);
-    return storage->medium->write(lba, offset, size, src);
+    msc_storage_obj_t *storage = NULL;
+    esp_err_t ret;
+
+    MSC_ENTER_CRITICAL();
+    bool found = _msc_storage_get_by_lun(lun, &storage);
+    MSC_EXIT_CRITICAL();
+
+    if (!found || storage == NULL) {
+        ESP_LOGE(TAG, "Storage not found for LUN %d", lun);
+        return ESP_ERR_NOT_FOUND;
+    }
+    // Otherwise, take the lock and proceed with the write
+    xSemaphoreTake(storage->mux_lock, portMAX_DELAY);
+    ret = storage->medium->write(lba, offset, size, src);
+    xSemaphoreGive(storage->mux_lock);
+    return ret;
 }
 
 /**
@@ -244,8 +304,9 @@ static inline esp_err_t msc_storage_write_sector(uint8_t lun, uint32_t lba, uint
  */
 static void tusb_write_func(void *param)
 {
-    assert(param); // Ensure param is not NULL
+    assert(param); // Ensure storage is not NULL
     msc_storage_obj_t *storage = (msc_storage_obj_t *)param;
+
     esp_err_t err = msc_storage_write_sector(
                         storage->storage_buffer.lun,
                         storage->storage_buffer.lba,
@@ -253,15 +314,47 @@ static void tusb_write_func(void *param)
                         storage->storage_buffer.bufsize,
                         (const void *)storage->storage_buffer.data_buffer
                     );
+
+    // Decrement the deferred writes counter
+    MSC_ENTER_CRITICAL();
+    assert(storage->deffered_writes > 0); // Ensure there are deferred writes pending
+    storage->deffered_writes--;
+    MSC_EXIT_CRITICAL();
+
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Write failed, error=0x%x", err);
     }
 }
 
+/**
+ * @brief Write a sector to the storage medium using deferred execution.
+ *
+ * This function copies the data to be written into an internal buffer and
+ * defers the actual write operation to be executed in the TinyUSB task context.
+ *
+ * @param[in] lun The logical unit number (LUN) to write to.
+ * @param[in] lba Logical Block Address of the sector to write to.
+ * @param[in] offset Offset within the sector to write to.
+ * @param[in] size Number of bytes to write.
+ * @param[in] src Pointer to the source buffer containing the data to write.
+ *
+ * @return
+ * - ESP_OK: Write operation successfully deferred
+ * - ESP_ERR_NOT_FOUND: Storage not found for the specified LUN
+ * - ESP_ERR_INVALID_SIZE: Address calculation overflow for SPI Flash storage medium
+ */
 static inline esp_err_t msc_storage_write_sector_deferred(uint8_t lun, uint32_t lba, uint32_t offset, size_t size, const void *src)
 {
-    msc_storage_obj_t *storage;
-    ESP_RETURN_ON_ERROR(msc_storage_get_by_lun(lun, &storage), TAG, "Failed to get storage by LUN %d", lun);
+    msc_storage_obj_t *storage = NULL;
+
+    MSC_ENTER_CRITICAL();
+    bool found = _msc_storage_get_by_lun(lun, &storage);
+    MSC_EXIT_CRITICAL();
+
+    if (!found || storage == NULL) {
+        ESP_LOGE(TAG, "LUN %d is not mapped to any storage", lun);
+        return ESP_ERR_NOT_FOUND;
+    }
 
     // As we defer the write operation to the TinyUSB task, we need to ensure that
     // the address does not overflow for SPI Flash storage medium
@@ -279,6 +372,11 @@ static inline esp_err_t msc_storage_write_sector_deferred(uint8_t lun, uint32_t 
     storage->storage_buffer.lba = lba;
     storage->storage_buffer.offset = offset;
     storage->storage_buffer.bufsize = size;
+
+    // Increment the deferred writes counter
+    MSC_ENTER_CRITICAL();
+    storage->deffered_writes++;
+    MSC_EXIT_CRITICAL();
 
     // Defer execution of the write to the TinyUSB task
     usbd_defer_func(tusb_write_func, (void *)storage, false);
@@ -342,7 +440,19 @@ static esp_err_t vfs_fat_mount(char *drv, FATFS *fs, bool force)
     return ret;
 }
 
-esp_err_t msc_storage_mount(msc_storage_obj_t *storage)
+/**
+ * @brief Mount the storage medium
+ *
+ * Registers the FAT filesystem on the storage medium under the base_path via ESP VFS.
+ *
+ * @param[in] storage Pointer to the storage object, with filesystem on medium to be mounted.
+ *
+ * @return
+ *  - ESP_OK: Storage mounted successfully
+ *  - ESP_ERR_INVALID_STATE: Unable to register the FATFS object to VFS
+ *  - ESP_ERR_NOT_FOUND: Filesystem not found on the mounted drive
+ */
+static esp_err_t msc_storage_mount(msc_storage_obj_t *storage)
 {
     esp_err_t ret;
     FATFS *fs = NULL;
@@ -356,12 +466,22 @@ esp_err_t msc_storage_mount(msc_storage_obj_t *storage)
 
     tinyusb_event_cb(storage, TINYUSB_MSC_EVENT_MOUNT_START);
 
-    // Mount VFS FAT at base path
+    // Get the vacant driver number
     BYTE pdrv = 0xFF;
     ESP_RETURN_ON_ERROR(ff_diskio_get_drive(&pdrv), TAG, "The maximum count of volumes is already mounted");
 
-    ESP_GOTO_ON_ERROR(storage->medium->mount(pdrv), fail, TAG, "Failed pdrv=%d", pdrv);
+    // Lock the storage
+    xSemaphoreTake(storage->mux_lock, portMAX_DELAY);
 
+    // Register the partition under the drive number
+    ret = storage->medium->mount(pdrv);
+    if (ret != ESP_OK) {
+        xSemaphoreGive(storage->mux_lock);
+        ESP_LOGE(TAG, "Failed to mount the storage medium, pdrv=%d, err=0x%x", pdrv, ret);
+        goto exit;
+    }
+
+    // Register FATFS object to VFS
     char drv[3] = {(char)('0' + pdrv), ':', 0};
 
 #if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 3, 0)
@@ -377,6 +497,7 @@ esp_err_t msc_storage_mount(msc_storage_obj_t *storage)
     if (ret == ESP_ERR_INVALID_STATE) {
         ESP_LOGD(TAG, "VFS FAT already registered");
     } else if (ret != ESP_OK) {
+        xSemaphoreGive(storage->mux_lock);
         ESP_LOGE(TAG, "VFS FAT register failed, %s", esp_err_to_name(ret));
         tinyusb_event_cb(storage, TINYUSB_MSC_EVENT_MOUNT_FAILED);
         goto exit;
@@ -390,6 +511,7 @@ esp_err_t msc_storage_mount(msc_storage_obj_t *storage)
     if (ret == ESP_ERR_NOT_FOUND) {
         // If mount failed, try to format the drive
         if (storage->fat_fs.do_not_format) {
+            xSemaphoreGive(storage->mux_lock);
             ESP_LOGE(TAG, "Mount failed and do not format is set");
             tinyusb_event_cb(storage, TINYUSB_MSC_EVENT_FORMAT_REQUIRED);
             ret = ESP_OK;
@@ -397,11 +519,7 @@ esp_err_t msc_storage_mount(msc_storage_obj_t *storage)
         }
         ESP_LOGW(TAG, "Mount failed, trying to format the drive");
         BYTE format_flags = storage->fat_fs.format_flags;
-        ret = vfs_fat_format(format_flags);
-        if (ret != ESP_OK) {
-            ESP_LOGE(TAG, "Failed to format the drive, %s", esp_err_to_name(ret));
-            goto fail;
-        }
+        ESP_GOTO_ON_ERROR(vfs_fat_format(format_flags), fail, TAG, "Failed to format the drive");
         ESP_GOTO_ON_ERROR(vfs_fat_mount(drv, fs, false), fail, TAG, "Failed to mount FAT filesystem");
         ESP_LOGD(TAG, "Format completed, FAT mounted successfully");
     } else if (ret != ESP_OK) {
@@ -409,9 +527,11 @@ esp_err_t msc_storage_mount(msc_storage_obj_t *storage)
         goto fail;
     }
 
+    xSemaphoreGive(storage->mux_lock);
     tinyusb_event_cb(storage, TINYUSB_MSC_EVENT_MOUNT_COMPLETE);
     return ESP_OK;
 fail:
+    xSemaphoreGive(storage->mux_lock);
     tinyusb_event_cb(storage, TINYUSB_MSC_EVENT_FORMAT_FAILED);
 exit:
     storage->medium->unmount();
@@ -421,6 +541,17 @@ exit:
     return ret;
 }
 
+/**
+ * @brief Unmount the storage medium
+ *
+ * Unregisters the FAT filesystem on the storage medium and unregister the base_path via ESP VFS.
+ * After, the FS is not available under base_path and can be exposed to USB Host.
+ *
+ * @param[in] storage Pointer to the storage object, with filesystem on medium to be unmounted.
+ *
+ * @return
+ *  ESP_OK if storage unmounted successfully, otherwise an error code indicating the failure reason.
+ */
 static esp_err_t msc_storage_unmount(msc_storage_obj_t *storage)
 {
     if (storage->mount_point == TINYUSB_MSC_STORAGE_MOUNT_USB) {
@@ -430,16 +561,28 @@ static esp_err_t msc_storage_unmount(msc_storage_obj_t *storage)
 
     tinyusb_event_cb(storage, TINYUSB_MSC_EVENT_MOUNT_START);
 
-    esp_err_t err = storage->medium->unmount();
-    if (err) {
-        return err;
+    xSemaphoreTake(storage->mux_lock, portMAX_DELAY);
+
+    // Unregister the partition
+    esp_err_t ret = storage->medium->unmount();
+    if (ret != ESP_OK) {
+        xSemaphoreGive(storage->mux_lock);
+        ESP_LOGE(TAG, "Failed to unmount the storage medium");
+        return ret;
     }
-    err = esp_vfs_fat_unregister_path(storage->fat_fs.base_path);
+    // Unregister FATFS object from VFS
+    ret = esp_vfs_fat_unregister_path(storage->fat_fs.base_path);
+    if (ret != ESP_OK) {
+        xSemaphoreGive(storage->mux_lock);
+        ESP_LOGE(TAG, "Failed to unregister VFS FAT");
+        return ret;
+    }
+
     storage->mount_point = TINYUSB_MSC_STORAGE_MOUNT_USB;
+    xSemaphoreGive(storage->mux_lock);
 
     tinyusb_event_cb(storage, TINYUSB_MSC_EVENT_MOUNT_COMPLETE);
-
-    return err;
+    return ESP_OK;
 }
 
 static void msc_storage_event_default_cb(tinyusb_msc_storage_handle_t handle, tinyusb_msc_event_t *event, void *arg)
@@ -453,12 +596,42 @@ static void msc_storage_event_default_cb(tinyusb_msc_storage_handle_t handle, ti
     ESP_LOGW(TAG, "Default MSC event callback called, event ID: %d, mount point: %d", event->id, event->mount_point);
 }
 
-static esp_err_t msc_storage_config(msc_storage_obj_t *storage_obj,
-                                    const tinyusb_msc_storage_config_t *config,
-                                    const storage_medium_t *medium)
+/**
+ * @brief Create a new MSC storage object
+ *
+ * This function allocates and initializes a new MSC storage object based on the provided configuration
+ * and storage medium.
+ *
+ * @param[in] config Pointer to the MSC storage configuration structure.
+ * @param[in] medium Pointer to the storage medium interface.
+ * @param[out] storage_hdl Pointer to the location where the created storage object handle will be stored.
+ *
+ * @return
+ * - ESP_OK: Storage object created successfully
+ * - ESP_ERR_NO_MEM: Memory allocation failed
+ */
+static esp_err_t msc_storage_new(const tinyusb_msc_storage_config_t *config,
+                                 const storage_medium_t *medium,
+                                 msc_storage_obj_t **storage_hdl)
 {
+    esp_err_t ret;
+
+    // Create mutex for storage operations
+    SemaphoreHandle_t mux_lock = xSemaphoreCreateMutex();
+    ESP_RETURN_ON_FALSE(mux_lock != NULL, ESP_ERR_NO_MEM, TAG, "Failed to create mutex for storage operations");
+    // Create storage object
+    msc_storage_obj_t *storage_obj = (msc_storage_obj_t *)heap_caps_aligned_calloc(MSC_STORAGE_MEM_ALIGN, sizeof(msc_storage_obj_t), sizeof(uint32_t), MALLOC_CAP_DMA);
+    if (storage_obj == NULL) {
+        ESP_LOGE(TAG, "Failed to allocate memory for MSC storage");
+        ret = ESP_ERR_NO_MEM;
+        goto fail;
+    }
+
+    // Configure the storage object
+    storage_obj->mux_lock = mux_lock;
     storage_obj->medium = medium;
     storage_obj->mount_point = TINYUSB_MSC_STORAGE_MOUNT_USB; // Default mount point is USB host
+    storage_obj->deffered_writes = 0;
     // In case the user does not set mount_config.max_files
     // and for backward compatibility with versions <1.4.2
     // max_files is set to 2
@@ -480,7 +653,12 @@ static esp_err_t msc_storage_config(msc_storage_obj_t *storage_obj,
 
     // Set sector count and size
     storage_info_t storage_info;
-    ESP_RETURN_ON_ERROR(storage_obj->medium->get_info(&storage_info), TAG, "Failed to get storage info");
+    ret = storage_obj->medium->get_info(&storage_info);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to get storage info");
+        goto fail;
+    }
+
     storage_obj->sector_count = storage_info.total_sectors;
     storage_obj->sector_size = storage_info.sector_size;
 
@@ -488,7 +666,79 @@ static esp_err_t msc_storage_config(msc_storage_obj_t *storage_obj,
              storage_obj->sector_count,
              storage_obj->sector_size);
 
+    *storage_hdl = storage_obj;
     return ESP_OK;
+fail:
+    if (storage_obj) {
+        heap_caps_free(storage_obj);
+    }
+    if (mux_lock) {
+        vSemaphoreDelete(mux_lock);
+    }
+    return ret;
+}
+
+/**
+ * @brief Delete an MSC storage object
+ *
+ * This function frees the resources associated with an MSC storage object.
+ *
+ * @param[in] storage Pointer to the storage object to be deleted.
+ */
+static void msc_storage_delete(msc_storage_obj_t *storage)
+{
+    storage->medium = NULL;
+
+    if (storage->mux_lock) {
+        vSemaphoreDelete(storage->mux_lock);
+    }
+    heap_caps_free(storage);
+}
+
+/**
+ * @brief Install the MSC driver
+ *
+ * This function initializes the MSC driver with the provided configuration.
+ *
+ * @param[in] config Pointer to the MSC driver configuration structure.
+ * @param[in] internally_installed Boolean flag indicating if the driver is installed internally during the first storage creation.
+ *
+ */
+static esp_err_t msc_driver_install(const tinyusb_msc_driver_config_t *config, bool internally_installed)
+{
+    ESP_RETURN_ON_FALSE(config != NULL, ESP_ERR_INVALID_ARG, TAG, "Config can't be NULL");
+
+    MSC_ENTER_CRITICAL();
+    MSC_CHECK_ON_CRITICAL(p_msc_driver == NULL, ESP_ERR_INVALID_STATE);
+    MSC_EXIT_CRITICAL();
+
+    esp_err_t ret;
+    tinyusb_msc_driver_t *msc_driver = NULL;
+    msc_driver = (tinyusb_msc_driver_t *)heap_caps_aligned_calloc(MSC_STORAGE_MEM_ALIGN, sizeof(tinyusb_msc_driver_t), sizeof(uint32_t), MALLOC_CAP_DMA);
+    ESP_RETURN_ON_FALSE(msc_driver != NULL, ESP_ERR_NO_MEM, TAG, "Failed to allocate memory for MSC driver");
+
+    // Default callback
+    if (config->callback == NULL) {
+        msc_driver->dynamic.event_cb = msc_storage_event_default_cb;
+        msc_driver->dynamic.event_arg = NULL;
+    } else {
+        msc_driver->dynamic.event_cb = config->callback;
+        msc_driver->dynamic.event_arg = config->callback_arg;
+    }
+
+    msc_driver->dynamic.lun_count = 0; // LUN will be added with storage initialization
+    msc_driver->constant.flags.val = (uint16_t) config->user_flags.val; // Config flags for the MSC driver
+    msc_driver->constant.flags.internally_installed = internally_installed;
+
+    MSC_ENTER_CRITICAL();
+    MSC_GOTO_ON_FALSE_CRITICAL(p_msc_driver == NULL, ESP_ERR_INVALID_STATE);
+    p_msc_driver = msc_driver;
+    MSC_EXIT_CRITICAL();
+
+    return ESP_OK;
+fail:
+    heap_caps_free(msc_driver);
+    return ret;
 }
 
 //
@@ -536,47 +786,26 @@ esp_err_t tinyusb_msc_set_storage_callback(tusb_msc_callback_t callback, void *a
     ESP_RETURN_ON_FALSE(p_msc_driver != NULL, ESP_ERR_INVALID_STATE, TAG, "Storage handle is not initialized");
     ESP_RETURN_ON_FALSE(callback != NULL, ESP_ERR_INVALID_ARG, TAG, "Callback can't be NULL");
 
-    // TODO: add critical section to protect the callback
-    p_msc_driver->constant.event_cb = callback;
-    p_msc_driver->constant.event_arg = arg;
-
+    MSC_ENTER_CRITICAL();
+    p_msc_driver->dynamic.event_cb = callback;
+    p_msc_driver->dynamic.event_arg = arg;
+    MSC_EXIT_CRITICAL();
     return ESP_OK;
 }
 
 esp_err_t tinyusb_msc_install_driver(const tinyusb_msc_driver_config_t *config)
 {
-    ESP_RETURN_ON_FALSE(config != NULL, ESP_ERR_INVALID_ARG, TAG, "Config can't be NULL");
-    ESP_RETURN_ON_FALSE(p_msc_driver == NULL, ESP_ERR_INVALID_STATE, TAG, "MSC driver is already initialized");
-
-    tinyusb_msc_driver_t *msc_driver = NULL;
-    msc_driver = (tinyusb_msc_driver_t *)heap_caps_aligned_calloc(MSC_STORAGE_MEM_ALIGN, sizeof(tinyusb_msc_driver_t), sizeof(uint32_t), MALLOC_CAP_DMA);
-    ESP_RETURN_ON_FALSE(msc_driver != NULL, ESP_ERR_NO_MEM, TAG, "Failed to allocate memory for MSC driver");
-
-    // Default callback
-    if (config->callback == NULL) {
-        msc_driver->constant.event_cb = msc_storage_event_default_cb;
-        msc_driver->constant.event_arg = NULL;
-    } else {
-        msc_driver->constant.event_cb = config->callback;
-        msc_driver->constant.event_arg = config->callback_arg;
-    }
-
-    msc_driver->dynamic.lun_count = 0; // LUN will be added with storage initialization
-    msc_driver->constant.flags.val = (uint16_t) config->user_flags.val; // Config flags for the MSC driver
-
-    // TODO: Critical section to protect the driver pointer
-    p_msc_driver = msc_driver;
-    return ESP_OK;
+    return msc_driver_install(config, false);
 }
 
 esp_err_t tinyusb_msc_uninstall_driver(void)
 {
-    ESP_RETURN_ON_FALSE(p_msc_driver != NULL, ESP_ERR_NOT_FOUND, TAG, "MSC driver is not initialized");
-    ESP_RETURN_ON_FALSE(p_msc_driver->dynamic.lun_count == 0, ESP_ERR_INVALID_STATE, TAG, "LUN count is not zero, can't uninstall MSC driver");
+    MSC_ENTER_CRITICAL();
+    MSC_CHECK_ON_CRITICAL(p_msc_driver != NULL, ESP_ERR_NOT_SUPPORTED);
+    MSC_CHECK_ON_CRITICAL(p_msc_driver->dynamic.lun_count == 0, ESP_ERR_INVALID_STATE);
     tinyusb_msc_driver_t *msc_driver = p_msc_driver;
-
-    // TODO: Critical section to protect the driver pointer
     p_msc_driver = NULL;
+    MSC_EXIT_CRITICAL();
 
     // Free the driver memory
     heap_caps_free(msc_driver);
@@ -595,32 +824,59 @@ esp_err_t tinyusb_msc_new_storage_spiflash(const tinyusb_msc_storage_config_t *c
                         "TinyUSB buffer size (%d) must be at least the size of Wear Levelling sector size (%d), please reconfigure the project.",
                         (int)(CONFIG_TINYUSB_MSC_BUFSIZE), (int)(CONFIG_WL_SECTOR_SIZE));
 
+    bool need_to_install_driver = false;
+    const storage_medium_t *medium = NULL;
+    msc_storage_obj_t *storage = NULL;
+    esp_err_t ret;
+
+    MSC_ENTER_CRITICAL();
     if (p_msc_driver == NULL) {
-        // Driver was not installed, install it now
+        need_to_install_driver = true;
+    }
+    MSC_EXIT_CRITICAL();
+
+    // Driver was not installed, install it now
+    if (need_to_install_driver) {
         tinyusb_msc_driver_config_t default_cfg = {
-            .user_flags = {
-                .auto_mount_off = false, // Disable auto-mount
-            },
-            .callback = msc_storage_event_default_cb, // Default callback
-            .callback_arg = NULL, // No argument for the default callback
+            .callback = msc_storage_event_default_cb,
         };
-        ESP_RETURN_ON_ERROR(tinyusb_msc_install_driver(&default_cfg), TAG, "Failed to install MSC driver");
-        p_msc_driver->constant.flags.internally_installed = true; // Mark that the driver was installed internally
+        ret = msc_driver_install(&default_cfg, true);
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to install MSC driver");
+            goto driver_err;
+        }
     }
 
-    ESP_RETURN_ON_FALSE(p_msc_driver->dynamic.lun_count < TINYUSB_MSC_STORAGE_MAX_LUNS, ESP_ERR_INVALID_STATE, TAG, "No more LUNs can be added, maximum is %d", TINYUSB_MSC_STORAGE_MAX_LUNS);
-    msc_storage_obj_t *storage = (msc_storage_obj_t *)heap_caps_aligned_calloc(MSC_STORAGE_MEM_ALIGN, sizeof(msc_storage_obj_t), sizeof(uint32_t), MALLOC_CAP_DMA);
-    ESP_RETURN_ON_FALSE(storage != NULL, ESP_ERR_NO_MEM, TAG, "Failed to allocate memory for MSC storage");
+    // Create a medium for storage
+    ret = storage_spiflash_open_medium(config->medium.wl_handle, &medium);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to open SPI Flash medium");
+        goto medium_err;
+    }
+    // Create a storage object
+    ret = msc_storage_new(config, medium, &storage);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to create MSC storage object");
+        goto storage_err;
+    }
+    // Map the storage object to the MSC Lun
+    MSC_ENTER_CRITICAL();
+    if (!_msc_storage_map_to_lun(storage)) {
+        MSC_EXIT_CRITICAL();
+        ESP_LOGE(TAG, "Failed to map storage to LUN");
+        ret = ESP_FAIL;
+        goto map_err;
+    }
+    MSC_EXIT_CRITICAL();
 
-    // Create a storage based on the config
-    const storage_medium_t *medium = NULL;
-    ESP_RETURN_ON_ERROR(storage_spiflash_open_medium(config->medium.wl_handle, &medium), TAG, "Failed to open SPI Flash medium");
-    ESP_RETURN_ON_ERROR(msc_storage_config(storage, config, medium), TAG, "Failed to configure MSC storage");
-    // Set the storage handle in the driver
-    ESP_RETURN_ON_ERROR(msc_storage_map_to_lun(storage), TAG, "Failed to set storage for LUN 0");
     // Mount the storage if it is configured to be mounted to application
     if (config->mount_point == TINYUSB_MSC_STORAGE_MOUNT_APP) {
-        ESP_RETURN_ON_ERROR(msc_storage_mount(storage), TAG, "Failed to mount storage to application");
+        ret = msc_storage_mount(storage);
+        if (ret != ESP_OK) {
+            // Unrecoverable error
+            ESP_LOGE(TAG, "Failed to mount storage to application");
+            goto map_err;
+        }
     }
 
     // Return the handle to the storage
@@ -628,6 +884,17 @@ esp_err_t tinyusb_msc_new_storage_spiflash(const tinyusb_msc_storage_config_t *c
         *handle = (tinyusb_msc_storage_handle_t)storage;
     }
     return ESP_OK;
+
+map_err:
+    msc_storage_delete(storage);
+storage_err:
+    medium->close();
+medium_err:
+    if (need_to_install_driver) {
+        tinyusb_msc_uninstall_driver();
+    }
+driver_err:
+    return ret;
 }
 
 #if (SOC_SDMMC_HOST_SUPPORTED)
@@ -637,72 +904,127 @@ esp_err_t tinyusb_msc_new_storage_sdmmc(const tinyusb_msc_storage_config_t *conf
     ESP_RETURN_ON_FALSE(config != NULL, ESP_ERR_INVALID_ARG, TAG, "Config can't be NULL");
     ESP_RETURN_ON_FALSE(config->medium.card != NULL, ESP_ERR_INVALID_ARG, TAG, "Card handle should be valid");
 
+    bool need_to_install_driver = false;
+    const storage_medium_t *medium = NULL;
+    msc_storage_obj_t *storage = NULL;
+    esp_err_t ret;
+
+    MSC_ENTER_CRITICAL();
     if (p_msc_driver == NULL) {
-        // Driver was not installed, install it now
+        need_to_install_driver = true;
+    }
+    MSC_EXIT_CRITICAL();
+
+    // Driver was not installed, install it now
+    if (need_to_install_driver) {
         tinyusb_msc_driver_config_t default_cfg = {
-            .user_flags = {
-                .auto_mount_off = false, // Disable auto-mount
-            },
-            .callback = msc_storage_event_default_cb, // Default callback
-            .callback_arg = NULL, // No argument for the default callback
+            .callback = msc_storage_event_default_cb,
         };
-        ESP_RETURN_ON_ERROR(tinyusb_msc_install_driver(&default_cfg), TAG, "Failed to install MSC driver");
-        p_msc_driver->constant.flags.internally_installed = true; // Mark that the driver was installed internally
+        ret = msc_driver_install(&default_cfg, true);
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to install MSC driver");
+            goto driver_err;
+        }
     }
 
-    ESP_RETURN_ON_FALSE(p_msc_driver->dynamic.lun_count < TINYUSB_MSC_STORAGE_MAX_LUNS, ESP_ERR_INVALID_STATE, TAG, "No more LUNs can be added, maximum is %d", TINYUSB_MSC_STORAGE_MAX_LUNS);
-    msc_storage_obj_t *storage = (tinyusb_msc_storage_s *)heap_caps_aligned_calloc(MSC_STORAGE_MEM_ALIGN, sizeof(tinyusb_msc_storage_s), sizeof(uint32_t), MALLOC_CAP_DMA);
-    ESP_RETURN_ON_FALSE(storage != NULL, ESP_ERR_NO_MEM, TAG, "Failed to allocate memory for MSC storage");
-    // Create a storage
-    const storage_medium_t *medium = NULL;
-    ESP_RETURN_ON_ERROR(storage_sdmmc_open_medium(config->medium.card, &medium), TAG, "Failed to open SD/MMC medium");
-    ESP_RETURN_ON_ERROR(msc_storage_config(storage, config, medium), TAG, "Failed to configure MSC storage");
-    // Set the storage handle in the driver
-    ESP_RETURN_ON_ERROR(msc_storage_map_to_lun(storage), TAG, "Failed to set storage for LUN 0");
+    // Create a medium for storage
+    ret = storage_sdmmc_open_medium(config->medium.card, &medium);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to open SD/MMC medium");
+        goto medium_err;
+    }
+    // Create a storage object
+    ret = msc_storage_new(config, medium, &storage);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to create MSC storage object");
+        goto storage_err;
+    }
+    // Map the storage object to the MSC Lun
+    MSC_ENTER_CRITICAL();
+    if (!_msc_storage_map_to_lun(storage)) {
+        MSC_EXIT_CRITICAL();
+        ESP_LOGE(TAG, "Failed to map storage to LUN");
+        ret = ESP_FAIL;
+        goto map_err;
+    }
+    MSC_EXIT_CRITICAL();
+
     // Mount the storage if it is configured to be mounted to application
     if (config->mount_point == TINYUSB_MSC_STORAGE_MOUNT_APP) {
-        // Mount to application
-        ESP_RETURN_ON_ERROR(msc_storage_mount(storage), TAG, "Failed to mount storage to application");
+        ret = msc_storage_mount(storage);
+        if (ret != ESP_OK) {
+            // Unrecoverable error
+            ESP_LOGE(TAG, "Failed to mount storage to application");
+            goto map_err;
+        }
     }
+
     // Return the handle to the storage
     if (handle != NULL) {
         *handle = (tinyusb_msc_storage_handle_t)storage;
     }
     return ESP_OK;
+
+map_err:
+    msc_storage_delete(storage);
+storage_err:
+    medium->close();
+medium_err:
+    if (need_to_install_driver) {
+        tinyusb_msc_uninstall_driver();
+    }
+driver_err:
+    return ret;
 }
 #endif // SOC_SDMMC_HOST_SUPPORTED
 
 esp_err_t tinyusb_msc_delete_storage(tinyusb_msc_storage_handle_t handle)
 {
-    ESP_RETURN_ON_FALSE(p_msc_driver != NULL, ESP_ERR_INVALID_STATE, TAG, "MSC driver is not initialized");
-
+    ESP_RETURN_ON_FALSE(handle != NULL, ESP_ERR_INVALID_ARG, TAG, "Storage handle can't be NULL");
     msc_storage_obj_t *storage = (msc_storage_obj_t *)handle;
+    bool no_more_luns = false;
 
-    assert(storage != NULL); // Ensure storage is initialized
-    assert(storage->medium != NULL);
-    assert(p_msc_driver->dynamic.lun_count > 0); // Sanity check to ensure LUN count is positive
+    MSC_ENTER_CRITICAL();
+    MSC_CHECK_ON_CRITICAL(p_msc_driver != NULL, ESP_ERR_INVALID_STATE);
+    MSC_CHECK_ON_CRITICAL(p_msc_driver->dynamic.lun_count > 0, ESP_ERR_INVALID_STATE);
+    MSC_CHECK_ON_CRITICAL(storage->deffered_writes == 0, ESP_ERR_INVALID_STATE);
+    MSC_EXIT_CRITICAL();
 
     if (storage->mount_point == TINYUSB_MSC_STORAGE_MOUNT_APP) {
         // Unmount the storage if it is mounted to application
         ESP_ERROR_CHECK(msc_storage_unmount(storage));
     }
 
-    ESP_RETURN_ON_ERROR(msc_storage_unmap_from_lun(storage), TAG, "Failed to unmap storage from LUN 0");
-    storage->medium->close();
-    heap_caps_free(storage);
+    // Unmap the storage from the MSC Lun
+    MSC_ENTER_CRITICAL();
+    if (!_msc_storage_unmap_from_lun(storage)) {
+        MSC_EXIT_CRITICAL();
+        ESP_LOGE(TAG, "Storage not found in any LUN");
+        return ESP_ERR_NOT_FOUND;
+    };
+    no_more_luns = (p_msc_driver->dynamic.lun_count == 0);
+    MSC_EXIT_CRITICAL();
 
-    if (p_msc_driver->dynamic.lun_count == 0 && p_msc_driver->constant.flags.internally_installed) {
-        // If no LUNs left and driver was installed internally, uninstall the driver
+    // Close the storage medium
+    storage->medium->close();
+
+    // If no LUNs left and driver was installed internally, uninstall the driver
+    if (no_more_luns && p_msc_driver->constant.flags.internally_installed) {
         ESP_ERROR_CHECK(tinyusb_msc_uninstall_driver()); // Should never fail
     }
+    // Free the storage object and related resources
+    msc_storage_delete(storage);
     return ESP_OK;
 }
 
 esp_err_t tinyusb_msc_get_storage_capacity(tinyusb_msc_storage_handle_t handle, uint32_t *sector_count)
 {
-    ESP_RETURN_ON_FALSE(p_msc_driver != NULL, ESP_ERR_INVALID_STATE, TAG, "MSC driver is not initialized");
     ESP_RETURN_ON_FALSE(handle != NULL, ESP_ERR_INVALID_STATE, TAG, "MSC storage is not initialized");
     ESP_RETURN_ON_FALSE(sector_count != NULL, ESP_ERR_INVALID_ARG, TAG, "Sector count pointer can't be NULL");
+
+    MSC_ENTER_CRITICAL();
+    MSC_CHECK_ON_CRITICAL(p_msc_driver != NULL, ESP_ERR_INVALID_STATE);
+    MSC_EXIT_CRITICAL();
 
     msc_storage_obj_t *storage = (msc_storage_obj_t *) handle;
     *sector_count = storage->sector_count;
@@ -752,7 +1074,6 @@ esp_err_t tinyusb_msc_config_storage_fat_fs(tinyusb_msc_storage_handle_t handle,
     ESP_RETURN_ON_FALSE(p_msc_driver != NULL, ESP_ERR_INVALID_STATE, TAG, "MSC driver is not initialized");
     ESP_RETURN_ON_FALSE(fatfs_config != NULL, ESP_ERR_INVALID_ARG, TAG, "FatFS config pointer can't be NULL");
 
-    // 2.TODO: Critical section to protect the storage object
     msc_storage_obj_t *storage = (msc_storage_obj_t *) handle;
     ESP_RETURN_ON_FALSE(storage != NULL, ESP_ERR_INVALID_STATE, TAG, "MSC storage is not initialized");
     // In case the user does not set mount_config.max_files
@@ -781,11 +1102,13 @@ esp_err_t tinyusb_msc_get_storage_mount_point(tinyusb_msc_storage_handle_t handl
                                               tinyusb_msc_mount_point_t *mount_point)
 {
     ESP_RETURN_ON_FALSE(p_msc_driver != NULL, ESP_ERR_INVALID_STATE, TAG, "MSC driver is not initialized");
+    ESP_RETURN_ON_FALSE(handle != NULL, ESP_ERR_INVALID_STATE, TAG, "MSC storage is not initialized");
     ESP_RETURN_ON_FALSE(mount_point != NULL, ESP_ERR_INVALID_ARG, TAG, "Mount point pointer can't be NULL");
 
+    MSC_ENTER_CRITICAL();
     msc_storage_obj_t *storage = (msc_storage_obj_t *) handle;
-    ESP_RETURN_ON_FALSE(storage != NULL, ESP_ERR_INVALID_STATE, TAG, "MSC storage is not initialized");
     *mount_point = storage->mount_point;
+    MSC_EXIT_CRITICAL();
 
     return ESP_OK;
 }
@@ -799,8 +1122,6 @@ esp_err_t tinyusb_msc_format_storage(tinyusb_msc_storage_handle_t handle)
     esp_err_t ret;
     FATFS *fs = NULL;
     BYTE pdrv = 0xFF;
-
-
     const char *base_path = storage->fat_fs.base_path;
     int max_files = storage->fat_fs.max_files;
 
@@ -837,9 +1158,11 @@ uint8_t tud_msc_get_maxlun_cb(void)
 {
     uint8_t msc_lun = 1; // Default 1 LUN, even when the storage is not initialized, report 1 LUN, but without a media
 
+    MSC_ENTER_CRITICAL();
     if (p_msc_driver != NULL && p_msc_driver->dynamic.lun_count) {
         msc_lun = p_msc_driver->dynamic.lun_count;
     }
+    MSC_EXIT_CRITICAL();
 
     return msc_lun;
 }
@@ -862,14 +1185,15 @@ void tud_msc_inquiry_cb(uint8_t lun, uint8_t vendor_id[8], uint8_t product_id[16
 // return true allowing host to read/write this LUN e.g SD card inserted
 bool tud_msc_test_unit_ready_cb(uint8_t lun)
 {
-    (void) lun;
+    msc_storage_obj_t *storage = NULL;
 
-    if (p_msc_driver != NULL) {
-        msc_storage_obj_t *storage = p_msc_driver->dynamic.storage[0];
-        if (storage != NULL && storage->mount_point == TINYUSB_MSC_STORAGE_MOUNT_USB) {
-            // Storage media is ready for access by USB host
-            return true;
-        }
+    MSC_ENTER_CRITICAL();
+    bool found = _msc_storage_get_by_lun(lun, &storage);
+    MSC_EXIT_CRITICAL();
+
+    if (found && (storage != NULL) && (storage->mount_point == TINYUSB_MSC_STORAGE_MOUNT_USB)) {
+        // Storage media is ready for access by USB host
+        return true;
     }
     // Storage media is not ready for access by USB host
     tud_msc_set_sense(lun, SCSI_SENSE_NOT_READY, SCSI_CODE_ASC_MEDIUM_NOT_PRESENT, SCSI_CODE_ASCQ);
@@ -880,13 +1204,17 @@ bool tud_msc_test_unit_ready_cb(uint8_t lun)
 // Application update block count and block size
 void tud_msc_capacity_cb(uint8_t lun, uint32_t *block_count, uint16_t *block_size)
 {
-    msc_storage_obj_t *storage;
+    msc_storage_obj_t *storage = NULL;
 
     uint32_t capacity = 0;
     uint32_t sec_size = 0;
 
-    // Do not verify the error, if the storage is not initialized, it will return 0 for both sector count and size
-    if (msc_storage_get_by_lun(lun, &storage) == ESP_OK) {
+    MSC_ENTER_CRITICAL();
+    bool found = _msc_storage_get_by_lun(lun, &storage);
+    MSC_EXIT_CRITICAL();
+
+    if (found && storage != NULL) {
+        // Do not verify the error, if the storage is not initialized
         tinyusb_msc_get_storage_capacity((tinyusb_msc_storage_handle_t) storage, &capacity);
         tinyusb_msc_get_storage_sector_size((tinyusb_msc_storage_handle_t) storage, &sec_size);
     }

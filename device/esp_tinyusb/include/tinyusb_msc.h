@@ -159,7 +159,7 @@ esp_err_t tinyusb_msc_install_driver(const tinyusb_msc_driver_config_t *config);
  *
  * @return
  *    - ESP_OK: Uninstallation successful
- *    - ESP_ERR_NOT_FOUND: Driver is not installed
+ *    - ESP_ERR_NOT_SUPPORTED: Driver is not installed
  *    - ESP_ERR_INVALID_STATE: Driver is in incorrect state: storage is still mounted
  */
 esp_err_t tinyusb_msc_uninstall_driver(void);
@@ -177,6 +177,7 @@ esp_err_t tinyusb_msc_uninstall_driver(void);
  *    - ESP_ERR_INVALID_ARG: Invalid input argument
  *    - ESP_ERR_NOT_SUPPORTED: TinyUSB buffer size is less than the Wear Levelling sector size
  *    - ESP_ERR_NO_MEM: Not enough memory to initialize storage
+ *    - ESP_FAIL: Failed to map storage to LUN or mount storage
  */
 esp_err_t tinyusb_msc_new_storage_spiflash(const tinyusb_msc_storage_config_t *config, tinyusb_msc_storage_handle_t *handle);
 
@@ -193,6 +194,7 @@ esp_err_t tinyusb_msc_new_storage_spiflash(const tinyusb_msc_storage_config_t *c
  *    - ESP_OK: Initialization successful
  *    - ESP_ERR_INVALID_ARG: Invalid input argument
  *    - ESP_ERR_NO_MEM: Not enough memory to initialize storage
+ *    - ESP_FAIL: Failed to map storage to LUN or mount storage
  */
 esp_err_t tinyusb_msc_new_storage_sdmmc(const tinyusb_msc_storage_config_t *config, tinyusb_msc_storage_handle_t *handle);
 #endif // SOC_SDMMC_HOST_SUPPORTED
@@ -207,7 +209,9 @@ esp_err_t tinyusb_msc_new_storage_sdmmc(const tinyusb_msc_storage_config_t *conf
  *
  * @return
  *   - ESP_OK: Deletion successful
- *   - ESP_ERR_INVALID_STATE: Driver is not installed or storage is still mounted
+ *   - ESP_ERR_INVALID_STATE: Driver is not installed, no storage was created, or there are pending deferred writes
+ *   - ESP_ERR_INVALID_ARG: Invalid input argument, handle is NULL
+ *   - ESP_ERR_NOT_FOUND: Storage not found in any LUN
  */
 esp_err_t tinyusb_msc_delete_storage(tinyusb_msc_storage_handle_t handle);
 
@@ -223,6 +227,7 @@ esp_err_t tinyusb_msc_delete_storage(tinyusb_msc_storage_handle_t handle);
  * @return
  *   - ESP_OK: Callback set successfully
  *   - ESP_ERR_INVALID_STATE: Driver is not installed
+ *   - ESP_ERR_INVALID_ARG: Invalid input argument, callback is NULL
  */
 esp_err_t tinyusb_msc_set_storage_callback(tusb_msc_callback_t callback, void *arg);
 
@@ -237,10 +242,10 @@ esp_err_t tinyusb_msc_set_storage_callback(tusb_msc_callback_t callback, void *a
  * @param[in] handle    Storage handle, obtained during storage creation.
  *
  * @return
+ *   - ESP_OK: Storage formatted successfully
  *   - ESP_ERR_INVALID_STATE: MSC driver is not initialized or storage is not initialized
  *   - ESP_ERR_INVALID_ARG: Invalid input argument, handle is NULL
  *   - ESP_ERR_NOT_FOUND: Unexpected filesystem found on the drive
- *   - ESP_OK: Storage formatted successfully
  */
 esp_err_t tinyusb_msc_format_storage(tinyusb_msc_storage_handle_t handle);
 
