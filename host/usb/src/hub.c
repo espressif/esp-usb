@@ -184,7 +184,6 @@ static esp_err_t dev_tree_node_new(usb_device_handle_t parent_dev_hdl, uint8_t p
     ret = usbh_devs_add(&params);
     if (ret != ESP_OK) {
         // Device registration may fail if there are no available HCD channels.
-        // TODO: IDF-10044 Implement hub recovery mechanism for running out of HCD channels.
         goto fail;
     }
 

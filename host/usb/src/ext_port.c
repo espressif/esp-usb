@@ -649,7 +649,6 @@ static void handle_port_connection(ext_port_t *ext_port)
         }
         break;
     case USB_PORT_STATE_ENABLED:
-        // TODO: IDF-10071 Port debounce mechanism
         if (ext_port->dev_state == PORT_DEV_PRESENT) {
             ext_port->flags.waiting_recycle = 1;
         }
@@ -795,7 +794,6 @@ static void handle_port_state(ext_port_t *ext_port)
                 }
                 need_handling = true;
             } else {
-                // TODO: IDF-10071 Port debounce mechanism
                 ESP_LOGE(EXT_PORT_TAG, "[%d:%d] Enabled, but doesn't have connection",
                          ext_port->constant.parent_dev_addr,
                          ext_port->constant.port_num);
