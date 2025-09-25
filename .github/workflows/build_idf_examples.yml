@@ -3,8 +3,11 @@
 #   - usb device examples: with overridden esp_tinyusb from esp-usb/device/esp_tinyusb
 #     - All (service + maintenance IDF releases)
 #
-#   - usb host examples: with overridden usb component from esp-usb/host/usb
-#     - Only service IDF releases
+#   - usb host examples:
+#     - Overridden usb component from esp-usb/host/usb and overridden class drivers from esp-usb/host/class
+#       - Only service IDF releases
+#     - Overridden class drivers from esp-usb/host/class
+#       - All (service + maintenance IDF releases)
 
 name: Build ESP-IDF USB examples
 
@@ -15,7 +18,7 @@ on:
 jobs:
   build:
     strategy:
-      fail-fast: true
+      fail-fast: false # TODO: Remove this
       matrix:
         idf_ver:
           [
@@ -31,6 +34,7 @@ jobs:
     env:
       CONFIG_PATH: ${{ github.workspace }}/.github/ci/.idf_build_examples_config.toml
       MANIFEST_PATH: ${{ github.workspace }}/.github/ci/.idf-build-examples-rules.yml
+      EXAMPLES_PATH: ${{ github.workspace }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -39,16 +43,31 @@ jobs:
         shell: bash
         run: |
           . ${IDF_PATH}/export.sh
-          pip install idf-component-manager>=2.1.2 idf-build-apps==2.4.3 pyyaml --upgrade
+          pip install idf-component-manager>=2.1.2 idf-build-apps==2.12.2 pyyaml --upgrade
+      - name: Setup IDF Examples path
+        run: echo "EXAMPLES_PATH=${IDF_PATH}/examples/peripherals/usb" >> $GITHUB_ENV
+      - name: Override device and class components
+        run: |
+          . ${IDF_PATH}/export.sh
+          # TODO: Uncomment the below line to run esp-idf USB Device examples in CI. See issue IDF-13618 for tracking.
+          #python .github/ci/override_managed_component.py esp_tinyusb device/esp_tinyusb ${{ env.EXAMPLES_PATH }}/device/*
+          python .github/ci/override_managed_component.py class host/class ${{ env.EXAMPLES_PATH }}/host/*
+      - name: Override usb component
+        if: contains('release-v5.4 release-v5.5 latest', matrix.idf_ver)
+        run: |
+          # Override usb component only for maintenance releases
+          . ${IDF_PATH}/export.sh
+          python .github/ci/override_managed_component.py usb host/usb ${{ env.EXAMPLES_PATH }}/host/*
       - name: Build ESP-IDF ${{ matrix.idf_ver }} USB examples
         shell: bash
         run: |
           . ${IDF_PATH}/export.sh
-
-          # TODO: Uncomment the below line to run esp-idf USB Device examples in CI. See issue IDF-13618 for tracking.
-          #python .github/ci/override_managed_component.py esp_tinyusb device/esp_tinyusb ${IDF_PATH}/examples/peripherals/usb/device/*
-          python .github/ci/override_managed_component.py usb host/usb ${IDF_PATH}/examples/peripherals/usb/host/*
           cd ${IDF_PATH}
+
+          # Export compiler flags
+          export PEDANTIC_FLAGS="-DIDF_CI_BUILD -Werror -Werror=deprecated-declarations -Werror=unused-variable -Werror=unused-but-set-variable -Werror=unused-function"
+          export EXTRA_CFLAGS="${PEDANTIC_FLAGS} -Wstrict-prototypes"
+          export EXTRA_CXXFLAGS="${PEDANTIC_FLAGS}"
 
           idf-build-apps find --config-file ${CONFIG_PATH} --manifest-file ${MANIFEST_PATH}
           idf-build-apps build --config-file ${CONFIG_PATH} --manifest-file ${MANIFEST_PATH}

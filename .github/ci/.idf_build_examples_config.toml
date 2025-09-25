@@ -12,4 +12,8 @@ target = "all"
 
 # build related options
 build_dir = "build_@t_@w"
-work_dir = "@f_@t_@w"
+
+# use ignore_build_warnings.txt from esp-idf
+ignore_warning_files = [
+    'tools/ci/ignore_build_warnings.txt',
+]
