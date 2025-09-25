@@ -15,7 +15,7 @@ on:
 jobs:
   build:
     strategy:
-      fail-fast: true
+      fail-fast: false #TODO change this
       matrix:
         idf_ver:
           [
@@ -39,16 +39,28 @@ jobs:
         shell: bash
         run: |
           . ${IDF_PATH}/export.sh
-          pip install idf-component-manager>=2.1.2 idf-build-apps==2.4.3 pyyaml --upgrade
+          pip install idf-component-manager>=2.1.2 idf-build-apps==2.12.2 pyyaml --upgrade
+      - name: Override device and class components
+        run: |
+          . ${IDF_PATH}/export.sh
+          # TODO: Uncomment the below line to run esp-idf USB Device examples in CI. See issue IDF-13618 for tracking.
+          #python .github/ci/override_managed_component.py esp_tinyusb device/esp_tinyusb ${IDF_PATH}/examples/peripherals/usb/device/*
+          python .github/ci/override_managed_component.py class host/class ${IDF_PATH}/examples/peripherals/usb/host/*
+      - name: Override usb component
+        if: contains('release-v5.4 release-v5.5 latest', matrix.idf_ver)
+        run: |
+          . ${IDF_PATH}/export.sh
+          python .github/ci/override_managed_component.py usb host/usb ${IDF_PATH}/examples/peripherals/usb/host/*
       - name: Build ESP-IDF ${{ matrix.idf_ver }} USB examples
         shell: bash
         run: |
           . ${IDF_PATH}/export.sh
-
-          # TODO: Uncomment the below line to run esp-idf USB Device examples in CI. See issue IDF-13618 for tracking.
-          #python .github/ci/override_managed_component.py esp_tinyusb device/esp_tinyusb ${IDF_PATH}/examples/peripherals/usb/device/*
-          python .github/ci/override_managed_component.py usb host/usb ${IDF_PATH}/examples/peripherals/usb/host/*
           cd ${IDF_PATH}
+
+          # Export compiler flags
+          export PEDANTIC_FLAGS="-DIDF_CI_BUILD -Werror -Werror=deprecated-declarations -Werror=unused-variable -Werror=unused-but-set-variable -Werror=unused-function"
+          export EXTRA_CFLAGS="${PEDANTIC_FLAGS} -Wstrict-prototypes"
+          export EXTRA_CXXFLAGS="${PEDANTIC_FLAGS}"
 
           idf-build-apps find --config-file ${CONFIG_PATH} --manifest-file ${MANIFEST_PATH}
           idf-build-apps build --config-file ${CONFIG_PATH} --manifest-file ${MANIFEST_PATH}
