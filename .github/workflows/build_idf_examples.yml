@@ -15,7 +15,7 @@ on:
 jobs:
   build:
     strategy:
-      fail-fast: true
+      fail-fast: false #TODO change this
       matrix:
         idf_ver:
           [
@@ -39,16 +39,77 @@ jobs:
         shell: bash
         run: |
           . ${IDF_PATH}/export.sh
-          pip install idf-component-manager>=2.1.2 idf-build-apps==2.4.3 pyyaml --upgrade
+          pip install idf-component-manager>=2.1.2 idf-build-apps==2.12.2 pyyaml --upgrade
+      - name: Override device and class components
+        run: |
+          . ${IDF_PATH}/export.sh
+          # TODO: Uncomment the below line to run esp-idf USB Device examples in CI. See issue IDF-13618 for tracking.
+          #python .github/ci/override_managed_component.py esp_tinyusb device/esp_tinyusb ${IDF_PATH}/examples/peripherals/usb/device/*
+          python .github/ci/override_managed_component.py class host/class ${IDF_PATH}/examples/peripherals/usb/host/*
+      - name: Override usb component
+        if: contains('release-v5.4 release-v5.5 latest', matrix.idf_ver)
+        run: |
+          . ${IDF_PATH}/export.sh
+          python .github/ci/override_managed_component.py usb host/usb ${IDF_PATH}/examples/peripherals/usb/host/*
       - name: Build ESP-IDF ${{ matrix.idf_ver }} USB examples
         shell: bash
         run: |
           . ${IDF_PATH}/export.sh
-
-          # TODO: Uncomment the below line to run esp-idf USB Device examples in CI. See issue IDF-13618 for tracking.
-          #python .github/ci/override_managed_component.py esp_tinyusb device/esp_tinyusb ${IDF_PATH}/examples/peripherals/usb/device/*
-          python .github/ci/override_managed_component.py usb host/usb ${IDF_PATH}/examples/peripherals/usb/host/*
           cd ${IDF_PATH}
+
+          # Export compiler flags
+          export PEDANTIC_FLAGS="-DIDF_CI_BUILD -Werror -Werror=deprecated-declarations -Werror=unused-variable -Werror=unused-but-set-variable -Werror=unused-function"
+          export EXTRA_CFLAGS="${PEDANTIC_FLAGS} -Wstrict-prototypes"
+          export EXTRA_CXXFLAGS="${PEDANTIC_FLAGS}"
 
           idf-build-apps find --config-file ${CONFIG_PATH} --manifest-file ${MANIFEST_PATH}
           idf-build-apps build --config-file ${CONFIG_PATH} --manifest-file ${MANIFEST_PATH}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: usb_examples_bin_${{ matrix.idf_ver }}
+          path: |
+            **/build_esp*/bootloader/bootloader.bin
+            **/build_esp*/partition_table/partition-table.bin
+            **/build_esp*/test_app_*.bin
+            **/build_esp*/test_app_*.elf
+            **/build_esp*/flasher_args.json
+            **/build_esp*/config/sdkconfig.json
+          if-no-files-found: error
+
+
+  run-target:
+    name: Run esp-idf examples
+    if: ${{ github.repository_owner == 'espressif' }}
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        idf_ver: ["release-v5.1", "release-v5.2", "release-v5.3", "release-v5.4", "release-v5.5" , "latest"]
+        idf_target: ["esp32s2", "esp32p4"]
+        runner_tag: ["usb_host_flash_disk"]
+    runs-on: [self-hosted, linux, docker, "${{ matrix.idf_target }}", "${{ matrix.runner_tag }}"]
+    container:
+      image: espressif/idf:${{ matrix.idf_ver }}
+      options: --privileged --device-cgroup-rule="c 188:* rmw" --device-cgroup-rule="c 166:* rmw"
+    steps:
+      - name: ⚙️ Install System tools
+        run: |
+          apt update
+          apt install net-tools
+      - name: ⚙️ Install Python packages
+        env:
+          PIP_EXTRA_INDEX_URL: "https://dl.espressif.com/pypi/"
+        run: |
+          cd ${IDF_PATH}
+          . ./export.sh
+          pip install --no-cache-dir --only-binary cryptography pytest-embedded pytest-embedded-serial-esp pytest-embedded-jtag pytest-embedded-idf pyserial pyusb python-gitlab minio idf-build-apps pytest_ignore_test_results pytest-timeout netifaces
+      - uses: actions/download-artifact@v4
+        with:
+          name: usb_examples_bin_${{ matrix.idf_ver }}
+          path: /opt/esp/idf/examples/peripherals/usb/host
+      - name: Run USB Test App on target
+        run: |
+          cd ${IDF_PATH}
+          . ./export.sh
+          export EXAMPLES_PATH="${IDF_PATH}/examples/peripherals/usb/host"
+          pytest ${EXAMPLES_PATH} --target ${{ matrix.idf_target }} -m ${{ matrix.runner_tag }}
