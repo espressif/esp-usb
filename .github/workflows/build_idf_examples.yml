@@ -45,8 +45,7 @@ jobs:
         run: |
           . ${IDF_PATH}/export.sh
 
-          # TODO: Uncomment the below line to run esp-idf USB Device examples in CI. See issue IDF-13618 for tracking.
-          #python .github/ci/override_managed_component.py esp_tinyusb device/esp_tinyusb ${IDF_PATH}/examples/peripherals/usb/device/*
+          python .github/ci/override_managed_component.py esp_tinyusb device/esp_tinyusb ${IDF_PATH}/examples/peripherals/usb/device/*
           python .github/ci/override_managed_component.py usb host/usb ${IDF_PATH}/examples/peripherals/usb/host/*
           cd ${IDF_PATH}
 
