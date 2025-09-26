@@ -256,6 +256,7 @@ struct port_obj {
         uint32_t val;
     } flags;
     bool initialized;
+    uint8_t port_num;
     // FIFO related
     usb_dwc_hal_fifo_config_t fifo_config;          // FIFO config to be applied at HAL level
     // Port callback and context
@@ -1418,6 +1419,7 @@ esp_err_t hcd_port_init(int port_number, const hcd_port_config_t *port_config, h
     HCD_CHECK_FROM_CRIT(port_obj->hal->channels.hdls != NULL, ESP_ERR_NO_MEM);
 
     port_obj->initialized = true;
+    port_obj->port_num = port_number;
     // Clear the frame list. We will set the frame list register and enable periodic scheduling after a successful reset
     memset(port_obj->frame_list, 0, FRAME_LIST_LEN * sizeof(uint32_t));
     // If FIFO config is zeroed -> calculate from bias
@@ -1516,6 +1518,12 @@ esp_err_t hcd_port_get_speed(hcd_port_handle_t port_hdl, usb_speed_t *speed)
     *speed = get_usb_port_speed(usb_dwc_hal_port_get_conn_speed(port->hal));
     HCD_EXIT_CRITICAL();
     return ESP_OK;
+}
+
+uint8_t hcd_port_get_number(hcd_port_handle_t port_hdl)
+{
+    port_t *port = (port_t *)port_hdl;
+    return port->port_num;
 }
 
 hcd_port_event_t hcd_port_handle_event(hcd_port_handle_t port_hdl)

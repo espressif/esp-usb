@@ -304,6 +304,15 @@ hcd_port_state_t hcd_port_get_state(hcd_port_handle_t port_hdl);
 esp_err_t hcd_port_get_speed(hcd_port_handle_t port_hdl, usb_speed_t *speed);
 
 /**
+ * @brief Get the port number
+ *
+ * @param[in] port_hdl Port handle
+ *
+ * @return uint8_t Port number
+ */
+uint8_t hcd_port_get_number(hcd_port_handle_t port_hdl);
+
+/**
  * @brief Handle a ports event
  *
  * When an port event occurs (as indicated by a callback), this function should be called the handle this event. A
