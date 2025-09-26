@@ -352,6 +352,20 @@ esp_err_t usbh_dev_get_uid(usb_device_handle_t dev_hdl, unsigned int *uid);
 esp_err_t usbh_dev_get_addr(usb_device_handle_t dev_hdl, uint8_t *dev_addr);
 
 /**
+ * @brief Get the root port handle of a device
+ *
+ * @note Callers of this function must have opened the device via usbh_devs_open()
+ *
+ * @param[in] dev_hdl Device handle
+ * @param[out] port_hdl Root port handle
+ *
+ * @return
+ *    - ESP_ERR_INVALID_ARG if invalid argument
+ *    - ESP_OK if Device's root port handle obtained successfully
+ */
+esp_err_t usbh_dev_get_root_port_handle(usb_device_handle_t dev_hdl, hcd_port_handle_t *port_hdl);
+
+/**
  * @brief Get a device's information
  *
  * @note Callers of this function must have opened the device via usbh_devs_open()
