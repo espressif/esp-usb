@@ -37,6 +37,8 @@ Implementation of an asynchronous MSC client used for USB Host's root port resum
     - Deregister MSC client
 */
 
+#define NEW_DEV_EVENT_MS        1000        // Delay to wait for a device to be connected
+
 typedef enum {
     TEST_STAGE_WAIT_CONN,                   /**< Wait for device connection */
     TEST_STAGE_DEV_OPEN,                    /**< Open the device by the Client */
@@ -124,6 +126,7 @@ static void msc_client_event_cb(const usb_host_client_event_msg_t *event_msg, vo
     msc_client_obj_t *msc_obj = (msc_client_obj_t *)arg;
     switch (event_msg->event) {
     case USB_HOST_CLIENT_EVENT_NEW_DEV: {
+        ESP_LOGI(MSC_CLIENT_TAG, "Client event -> New device");
         TEST_ASSERT_EQUAL(TEST_STAGE_WAIT_CONN, msc_obj->cur_stage);
         msc_obj->next_stage = TEST_STAGE_DEV_OPEN;
         msc_obj->dev_addr = event_msg->new_dev.address;
@@ -183,11 +186,17 @@ void msc_client_async_resume_by_transfer_task(void *arg)
     usb_transfer_t *xfer_out = NULL;
 
     // Wait to be started by main thread
-    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
-    ESP_LOGD(MSC_CLIENT_TAG, "Starting");
+    TEST_ASSERT_EQUAL_MESSAGE(pdTRUE, ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(2000)), "MSC client not started from main thread");
+    ESP_LOGI(MSC_CLIENT_TAG, "Starting");
+
+    // Handle device enumeration separately, wait for 1000ms for the device to be enumerated
+    // Catch an error in case the device is not enumerated correctly
+    esp_err_t enum_ret = usb_host_client_handle_events(msc_obj.client_hdl, pdMS_TO_TICKS(NEW_DEV_EVENT_MS));
+    TEST_ASSERT_EQUAL_MESSAGE(TEST_STAGE_DEV_OPEN, msc_obj.next_stage, "USB_HOST_CLIENT_EVENT_NEW_DEV not generated on time");
+    TEST_ASSERT_EQUAL_MESSAGE(ESP_OK, enum_ret, "Client handle events timed out");
 
     bool exit_loop = false;
-    bool skip_event_handling = false;
+    bool skip_event_handling = true;    // Skip first event handling (we have handled the new device event separately)
     while (!exit_loop) {
         if (!skip_event_handling) {
             TEST_ASSERT_EQUAL(ESP_OK, usb_host_client_handle_events(msc_obj.client_hdl, portMAX_DELAY));
@@ -204,7 +213,7 @@ void msc_client_async_resume_by_transfer_task(void *arg)
             break;
         }
         case TEST_STAGE_DEV_OPEN: {
-            ESP_LOGD(MSC_CLIENT_TAG, "Open");
+            ESP_LOGI(MSC_CLIENT_TAG, "Open");
             // Open the device
             TEST_ASSERT_EQUAL(ESP_OK, usb_host_device_open(msc_obj.client_hdl, msc_obj.dev_addr, &msc_obj.dev_hdl));
 
@@ -306,7 +315,7 @@ void msc_client_async_resume_by_transfer_task(void *arg)
             break;
         }
         case TEST_STAGE_DEV_CLOSE: {
-            ESP_LOGD(MSC_CLIENT_TAG, "Close");
+            ESP_LOGI(MSC_CLIENT_TAG, "Close");
             TEST_ASSERT_EQUAL(ESP_OK, usb_host_interface_release(msc_obj.client_hdl, msc_obj.dev_hdl, msc_obj.dev_info->bInterfaceNumber));
             TEST_ASSERT_EQUAL(ESP_OK, usb_host_device_close(msc_obj.client_hdl, msc_obj.dev_hdl));
             exit_loop = true;
@@ -322,6 +331,6 @@ void msc_client_async_resume_by_transfer_task(void *arg)
     TEST_ASSERT_EQUAL(ESP_OK, usb_host_transfer_free(xfer_in));
     // Deregister the client
     TEST_ASSERT_EQUAL(ESP_OK, usb_host_client_deregister(msc_obj.client_hdl));
-    ESP_LOGD(MSC_CLIENT_TAG, "Done");
+    ESP_LOGI(MSC_CLIENT_TAG, "Done");
     vTaskDelete(NULL);
 }
