@@ -262,6 +262,17 @@ esp_err_t ext_hub_port_disable(ext_hub_handle_t ext_hub_hdl, uint8_t port_num);
  */
 esp_err_t ext_hub_port_get_speed(ext_hub_handle_t ext_hub_hdl, uint8_t port_num, usb_speed_t *speed);
 
+/**
+ * @brief Returns root port handle of the External Hub
+ *
+ * @param[in] ext_hub_hdl   External Hub handle
+ *
+ * @return
+ *   - Root port handle of the External Hub if the External Hub is installed
+ *   - NULL if External Hub is not installed
+ */
+hcd_port_handle_t ext_hub_get_root_port_handle(ext_hub_handle_t ext_hub_hdl);
+
 // --------------------------- USB Chapter 11 ----------------------------------
 
 /**

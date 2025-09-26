@@ -115,7 +115,7 @@ esp_err_t hub_uninstall(void);
  *    - ESP_OK: Hub driver started successfully
  *    - ESP_ERR_INVALID_STATE: Hub driver is not installed, or root port is in other state than not powered
  */
-esp_err_t hub_root_start(void);
+esp_err_t hub_root_start(uint8_t port_idx);
 
 /**
  * @brief Stops the Hub driver's root port
