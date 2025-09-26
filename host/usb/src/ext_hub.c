@@ -416,8 +416,7 @@ static esp_err_t device_port_new(ext_hub_dev_t *ext_hub_dev, uint8_t port_idx)
 {
     ext_port_config_t port_config = {
         .context = (void *) ext_hub_dev,
-        .parent_dev_hdl =  ext_hub_dev->constant.dev_hdl,
-        .parent_port_num = port_idx + 1,
+        .port_num = port_idx + 1,
         .port_power_delay_ms = ext_hub_dev->constant.hub_desc->bPwrOn2PwrGood * 2,
     };
 
@@ -779,36 +778,27 @@ static void device_free(ext_hub_dev_t *ext_hub_dev)
     heap_caps_free(ext_hub_dev);
 }
 
-static esp_err_t get_dev_by_hdl(usb_device_handle_t dev_hdl, ext_hub_dev_t **ext_hub_hdl)
+static bool dev_is_in_list(ext_hub_dev_t *ext_hub_dev)
 {
-    esp_err_t ret = ESP_OK;
-    // Go through the Hubs lists to find the hub with the specified device address
-    ext_hub_dev_t *found_hub = NULL;
+    bool is_in_list = false;
     ext_hub_dev_t *hub = NULL;
 
     EXT_HUB_ENTER_CRITICAL();
-    TAILQ_FOREACH(hub, &p_ext_hub_driver->dynamic.ext_hubs_pending_tailq, dynamic.tailq_entry) {
-        if (hub->constant.dev_hdl == dev_hdl) {
-            found_hub = hub;
-            goto exit;
-        }
-    }
-
     TAILQ_FOREACH(hub, &p_ext_hub_driver->dynamic.ext_hubs_tailq, dynamic.tailq_entry) {
-        if (hub->constant.dev_hdl == dev_hdl) {
-            found_hub = hub;
+        if (hub == ext_hub_dev) {
+            is_in_list = true;
             goto exit;
         }
     }
-
-exit:
-    if (found_hub == NULL) {
-        ret = ESP_ERR_NOT_FOUND;
+    TAILQ_FOREACH(hub, &p_ext_hub_driver->dynamic.ext_hubs_tailq, dynamic.tailq_entry) {
+        if (hub == ext_hub_dev) {
+            is_in_list = true;
+            goto exit;
+        }
     }
+exit:
     EXT_HUB_EXIT_CRITICAL();
-
-    *ext_hub_hdl = found_hub;
-    return ret;
+    return is_in_list;
 }
 
 static esp_err_t get_dev_by_addr(uint8_t dev_addr, ext_hub_dev_t **ext_hub_hdl)
@@ -1215,14 +1205,6 @@ void *ext_hub_get_client(void)
 // -------------------------- External Hub API ---------------------------------
 // -----------------------------------------------------------------------------
 
-esp_err_t ext_hub_get_handle(usb_device_handle_t dev_hdl, ext_hub_handle_t *ext_hub_hdl)
-{
-    EXT_HUB_ENTER_CRITICAL();
-    EXT_HUB_CHECK_FROM_CRIT(p_ext_hub_driver != NULL, ESP_ERR_INVALID_STATE);
-    EXT_HUB_EXIT_CRITICAL();
-    return get_dev_by_hdl(dev_hdl, ext_hub_hdl);
-}
-
 static esp_err_t find_first_intf_desc(const usb_config_desc_t *config_desc, device_config_t *hub_config)
 {
     bool iface_found = false;
@@ -1300,6 +1282,32 @@ next_iface:
     }
 
     return (iface_found) ? ESP_OK : ESP_ERR_NOT_FOUND;
+}
+
+esp_err_t ext_hub_get_speed(ext_hub_handle_t ext_hub_hdl, usb_speed_t *speed)
+{
+    EXT_HUB_ENTER_CRITICAL();
+    EXT_HUB_CHECK_FROM_CRIT(p_ext_hub_driver != NULL, ESP_ERR_NOT_ALLOWED);
+    EXT_HUB_EXIT_CRITICAL();
+    EXT_HUB_CHECK(ext_hub_hdl != NULL && speed != NULL, ESP_ERR_INVALID_ARG);
+    EXT_HUB_CHECK(dev_is_in_list(ext_hub_hdl), ESP_ERR_NOT_FOUND);
+    ext_hub_dev_t *ext_hub_dev = (ext_hub_dev_t *)ext_hub_hdl;
+    usb_device_info_t dev_info;
+    ESP_ERROR_CHECK(usbh_dev_get_info(ext_hub_dev->constant.dev_hdl, &dev_info));
+    *speed = dev_info.speed;
+    return ESP_OK;
+}
+
+esp_err_t ext_hub_get_dev_addr(ext_hub_handle_t ext_hub_hdl, uint8_t *addr)
+{
+    EXT_HUB_ENTER_CRITICAL();
+    EXT_HUB_CHECK_FROM_CRIT(p_ext_hub_driver != NULL, ESP_ERR_NOT_ALLOWED);
+    EXT_HUB_EXIT_CRITICAL();
+    EXT_HUB_CHECK(ext_hub_hdl != NULL && addr != NULL, ESP_ERR_INVALID_ARG);
+    EXT_HUB_CHECK(dev_is_in_list(ext_hub_hdl), ESP_ERR_NOT_FOUND);
+    ext_hub_dev_t *ext_hub_dev = (ext_hub_dev_t *)ext_hub_hdl;
+    *addr = ext_hub_dev->constant.dev_addr;
+    return ESP_OK;
 }
 
 esp_err_t ext_hub_new_dev(uint8_t dev_addr)

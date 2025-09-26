@@ -69,9 +69,9 @@ typedef enum {
  */
 struct dev_tree_node_s {
     TAILQ_ENTRY(dev_tree_node_s) tailq_entry;   /**< Entry for the device tree node object tailq */
-    unsigned int uid;                       /**< Device's unique ID */
-    usb_device_handle_t parent_dev_hdl;     /**< Device's parent handle */
-    uint8_t parent_port_num;                /**< Device's parent port number */
+    unsigned int uid;                           /**< Device's unique ID */
+    void *parent;                               /**< Device's parent context */
+    uint8_t port_num;                           /**< Device's parent port number */
 };
 
 typedef struct dev_tree_node_s dev_tree_node_t;
@@ -87,11 +87,8 @@ typedef struct {
         } flags;                                    /**< Hub flags */
         root_port_state_t root_port_state;          /**< Root port state */
         unsigned int port_reqs;                     /**< Root port request flag */
-    } dynamic;                                      /**< Dynamic members. Require a critical section */
-
-    struct {
         TAILQ_HEAD(tailhead_devs, dev_tree_node_s) dev_nodes_tailq;     /**< Tailq of attached devices */
-    } single_thread;                                /**< Single thread members don't require a critical section so long as they are never accessed from multiple threads */
+    } dynamic;                                      /**< Dynamic members. Require a critical section */
 
     struct {
         hcd_port_handle_t root_port_hdl;            /**< Root port HCD handle */
@@ -145,12 +142,28 @@ static bool root_port_callback(hcd_port_handle_t port_hdl, hcd_port_event_t port
 
 // ---------------------- Internal Logic ------------------------
 
+static dev_tree_node_t *dev_tree_node_get_by_uid(unsigned int node_uid)
+{
+    dev_tree_node_t *dev_tree_node = NULL;
+    dev_tree_node_t *dev_tree_iter;
+    // Search the device tree nodes list for a device node with the specified parent
+    HUB_DRIVER_ENTER_CRITICAL();
+    TAILQ_FOREACH(dev_tree_iter, &p_hub_driver_obj->dynamic.dev_nodes_tailq, tailq_entry) {
+        if (dev_tree_iter->uid == node_uid) {
+            dev_tree_node = dev_tree_iter;
+            break;
+        }
+    }
+    HUB_DRIVER_EXIT_CRITICAL();
+    return dev_tree_node;
+}
+
 /**
  * @brief Creates new device tree node and propagate HUB_EVENT_CONNECTED event
  *
  * @return esp_err_t
  */
-static esp_err_t dev_tree_node_new(usb_device_handle_t parent_dev_hdl, uint8_t parent_port_num, usb_speed_t speed)
+static esp_err_t dev_tree_node_new(void *parent, uint8_t port_num, usb_speed_t speed)
 {
     esp_err_t ret;
     // Allocate memory for a new device tree node
@@ -168,17 +181,14 @@ static esp_err_t dev_tree_node_new(usb_device_handle_t parent_dev_hdl, uint8_t p
         assert(dev_tree_node->uid != 0); // No overflow possible
     }
 
-    dev_tree_node->parent_dev_hdl = parent_dev_hdl;
-    dev_tree_node->parent_port_num = parent_port_num;
+    dev_tree_node->parent = parent;
+    dev_tree_node->port_num = port_num;
 
     // Initialize and register a new USBH Device with the assigned UID
     usbh_dev_params_t params = {
         .uid = dev_tree_node->uid,
         .speed = speed,
         .root_port_hdl = p_hub_driver_obj->constant.root_port_hdl, // Always the same for all devices
-        // TODO: IDF-10023 Move parent-child tree management responsibility to Hub Driver
-        .parent_dev_hdl = parent_dev_hdl,
-        .parent_port_num = parent_port_num,
     };
 
     ret = usbh_devs_add(&params);
@@ -186,10 +196,10 @@ static esp_err_t dev_tree_node_new(usb_device_handle_t parent_dev_hdl, uint8_t p
         // Device registration may fail if there are no available HCD channels.
         goto fail;
     }
-
-    TAILQ_INSERT_TAIL(&p_hub_driver_obj->single_thread.dev_nodes_tailq, dev_tree_node, tailq_entry);
-
-    ESP_LOGD(HUB_DRIVER_TAG, "Device tree node (uid=%d): new", dev_tree_node->uid);
+    HUB_DRIVER_ENTER_CRITICAL();
+    TAILQ_INSERT_TAIL(&p_hub_driver_obj->dynamic.dev_nodes_tailq, dev_tree_node, tailq_entry);
+    HUB_DRIVER_EXIT_CRITICAL();
+    ESP_LOGD(HUB_DRIVER_TAG, "Device tree node (port %d, uid %d): new", dev_tree_node->port_num, dev_tree_node->uid);
 
     hub_event_data_t event_data = {
         .event = HUB_EVENT_CONNECTED,
@@ -206,21 +216,23 @@ fail:
     return ret;
 }
 
-static esp_err_t dev_tree_node_reset_completed(usb_device_handle_t parent_dev_hdl, uint8_t parent_port_num)
+static esp_err_t dev_tree_node_reset_completed(void *parent, uint8_t port_num)
 {
     dev_tree_node_t *dev_tree_node = NULL;
     dev_tree_node_t *dev_tree_iter;
     // Search the device tree nodes list for a device node with the specified parent
-    TAILQ_FOREACH(dev_tree_iter, &p_hub_driver_obj->single_thread.dev_nodes_tailq, tailq_entry) {
-        if (dev_tree_iter->parent_dev_hdl == parent_dev_hdl &&
-                dev_tree_iter->parent_port_num == parent_port_num) {
+    HUB_DRIVER_ENTER_CRITICAL();
+    TAILQ_FOREACH(dev_tree_iter, &p_hub_driver_obj->dynamic.dev_nodes_tailq, tailq_entry) {
+        if (dev_tree_iter->parent == parent &&
+                dev_tree_iter->port_num == port_num) {
             dev_tree_node = dev_tree_iter;
             break;
         }
     }
+    HUB_DRIVER_EXIT_CRITICAL();
 
     if (dev_tree_node == NULL) {
-        ESP_LOGE(HUB_DRIVER_TAG, "Reset completed, but device tree node with port=%d not found", parent_port_num);
+        ESP_LOGE(HUB_DRIVER_TAG, "Reset completed, but device tree node (port %d) not found", port_num);
         return ESP_ERR_NOT_FOUND;
     }
 
@@ -234,25 +246,27 @@ static esp_err_t dev_tree_node_reset_completed(usb_device_handle_t parent_dev_hd
     return ESP_OK;
 }
 
-static esp_err_t dev_tree_node_dev_gone(usb_device_handle_t parent_dev_hdl, uint8_t parent_port_num)
+static esp_err_t dev_tree_node_dev_gone(void *parent, uint8_t port_num)
 {
     dev_tree_node_t *dev_tree_node = NULL;
     dev_tree_node_t *dev_tree_iter;
     // Search the device tree nodes list for a device node with the specified parent
-    TAILQ_FOREACH(dev_tree_iter, &p_hub_driver_obj->single_thread.dev_nodes_tailq, tailq_entry) {
-        if (dev_tree_iter->parent_dev_hdl == parent_dev_hdl &&
-                dev_tree_iter->parent_port_num == parent_port_num) {
+    HUB_DRIVER_ENTER_CRITICAL();
+    TAILQ_FOREACH(dev_tree_iter, &p_hub_driver_obj->dynamic.dev_nodes_tailq, tailq_entry) {
+        if (dev_tree_iter->parent == parent &&
+                dev_tree_iter->port_num == port_num) {
             dev_tree_node = dev_tree_iter;
             break;
         }
     }
+    HUB_DRIVER_EXIT_CRITICAL();
 
     if (dev_tree_node == NULL) {
-        ESP_LOGW(HUB_DRIVER_TAG, "Device tree node (parent_port=%d): not found", parent_port_num);
+        ESP_LOGW(HUB_DRIVER_TAG, "Device tree node (port %d): not found", port_num);
         return ESP_ERR_NOT_FOUND;
     }
 
-    ESP_LOGD(HUB_DRIVER_TAG, "Device tree node (uid=%d): device gone", dev_tree_node->uid);
+    ESP_LOGD(HUB_DRIVER_TAG, "Device tree node (port %d, uid=%d): device gone", port_num, dev_tree_node->uid);
 
     hub_event_data_t event_data = {
         .event = HUB_EVENT_DISCONNECTED,
@@ -270,27 +284,30 @@ static esp_err_t dev_tree_node_dev_gone(usb_device_handle_t parent_dev_hdl, uint
  *
  * @return esp_err_t
  */
-static esp_err_t dev_tree_node_remove_by_parent(usb_device_handle_t parent_dev_hdl, uint8_t parent_port_num)
+static esp_err_t dev_tree_node_remove_by_parent(void *parent, uint8_t port_num)
 {
     dev_tree_node_t *dev_tree_node = NULL;
     dev_tree_node_t *dev_tree_iter;
     // Search the device tree nodes list for a device node with the specified parent
-    TAILQ_FOREACH(dev_tree_iter, &p_hub_driver_obj->single_thread.dev_nodes_tailq, tailq_entry) {
-        if (dev_tree_iter->parent_dev_hdl == parent_dev_hdl &&
-                dev_tree_iter->parent_port_num == parent_port_num) {
+    HUB_DRIVER_ENTER_CRITICAL();
+    TAILQ_FOREACH(dev_tree_iter, &p_hub_driver_obj->dynamic.dev_nodes_tailq, tailq_entry) {
+        if (dev_tree_iter->parent == parent &&
+                dev_tree_iter->port_num == port_num) {
             dev_tree_node = dev_tree_iter;
             break;
         }
     }
+    if (dev_tree_node) {
+        TAILQ_REMOVE(&p_hub_driver_obj->dynamic.dev_nodes_tailq, dev_tree_node, tailq_entry);
+    }
+    HUB_DRIVER_EXIT_CRITICAL();
 
     if (dev_tree_node == NULL) {
-        ESP_LOGW(HUB_DRIVER_TAG, "Device tree node (parent_port=%d): not found", parent_port_num);
+        ESP_LOGW(HUB_DRIVER_TAG, "Device tree node (port %d): not found", port_num);
         return ESP_ERR_NOT_FOUND;
     }
 
-    ESP_LOGD(HUB_DRIVER_TAG, "Device tree node (uid=%d): freeing", dev_tree_node->uid);
-
-    TAILQ_REMOVE(&p_hub_driver_obj->single_thread.dev_nodes_tailq, dev_tree_node, tailq_entry);
+    ESP_LOGD(HUB_DRIVER_TAG, "Device tree node (port %d, uid %d): freeing", port_num, dev_tree_node->uid);
     heap_caps_free(dev_tree_node);
     return ESP_OK;
 }
@@ -323,26 +340,25 @@ static void ext_port_callback(void *user_arg)
     p_hub_driver_obj->constant.proc_req_cb(USB_PROC_REQ_SOURCE_HUB, false, p_hub_driver_obj->constant.proc_req_cb_arg);
 }
 
-static void ext_port_event_callback(ext_port_hdl_t port_hdl, ext_port_event_data_t *event_data, void *arg)
+static void ext_port_event_callback(ext_port_hdl_t port_hdl, ext_port_event_t event, void *arg)
 {
+    uint8_t port_num;
     ext_hub_handle_t ext_hub_hdl = (ext_hub_handle_t) ext_port_get_context(port_hdl);
+    ESP_ERROR_CHECK(ext_port_get_port_num(port_hdl, &port_num));
 
-    switch (event_data->event) {
+    switch (event) {
     case EXT_PORT_CONNECTED:
         // First reset is done by ext_port logic
         usb_speed_t port_speed;
 
-        if (ext_hub_port_get_speed(ext_hub_hdl,
-                                   event_data->connected.parent_port_num,
-                                   &port_speed) != ESP_OK) {
+        if (ext_hub_port_get_speed(ext_hub_hdl, port_num, &port_speed) != ESP_OK) {
             goto new_ds_dev_err;
         }
 
-        // TODO: IDF-10023 Move responsibility of parent-child tree building to Hub Driver instead of USBH
-        usb_device_info_t parent_dev_info;
-        ESP_ERROR_CHECK(usbh_dev_get_info(event_data->connected.parent_dev_hdl, &parent_dev_info));
-        if (parent_dev_info.speed == USB_SPEED_HIGH) {
-            if (port_speed != parent_dev_info.speed) {
+        usb_speed_t parent_speed;
+        ESP_ERROR_CHECK(ext_hub_get_speed(ext_hub_hdl, &parent_speed));
+        if (parent_speed == USB_SPEED_HIGH) {
+            if (port_speed != parent_speed) {
                 ESP_LOGE(HUB_DRIVER_TAG, "Connected device is %s, transaction translator (TT) is not supported",
                 (char *[]) {
                     "LS", "FS", "HS"
@@ -351,20 +367,20 @@ static void ext_port_event_callback(ext_port_hdl_t port_hdl, ext_port_event_data
             }
         }
 
-        if (dev_tree_node_new(event_data->connected.parent_dev_hdl, event_data->connected.parent_port_num, port_speed) != ESP_OK) {
+        if (dev_tree_node_new(ext_hub_hdl, port_num, port_speed) != ESP_OK) {
             ESP_LOGE(HUB_DRIVER_TAG, "Failed to add new downstream device");
             goto new_ds_dev_err;
         }
         break;
 new_ds_dev_err:
-        ext_hub_port_disable(ext_hub_hdl, event_data->connected.parent_port_num);
+        ext_hub_port_disable(ext_hub_hdl, port_num);
         break;
     case EXT_PORT_RESET_COMPLETED:
-        ESP_ERROR_CHECK(dev_tree_node_reset_completed(event_data->reset_completed.parent_dev_hdl, event_data->reset_completed.parent_port_num));
+        ESP_ERROR_CHECK(dev_tree_node_reset_completed(ext_hub_hdl, port_num));
         break;
     case EXT_PORT_DISCONNECTED:
         // The node could be freed by now, no need to verify the result here
-        dev_tree_node_dev_gone(event_data->disconnected.parent_dev_hdl, event_data->disconnected.parent_port_num);
+        dev_tree_node_dev_gone(ext_hub_hdl, port_num);
         break;
     default:
         // Should never occur
@@ -583,8 +599,8 @@ esp_err_t hub_install(hub_config_t *hub_config, void **client_ret)
     hub_driver_obj->constant.proc_req_cb_arg = hub_config->proc_req_cb_arg;
     hub_driver_obj->constant.event_cb = hub_config->event_cb;
     hub_driver_obj->constant.event_cb_arg = hub_config->event_cb_arg;
-    TAILQ_INIT(&hub_driver_obj->single_thread.dev_nodes_tailq);
     // Driver is not installed, we can modify dynamic section outside of the critical section
+    TAILQ_INIT(&hub_driver_obj->dynamic.dev_nodes_tailq);
     hub_driver_obj->dynamic.root_port_state = ROOT_PORT_STATE_NOT_POWERED;
 
     HUB_DRIVER_ENTER_CRITICAL();
@@ -667,20 +683,22 @@ esp_err_t hub_root_stop(void)
     return ret;
 }
 
-esp_err_t hub_port_recycle(usb_device_handle_t parent_dev_hdl, uint8_t parent_port_num, unsigned int dev_uid)
+esp_err_t hub_node_recycle(unsigned int node_uid)
 {
     HUB_DRIVER_ENTER_CRITICAL();
     HUB_DRIVER_CHECK_FROM_CRIT(p_hub_driver_obj != NULL, ESP_ERR_INVALID_STATE);
     HUB_DRIVER_EXIT_CRITICAL();
     esp_err_t ret;
 
-    if (parent_port_num == 0) {
+    dev_tree_node_t *dev_tree_node = dev_tree_node_get_by_uid(node_uid);
+    HUB_DRIVER_CHECK(dev_tree_node != NULL, ESP_ERR_NOT_FOUND);
+
+    if (dev_tree_node->parent == NULL) {
+        // Root Hub Ports
         ret = root_port_recycle();
     } else {
 #if ENABLE_USB_HUBS
-        ext_hub_handle_t ext_hub_hdl = NULL;
-        ext_hub_get_handle(parent_dev_hdl, &ext_hub_hdl);
-        ret = ext_hub_port_recycle(ext_hub_hdl, parent_port_num);
+        ret = ext_hub_port_recycle((ext_hub_handle_t) dev_tree_node->parent, dev_tree_node->port_num);
         if (ret != ESP_OK) {
             ESP_LOGE(HUB_DRIVER_TAG, "Ext hub port recycle error: %s", esp_err_to_name(ret));
         }
@@ -691,20 +709,23 @@ esp_err_t hub_port_recycle(usb_device_handle_t parent_dev_hdl, uint8_t parent_po
     }
 
     if (ret == ESP_OK) {
-        ESP_ERROR_CHECK(dev_tree_node_remove_by_parent(parent_dev_hdl, parent_port_num));
+        ESP_ERROR_CHECK(dev_tree_node_remove_by_parent(dev_tree_node->parent, dev_tree_node->port_num));
     }
 
     return ret;
 }
 
-esp_err_t hub_port_reset(usb_device_handle_t parent_dev_hdl, uint8_t parent_port_num)
+esp_err_t hub_node_reset(unsigned int node_uid)
 {
     HUB_DRIVER_ENTER_CRITICAL();
     HUB_DRIVER_CHECK_FROM_CRIT(p_hub_driver_obj != NULL, ESP_ERR_INVALID_STATE);
     HUB_DRIVER_EXIT_CRITICAL();
     esp_err_t ret;
 
-    if (parent_port_num == 0) {
+    dev_tree_node_t *dev_tree_node = dev_tree_node_get_by_uid(node_uid);
+    HUB_DRIVER_CHECK(dev_tree_node != NULL, ESP_ERR_NOT_FOUND);
+
+    if (dev_tree_node->parent == NULL) {
         ret = hcd_port_command(p_hub_driver_obj->constant.root_port_hdl, HCD_PORT_CMD_RESET);
         if (ret != ESP_OK) {
             ESP_LOGE(HUB_DRIVER_TAG, "Failed to issue root port reset");
@@ -713,9 +734,7 @@ esp_err_t hub_port_reset(usb_device_handle_t parent_dev_hdl, uint8_t parent_port
         }
     } else {
 #if ENABLE_USB_HUBS
-        ext_hub_handle_t ext_hub_hdl = NULL;
-        ext_hub_get_handle(parent_dev_hdl, &ext_hub_hdl);
-        ret = ext_hub_port_reset(ext_hub_hdl, parent_port_num);
+        ret = ext_hub_port_reset((ext_hub_handle_t) dev_tree_node->parent, dev_tree_node->port_num);
         if (ret != ESP_OK) {
             ESP_LOGE(HUB_DRIVER_TAG, "Ext hub port reset error: %s", esp_err_to_name(ret));
         }
@@ -727,19 +746,23 @@ esp_err_t hub_port_reset(usb_device_handle_t parent_dev_hdl, uint8_t parent_port
     return ret;
 }
 
-esp_err_t hub_port_active(usb_device_handle_t parent_dev_hdl, uint8_t parent_port_num)
+esp_err_t hub_node_active(unsigned int node_uid)
 {
+    HUB_DRIVER_ENTER_CRITICAL();
+    HUB_DRIVER_CHECK_FROM_CRIT(p_hub_driver_obj != NULL, ESP_ERR_NOT_ALLOWED);
+    HUB_DRIVER_EXIT_CRITICAL();
     esp_err_t ret;
 
-    if (parent_port_num == 0) {
+    dev_tree_node_t *dev_tree_node = dev_tree_node_get_by_uid(node_uid);
+    HUB_DRIVER_CHECK(dev_tree_node != NULL, ESP_ERR_NOT_FOUND);
+
+    if (dev_tree_node->parent == NULL) {
         // Root port no need to be activated
         ret = ESP_OK;
     } else {
 #if ENABLE_USB_HUBS
         // External Hub port
-        ext_hub_handle_t ext_hub_hdl = NULL;
-        ext_hub_get_handle(parent_dev_hdl, &ext_hub_hdl);
-        ret = ext_hub_port_active(ext_hub_hdl, parent_port_num);
+        ret = ext_hub_port_active((ext_hub_handle_t) dev_tree_node->parent, dev_tree_node->port_num);
         if (ret != ESP_OK) {
             ESP_LOGE(HUB_DRIVER_TAG, "Ext hub port activation error: %s", esp_err_to_name(ret));
         }
@@ -751,24 +774,48 @@ esp_err_t hub_port_active(usb_device_handle_t parent_dev_hdl, uint8_t parent_por
     return ret;
 }
 
-esp_err_t hub_port_disable(usb_device_handle_t parent_dev_hdl, uint8_t parent_port_num)
+esp_err_t hub_node_disable(unsigned int node_uid)
 {
+    HUB_DRIVER_ENTER_CRITICAL();
+    HUB_DRIVER_CHECK_FROM_CRIT(p_hub_driver_obj != NULL, ESP_ERR_NOT_ALLOWED);
+    HUB_DRIVER_EXIT_CRITICAL();
     esp_err_t ret;
 
-    if (parent_port_num == 0) {
+    dev_tree_node_t *dev_tree_node = dev_tree_node_get_by_uid(node_uid);
+    HUB_DRIVER_CHECK(dev_tree_node != NULL, ESP_ERR_NOT_FOUND);
+
+    if (dev_tree_node->parent == NULL) {
         ret = root_port_disable();
     } else {
 #if ENABLE_USB_HUBS
         // External Hub port
-        ext_hub_handle_t ext_hub_hdl = NULL;
-        ext_hub_get_handle(parent_dev_hdl, &ext_hub_hdl);
-        ret = ext_hub_port_disable(ext_hub_hdl, parent_port_num);
+        ret = ext_hub_port_disable((ext_hub_handle_t) dev_tree_node->parent, dev_tree_node->port_num);
 #else
         ESP_LOGW(HUB_DRIVER_TAG, "Activating External Port is not available (External Hub support disabled)");
         ret = ESP_ERR_NOT_SUPPORTED;
 #endif // ENABLE_USB_HUBS
     }
     return ret;
+}
+
+esp_err_t hub_node_get_info(unsigned int node_uid, usb_parent_dev_info_t *info)
+{
+    HUB_DRIVER_ENTER_CRITICAL();
+    HUB_DRIVER_CHECK_FROM_CRIT(p_hub_driver_obj != NULL, ESP_ERR_NOT_ALLOWED);
+    HUB_DRIVER_EXIT_CRITICAL();
+    HUB_DRIVER_CHECK(info != NULL, ESP_ERR_INVALID_ARG);
+
+    dev_tree_node_t *dev_tree_node = dev_tree_node_get_by_uid(node_uid);
+    HUB_DRIVER_CHECK(dev_tree_node != NULL, ESP_ERR_NOT_FOUND);
+    uint8_t parent_dev_addr = 0;
+#if (ENABLE_USB_HUBS)
+    if (dev_tree_node->parent) {
+        ESP_ERROR_CHECK(ext_hub_get_dev_addr((ext_hub_handle_t) dev_tree_node->parent, &parent_dev_addr));
+    }
+#endif  // ENABLE_USB_HUBS
+    info->dev_addr = parent_dev_addr;
+    info->port_num = dev_tree_node->port_num;
+    return ESP_OK;
 }
 
 esp_err_t hub_dev_new(uint8_t dev_addr)
