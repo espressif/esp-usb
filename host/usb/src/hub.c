@@ -719,21 +719,11 @@ esp_err_t hub_uninstall(void)
     return ESP_OK;
 }
 
-esp_err_t hub_root_start(void)
+esp_err_t hub_root_start(uint8_t port_idx)
 {
-    /* TODO: Support hub root port selection in USB Host (higher) layer */
-    // For now, there is only one root port powered on at any time
-    root_port_t *root_port;
-
     HUB_DRIVER_ENTER_CRITICAL();
     HUB_DRIVER_CHECK_FROM_CRIT(p_hub_driver_obj != NULL, ESP_ERR_INVALID_STATE);
-    for (uint8_t port_idx = 0; port_idx < HUB_ROOT_PORTS; port_idx++) {
-        root_port = &p_hub_driver_obj->constant.root_port_hdls[port_idx];
-        if (root_port->constant.hdl != NULL) {
-            break;
-        }
-    }
-    HUB_DRIVER_CHECK_FROM_CRIT(root_port != NULL, ESP_ERR_NOT_FOUND);
+    root_port_t *root_port = &p_hub_driver_obj->constant.root_port_hdls[port_idx];
     HUB_DRIVER_CHECK_FROM_CRIT(root_port->dynamic.state == ROOT_PORT_STATE_NOT_POWERED, ESP_ERR_INVALID_STATE);
     HUB_DRIVER_EXIT_CRITICAL();
     // Power ON the root port
@@ -747,20 +737,11 @@ esp_err_t hub_root_start(void)
     return ret;
 }
 
-esp_err_t hub_root_stop(void)
+esp_err_t hub_root_stop(uint8_t port_idx)
 {
-    /* TODO: Support hub root port selection in USB Host (higher) layer */
-    // For now, there is only one root port powered on at any time
-    root_port_t *root_port;
-
     HUB_DRIVER_ENTER_CRITICAL();
     HUB_DRIVER_CHECK_FROM_CRIT(p_hub_driver_obj != NULL, ESP_ERR_INVALID_STATE);
-    for (uint8_t port_idx = 0; port_idx < HUB_ROOT_PORTS; port_idx++) {
-        root_port = &p_hub_driver_obj->constant.root_port_hdls[port_idx];
-        if (root_port->constant.hdl != NULL) {
-            break;
-        }
-    }
+    root_port_t *root_port = &p_hub_driver_obj->constant.root_port_hdls[port_idx];
     if (root_port->dynamic.state == ROOT_PORT_STATE_NOT_POWERED) {
         // The HUB was already stopped by usb_host_lib_set_root_port_power(false)
         HUB_DRIVER_EXIT_CRITICAL();

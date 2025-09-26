@@ -111,22 +111,26 @@ esp_err_t hub_uninstall(void);
  *
  * @note This function should only be called from the Host Library task
  *
+ * @param[in] port_idx  Root port index
+ *
  * @return
  *    - ESP_OK: Hub driver started successfully
  *    - ESP_ERR_INVALID_STATE: Hub driver is not installed, or root port is in other state than not powered
  */
-esp_err_t hub_root_start(void);
+esp_err_t hub_root_start(uint8_t port_idx);
 
 /**
  * @brief Stops the Hub driver's root port
  *
  * This will power OFF the root port
  *
+ * @param[in] port_idx  Root port index
+ *
  * @return
  *    - ESP_OK: Hub driver started successfully
  *    - ESP_ERR_INVALID_STATE: Hub driver is not installed, or root port is in not powered state
  */
-esp_err_t hub_root_stop(void);
+esp_err_t hub_root_stop(uint8_t port_idx);
 
 /**
  * @brief Indicate to the Hub driver that a device's port can be recycled
