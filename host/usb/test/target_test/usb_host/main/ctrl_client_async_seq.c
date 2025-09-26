@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2015-2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2015-2025 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -82,6 +82,7 @@ static void ctrl_client_event_cb(const usb_host_client_event_msg_t *event_msg, v
     ctrl_client_obj_t *ctrl_obj = (ctrl_client_obj_t *)arg;
     switch (event_msg->event) {
     case USB_HOST_CLIENT_EVENT_NEW_DEV:
+        printf("\t-> New device\n");
         TEST_ASSERT_EQUAL(TEST_STAGE_WAIT_CONN, ctrl_obj->cur_stage);
         ctrl_obj->next_stage = TEST_STAGE_DEV_OPEN;
         ctrl_obj->dev_addr = event_msg->new_dev.address;
@@ -122,8 +123,14 @@ void ctrl_client_async_seq_task(void *arg)
     ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
     ESP_LOGD(CTRL_CLIENT_TAG, "Starting");
 
+    // Handle device enumeration separately, wait for 1000ms for the device to be enumerated
+    // Catch an error in case the device is not enumerated correctly
+    esp_err_t enum_ret = usb_host_client_handle_events(ctrl_obj.client_hdl, pdMS_TO_TICKS(1000));
+    TEST_ASSERT_EQUAL_MESSAGE(TEST_STAGE_DEV_OPEN, ctrl_obj.next_stage, "USB_HOST_CLIENT_EVENT_NEW_DEV not generated on time");
+    TEST_ASSERT_EQUAL_MESSAGE(ESP_OK, enum_ret, "Client handle events timed out");
+
     bool exit_loop = false;
-    bool skip_event_handling = false;
+    bool skip_event_handling = true;    // Skip first event handling (we have handled the new device event separately)
     while (!exit_loop) {
         if (!skip_event_handling) {
             TEST_ASSERT_EQUAL(ESP_OK, usb_host_client_handle_events(ctrl_obj.client_hdl, portMAX_DELAY));
