@@ -1132,7 +1132,16 @@ esp_err_t tinyusb_msc_format_storage(tinyusb_msc_storage_handle_t handle)
 
     // Register FAT FS with VFS component
     char drv[3] = {(char)('0' + pdrv), ':', 0}; // FATFS drive specificator; if only one drive is used, can be an empty string
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 3, 0)
+    esp_vfs_fat_conf_t conf = {
+        .base_path = base_path,
+        .fat_drive = drv,
+        .max_files = max_files,
+    };
+    ESP_RETURN_ON_ERROR(esp_vfs_fat_register_cfg(&conf, &fs), TAG, "VFS FAT register failed");
+#else
     ESP_RETURN_ON_ERROR(esp_vfs_fat_register(base_path, drv, max_files, &fs), TAG, "VFS FAT register failed");
+#endif
     // to make format, we need to mount the fs
     // Mount the FAT FS
     ret = vfs_fat_mount(drv, fs, true);
