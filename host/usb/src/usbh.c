@@ -1070,6 +1070,14 @@ esp_err_t usbh_dev_get_addr(usb_device_handle_t dev_hdl, uint8_t *dev_addr)
     return ESP_OK;
 }
 
+esp_err_t usbh_dev_get_root_port_handle(usb_device_handle_t dev_hdl, hcd_port_handle_t *port_hdl)
+{
+    USBH_CHECK(dev_hdl != NULL && port_hdl != NULL, ESP_ERR_INVALID_ARG);
+    device_t *dev_obj = (device_t *)dev_hdl;
+    *port_hdl = dev_obj->constant.port_hdl;
+    return ESP_OK;
+}
+
 esp_err_t usbh_dev_get_info(usb_device_handle_t dev_hdl, usb_device_info_t *dev_info)
 {
     USBH_CHECK(dev_hdl != NULL && dev_info != NULL, ESP_ERR_INVALID_ARG);
