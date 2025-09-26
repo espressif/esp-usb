@@ -503,6 +503,19 @@ esp_err_t usb_host_install(const usb_host_config_t *config)
             ESP_LOGE(USB_HOST_TAG, "PHY install error: %s", esp_err_to_name(ret));
             goto phy_err;
         }
+
+        usb_phy_handle_t hs_phy_handle;
+        usb_phy_config_t phy_config1 = {
+            .controller = USB_PHY_CTRL_OTG,
+            .target = USB_PHY_TARGET_UTMI,
+            .otg_mode = USB_OTG_MODE_HOST,
+            .otg_speed = USB_PHY_SPEED_UNDEFINED,   // In Host mode, the speed is determined by the connected device
+        };
+        ret = usb_new_phy(&phy_config1, &hs_phy_handle);
+        if (ret != ESP_OK) {
+            ESP_LOGE(USB_HOST_TAG, "PHY install error: %s", esp_err_to_name(ret));
+            goto phy_err;
+        }
     }
 
     // Install HCD
@@ -589,7 +602,8 @@ esp_err_t usb_host_install(const usb_host_config_t *config)
 
     if (!config->root_port_unpowered) {
         // Start the root hub
-        ESP_ERROR_CHECK(hub_root_start());
+        ESP_ERROR_CHECK(hub_root_start(0));
+        ESP_ERROR_CHECK(hub_root_start(1));
     }
 
     ret = ESP_OK;
@@ -748,7 +762,7 @@ esp_err_t usb_host_lib_set_root_port_power(bool enable)
 {
     esp_err_t ret;
     if (enable) {
-        ret = hub_root_start();
+        ret = hub_root_start(0);
     } else {
         ret = hub_root_stop();
     }
