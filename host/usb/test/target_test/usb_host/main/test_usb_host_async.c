@@ -165,6 +165,7 @@ static void test_async_client_cb(const usb_host_client_event_msg_t *event_msg, v
 
     switch (event_msg->event) {
     case USB_HOST_CLIENT_EVENT_NEW_DEV:
+        printf("\t-> New device\n");
         if (dev_addr == 0) {
             dev_addr = event_msg->new_dev.address;
         } else {
@@ -173,6 +174,7 @@ static void test_async_client_cb(const usb_host_client_event_msg_t *event_msg, v
         *stage = CLIENT_TEST_STAGE_CONN;
         break;
     case USB_HOST_CLIENT_EVENT_DEV_GONE:
+        printf("\t-> Device gone\n");
         *stage = CLIENT_TEST_STAGE_DCONN;
         break;
     default:
@@ -201,16 +203,25 @@ TEST_CASE("Test USB Host async API", "[usb_host][low_speed][full_speed][high_spe
     client_config.async.callback_arg = (void *)&client1_stage;
     TEST_ASSERT_EQUAL(ESP_OK, usb_host_client_register(&client_config, &client1_hdl));
 
+    TickType_t timeout_ticks = pdMS_TO_TICKS(1000);
+    TimeOut_t enumeration_timeout;
+    vTaskSetTimeOutState(&enumeration_timeout);
+
     // Wait until the device connects and the clients receive the event
     while (!(client0_stage == CLIENT_TEST_STAGE_CONN && client1_stage == CLIENT_TEST_STAGE_CONN)) {
         usb_host_lib_handle_events(0, NULL);
         usb_host_client_handle_events(client0_hdl, 0);
         usb_host_client_handle_events(client1_hdl, 0);
         vTaskDelay(pdMS_TO_TICKS(10));
+
+        // Check if the device is enumerated within 1000 ms
+        if (xTaskCheckForTimeOut(&enumeration_timeout, &timeout_ticks) == pdTRUE) {
+            break;
+        }
     }
 
     // Check that both clients can open the device
-    TEST_ASSERT_NOT_EQUAL(0, dev_addr);
+    TEST_ASSERT_NOT_EQUAL_MESSAGE(0, dev_addr, "Device not enumerated");
     usb_device_handle_t client0_dev_hdl;
     usb_device_handle_t client1_dev_hdl;
     printf("Opening device\n");
