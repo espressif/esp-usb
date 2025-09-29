@@ -8,7 +8,7 @@ paths = [
 
 recursive = true
 check_warnings = true
-target = "esp32s2"
+target = "all"
 
 # build related options
 build_dir = "build_@t_@w"
