@@ -1675,6 +1675,20 @@ esp_err_t ext_hub_port_get_speed(ext_hub_handle_t ext_hub_hdl, uint8_t port_num,
     return p_ext_hub_driver->constant.port_driver->get_speed(ext_hub_dev->constant.ports[port_idx], speed);
 }
 
+
+hcd_port_handle_t ext_hub_get_root_port_handle(ext_hub_handle_t ext_hub_hdl)
+{
+    EXT_HUB_ENTER_CRITICAL();
+    EXT_HUB_CHECK_FROM_CRIT(p_ext_hub_driver != NULL, NULL);
+    EXT_HUB_EXIT_CRITICAL();
+    EXT_HUB_CHECK(ext_hub_hdl != NULL, NULL);
+    ext_hub_dev_t *ext_hub_dev = (ext_hub_dev_t *)ext_hub_hdl;
+
+    hcd_port_handle_t hcd_port_hdl;
+    usbh_dev_get_root_port_handle(ext_hub_dev->constant.dev_hdl, &hcd_port_hdl);
+    return hcd_port_hdl;
+}
+
 // -------------------------------------------------------------------------------------------------
 // ---------------------------------- USB Chapter 11 -----------------------------------------------
 // -------------------------------------------------------------------------------------------------

@@ -36,6 +36,9 @@ Warning: The USB Host Library API is still a beta version and may be subject to 
 #include "soc/usb_periph.h"
 #endif
 
+// TODOs List:
+// 1. Refactor HUB_PORTS_NUM: make them dynamically configurable by hub_config_t::port_map
+
 DEFINE_CRIT_SECTION_LOCK_STATIC(host_lock);
 #define HOST_ENTER_CRITICAL_ISR()       esp_os_enter_critical_isr(&host_lock)
 #define HOST_EXIT_CRITICAL_ISR()        esp_os_exit_critical_isr(&host_lock)
@@ -158,7 +161,8 @@ typedef struct {
     struct {
         SemaphoreHandle_t event_sem;
         SemaphoreHandle_t mux_lock;
-        usb_phy_handle_t phy_handle;    // Will be NULL if host library is installed with skip_phy_setup
+        unsigned peripheral_map;        // Peripheral map
+        usb_phy_handle_t phy_hdls[4 /* TODO: 1 */];    // Will be NULL if host library is installed with skip_phy_setup
         void *enum_client;              // Pointer to Enum driver (acting as a client). Used to reroute completed USBH control transfers
         void *hub_client;               // Pointer to External Hub driver (acting as a client). Used to reroute completed USBH control transfers. NULL, when External Hub Driver not available.
     } constant;
@@ -463,6 +467,8 @@ esp_err_t usb_host_install(const usb_host_config_t *config)
     TAILQ_INIT(&host_lib_obj->mux_protected.client_tailq);
     host_lib_obj->constant.event_sem = event_sem;
     host_lib_obj->constant.mux_lock = mux_lock;
+    // For backward compatibility accept 0 too
+    host_lib_obj->constant.peripheral_map = config->peripheral_map == 0 ? BIT0 : config->peripheral_map;
 
     /*
     Install each layer of the Host stack (listed below) from the lowest layer to the highest
@@ -473,35 +479,38 @@ esp_err_t usb_host_install(const usb_host_config_t *config)
     - Hub
     */
 
-    // For backward compatibility accept 0 too
-    const unsigned peripheral_map = config->peripheral_map == 0 ? BIT0 : config->peripheral_map;
-
     // Install USB PHY (if necessary). USB PHY driver will also enable the underlying Host Controller
     if (!config->skip_phy_setup) {
-        bool init_utmi_phy = false; // Default value for Linux simulation
-
-#if SOC_USB_OTG_SUPPORTED // In case we run on a real target, select the PHY from usb_dwc_info description structure
-        // Right now we support only one peripheral, can be extended in future
-        int peripheral_index = 0;
-        if (peripheral_map & BIT1) {
-            peripheral_index = 1;
-        }
-        init_utmi_phy = (usb_dwc_info.controllers[peripheral_index].supported_phys == USB_PHY_INST_UTMI_0);
-#endif // SOC_USB_OTG_SUPPORTED
-
-        // Host Library defaults to internal PHY
+        // Host Library defaults to install PHY
         usb_phy_config_t phy_config = {
             .controller = USB_PHY_CTRL_OTG,
-            .target = init_utmi_phy ? USB_PHY_TARGET_UTMI : USB_PHY_TARGET_INT,
             .otg_mode = USB_OTG_MODE_HOST,
             .otg_speed = USB_PHY_SPEED_UNDEFINED,   // In Host mode, the speed is determined by the connected device
-            .ext_io_conf = NULL,
-            .otg_io_conf = NULL,
         };
-        ret = usb_new_phy(&phy_config, &host_lib_obj->constant.phy_handle);
-        if (ret != ESP_OK) {
-            ESP_LOGE(USB_HOST_TAG, "PHY install error: %s", esp_err_to_name(ret));
-            goto phy_err;
+
+        for (unsigned idx = 0; idx < 4 /* TODO: 1 */; idx++) {
+            if (host_lib_obj->constant.peripheral_map & (BIT0 << idx)) {
+#if SOC_USB_OTG_SUPPORTED // In case we run on a real target, select the PHY from usb_dwc_info description structure
+                // Index should be less than SOC_USB_OTG_PERIPH_NUM
+                if (idx >= (SOC_USB_OTG_PERIPH_NUM)) {
+                    ESP_LOGE(USB_HOST_TAG, "Peripheral index %d in peripheral_map is out of range", idx);
+                    ret = ESP_ERR_INVALID_ARG;
+                    goto phy_err;
+                }
+                // Right now we support only one peripheral, can be extended in future
+                if (usb_dwc_info.controllers[idx].supported_phys == USB_PHY_INST_UTMI_0) {
+                    phy_config.target = USB_PHY_TARGET_UTMI;
+                } else {
+                    phy_config.target = USB_PHY_TARGET_INT;
+                }
+#endif // SOC_USB_OTG_SUPPORTED
+                ret = usb_new_phy(&phy_config, &host_lib_obj->constant.phy_hdls[idx]);
+                if (ret != ESP_OK) {
+                    ESP_LOGE(USB_HOST_TAG, "PHY for peripheral %d install error: %s",
+                             idx, esp_err_to_name(ret));
+                    goto phy_err;
+                }
+            }
         }
     }
 
@@ -510,7 +519,7 @@ esp_err_t usb_host_install(const usb_host_config_t *config)
     hcd_fifo_settings_t user_fifo_config;
     hcd_config_t hcd_config = {
         .intr_flags = config->intr_flags,
-        .peripheral_map = peripheral_map,
+        .peripheral_map = host_lib_obj->constant.peripheral_map,
         .fifo_config = NULL, // Default: use bias strategy from Kconfig
     };
 
@@ -565,7 +574,7 @@ esp_err_t usb_host_install(const usb_host_config_t *config)
 
     // Install Hub
     hub_config_t hub_config = {
-        .port_map = peripheral_map, // Each USB-OTG peripheral maps to a root port
+        .port_map = host_lib_obj->constant.peripheral_map, // Each USB-OTG peripheral maps to a root port
         .proc_req_cb = proc_req_callback,
         .proc_req_cb_arg = NULL,
         .event_cb = hub_event_callback,
@@ -588,8 +597,12 @@ esp_err_t usb_host_install(const usb_host_config_t *config)
     HOST_EXIT_CRITICAL();
 
     if (!config->root_port_unpowered) {
-        // Start the root hub
-        ESP_ERROR_CHECK(hub_root_start());
+        // Start the root hub according to the peripheral map
+        for (unsigned idx = 0; idx < 4 /* TODO: 1 */; idx++) {
+            if (p_host_lib_obj->constant.peripheral_map & (BIT0 << idx)) {
+                ESP_ERROR_CHECK(hub_root_start(idx));
+            }
+        }
     }
 
     ret = ESP_OK;
@@ -604,10 +617,13 @@ enum_err:
 usbh_err:
     ESP_ERROR_CHECK(hcd_uninstall());
 hcd_err:
-    if (host_lib_obj->constant.phy_handle) {
-        ESP_ERROR_CHECK(usb_del_phy(host_lib_obj->constant.phy_handle));
-    }
 phy_err:
+    for (unsigned idx = 0; idx < 4 /* TODO: 1*/; idx++) {
+        if (host_lib_obj->constant.peripheral_map & (BIT0 << idx) &&
+                (host_lib_obj->constant.phy_hdls[idx] != NULL)) {
+            ESP_ERROR_CHECK(usb_del_phy(host_lib_obj->constant.phy_hdls[idx]));
+        }
+    }
 alloc_err:
     if (mux_lock) {
         vSemaphoreDelete(mux_lock);
@@ -630,8 +646,12 @@ esp_err_t usb_host_uninstall(void)
                          ESP_ERR_INVALID_STATE);
     HOST_EXIT_CRITICAL();
 
-    // Stop the root hub
-    ESP_ERROR_CHECK(hub_root_stop());
+    // Stop the root hub according to the peripheral map
+    for (unsigned idx = 0; idx < 4 /* TODO: 1 */; idx++) {
+        if (p_host_lib_obj->constant.peripheral_map & (BIT0 << idx)) {
+            ESP_ERROR_CHECK(hub_root_stop(idx));
+        }
+    }
 
     // Unassign the host library object
     HOST_ENTER_CRITICAL();
@@ -652,8 +672,11 @@ esp_err_t usb_host_uninstall(void)
     ESP_ERROR_CHECK(usbh_uninstall());
     ESP_ERROR_CHECK(hcd_uninstall());
     // If the USB PHY was setup, then delete it
-    if (host_lib_obj->constant.phy_handle) {
-        ESP_ERROR_CHECK(usb_del_phy(host_lib_obj->constant.phy_handle));
+    for (unsigned idx = 0; idx < 4 /* TODO: 1 */; idx++) {
+        if (host_lib_obj->constant.peripheral_map & (BIT0 << idx) &&
+                (host_lib_obj->constant.phy_hdls[idx] != NULL)) {
+            ESP_ERROR_CHECK(usb_del_phy(host_lib_obj->constant.phy_hdls[idx]));
+        }
     }
 
     // Free memory objects
@@ -747,10 +770,19 @@ esp_err_t usb_host_lib_info(usb_host_lib_info_t *info_ret)
 esp_err_t usb_host_lib_set_root_port_power(bool enable)
 {
     esp_err_t ret;
-    if (enable) {
-        ret = hub_root_start();
-    } else {
-        ret = hub_root_stop();
+
+    // Set port power for every port according to the peripheral map
+    for (unsigned idx = 0; idx < 4 /* TODO: 1 */; idx++) {
+        if (p_host_lib_obj->constant.peripheral_map & (BIT0 << idx)) {
+            if (enable) {
+                ret = hub_root_start(idx);
+            } else {
+                ret = hub_root_stop(idx);
+            }
+            if (ret != ESP_OK) {
+                return ret;
+            }
+        }
     }
 
     return ret;
