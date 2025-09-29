@@ -31,7 +31,7 @@ jobs:
     env:
       CONFIG_PATH: ${{ github.workspace }}/.github/ci/.idf_build_examples_config.toml
       MANIFEST_PATH: ${{ github.workspace }}/.github/ci/.idf-build-examples-rules.yml
-      artifactPath: ${{ github.workspace }}
+      EXAMPLES_PATH: ${{ github.workspace }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -41,6 +41,10 @@ jobs:
         run: |
           . ${IDF_PATH}/export.sh
           pip install idf-component-manager>=2.1.2 idf-build-apps==2.12.2 pyyaml --upgrade
+      - name: Setup IDF Examples path
+        run: |
+          cd ${IDF_PATH}
+          echo "EXAMPLES_PATH=${IDF_PATH}/examples/peripherals/usb" >> $GITHUB_ENV
       - name: Override device and class components
         run: |
           . ${IDF_PATH}/export.sh
@@ -58,8 +62,6 @@ jobs:
           . ${IDF_PATH}/export.sh
           cd ${IDF_PATH}
 
-          echo "artifactPath=${IDF_PATH}/examples/peripherals/usb" >> $GITHUB_ENV
-
           # Export compiler flags
           export PEDANTIC_FLAGS="-DIDF_CI_BUILD -Werror -Werror=deprecated-declarations -Werror=unused-variable -Werror=unused-but-set-variable -Werror=unused-function"
           export EXTRA_CFLAGS="${PEDANTIC_FLAGS} -Wstrict-prototypes"
@@ -71,12 +73,12 @@ jobs:
         with:
           name: usb_examples_bin_${{ matrix.idf_ver }}
           path: |
-            ${{ env.artifactPath }}/**/build_esp*/bootloader/bootloader.bin
-            ${{ env.artifactPath }}/**/build_esp*/partition_table/partition-table.bin
-            ${{ env.artifactPath }}/**/build_esp*/*.bin
-            ${{ env.artifactPath }}/**/build_esp*/*.elf
-            ${{ env.artifactPath }}/**/build_esp*/flasher_args.json
-            ${{ env.artifactPath }}/**/build_esp*/config/sdkconfig.json
+            ${{ env.EXAMPLES_PATH }}/**/build_esp*/bootloader/bootloader.bin
+            ${{ env.EXAMPLES_PATH }}/**/build_esp*/partition_table/partition-table.bin
+            ${{ env.EXAMPLES_PATH }}/**/build_esp*/*.bin
+            ${{ env.EXAMPLES_PATH }}/**/build_esp*/*.elf
+            ${{ env.EXAMPLES_PATH }}/**/build_esp*/flasher_args.json
+            ${{ env.EXAMPLES_PATH }}/**/build_esp*/config/sdkconfig.json
           if-no-files-found: error
 
 
@@ -95,11 +97,17 @@ jobs:
     container:
       image: espressif/idf:${{ matrix.idf_ver }}
       options: --privileged --device-cgroup-rule="c 188:* rmw" --device-cgroup-rule="c 166:* rmw"
+    env:
+          EXAMPLES_PATH: ${{ github.workspace }}
     steps:
       - name: ⚙️ Install System tools
         run: |
           apt update
           apt install net-tools
+      - name: Setup IDF Examples path
+        run: |
+          cd ${IDF_PATH}
+          echo "EXAMPLES_PATH=${IDF_PATH}/examples/peripherals/usb" >> $GITHUB_ENV
       - name: ⚙️ Install Python packages
         env:
           PIP_EXTRA_INDEX_URL: "https://dl.espressif.com/pypi/"
@@ -110,10 +118,9 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: usb_examples_bin_${{ matrix.idf_ver }}
-          path: /opt/esp/idf/examples/peripherals/usb
+          path: ${{ env.EXAMPLES_PATH }}
       - name: Run USB Test App on target
         run: |
           cd ${IDF_PATH}
           . ./export.sh
-          export EXAMPLES_PATH="${IDF_PATH}/examples/peripherals/usb"
-          pytest ${EXAMPLES_PATH} --target ${{ matrix.idf_target }} -m ${{ matrix.runner_tag }}
+          pytest ${{ env.EXAMPLES_PATH }} --target ${{ matrix.idf_target }} -m ${{ matrix.runner_tag }}
