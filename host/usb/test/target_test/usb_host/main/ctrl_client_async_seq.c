@@ -135,11 +135,11 @@ void ctrl_client_async_seq_task(void *arg)
         if (!skip_event_handling) {
             //ESP_LOGI(CTRL_CLIENT_TAG, "Handling events");
             TEST_ASSERT_EQUAL(ESP_OK, usb_host_client_handle_events(ctrl_obj.client_hdl, portMAX_DELAY));
-            ESP_LOGI(CTRL_CLIENT_TAG, "Events handled");
+            //ESP_LOGI(CTRL_CLIENT_TAG, "Events handled");
         }
         skip_event_handling = false;
         if (ctrl_obj.cur_stage == ctrl_obj.next_stage) {
-            ESP_LOGW(CTRL_CLIENT_TAG, "Skip event handling");
+            //ESP_LOGW(CTRL_CLIENT_TAG, "Skip event handling");
             continue;
         }
         ctrl_obj.cur_stage = ctrl_obj.next_stage;
