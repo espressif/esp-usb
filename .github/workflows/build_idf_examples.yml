@@ -31,6 +31,7 @@ jobs:
     env:
       CONFIG_PATH: ${{ github.workspace }}/.github/ci/.idf_build_examples_config.toml
       MANIFEST_PATH: ${{ github.workspace }}/.github/ci/.idf-build-examples-rules.yml
+      artifactPath: ${{ github.workspace }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -57,6 +58,8 @@ jobs:
           . ${IDF_PATH}/export.sh
           cd ${IDF_PATH}
 
+          echo "artifactPath=${IDF_PATH}/examples/peripherals/usb" >> $GITHUB_ENV
+
           # Export compiler flags
           export PEDANTIC_FLAGS="-DIDF_CI_BUILD -Werror -Werror=deprecated-declarations -Werror=unused-variable -Werror=unused-but-set-variable -Werror=unused-function"
           export EXTRA_CFLAGS="${PEDANTIC_FLAGS} -Wstrict-prototypes"
@@ -68,12 +71,12 @@ jobs:
         with:
           name: usb_examples_bin_${{ matrix.idf_ver }}
           path: |
-            /opt/esp/idf/examples/peripherals/usb/**/build_esp*/bootloader/bootloader.bin
-            /opt/esp/idf/examples/peripherals/usb/**/build_esp*/partition_table/partition-table.bin
-            /opt/esp/idf/examples/peripherals/usb/**/build_esp*/*.bin
-            /opt/esp/idf/examples/peripherals/usb/**/build_esp*/*.elf
-            /opt/esp/idf/examples/peripherals/usb/**/build_esp*/flasher_args.json
-            /opt/esp/idf/examples/peripherals/usb/**/build_esp*/config/sdkconfig.json
+            ${{ env.artifactPath }}/**/build_esp*/bootloader/bootloader.bin
+            ${{ env.artifactPath }}/**/build_esp*/partition_table/partition-table.bin
+            ${{ env.artifactPath }}/**/build_esp*/*.bin
+            ${{ env.artifactPath }}/**/build_esp*/*.elf
+            ${{ env.artifactPath }}/**/build_esp*/flasher_args.json
+            ${{ env.artifactPath }}/**/build_esp*/config/sdkconfig.json
           if-no-files-found: error
 
 
