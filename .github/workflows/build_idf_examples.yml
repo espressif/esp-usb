@@ -70,8 +70,8 @@ jobs:
           path: |
             /opt/esp/idf/examples/peripherals/usb/**/build_esp*/bootloader/bootloader.bin
             /opt/esp/idf/examples/peripherals/usb/**/build_esp*/partition_table/partition-table.bin
-            /opt/esp/idf/examples/peripherals/usb/**/build_esp*/test_app_*.bin
-            /opt/esp/idf/examples/peripherals/usb/**/build_esp*/test_app_*.elf
+            /opt/esp/idf/examples/peripherals/usb/**/build_esp*/*.bin
+            /opt/esp/idf/examples/peripherals/usb/**/build_esp*/*.elf
             /opt/esp/idf/examples/peripherals/usb/**/build_esp*/flasher_args.json
             /opt/esp/idf/examples/peripherals/usb/**/build_esp*/config/sdkconfig.json
           if-no-files-found: error
