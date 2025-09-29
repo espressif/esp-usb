@@ -42,20 +42,18 @@ jobs:
           . ${IDF_PATH}/export.sh
           pip install idf-component-manager>=2.1.2 idf-build-apps==2.12.2 pyyaml --upgrade
       - name: Setup IDF Examples path
-        run: |
-          cd ${IDF_PATH}
-          echo "EXAMPLES_PATH=${IDF_PATH}/examples/peripherals/usb" >> $GITHUB_ENV
+        run: echo "EXAMPLES_PATH=${IDF_PATH}/examples/peripherals/usb" >> $GITHUB_ENV
       - name: Override device and class components
         run: |
           . ${IDF_PATH}/export.sh
           # TODO: Uncomment the below line to run esp-idf USB Device examples in CI. See issue IDF-13618 for tracking.
-          #python .github/ci/override_managed_component.py esp_tinyusb device/esp_tinyusb ${IDF_PATH}/examples/peripherals/usb/device/*
-          python .github/ci/override_managed_component.py class host/class ${IDF_PATH}/examples/peripherals/usb/host/*
+          #python .github/ci/override_managed_component.py esp_tinyusb device/esp_tinyusb ${{ env.EXAMPLES_PATH }}/device/*
+          python .github/ci/override_managed_component.py class host/class ${{ env.EXAMPLES_PATH }}/host/*
       - name: Override usb component
         if: contains('release-v5.4 release-v5.5 latest', matrix.idf_ver)
         run: |
           . ${IDF_PATH}/export.sh
-          python .github/ci/override_managed_component.py usb host/usb ${IDF_PATH}/examples/peripherals/usb/host/*
+          python .github/ci/override_managed_component.py usb host/usb ${{ env.EXAMPLES_PATH }}/host/*
       - name: Build ESP-IDF ${{ matrix.idf_ver }} USB examples
         shell: bash
         run: |
@@ -105,9 +103,7 @@ jobs:
           apt update
           apt install net-tools
       - name: Setup IDF Examples path
-        run: |
-          cd ${IDF_PATH}
-          echo "EXAMPLES_PATH=${IDF_PATH}/examples/peripherals/usb" >> $GITHUB_ENV
+        run: echo "EXAMPLES_PATH=${IDF_PATH}/examples/peripherals/usb" >> $GITHUB_ENV
       - name: ⚙️ Install Python packages
         env:
           PIP_EXTRA_INDEX_URL: "https://dl.espressif.com/pypi/"
