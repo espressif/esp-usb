@@ -68,12 +68,12 @@ jobs:
         with:
           name: usb_examples_bin_${{ matrix.idf_ver }}
           path: |
-            ${IDF_PATH}/examples/peripherals/usb/**/build_esp*/bootloader/bootloader.bin
-            ${IDF_PATH}/examples/peripherals/usb/**/build_esp*/partition_table/partition-table.bin
-            ${IDF_PATH}/examples/peripherals/usb/**/build_esp*/test_app_*.bin
-            ${IDF_PATH}/examples/peripherals/usb/**/build_esp*/test_app_*.elf
-            ${IDF_PATH}/examples/peripherals/usb/**/build_esp*/flasher_args.json
-            ${IDF_PATH}/examples/peripherals/usb/**/build_esp*/config/sdkconfig.json
+            /opt/esp/idf/examples/peripherals/usb/**/build_esp*/bootloader/bootloader.bin
+            /opt/esp/idf/examples/peripherals/usb/**/build_esp*/partition_table/partition-table.bin
+            /opt/esp/idf/examples/peripherals/usb/**/build_esp*/test_app_*.bin
+            /opt/esp/idf/examples/peripherals/usb/**/build_esp*/test_app_*.elf
+            /opt/esp/idf/examples/peripherals/usb/**/build_esp*/flasher_args.json
+            /opt/esp/idf/examples/peripherals/usb/**/build_esp*/config/sdkconfig.json
           if-no-files-found: error
 
 

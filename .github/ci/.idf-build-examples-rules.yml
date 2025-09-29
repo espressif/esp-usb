@@ -15,3 +15,15 @@ examples/peripherals/usb/host/uvc:
       reason: Run UVC example starts using UVC driver 2.0 only on IDF version 5.5
   disable:
     - if: SOC_USB_OTG_SUPPORTED != 1
+
+examples/peripherals/usb/host/msc:
+  enable:
+    - if: (IDF_VERSION >= "5.5.0")
+
+examples/peripherals/usb/host/cdc/cdc_acm_host:
+  enable:
+    - if: (IDF_VERSION >= "5.5.0")
+
+examples/peripherals/usb/host/cdc/cdc_acm_vcp:
+  enable:
+    - if: (IDF_VERSION >= "5.5.0")
