@@ -168,7 +168,7 @@ void msc_client_async_seq_task(void *arg)
     bool skip_event_handling = true;    // Skip first event handling (we have handled the new device event separately)
     while (!exit_loop) {
         if (!skip_event_handling) {
-            ESP_LOGI(MSC_CLIENT_TAG, "Handling events");
+            //ESP_LOGI(MSC_CLIENT_TAG, "Handling events");
             TEST_ASSERT_EQUAL(ESP_OK, usb_host_client_handle_events(msc_obj.client_hdl, portMAX_DELAY));
             ESP_LOGI(MSC_CLIENT_TAG, "Events handled");
         }
