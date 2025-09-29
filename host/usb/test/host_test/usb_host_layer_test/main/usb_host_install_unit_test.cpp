@@ -199,7 +199,7 @@ SCENARIO("USB Host install")
             hub_install_ExpectAnyArgsAndReturn(ESP_OK);
 
             // Make hub_root_start() to pass
-            hub_root_start_ExpectAndReturn(ESP_OK);
+            hub_root_start_ExpectAndReturn(0, ESP_OK);
 
             // Call the DUT function, expect ESP_OK
             REQUIRE(ESP_OK == usb_host_install(&usb_host_config));
@@ -228,7 +228,7 @@ SCENARIO("USB Host post-uninstall")
         SECTION("Successfully uninstall the USB Host driver") {
 
             // Make the hub_root_stop() to pass
-            hub_root_stop_ExpectAndReturn(ESP_OK);
+            hub_root_stop_ExpectAndReturn(0, ESP_OK);
 
             // Make uninstalling of all the drivers to pass
             hub_uninstall_ExpectAndReturn(ESP_OK);
