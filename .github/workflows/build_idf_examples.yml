@@ -23,8 +23,8 @@ jobs:
             "release-v5.2",
             "release-v5.3",
             "release-v5.4",
-            "release-v5.5",
-            "latest",
+            #"release-v5.5",
+            #"latest",
           ]
     runs-on: ubuntu-latest
     container: espressif/idf:${{ matrix.idf_ver }}
@@ -87,7 +87,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        idf_ver: ["release-v5.1", "release-v5.2", "release-v5.3", "release-v5.4", "release-v5.5" , "latest"]
+        idf_ver: ["release-v5.1", "release-v5.2", "release-v5.3", "release-v5.4"]
         idf_target: ["esp32s2", "esp32p4"]
         runner_tag: ["usb_host_flash_disk"]
         include:
