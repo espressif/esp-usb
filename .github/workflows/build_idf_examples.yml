@@ -90,7 +90,12 @@ jobs:
         #idf_ver: ["release-v5.1", "release-v5.2", "release-v5.3", "release-v5.4", "release-v5.5" , "latest"]
         idf_ver: ["release-v5.4"]
         idf_target: ["esp32s2", "esp32p4"]
-        runner_tag: ["usb_host_flash_disk"]
+        runner_tag: ["usb_host_flash_disk", "usb_device"]
+        include:
+          - runner_tag: usb_host_flash_disk
+            example: host
+          - runner_tag: usb_device
+            example: device
     runs-on: [self-hosted, linux, docker, "${{ matrix.idf_target }}", "${{ matrix.runner_tag }}"]
     container:
       image: espressif/idf:${{ matrix.idf_ver }}
@@ -119,4 +124,4 @@ jobs:
         run: |
           cd ${IDF_PATH}
           . ./export.sh
-          pytest ${{ env.EXAMPLES_PATH }} --target ${{ matrix.idf_target }} -m ${{ matrix.runner_tag }}
+          pytest ${{ env.EXAMPLES_PATH }}/${{ matrix.example }} --target ${{ matrix.idf_target }} -m ${{ matrix.runner_tag }}
