@@ -107,10 +107,10 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: usb_examples_bin_${{ matrix.idf_ver }}
-          path: /opt/esp/idf/examples/peripherals/usb/host
+          path: /opt/esp/idf/examples/peripherals/usb
       - name: Run USB Test App on target
         run: |
           cd ${IDF_PATH}
           . ./export.sh
-          export EXAMPLES_PATH="${IDF_PATH}/examples/peripherals/usb/host"
+          export EXAMPLES_PATH="${IDF_PATH}/examples/peripherals/usb"
           pytest ${EXAMPLES_PATH} --target ${{ matrix.idf_target }} -m ${{ matrix.runner_tag }}
