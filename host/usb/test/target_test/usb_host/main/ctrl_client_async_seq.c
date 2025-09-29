@@ -120,8 +120,8 @@ void ctrl_client_async_seq_task(void *arg)
     }
 
     // Wait to be started by main thread
-    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
-    ESP_LOGD(CTRL_CLIENT_TAG, "Starting");
+    TEST_ASSERT_EQUAL_MESSAGE(pdTRUE, ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(2000)), "Ctrl client not started from main thread");
+    ESP_LOGI(CTRL_CLIENT_TAG, "Starting");
 
     // Handle device enumeration separately, wait for 1000ms for the device to be enumerated
     // Catch an error in case the device is not enumerated correctly
@@ -133,17 +133,20 @@ void ctrl_client_async_seq_task(void *arg)
     bool skip_event_handling = true;    // Skip first event handling (we have handled the new device event separately)
     while (!exit_loop) {
         if (!skip_event_handling) {
+            ESP_LOGI(CTRL_CLIENT_TAG, "Handling events");
             TEST_ASSERT_EQUAL(ESP_OK, usb_host_client_handle_events(ctrl_obj.client_hdl, portMAX_DELAY));
+            ESP_LOGI(CTRL_CLIENT_TAG, "Events handled");
         }
         skip_event_handling = false;
         if (ctrl_obj.cur_stage == ctrl_obj.next_stage) {
+            ESP_LOGW(CTRL_CLIENT_TAG, "Skip event handling");
             continue;
         }
         ctrl_obj.cur_stage = ctrl_obj.next_stage;
 
         switch (ctrl_obj.next_stage) {
         case TEST_STAGE_DEV_OPEN: {
-            ESP_LOGD(CTRL_CLIENT_TAG, "Open");
+            ESP_LOGI(CTRL_CLIENT_TAG, "Open");
             // Open the device
             TEST_ASSERT_EQUAL_MESSAGE(ESP_OK, usb_host_device_open(ctrl_obj.client_hdl, ctrl_obj.dev_addr, &ctrl_obj.dev_hdl), "Failed to open the device");
             // Get device info to get device speed
@@ -167,7 +170,7 @@ void ctrl_client_async_seq_task(void *arg)
             break;
         }
         case TEST_STAGE_CTRL_XFER: {
-            ESP_LOGD(CTRL_CLIENT_TAG, "Transfer");
+            ESP_LOGI(CTRL_CLIENT_TAG, "Transfer");
             // Send a control transfer to get the device's configuration descriptor
             usb_transfer_t *transfer = ctrl_xfer[ctrl_obj.num_xfer_sent % NUM_TRANSFER_OBJ];
             USB_SETUP_PACKET_INIT_GET_CONFIG_DESC((usb_setup_packet_t *)transfer->data_buffer, 0, MAX_TRANSFER_BYTES);
@@ -184,7 +187,7 @@ void ctrl_client_async_seq_task(void *arg)
             break;
         }
         case TEST_STAGE_DEV_CLOSE: {
-            ESP_LOGD(CTRL_CLIENT_TAG, "Close");
+            ESP_LOGI(CTRL_CLIENT_TAG, "Close");
             vTaskDelay(10); // Give USB Host Lib some time to process all transfers
             TEST_ASSERT_EQUAL(ESP_OK, usb_host_device_close(ctrl_obj.client_hdl, ctrl_obj.dev_hdl));
             exit_loop = true;
@@ -200,6 +203,6 @@ void ctrl_client_async_seq_task(void *arg)
         TEST_ASSERT_EQUAL(ESP_OK, usb_host_transfer_free(ctrl_xfer[i]));
     }
     TEST_ASSERT_EQUAL(ESP_OK, usb_host_client_deregister(ctrl_obj.client_hdl));
-    ESP_LOGD(CTRL_CLIENT_TAG, "Done");
+    ESP_LOGI(CTRL_CLIENT_TAG, "Done");
     vTaskDelete(NULL);
 }
