@@ -90,7 +90,7 @@ void usb_lib_task(void *arg)
     // Install USB Host driver. Should only be called once in entire application
     const usb_host_config_t host_config = {
         .skip_phy_setup = skip_phy_setup,
-        .intr_flags = ESP_INTR_FLAG_LEVEL1,
+        .intr_flags = ESP_INTR_FLAG_LOWMED,
     };
     TEST_ASSERT_EQUAL(ESP_OK, usb_host_install(&host_config));
     printf("USB Host installed\n");

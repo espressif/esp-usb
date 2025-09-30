@@ -223,7 +223,7 @@ static void msc_test_init(void)
     const bool skip_phy_setup = install_phy();
     const usb_host_config_t host_config = {
         .skip_phy_setup = skip_phy_setup,
-        .intr_flags = ESP_INTR_FLAG_LEVEL1,
+        .intr_flags = ESP_INTR_FLAG_LOWMED,
     };
     ESP_OK_ASSERT( usb_host_install(&host_config) );
     task_created = xTaskCreatePinnedToCore(handle_usb_events, "usb_events", 2 * 2048, NULL, 2, NULL, 0);
