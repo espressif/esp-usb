@@ -288,6 +288,7 @@ static inline void cache_sync_frame_list(void *frame_list)
 {
     esp_err_t ret = esp_cache_msync(frame_list, FRAME_LIST_LEN * sizeof(uint32_t), 0);
     assert(ret == ESP_OK);
+    (void)ret;
 }
 
 /**
@@ -300,6 +301,7 @@ static inline void cache_sync_xfer_descriptor_list(dma_buffer_block_t *buffer, b
 {
     esp_err_t ret = esp_cache_msync(buffer->xfer_desc_list, buffer->xfer_desc_list_len_bytes, mem_to_cache ? ESP_CACHE_MSYNC_FLAG_DIR_M2C : 0);
     assert(ret == ESP_OK);
+    (void)ret;
 }
 
 /**
@@ -322,6 +324,7 @@ static inline void cache_sync_data_buffer(pipe_t *pipe, urb_t *urb, bool done)
         uint32_t flags = (done) ? ESP_CACHE_MSYNC_FLAG_DIR_M2C : ESP_CACHE_MSYNC_FLAG_UNALIGNED;
         esp_err_t ret = esp_cache_msync(urb->transfer.data_buffer, urb->transfer.data_buffer_size, flags);
         assert(ret == ESP_OK);
+        (void)ret;
     }
 }
 #endif // SOC_CACHE_INTERNAL_MEM_VIA_L1CACHE
