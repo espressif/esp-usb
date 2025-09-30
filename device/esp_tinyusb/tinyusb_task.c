@@ -40,11 +40,13 @@ typedef struct {
     tusb_rhport_init_t rhport_init;         /*!< USB Device RH port initialization configuration pointer */
     const tinyusb_desc_config_t *desc_cfg;  /*!< USB Device descriptors configuration pointer */
     // Task related
-    TaskHandle_t handle;                    /*!< Task handle */
-    volatile TaskHandle_t awaiting_handle;           /*!< Task handle, waiting to be notified after successful start of TinyUSB stack */
+    TaskHandle_t handle;                    /*!< TinyUSB Device task handle */
+    SemaphoreHandle_t start_stop_sem;       /*!< Semaphore to start or stop the task */
 } tinyusb_task_ctx_t;
 
-static bool _task_is_running = false;               // Locking flag for the task, access only from the critical section
+#define TASK_NOTIF_STOP_BIT                 (1u << 0)
+
+static bool _task_is_pending = false;               // Locking flag for the task, access only from the critical section
 static tinyusb_task_ctx_t *p_tusb_task_ctx = NULL;  // TinyUSB task context
 
 /**
@@ -53,10 +55,11 @@ static tinyusb_task_ctx_t *p_tusb_task_ctx = NULL;  // TinyUSB task context
 static void tinyusb_device_task(void *arg)
 {
     tinyusb_task_ctx_t *task_ctx = (tinyusb_task_ctx_t *)arg;
+    bool pending_stop = false;
 
     // Sanity check
     assert(task_ctx != NULL);
-    assert(task_ctx->awaiting_handle != NULL);
+    assert(task_ctx->start_stop_sem != NULL);
 
     ESP_LOGD(TAG, "TinyUSB task started");
 
@@ -74,22 +77,55 @@ static void tinyusb_device_task(void *arg)
     }
 
     TINYUSB_TASK_ENTER_CRITICAL();
-    task_ctx->handle = xTaskGetCurrentTaskHandle(); // Save task handle
-    p_tusb_task_ctx = task_ctx;                     // Save global task context pointer
+    _task_is_pending = false;                           // Clear pending flag, task is running now
+    task_ctx->handle = xTaskGetCurrentTaskHandle();     // Save task handle
+    p_tusb_task_ctx = task_ctx;                         // Save global task context pointer
     TINYUSB_TASK_EXIT_CRITICAL();
 
-    xTaskNotifyGive(task_ctx->awaiting_handle);     // Notify parent task that TinyUSB stack was started successfully
+    // Notify parent task that TinyUSB stack was started successfully
+    if (xSemaphoreGive(task_ctx->start_stop_sem) != pdTRUE) {
+        // Fail only if semaphore queue is full, should never happen
+        ESP_LOGE(TAG, "Unable to notify that TinyUSB stack was started");
+        goto desc_free;
+    }
 
-    while (1) { // RTOS forever loop
-        tud_task();
+    while (1) {
+        // Non-blocking check to stop the task
+        uint32_t notif = 0;
+        if (xTaskNotifyWait(
+                    0,                 // don't clear any bits on entry
+                    TASK_NOTIF_STOP_BIT,    // clear STOP bit on exit if it was set
+                    &notif,
+                    0                  // no wait; just poll the bit
+                ) == pdTRUE && (notif & TASK_NOTIF_STOP_BIT)) {
+            // Stop requested
+            pending_stop = true;
+            break;
+        }
+        // TinyUSB Device task
+        tud_task_ext(2000 /* TODO: make dynamically configurable */, false);
+    }
+
+    ESP_LOGD(TAG, "TinyUSB task is stopping");
+
+    if (!tusb_rhport_teardown(task_ctx->rhport)) {
+        ESP_LOGE(TAG, "Unable to teardown TinyUSB stack");
+        // What to do if teardown failed?
+        return;
     }
 
 desc_free:
     tinyusb_descriptors_free();
 del:
     TINYUSB_TASK_ENTER_CRITICAL();
-    _task_is_running = false;       // Task is not running anymore
+    _task_is_pending = false;       // Clear pending flag
+    p_tusb_task_ctx = NULL;         // Clear global task context pointer
     TINYUSB_TASK_EXIT_CRITICAL();
+
+    if (pending_stop) {
+        // Notify that TinyUSB stack was stopped
+        xSemaphoreGive(task_ctx->start_stop_sem);
+    }
     vTaskDelete(NULL);
     // No return needed here: vTaskDelete(NULL) does not return
 }
@@ -113,8 +149,8 @@ esp_err_t tinyusb_task_start(tinyusb_port_t port, const tinyusb_task_config_t *c
 
     TINYUSB_TASK_ENTER_CRITICAL();
     TINYUSB_TASK_CHECK_FROM_CRIT(p_tusb_task_ctx == NULL, ESP_ERR_INVALID_STATE);     // Task shouldn't started
-    TINYUSB_TASK_CHECK_FROM_CRIT(!_task_is_running, ESP_ERR_INVALID_STATE);           // Task shouldn't be running
-    _task_is_running = true;                                                          // Task is running flag, will be cleared in task in case of the error
+    TINYUSB_TASK_CHECK_FROM_CRIT(!_task_is_pending, ESP_ERR_INVALID_STATE);           // Task shouldn't be pending
+    _task_is_pending = true;                                                          // Task is pending flag, will be cleared in task
     TINYUSB_TASK_EXIT_CRITICAL();
 
     esp_err_t ret;
@@ -123,8 +159,13 @@ esp_err_t tinyusb_task_start(tinyusb_port_t port, const tinyusb_task_config_t *c
         return ESP_ERR_NO_MEM;
     }
 
-    task_ctx->awaiting_handle = xTaskGetCurrentTaskHandle();    // Save parent task handle
-    task_ctx->handle = NULL;                                    // TinyUSB task is not started
+    SemaphoreHandle_t sem = xSemaphoreCreateBinary();
+    if (sem == NULL) {
+        ret = ESP_ERR_NO_MEM;
+        goto err;
+    }
+
+    task_ctx->start_stop_sem = sem;                             // TunyUSB Device task start stop semaphore
     task_ctx->rhport = port;                                    // Peripheral port number
     task_ctx->rhport_init.role = TUSB_ROLE_DEVICE;              // Role selection: esp_tinyusb is always a device
     task_ctx->rhport_init.speed = (port == TINYUSB_PORT_FULL_SPEED_0) ? TUSB_SPEED_FULL : TUSB_SPEED_HIGH; // Speed selection
@@ -147,7 +188,7 @@ esp_err_t tinyusb_task_start(tinyusb_port_t port, const tinyusb_task_config_t *c
     }
 
     // Wait until the Task notify that port is active, 5 sec is more than enough
-    if (ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(5000)) == 0) {
+    if (xSemaphoreTake(task_ctx->start_stop_sem, pdMS_TO_TICKS(5000)) != pdTRUE) {
         ESP_LOGE(TAG, "Task wasn't able to start TinyUSB stack");
         ret = ESP_ERR_TIMEOUT;
         goto err;
@@ -156,6 +197,9 @@ esp_err_t tinyusb_task_start(tinyusb_port_t port, const tinyusb_task_config_t *c
     return ESP_OK;
 
 err:
+    if (sem) {
+        vSemaphoreDelete(sem);
+    }
     heap_caps_free(task_ctx);
     return ret;
 }
@@ -164,20 +208,25 @@ esp_err_t tinyusb_task_stop(void)
 {
     TINYUSB_TASK_ENTER_CRITICAL();
     TINYUSB_TASK_CHECK_FROM_CRIT(p_tusb_task_ctx != NULL, ESP_ERR_INVALID_STATE);
+    TINYUSB_TASK_CHECK_FROM_CRIT(!_task_is_pending, ESP_ERR_INVALID_STATE);   // Task shouldn't be pending
     tinyusb_task_ctx_t *task_ctx = p_tusb_task_ctx;
-    p_tusb_task_ctx = NULL;
-    _task_is_running = false;
+    _task_is_pending = true;    // Task is pending to stop
     TINYUSB_TASK_EXIT_CRITICAL();
 
-    if (task_ctx->handle != NULL) {
-        vTaskDelete(task_ctx->handle);
-        task_ctx->handle = NULL;
+    /* Request TinyUSB task to stop */
+    if (xTaskNotify(task_ctx->handle, TASK_NOTIF_STOP_BIT, eSetBits) != pdPASS) {
+        ESP_LOGE(TAG, "Unable to notify TinyUSB task to stop");
+        return ESP_ERR_INVALID_STATE;
     }
-    // Free descriptors
-    tinyusb_descriptors_free();
-    // Stop TinyUSB stack
-    ESP_RETURN_ON_FALSE(tusb_rhport_teardown(task_ctx->rhport), ESP_ERR_NOT_FINISHED, TAG, "Unable to teardown TinyUSB stack");
-    // Cleanup
+
+    /* Wait for "stop" semaphore with timeout, usually 5 sec is enough */
+    if (xSemaphoreTake(task_ctx->start_stop_sem, pdMS_TO_TICKS(5000)) != pdTRUE) {
+        ESP_LOGE(TAG, "Timeout while TinyUSB task stop");
+        return ESP_ERR_TIMEOUT;
+    }
+
+    /* Cleanup */
+    vSemaphoreDelete(task_ctx->start_stop_sem);
     heap_caps_free(task_ctx);
     return ESP_OK;
 }
