@@ -156,7 +156,7 @@ void msc_client_async_seq_task(void *arg)
 
     // Wait to be started by main thread
     TEST_ASSERT_EQUAL_MESSAGE(pdTRUE, ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(2000)), "MSC client not started from main thread");
-    ESP_LOGI(MSC_CLIENT_TAG, "Starting");
+    ESP_LOGD(MSC_CLIENT_TAG, "Starting");
 
     // Handle device enumeration separately, wait for 1000ms for the device to be enumerated
     // Catch an error in case the device is not enumerated correctly
