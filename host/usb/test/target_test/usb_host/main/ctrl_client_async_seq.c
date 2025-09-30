@@ -170,7 +170,7 @@ void ctrl_client_async_seq_task(void *arg)
             break;
         }
         case TEST_STAGE_CTRL_XFER: {
-            ESP_LOGI(CTRL_CLIENT_TAG, "Transfer");
+            ESP_LOGD(CTRL_CLIENT_TAG, "Transfer");
             // Send a control transfer to get the device's configuration descriptor
             usb_transfer_t *transfer = ctrl_xfer[ctrl_obj.num_xfer_sent % NUM_TRANSFER_OBJ];
             USB_SETUP_PACKET_INIT_GET_CONFIG_DESC((usb_setup_packet_t *)transfer->data_buffer, 0, MAX_TRANSFER_BYTES);

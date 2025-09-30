@@ -226,7 +226,7 @@ void msc_client_async_seq_task(void *arg)
             break;
         }
         case TEST_STAGE_MSC_RESET: {
-            ESP_LOGI(MSC_CLIENT_TAG, "MSC Reset");
+            ESP_LOGD(MSC_CLIENT_TAG, "MSC Reset");
             // Send an MSC SCSI interface reset
             MOCK_MSC_SCSI_REQ_INIT_RESET((usb_setup_packet_t *)xfer_out->data_buffer, msc_obj.dev_info->bInterfaceNumber);
             xfer_out->num_bytes = sizeof(usb_setup_packet_t);
@@ -238,7 +238,7 @@ void msc_client_async_seq_task(void *arg)
             break;
         }
         case TEST_STAGE_MSC_CBW: {
-            ESP_LOGI(MSC_CLIENT_TAG, "CBW");
+            ESP_LOGD(MSC_CLIENT_TAG, "CBW");
             mock_msc_scsi_init_cbw((mock_msc_bulk_cbw_t *)xfer_out->data_buffer,
                                    true,
                                    msc_obj.next_stage,
@@ -254,7 +254,7 @@ void msc_client_async_seq_task(void *arg)
             break;
         }
         case TEST_STAGE_MSC_DATA: {
-            ESP_LOGI(MSC_CLIENT_TAG, "Data");
+            ESP_LOGD(MSC_CLIENT_TAG, "Data");
             xfer_in->num_bytes = usb_round_up_to_mps(msc_obj.dev_info->scsi_sector_size * msc_obj.test_param.num_sectors_per_xfer, in_ep_mps);
             xfer_in->bEndpointAddress = msc_obj.dev_info->in_ep_addr;
             TEST_ASSERT_EQUAL(ESP_OK, usb_host_transfer_submit(xfer_in));
@@ -264,7 +264,7 @@ void msc_client_async_seq_task(void *arg)
             break;
         }
         case TEST_STAGE_MSC_CSW: {
-            ESP_LOGI(MSC_CLIENT_TAG, "CSW");
+            ESP_LOGD(MSC_CLIENT_TAG, "CSW");
             xfer_in->num_bytes = usb_round_up_to_mps(sizeof(mock_msc_bulk_csw_t), in_ep_mps);
             xfer_in->bEndpointAddress = msc_obj.dev_info->in_ep_addr;
             TEST_ASSERT_EQUAL(ESP_OK, usb_host_transfer_submit(xfer_in));
