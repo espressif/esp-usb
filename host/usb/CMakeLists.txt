@@ -42,6 +42,9 @@ if(CONFIG_SOC_USB_OTG_SUPPORTED)
 
         # Get path to usb component inside esp-idf
         idf_component_get_property(esp_idf_usb_dir usb COMPONENT_OVERRIDEN_DIR)
+        if(NOT esp_idf_usb_dir)
+            idf_component_get_property(esp_idf_usb_dir usb COMPONENT_DIR)
+        endif()
 
         # Explicitly add usb_phy.c and usb_phy.h from overridden usb component in esp-idf
         list(APPEND srcs "${esp_idf_usb_dir}/usb_phy.c")
