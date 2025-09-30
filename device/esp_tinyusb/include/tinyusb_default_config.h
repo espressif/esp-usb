@@ -63,6 +63,12 @@ extern "C" {
 #define TINYUSB_DEFAULT_TASK_SIZE      4096
 // Default priority for task used in TinyUSB task creation
 #define TINYUSB_DEFAULT_TASK_PRIO      5
+// Default blocking timeout_ms for tud_task_ext(timeout_ms, false), depending on target to acieve similar CPU load
+#if CONFIG_IDF_TARGET_ESP32P4
+#define TINYUSB_DEFAULT_BLOCK_TIME_MS  1000
+#else
+#define TINYUSB_DEFAULT_BLOCK_TIME_MS  2000
+#endif // CONFIG_IDF_TARGET_ESP32P4
 
 #define TINYUSB_CONFIG_FULL_SPEED(event_hdl, arg)       \
     (tinyusb_config_t) {                                \
@@ -111,12 +117,15 @@ extern "C" {
         .size = TINYUSB_DEFAULT_TASK_SIZE,              \
         .priority = TINYUSB_DEFAULT_TASK_PRIO,          \
         .xCoreID = TINYUSB_DEFAULT_TASK_AFFINITY,       \
+        .blocking_timeout_ms = TINYUSB_DEFAULT_BLOCK_TIME_MS,\
     }
 
 /**
  * @brief TinyUSB Task configuration structure initializer
  *
  * This macro is used to create a custom TinyUSB Task configuration structure.
+ *
+ * Note: blocking_timeout_ms is set to default value.
  *
  * @param s Stack size of the task
  * @param p Task priority
@@ -127,6 +136,25 @@ extern "C" {
         .size = (s),                                    \
         .priority = (p),                                \
         .xCoreID = (a),                                 \
+        .blocking_timeout_ms = TINYUSB_DEFAULT_BLOCK_TIME_MS, \
+    }
+
+/**
+ * @brief TinyUSB Task configuration structure initializer
+ *
+ * This macro is used to create a custom TinyUSB Task configuration structure.
+ *
+ * @param s Stack size of the task
+ * @param p Task priority
+ * @param a Task affinity (CPU core)
+ * @param t Blocking timeout in milliseconds for tud_task_ext() function
+ */
+#define TINYUSB_TASK_CUSTOM_NON_BLOCKING(s, p, a, t)    \
+    (tinyusb_task_config_t) {                           \
+        .size = (s),                                    \
+        .priority = (p),                                \
+        .xCoreID = (a),                                 \
+        .blocking_timeout_ms = (t),                     \
     }
 
 #ifdef __cplusplus
