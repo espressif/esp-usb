@@ -171,7 +171,7 @@ hcd_port_handle_t test_hcd_setup(void)
     TEST_ASSERT_NOT_NULL(port_evt_queue);
     // Install HCD
     hcd_config_t hcd_config = {
-        .intr_flags = ESP_INTR_FLAG_LEVEL1,
+        .intr_flags = ESP_INTR_FLAG_LOWMED,
         .peripheral_map = TEST_PERIPHERAL_MAP,
     };
     TEST_ASSERT_EQUAL(ESP_OK, hcd_install(&hcd_config));
