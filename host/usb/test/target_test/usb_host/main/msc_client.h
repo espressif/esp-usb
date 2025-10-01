@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2015-2022 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2015-2025 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -19,3 +19,7 @@ void msc_client_async_seq_task(void *arg);
 void msc_client_async_dconn_task(void *arg);
 
 void msc_client_async_enum_task(void *arg);
+
+void msc_client_async_suspend_resume_task(void *arg);
+
+void msc_client_async_resume_by_transfer_task(void *arg);

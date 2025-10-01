@@ -33,6 +33,15 @@ void test_hcd_expect_port_event(hcd_port_handle_t port_hdl, hcd_port_event_t exp
 void test_hcd_expect_pipe_event(hcd_pipe_handle_t pipe_hdl, hcd_pipe_event_t expected_event);
 
 /**
+ * @brief Expect (wait) for an HCD pipe event, but none should be delivered
+ *
+ * This function waits for an pipe event and makes sure, that none is delivered
+ *
+ * @param pipe_hdl Pipe handle to expect event from
+ */
+void test_hcd_expect_no_pipe_event(hcd_pipe_handle_t pipe_hdl);
+
+/**
  * @brief Get the current number of queued port events (dequeued using test_hcd_expect_port_event())
  *
  * @param port_hdl Port handle
@@ -85,6 +94,48 @@ usb_speed_t test_hcd_wait_for_conn(hcd_port_handle_t port_hdl);
  * @param already_disabled Whether the HCD port is already in the disabled state
  */
 void test_hcd_wait_for_disconn(hcd_port_handle_t port_hdl, bool already_disabled);
+
+/**
+ * @brief Suspend the root port procedure with a single HCD pipe
+ *
+ * This function will halt and flush a provided pipe and issue a suspend command to the root port
+ *
+ * @param port_hdl Port handle
+ * @param pipe_hdl Pipe handle to be halted and flushed
+ */
+void test_hcd_root_port_suspend(hcd_port_handle_t port_hdl, hcd_pipe_handle_t pipe_hdl);
+
+/**
+ * @brief Suspend the root port procedure with multiple HCD pipes
+ *
+ * This function will halt and flush all pipes from a provided pipe list and issue a suspend command to the root port
+ *
+ * @param port_hdl Port handle
+ * @param pipe_list Pipe handle list to be halted and flushed
+ * @param list_len Pipe list length
+ */
+void test_hcd_root_port_suspend_multi_pipe(hcd_port_handle_t port_hdl, hcd_pipe_handle_t *pipe_list, int list_len);
+
+/**
+ * @brief Resume the root port procedure with a single HCD pipe
+ *
+ * This function will clear provided pipe and issue a resume command to the root port
+ *
+ * @param port_hdl Port handle
+ * @param pipe_hdl Pipe handle to be cleared
+ */
+void test_hcd_root_port_resume(hcd_port_handle_t port_hdl, hcd_pipe_handle_t pipe_hdl);
+
+/**
+ * @brief Resume the root port procedure with multiple HCD pipes
+ *
+ * This function will clear all pipes from a provided pipe list and issue a resume command to the root port
+ *
+ * @param port_hdl Port handle
+ * @param pipe_list Pipe handle list to be halted and flushed
+ * @param list_len Pipe list length
+ */
+void test_hcd_root_port_resume_multi_pipe(hcd_port_handle_t port_hdl, hcd_pipe_handle_t *pipe_list, int list_len);
 
 // ------------------------------------------------- Pipe alloc/free ---------------------------------------------------
 
