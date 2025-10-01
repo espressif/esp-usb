@@ -1,6 +1,6 @@
 ## IDF Component Manager Manifest File
 description: USB Host library
-version: "1.0.0"
+version: "1.0.1-rc0"
 url: https://github.com/espressif/esp-usb/tree/master/host/usb
 dependencies:
   idf: ">=5.4"
