@@ -34,6 +34,7 @@ typedef enum {
     HCD_PORT_STATE_DISCONNECTED,    /**< The port is powered but no device is connected */
     HCD_PORT_STATE_DISABLED,        /**< A device has connected to the port but has not been reset. SOF/keep alive are not being sent */
     HCD_PORT_STATE_RESETTING,       /**< The port is issuing a reset condition */
+    HCD_PORT_STATE_SUSPENDING,      /**< The port is issuing a suspend condition */
     HCD_PORT_STATE_SUSPENDED,       /**< The port has been suspended. */
     HCD_PORT_STATE_RESUMING,        /**< The port is issuing a resume condition */
     HCD_PORT_STATE_ENABLED,         /**< The port has been enabled. SOF/keep alive are being sent */
@@ -348,6 +349,17 @@ esp_err_t hcd_port_recover(hcd_port_handle_t port_hdl);
  */
 void *hcd_port_get_context(hcd_port_handle_t port_hdl);
 
+/**
+ * @brief Check if all the HCD pipes routed through this port are idle
+ *
+ * @param[in] port_hdl Port handle
+ *
+ * @return
+ *    - ESP_OK all HCD pipes are idle
+ *    - ESP_ERR_INVALID_STATE port is not in correct state
+ *    - ESP_ERR_NOT_FINISHED HCD pipes are still enqueued and processing
+ */
+esp_err_t hcd_port_check_all_pipes_idle(hcd_port_handle_t port_hdl);
 // --------------------------------------------------- HCD Pipes -------------------------------------------------------
 
 /**
@@ -499,18 +511,37 @@ hcd_pipe_event_t hcd_pipe_get_event(hcd_pipe_handle_t pipe_hdl);
 /**
  * @brief Enqueue an URB to a particular pipe
  *
- * The following conditions must be met before an URB can be enqueued:
+ * An URB can be either:
+ *  - Enqueued to an active pipe and start processing right away, or
+ *  - Deferred into a pending queue for later processing
+ *
+ * This depends on the pipe's state and a root port's state through which the pipe is routed.
+ *
+ * The following conditions must be met before an URB can be either enqueued or deferred:
  * - The URB is properly initialized (data buffer and transfer length are set)
  * - The URB must not already be enqueued
+ *
+ * If enqueueing an URB:
  * - The pipe must be in the HCD_PIPE_STATE_ACTIVE state
+ * - The pipe's port must be in the HCD_PORT_STATE_ENABLED state
  * - The pipe cannot be executing a command
+ *
+ * IF deferring an URB:
+ * - The pipe must be in the HCD_PIPE_STATE_HALTED state
+ * - The pipe's port must be in the HCD_PORT_STATE_SUSPENDED or HCD_PORT_STATE_RESUMING state
+ *
+ * Deferring of URBs is used, when a user submits a transfer while the root port is suspended (or is resuming) and the
+ * transfers can't be yet executed
+ * Deferred URBs will be put into a pipe's pending queue
+ * Deferred URBs will be executed automatically upon a pipe's clear command, which is a part of a global resume sequence
  *
  * @param[in] pipe_hdl Pipe handle
  * @param[in] urb URB to enqueue
  *
  * @return
- *    - ESP_OK: URB enqueued successfully
- *    - ESP_ERR_INVALID_STATE: Conditions not met to enqueue URB
+ *    - ESP_OK: URB enqueued, or deferred successfully
+ *    - ESP_ERR_INVALID_STATE: Conditions not met to enqueue or defer URB
+ *    - ESP_ERR_INVALID_SIZE: Invalid size of the URB
  */
 esp_err_t hcd_urb_enqueue(hcd_pipe_handle_t pipe_hdl, urb_t *urb);
 
