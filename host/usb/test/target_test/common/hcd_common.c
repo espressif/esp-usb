@@ -144,6 +144,17 @@ void test_hcd_expect_pipe_event(hcd_pipe_handle_t pipe_hdl, hcd_pipe_event_t exp
     TEST_ASSERT_EQUAL_MESSAGE(expected_event, msg.pipe_event, "Unexpected event");
 }
 
+void test_hcd_expect_no_pipe_event(hcd_pipe_handle_t pipe_hdl)
+{
+    // Get the pipe's event queue from the pipe's context variable
+    QueueHandle_t pipe_evt_queue = (QueueHandle_t)hcd_pipe_get_context(pipe_hdl);
+    TEST_ASSERT_NOT_NULL(pipe_evt_queue);
+    // Wait for pipe callback to send an event message
+    pipe_event_msg_t msg;
+    BaseType_t ret =  xQueueReceive(pipe_evt_queue, &msg, pdMS_TO_TICKS(2000));
+    TEST_ASSERT_EQUAL_MESSAGE(pdFALSE, ret, "Pipe event generated, but none expected");
+}
+
 int test_hcd_get_num_port_events(hcd_port_handle_t port_hdl)
 {
     // Get the port event queue from the port's context variable
@@ -246,6 +257,59 @@ void test_hcd_wait_for_disconn(hcd_port_handle_t port_hdl, bool already_disabled
     // Power down the port
     TEST_ASSERT_EQUAL(ESP_OK, hcd_port_command(port_hdl, HCD_PORT_CMD_POWER_OFF));
     TEST_ASSERT_EQUAL(HCD_PORT_STATE_NOT_POWERED, hcd_port_get_state(port_hdl));
+}
+
+void test_hcd_root_port_suspend(hcd_port_handle_t port_hdl, hcd_pipe_handle_t pipe_hdl)
+{
+    // Halt and flush the pipe
+    TEST_ASSERT_EQUAL(ESP_OK, hcd_pipe_command(pipe_hdl, HCD_PIPE_CMD_HALT));
+    TEST_ASSERT_EQUAL(ESP_OK, hcd_pipe_command(pipe_hdl, HCD_PIPE_CMD_FLUSH));
+    TEST_ASSERT_EQUAL(HCD_PIPE_STATE_HALTED, hcd_pipe_get_state(pipe_hdl));
+    // Suspend the root port
+    TEST_ASSERT_EQUAL(ESP_OK, hcd_port_command(port_hdl, HCD_PORT_CMD_SUSPEND));
+    TEST_ASSERT_EQUAL(HCD_PORT_STATE_SUSPENDED, hcd_port_get_state(port_hdl));
+    printf("Root port suspended\n");
+}
+
+void test_hcd_root_port_suspend_multi_pipe(hcd_port_handle_t port_hdl, hcd_pipe_handle_t *pipe_list, int list_len)
+{
+    for (int pipe_i = 0; pipe_i < list_len; pipe_i++) {
+        hcd_pipe_handle_t pipe_hdl = pipe_list[pipe_i];
+        // Halt and flush the pipe
+        TEST_ASSERT_EQUAL(ESP_OK, hcd_pipe_command(pipe_hdl, HCD_PIPE_CMD_HALT));
+        TEST_ASSERT_EQUAL(ESP_OK, hcd_pipe_command(pipe_hdl, HCD_PIPE_CMD_FLUSH));
+        TEST_ASSERT_EQUAL(HCD_PIPE_STATE_HALTED, hcd_pipe_get_state(pipe_hdl));
+    }
+
+    // Suspend the root port
+    TEST_ASSERT_EQUAL(ESP_OK, hcd_port_command(port_hdl, HCD_PORT_CMD_SUSPEND));
+    TEST_ASSERT_EQUAL(HCD_PORT_STATE_SUSPENDED, hcd_port_get_state(port_hdl));
+    printf("Root port suspended\n");
+}
+
+void test_hcd_root_port_resume(hcd_port_handle_t port_hdl, hcd_pipe_handle_t pipe_hdl)
+{
+    // Resume the root port
+    TEST_ASSERT_EQUAL(ESP_OK, hcd_port_command(port_hdl, HCD_PORT_CMD_RESUME));
+    TEST_ASSERT_EQUAL(HCD_PORT_STATE_ENABLED, hcd_port_get_state(port_hdl));
+    // Clear the pipe
+    TEST_ASSERT_EQUAL(ESP_OK, hcd_pipe_command(pipe_hdl, HCD_PIPE_CMD_CLEAR));
+    TEST_ASSERT_EQUAL(HCD_PIPE_STATE_ACTIVE, hcd_pipe_get_state(pipe_hdl));
+    printf("Root port resumed\n");
+}
+
+void test_hcd_root_port_resume_multi_pipe(hcd_port_handle_t port_hdl, hcd_pipe_handle_t *pipe_list, int list_len)
+{
+    // Resume the root port
+    TEST_ASSERT_EQUAL(ESP_OK, hcd_port_command(port_hdl, HCD_PORT_CMD_RESUME));
+    TEST_ASSERT_EQUAL(HCD_PORT_STATE_ENABLED, hcd_port_get_state(port_hdl));
+
+    for (int pipe_i = 0; pipe_i < list_len; pipe_i++) {
+        hcd_pipe_handle_t pipe_hdl = pipe_list[pipe_i];
+        // Clear the pipe
+        TEST_ASSERT_EQUAL(ESP_OK, hcd_pipe_command(pipe_hdl, HCD_PIPE_CMD_CLEAR));
+        TEST_ASSERT_EQUAL(HCD_PIPE_STATE_ACTIVE, hcd_pipe_get_state(pipe_hdl));
+    }
 }
 
 // ---------------------------------------------- Pipe Setup/Tear-down -------------------------------------------------

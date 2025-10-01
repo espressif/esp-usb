@@ -44,8 +44,9 @@
 #define DEBOUNCE_DELAY_MS                       CONFIG_USB_HOST_DEBOUNCE_DELAY_MS
 #define RESET_HOLD_MS                           CONFIG_USB_HOST_RESET_HOLD_MS
 #define RESET_RECOVERY_MS                       CONFIG_USB_HOST_RESET_RECOVERY_MS
-#define RESUME_HOLD_MS                          30  // Spec requires at least 20ms, Make it 30ms to be safe
-#define RESUME_RECOVERY_MS                      20  // Resume recovery of at least 10ms. Make it 20 ms to be safe. This will include the 3 LS bit times of the EOP
+#define RESUME_HOLD_MS                          CONFIG_USB_HOST_RESUME_HOLD_MS
+#define RESUME_RECOVERY_MS                      CONFIG_USB_HOST_RESUME_RECOVERY_MS
+#define SUSPEND_ENTRY_MS                        CONFIG_USB_HOST_SUSPEND_ENTRY_MS
 
 #define CTRL_EP_MAX_MPS_LS                      8   // Largest Maximum Packet Size for Low Speed control endpoints
 #define CTRL_EP_MAX_MPS_HSFS                    64  // Largest Maximum Packet Size for High & Full Speed control endpoints
@@ -216,7 +217,7 @@ struct pipe_obj {
         struct {
             uint32_t waiting_halt: 1;
             uint32_t pipe_cmd_processing: 1;
-            uint32_t has_urb: 1;            // Indicates there is at least one URB either pending, in-flight, or done
+            uint32_t has_urb: 1;            // Indicates there is at least one URB either pending (deferred), in-flight, or done
             uint32_t reserved29: 29;
         };
         uint32_t val;
@@ -614,6 +615,7 @@ static esp_err_t _port_cmd_reset(port_t *port);
  * - All pipes must be halted for the port to be suspended
  * - Suspending the port stops Keep Alive/SOF from being sent to the connected device
  *
+ * @note This function can block
  * @param port Port object
  * @return esp_err_t
  */
@@ -1322,14 +1324,38 @@ static esp_err_t _port_cmd_bus_suspend(port_t *port)
 {
     esp_err_t ret;
     // Port must have been previously enabled, and all pipes must already be halted
-    if (port->state == HCD_PORT_STATE_ENABLED && !_port_check_all_pipes_halted(port)) {
+    if (!(port->state == HCD_PORT_STATE_ENABLED && _port_check_all_pipes_halted(port))) {
         ret = ESP_ERR_INVALID_STATE;
         goto exit;
     }
-    // All pipes are guaranteed halted at this point. Proceed to suspend the port
+
     usb_dwc_hal_port_suspend(port->hal);
+    port->state = HCD_PORT_STATE_SUSPENDING;
+
+    HCD_EXIT_CRITICAL();
+    vTaskDelay(pdMS_TO_TICKS(SUSPEND_ENTRY_MS));
+    HCD_ENTER_CRITICAL();
+
+    if (port->state != HCD_PORT_STATE_SUSPENDING) {
+        // Port state unexpectedly changed
+        ret = ESP_ERR_INVALID_RESPONSE;
+        goto exit;
+    }
+
+    // Here we are calling ll directly instead of hal, to allow the suspend/resume feature to be used as a managed usb
+    // component in all active IDF releases (Currently IDF 5.4.x, IDF 5.5.x and IDF 6.0) and all it's minor releases
+    // because the hal function usb_dwc_hal_port_check_if_suspended(port->hal) starts to be supported in IDF 5.5.2, (and IDF 5.4.2)
+    // TODO: use usb_dwc_hal_hprt_get_port_suspend() instead of usb_dwc_ll_hprt_get_port_suspend() when IDF 5.5 is EOL
+
+    // Sanity check, the root port should have entered the suspended state after the SUSPEND_ENTRY_MS delay
+    if (!usb_dwc_ll_hprt_get_port_suspend(port->hal->dev)) {
+        ret = ESP_ERR_NOT_FINISHED;
+        goto exit;
+    }
+
     port->state = HCD_PORT_STATE_SUSPENDED;
     ret = ESP_OK;
+
 exit:
     return ret;
 }
@@ -1364,6 +1390,7 @@ static esp_err_t _port_cmd_bus_resume(port_t *port)
         goto exit;
     }
     port->state = HCD_PORT_STATE_ENABLED;
+
     ret = ESP_OK;
 exit:
     return ret;
@@ -1589,6 +1616,17 @@ void *hcd_port_get_context(hcd_port_handle_t port_hdl)
     return ret;
 }
 
+esp_err_t hcd_port_check_all_pipes_idle(hcd_port_handle_t port_hdl)
+{
+    port_t *port = (port_t *)port_hdl;
+
+    HCD_ENTER_CRITICAL();
+    HCD_CHECK_FROM_CRIT(port->initialized, ESP_ERR_INVALID_STATE);
+    HCD_CHECK_FROM_CRIT(port->num_pipes_queued == 0, ESP_ERR_NOT_FINISHED);
+    HCD_EXIT_CRITICAL();
+
+    return ESP_OK;
+}
 // --------------------------------------------------- HCD Pipes -------------------------------------------------------
 
 // ----------------------- Private -------------------------
@@ -1873,6 +1911,7 @@ static esp_err_t _pipe_cmd_clear(pipe_t *pipe)
     if (_buffer_can_exec(pipe)) {
         _buffer_exec(pipe);
     }
+
     ret = ESP_OK;
 exit:
     return ret;
@@ -2609,6 +2648,42 @@ static bool _buffer_flush_all(pipe_t *pipe, bool canceled)
 
 // ---------------------------------------------- HCD Transfer Descriptors ---------------------------------------------
 
+// ----------------------- Private -------------------------
+
+/**
+ * @brief Check if both, the HCD Port and HCD Pipe are in correct state to either submit the URB or to defer it
+ *
+ * @note this function must be called from critical section
+ * @param pipe pipe_object
+ * @param submit_urb indicate whether the URB shall be deferred or submitted
+ *
+ * @return
+ *    - true: Port and pipe are in a valid state (either active or suspended/resuming)
+ *    - false: HCD Port and Pipe are not in correct state
+ */
+static inline bool _check_port_pipe_state(pipe_t *pipe, bool *submit_urb)
+{
+    // Port and pipe are active: URBs can be submitted right away
+    const bool urb_active = (pipe->port->state == HCD_PORT_STATE_ENABLED &&     // The pipe's port must be in enabled state
+                             pipe->state == HCD_PIPE_STATE_ACTIVE &&            // The pipe must be in active state
+                             !pipe->cs_flags.pipe_cmd_processing);              // The pipe cannot currently be processing a pipe command
+
+    // Port and pipe are suspended or resuming: URBs should be deferred
+    const bool urb_deferred = ((pipe->port->state == HCD_PORT_STATE_SUSPENDED ||  // The pipe's port must be in suspended
+                                pipe->port->state == HCD_PORT_STATE_RESUMING) &&  // or resuming state
+                               pipe->state == HCD_PIPE_STATE_HALTED);             // The pipe must be in halted state
+
+    // Logical XOR: exactly one of urb_active or urb_deferred must be true
+    if (urb_active != urb_deferred) {
+        // URB shall be either submitted right away, or deferred
+        *submit_urb = urb_active;
+        return true;
+    } else {
+        // URB can't be neither submitted, nor deferred
+        return false;
+    }
+}
+
 // ----------------------- Public --------------------------
 
 esp_err_t hcd_urb_enqueue(hcd_pipe_handle_t pipe_hdl, urb_t *urb)
@@ -2627,11 +2702,9 @@ esp_err_t hcd_urb_enqueue(hcd_pipe_handle_t pipe_hdl, urb_t *urb)
     CACHE_SYNC_DATA_BUFFER_C2M(pipe, urb);
 
     HCD_ENTER_CRITICAL();
+    bool submit_urb;
     // Check that pipe and port are in the correct state to receive URBs
-    HCD_CHECK_FROM_CRIT(pipe->port->state == HCD_PORT_STATE_ENABLED         // The pipe's port must be in the correct state
-                        && pipe->state == HCD_PIPE_STATE_ACTIVE             // The pipe must be in the correct state
-                        && !pipe->cs_flags.pipe_cmd_processing,             // Pipe cannot currently be processing a pipe command
-                        ESP_ERR_INVALID_STATE);
+    HCD_CHECK_FROM_CRIT(_check_port_pipe_state(pipe, &submit_urb), ESP_ERR_INVALID_STATE);
     // Use the URB's reserved_ptr to store the pipe's
     urb->hcd_ptr = (void *)pipe;
     // Add the URB to the pipe's pending tailq
@@ -2639,14 +2712,20 @@ esp_err_t hcd_urb_enqueue(hcd_pipe_handle_t pipe_hdl, urb_t *urb)
     TAILQ_INSERT_TAIL(&pipe->pending_urb_tailq, urb, tailq_entry);
     pipe->num_urb_pending++;
     // use the URB's reserved_flags to store the URB's current state
-    if (_buffer_can_fill(pipe)) {
-        _buffer_fill(pipe);
+
+    if (submit_urb) {
+        // URB will not be deferred, can be submitted right now
+        if (_buffer_can_fill(pipe)) {
+            _buffer_fill(pipe);
+        }
+        if (_buffer_can_exec(pipe)) {
+            _buffer_exec(pipe);
+        }
     }
-    if (_buffer_can_exec(pipe)) {
-        _buffer_exec(pipe);
-    }
+
     if (!pipe->cs_flags.has_urb) {
         // This is the first URB to be enqueued into the pipe. Move the pipe to the list of active pipes
+        // We also mark a pipe to be active, if its URB is deferred
         TAILQ_REMOVE(&pipe->port->pipes_idle_tailq, pipe, tailq_entry);
         TAILQ_INSERT_TAIL(&pipe->port->pipes_active_tailq, pipe, tailq_entry);
         pipe->port->num_pipes_idle--;

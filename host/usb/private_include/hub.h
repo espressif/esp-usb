@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2015-2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2015-2025 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -33,7 +33,7 @@ typedef struct {
     union {
         struct {
             unsigned int uid;                   /**< Unique device ID */
-        } connected;                            /**< HUB_EVENT_DEV_CONNECTED specific data */
+        } connected;                            /**< HUB_EVENT_CONNECTED specific data */
 
         struct {
             unsigned int uid;                   /**< Unique device ID */
@@ -41,7 +41,7 @@ typedef struct {
 
         struct {
             unsigned int uid;                   /**< Unique device ID */
-        } disconnected;                         /**< HUB_EVENT_DEV_DISCONNECTED specific data */
+        } disconnected;                         /**< HUB_EVENT_DISCONNECTED specific data */
     };
 } hub_event_data_t;
 
@@ -112,7 +112,7 @@ esp_err_t hub_uninstall(void);
  * @note This function should only be called from the Host Library task
  *
  * @return
- *    - ESP_OK: Hub driver started successfully
+ *    - ESP_OK: Root port has been powered on
  *    - ESP_ERR_INVALID_STATE: Hub driver is not installed, or root port is in other state than not powered
  */
 esp_err_t hub_root_start(void);
@@ -123,10 +123,71 @@ esp_err_t hub_root_start(void);
  * This will power OFF the root port
  *
  * @return
- *    - ESP_OK: Hub driver started successfully
+ *    - ESP_OK: Root port has been powered off
  *    - ESP_ERR_INVALID_STATE: Hub driver is not installed, or root port is in not powered state
  */
 esp_err_t hub_root_stop(void);
+
+/**
+ * @brief Check if root port is in suspended state
+ *
+ * This will check root port state
+ *
+ * @return
+ *    - true: Root port is in suspended state
+ *    - false: Root port is in any other state
+ */
+bool hub_root_is_suspended(void);
+
+/**
+ * @brief Check if the Hub driver's root port can be suspended
+ *
+ * This will check if all HCD pipes are idle and which state the root port is in
+ *
+ * @return
+ *    - ESP_OK: Hub driver's root port can be suspended
+ *    - ESP_ERR_INVALID_STATE: Hub driver is not installed
+ *    - ESP_ERR_NOT_FINISHED: HCD pipes routed through this port are still executing
+ *    - ESP_ERR_TIMEOUT: Root port is already issuing a suspend command and is within a SUSPEND_ENTRY_MS timeout
+ *    - ESP_ERR_NOT_ALLOWED: Root port is in other than enabled state
+ */
+esp_err_t hub_root_can_suspend(void);
+
+/**
+ * @brief Check if the Hub driver's root port can be resumed
+ *
+ * @return
+ *    - ESP_OK: Hub driver's root port can be resumed
+ *    - ESP_ERR_INVALID_STATE: Hub driver is not installed
+ *    - ESP_ERR_TIMEOUT: Root port is already issuing a resume command and is within a RESUME_RECOVERY_MS,
+ *      or a RESUME_HOLD_MS timeout
+ *    - ESP_ERR_NOT_ALLOWED: Root port is in other than suspended state, or HCD port is in incorrect state
+ */
+esp_err_t hub_root_can_resume(void);
+
+/**
+ * @brief Mark the Hub driver's root port as ready for suspend
+ *
+ * This will mark the root port, as ready to be suspended and and will be processed by the hub processing loop
+ *
+ * @return
+ *    - ESP_OK: Hub driver suspended successfully
+ *    - ESP_ERR_INVALID_STATE: Hub driver is not installed
+ *    - ESP_ERR_NOT_ALLOWED: Root port is in other than enabled state
+ */
+esp_err_t hub_root_mark_suspend(void);
+
+/**
+ * @brief Mark the Hub driver's root port as ready for resume
+ *
+ * This will mark the root port, as ready to be resumed and and will be processed by the hub processing loop
+ *
+ * @return
+ *    - ESP_OK: Hub driver resumed successfully
+ *    - ESP_ERR_INVALID_STATE: Hub driver is not installed
+ *    - ESP_ERR_NOT_ALLOWED: Root port is in other than suspended state
+ */
+esp_err_t hub_root_mark_resume(void);
 
 /**
  * @brief Indicate to the Hub driver that a device's port can be recycled
