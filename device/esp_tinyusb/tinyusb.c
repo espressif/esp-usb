@@ -11,6 +11,7 @@
 #include "esp_private/usb_phy.h"
 #include "tinyusb.h"
 #include "tinyusb_task.h"
+#include "tinyusb_vbus_monitor.h"
 #include "tusb.h"
 
 #if (CONFIG_TINYUSB_MSC_ENABLED)
@@ -133,9 +134,8 @@ esp_err_t tinyusb_driver_install(const tinyusb_config_t *config)
 #endif // (SOC_USB_OTG_PERIPH_NUM > 1)
 
         // OTG IOs config
-        const usb_phy_otg_io_conf_t otg_io_conf = USB_PHY_SELF_POWERED_DEVICE(config->phy.vbus_monitor_io);
         if (config->phy.self_powered) {
-            phy_conf.otg_io_conf = &otg_io_conf;
+            tinyusb_vbus_monitor_init(config->phy.vbus_monitor_io);
         }
         ESP_RETURN_ON_ERROR(usb_new_phy(&phy_conf, &phy_hdl), TAG, "Install USB PHY failed");
     }
