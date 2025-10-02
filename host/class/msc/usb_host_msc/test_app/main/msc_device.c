@@ -14,8 +14,7 @@
 #include "driver/gpio.h"
 #include "tinyusb_msc.h"
 #if SOC_SDMMC_HOST_SUPPORTED
-#include "diskio_impl.h"
-#include "diskio_sdmmc.h"
+#include "sdmmc_cmd.h"
 #endif /* SOC_SDMMC_HOST_SUPPORTED */
 
 #if SOC_USB_OTG_SUPPORTED
