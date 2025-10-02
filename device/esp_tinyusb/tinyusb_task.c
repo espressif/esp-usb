@@ -11,8 +11,11 @@
 #include "esp_log.h"
 #include "esp_check.h"
 #include "tinyusb.h"
+#include "tinyusb_task.h"
+#include "tinyusb_vbus_monitor.h"
 #include "sdkconfig.h"
 #include "descriptors_control.h"
+#include "soc/usb_dwc_struct.h"
 
 #if TUSB_VERSION_NUMBER < 1900 // < 0.19.0
 #define tusb_deinit(x)  tusb_teardown(x)  // For compatibility with tinyusb component versions from 0.17.0~2 to 0.18.0~5
@@ -45,7 +48,10 @@ typedef struct {
     const tinyusb_desc_config_t *desc_cfg;  /*!< USB Device descriptors configuration pointer */
     // Task related
     TaskHandle_t handle;                    /*!< Task handle */
-    volatile TaskHandle_t awaiting_handle;           /*!< Task handle, waiting to be notified after successful start of TinyUSB stack */
+    volatile TaskHandle_t awaiting_handle;  /*!< Task handle, waiting to be notified after successful start of TinyUSB stack */
+#if (CONFIG_IDF_TARGET_ESP32P4)
+    tinyusb_vbus_monitor_config_t vbus_monitor_cfg; /*!< VBUS monitoring configuration */
+#endif // CONFIG_IDF_TARGET_ESP32P4
 } tinyusb_task_ctx_t;
 
 static bool _task_is_running = false;               // Locking flag for the task, access only from the critical section
@@ -77,6 +83,15 @@ static void tinyusb_device_task(void *arg)
         goto desc_free;
     }
 
+#if (CONFIG_IDF_TARGET_ESP32P4)
+    if (task_ctx->vbus_monitor_cfg.gpio_num != GPIO_NUM_NC) {
+        if (tinyusb_vbus_monitor_init(&task_ctx->vbus_monitor_cfg) != ESP_OK) {
+            ESP_LOGE(TAG, "Init VBUS monitoring failed");
+            goto desc_free;
+        }
+    }
+#endif // CONFIG_IDF_TARGET_ESP32P4
+
     TINYUSB_TASK_ENTER_CRITICAL();
     task_ctx->handle = xTaskGetCurrentTaskHandle(); // Save task handle
     p_tusb_task_ctx = task_ctx;                     // Save global task context pointer
@@ -100,9 +115,9 @@ del:
 
 esp_err_t tinyusb_task_check_config(const tinyusb_task_config_t *config)
 {
-    ESP_RETURN_ON_FALSE(config, ESP_ERR_INVALID_ARG, TAG, "Task configuration can't be NULL");
-    ESP_RETURN_ON_FALSE(config->size != 0, ESP_ERR_INVALID_ARG, TAG, "Task size can't be 0");
-    ESP_RETURN_ON_FALSE(config->priority != 0, ESP_ERR_INVALID_ARG, TAG, "Task priority can't be 0");
+    ESP_RETURN_ON_FALSE(config, ESP_ERR_INVALID_ARG, TAG, "Task configuration cannot be NULL");
+    ESP_RETURN_ON_FALSE(config->size != 0, ESP_ERR_INVALID_ARG, TAG, "Task size cannot be 0");
+    ESP_RETURN_ON_FALSE(config->priority != 0, ESP_ERR_INVALID_ARG, TAG, "Task priority cannot be 0");
 #if CONFIG_FREERTOS_UNICORE
     ESP_RETURN_ON_FALSE(config->xCoreID == 0, ESP_ERR_INVALID_ARG, TAG, "Task affinity must be 0 only in uniprocessor mode");
 #else
@@ -111,9 +126,13 @@ esp_err_t tinyusb_task_check_config(const tinyusb_task_config_t *config)
     return ESP_OK;
 }
 
-esp_err_t tinyusb_task_start(tinyusb_port_t port, const tinyusb_task_config_t *config, const tinyusb_desc_config_t *desc_cfg)
+esp_err_t tinyusb_task_start(tinyusb_port_t port,
+                             const tinyusb_task_config_t *config,
+                             const tinyusb_desc_config_t *desc_cfg,
+                             const tinyusb_vbus_monitor_config_t *vbus_monitor_cfg)
 {
     ESP_RETURN_ON_ERROR(tinyusb_descriptors_check(port, desc_cfg), TAG, "TinyUSB descriptors check failed");
+    ESP_RETURN_ON_FALSE(vbus_monitor_cfg != NULL, ESP_ERR_INVALID_ARG, TAG, "VBUS configuration cannot be NULL");
 
     TINYUSB_TASK_ENTER_CRITICAL();
     TINYUSB_TASK_CHECK_FROM_CRIT(p_tusb_task_ctx == NULL, ESP_ERR_INVALID_STATE);     // Task shouldn't started
@@ -133,6 +152,11 @@ esp_err_t tinyusb_task_start(tinyusb_port_t port, const tinyusb_task_config_t *c
     task_ctx->rhport_init.role = TUSB_ROLE_DEVICE;              // Role selection: esp_tinyusb is always a device
     task_ctx->rhport_init.speed = (port == TINYUSB_PORT_FULL_SPEED_0) ? TUSB_SPEED_FULL : TUSB_SPEED_HIGH; // Speed selection
     task_ctx->desc_cfg = desc_cfg;
+#if (CONFIG_IDF_TARGET_ESP32P4)
+    // VBUS monitor config
+    task_ctx->vbus_monitor_cfg.gpio_num = vbus_monitor_cfg->gpio_num;
+    task_ctx->vbus_monitor_cfg.debounce_delay_ms = vbus_monitor_cfg->debounce_delay_ms;
+#endif // CONFIG_IDF_TARGET_ESP32P4
 
     TaskHandle_t task_hdl = NULL;
     ESP_LOGD(TAG, "Creating TinyUSB main task on CPU%d", config->xCoreID);
@@ -177,8 +201,23 @@ esp_err_t tinyusb_task_stop(void)
         vTaskDelete(task_ctx->handle);
         task_ctx->handle = NULL;
     }
+
+    /* TODO: Free descriptors and disable the VBUS monitor should be in the task itself
+     * but currently we don't have a way to signal the task to do it and exit.
+     * So we do it here for now.
+     * Refer to https://github.com/espressif/esp-usb/pull/272
+     */
+
     // Free descriptors
     tinyusb_descriptors_free();
+
+#if (CONFIG_IDF_TARGET_ESP32P4)
+    if (task_ctx->vbus_monitor_cfg.gpio_num != GPIO_NUM_NC) {
+        // Deinit VBUS monitoring if it was enabled
+        tinyusb_vbus_monitor_deinit();
+    }
+#endif // CONFIG_IDF_TARGET_ESP32P4
+
     // Stop TinyUSB stack
     ESP_RETURN_ON_FALSE(tusb_deinit(task_ctx->rhport), ESP_ERR_NOT_FINISHED, TAG, "Unable to teardown TinyUSB stack");
     // Cleanup
