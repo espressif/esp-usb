@@ -119,3 +119,99 @@ TEST_CASE("Test HCD bulk pipe URBs", "[bulk][full_speed][high_speed]")
     // Cleanup
     test_hcd_wait_for_disconn(port_hdl, false);
 }
+
+/*
+Test HCD bulk pipe deferred URBs
+
+Purpose:
+    - Test that a bulk pipe can be created
+    - Multiple URBs can be deferred
+    - Multiple URBs can be resumed when pipe is cleared
+
+Procedure:
+    - Setup HCD and wait for connection
+    - Allocate default pipe and enumerate the device
+    - Allocate separate URBS for CBW, Data, and CSW transfers of the MSC class
+    - Read TEST_NUM_SECTORS_TOTAL number of sectors for the mass storage device
+    - Suspend the root port, defer all the URBS and resume the root port during each block read
+    - Expect HCD_PIPE_EVENT_URB_DONE for each URB
+    - Deallocate URBs
+    - Teardown
+*/
+TEST_CASE("Test HCD bulk pipe URBs deferred", "[bulk][full_speed][high_speed]")
+{
+    usb_speed_t port_speed = test_hcd_wait_for_conn(port_hdl);  // Trigger a connection
+    vTaskDelay(pdMS_TO_TICKS(100)); // Short delay send of SOF (for FS) or EOPs (for LS)
+
+    // Enumerate and reset MSC SCSI device
+    hcd_pipe_handle_t default_pipe = test_hcd_pipe_alloc(port_hdl, NULL, 0, port_speed); // Create a default pipe (using a NULL EP descriptor)
+    uint8_t dev_addr = test_hcd_enum_device(default_pipe);
+    const dev_msc_info_t *dev_info = dev_msc_get_info();
+    mock_msc_reset_req(default_pipe, dev_info->bInterfaceNumber);
+
+    // Create BULK IN and BULK OUT pipes for SCSI
+    const usb_ep_desc_t *out_ep_desc = dev_msc_get_out_ep_desc(port_speed);
+    const usb_ep_desc_t *in_ep_desc = dev_msc_get_in_ep_desc(port_speed);
+    const uint16_t mps = USB_EP_DESC_GET_MPS(in_ep_desc) ;
+    hcd_pipe_handle_t bulk_out_pipe = test_hcd_pipe_alloc(port_hdl, out_ep_desc, dev_addr, port_speed);
+    hcd_pipe_handle_t bulk_in_pipe = test_hcd_pipe_alloc(port_hdl, in_ep_desc, dev_addr, port_speed);
+    // Create URBs for CBW, Data, and CSW transport. IN Buffer sizes are rounded up to nearest MPS
+    urb_t *urb_cbw = test_hcd_alloc_urb(0, sizeof(mock_msc_bulk_cbw_t));
+    urb_t *urb_data = test_hcd_alloc_urb(0, TEST_NUM_SECTORS_PER_XFER * dev_info->scsi_sector_size);
+    urb_t *urb_csw = test_hcd_alloc_urb(0, sizeof(mock_msc_bulk_csw_t) + (mps - (sizeof(mock_msc_bulk_csw_t) % mps)));
+    urb_cbw->transfer.num_bytes = sizeof(mock_msc_bulk_cbw_t);
+    urb_data->transfer.num_bytes = TEST_NUM_SECTORS_PER_XFER * dev_info->scsi_sector_size;
+    urb_csw->transfer.num_bytes = sizeof(mock_msc_bulk_csw_t) + (mps - (sizeof(mock_msc_bulk_csw_t) % mps));
+
+    hcd_pipe_handle_t pipe_list[3] = {default_pipe, bulk_out_pipe, bulk_in_pipe};
+    for (int block_num = 0; block_num < TEST_NUM_SECTORS_TOTAL; block_num += TEST_NUM_SECTORS_PER_XFER) {
+        // Initialize CBW URB, then send it on the BULK OUT pipe
+        mock_msc_scsi_init_cbw((mock_msc_bulk_cbw_t *)urb_cbw->transfer.data_buffer,
+                               true,
+                               block_num,
+                               TEST_NUM_SECTORS_PER_XFER,
+                               dev_info->scsi_sector_size,
+                               0xAAAAAAAA);
+
+        // Suspend the root port with multiple pipes
+        test_hcd_root_port_suspend_multi_pipe(port_hdl, pipe_list, sizeof(pipe_list) / sizeof(hcd_pipe_handle_t));
+
+        // Defer all urbs
+        printf("Deferring URBs\n");
+        TEST_ASSERT_EQUAL(ESP_OK, hcd_urb_enqueue(bulk_out_pipe, urb_cbw));
+        TEST_ASSERT_EQUAL(ESP_OK, hcd_urb_enqueue(bulk_in_pipe, urb_data));
+        TEST_ASSERT_EQUAL(ESP_OK, hcd_urb_enqueue(bulk_in_pipe, urb_csw));
+
+        // Resume the root port with multiple pipes
+        test_hcd_root_port_resume_multi_pipe(port_hdl, pipe_list, sizeof(pipe_list) / sizeof(hcd_pipe_handle_t));
+
+        test_hcd_expect_pipe_event(bulk_out_pipe, HCD_PIPE_EVENT_URB_DONE);
+        TEST_ASSERT_EQUAL_PTR(urb_cbw, hcd_urb_dequeue(bulk_out_pipe));
+        TEST_ASSERT_EQUAL_MESSAGE(USB_TRANSFER_STATUS_COMPLETED, urb_cbw->transfer.status, "Transfer NOT completed");
+        // Read data through BULK IN pipe
+        test_hcd_expect_pipe_event(bulk_in_pipe, HCD_PIPE_EVENT_URB_DONE);
+        TEST_ASSERT_EQUAL_PTR(urb_data, hcd_urb_dequeue(bulk_in_pipe));
+        TEST_ASSERT_EQUAL_MESSAGE(USB_TRANSFER_STATUS_COMPLETED, urb_data->transfer.status, "Transfer NOT completed");
+        // Read the CSW through BULK IN pipe
+        test_hcd_expect_pipe_event(bulk_in_pipe, HCD_PIPE_EVENT_URB_DONE);
+        TEST_ASSERT_EQUAL_PTR(urb_csw, hcd_urb_dequeue(bulk_in_pipe));
+        TEST_ASSERT_EQUAL_MESSAGE(USB_TRANSFER_STATUS_COMPLETED, urb_data->transfer.status, "Transfer NOT completed");
+        TEST_ASSERT_EQUAL(sizeof(mock_msc_bulk_csw_t), urb_csw->transfer.actual_num_bytes);
+        TEST_ASSERT_TRUE(mock_msc_scsi_check_csw((mock_msc_bulk_csw_t *)urb_csw->transfer.data_buffer, 0xAAAAAAAA));
+        // Print the read data
+        printf("Block %d to %d:\n", block_num, block_num + TEST_NUM_SECTORS_PER_XFER);
+        for (int i = 0; i < urb_data->transfer.actual_num_bytes; i++) {
+            printf("0x%02x,", ((char *)urb_data->transfer.data_buffer)[i]);
+        }
+        printf("\n\n");
+    }
+
+    test_hcd_free_urb(urb_cbw);
+    test_hcd_free_urb(urb_data);
+    test_hcd_free_urb(urb_csw);
+    test_hcd_pipe_free(bulk_out_pipe);
+    test_hcd_pipe_free(bulk_in_pipe);
+    test_hcd_pipe_free(default_pipe);
+    // Cleanup
+    test_hcd_wait_for_disconn(port_hdl, false);
+}

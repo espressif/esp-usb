@@ -97,6 +97,35 @@ menu "USB-OTG"
 
                     The default value is set to 10 ms to be safe.
 
+            config USB_HOST_RESUME_HOLD_MS
+                int "Resume hold delay in ms"
+                default 30
+                help
+                    "The host may signal resume (TDRSMDN) at any time. It must send the resume signaling for at least
+                    20 ms and then end the resume signaling.."
+                    See USB 2.0 chapter 7.1.7.7 for more details.
+
+                    The default value is set to 30 ms to be safe.
+
+            config USB_HOST_RESUME_RECOVERY_MS
+                int "Resume recovery delay in ms"
+                default 20
+                help
+                    "The USB System Software must provide a 10 ms resume recovery time (TRSMRCY) during which it will
+                    not attempt to access any device connected to the affected (just-activated) bus segment."
+                    See the USB 2.0 chapter 7.1.7.7 for more details.
+
+                    The default value is set to 20 ms to be safe.
+
+            config USB_HOST_SUSPEND_ENTRY_MS
+                int "Suspend entry delay in ms"
+                default 20
+                help
+                    "The device must actually be suspended, drawing only suspend current from the bus after no more
+                    than 10 ms of bus inactivity on all its ports." See the USB 2.0 chapter 7.1.7.6 for more details.
+
+                    The default values is set to 20 ms to be safe.
+
         endmenu #Root Hub configuration
 
         config USB_HOST_HUBS_SUPPORTED
