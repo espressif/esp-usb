@@ -115,6 +115,10 @@ esp_err_t tinyusb_driver_install(const tinyusb_config_t *config)
 
     esp_err_t ret;
     usb_phy_handle_t phy_hdl = NULL;
+    tinyusb_task_dev_ext_params_t ext_params = {
+        .vbus_monitor_io = -1,
+    };
+
     if (!config->phy.skip_setup) {
         // Configure USB PHY
         usb_phy_config_t phy_conf = {
@@ -133,14 +137,23 @@ esp_err_t tinyusb_driver_install(const tinyusb_config_t *config)
 #endif // (SOC_USB_OTG_PERIPH_NUM > 1)
 
         // OTG IOs config
-        const usb_phy_otg_io_conf_t otg_io_conf = USB_PHY_SELF_POWERED_DEVICE(config->phy.vbus_monitor_io);
         if (config->phy.self_powered) {
-            phy_conf.otg_io_conf = &otg_io_conf;
+            if (config->port == TINYUSB_PORT_FULL_SPEED_0) {
+                // For USB OTG 1.1, we map VBUS monitor io signal to the BVALID while enable PHY
+                const usb_phy_otg_io_conf_t otg_io_conf = USB_PHY_SELF_POWERED_DEVICE(config->phy.vbus_monitor_io);
+                phy_conf.otg_io_conf = &otg_io_conf;
+            }
+#if (SOC_USB_OTG_PERIPH_NUM > 1)
+            else if (config->port == TINYUSB_PORT_HIGH_SPEED_0) {
+                // For USB OTG 2.0, we use VBUS monitoring GPIO to control BVALID value over GOTGCTL register
+                ext_params.vbus_monitor_io = config->phy.vbus_monitor_io;
+            }
+#endif // SOC_USB_OTG_PERIPH_NUM > 1
         }
         ESP_RETURN_ON_ERROR(usb_new_phy(&phy_conf, &phy_hdl), TAG, "Install USB PHY failed");
     }
     // Init TinyUSB stack in task
-    ESP_GOTO_ON_ERROR(tinyusb_task_start(config->port, &config->task, &config->descriptor), del_phy, TAG, "Init TinyUSB task failed");
+    ESP_GOTO_ON_ERROR(tinyusb_task_start(config->port, &config->task, &config->descriptor, &ext_params), del_phy, TAG, "Init TinyUSB task failed");
 
     s_ctx.port = config->port;              // Save the port number
     s_ctx.phy_hdl = phy_hdl;                // Save the PHY handle for uninstallation
@@ -160,9 +173,11 @@ del_phy:
 esp_err_t tinyusb_driver_uninstall(void)
 {
     ESP_RETURN_ON_ERROR(tinyusb_task_stop(), TAG, "Deinit TinyUSB task failed");
+
     if (s_ctx.phy_hdl) {
         ESP_RETURN_ON_ERROR(usb_del_phy(s_ctx.phy_hdl), TAG, "Unable to delete PHY");
         s_ctx.phy_hdl = NULL;
     }
+
     return ESP_OK;
 }

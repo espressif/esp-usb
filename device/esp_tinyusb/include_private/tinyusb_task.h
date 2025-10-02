@@ -14,6 +14,15 @@ extern "C" {
 #endif
 
 /**
+ * @brief TinyUSB Task device extended parameters
+ *
+ * This structure contains the extended and not public configuration parameters for the TinyUSB Task.
+ */
+typedef struct {
+    int vbus_monitor_io;                      /*!< GPIO for VBUS monitoring, 3.3 V tolerant (use a comparator or a resistior divider to detect the VBUS valid condition). -1 if not self_powered. */
+} tinyusb_task_dev_ext_params_t;
+
+/**
  * @brief Check the TinyUSB Task configuration
  *
  * This function checks the TinyUSB Task configuration parameters.
@@ -42,7 +51,10 @@ esp_err_t tinyusb_task_check_config(const tinyusb_task_config_t *task_cfg);
  *    - ESP_ERR_NO_MEM if memory allocation failed
  *    - ESP_OK if TinyUSB Task initialized successfully
  */
-esp_err_t tinyusb_task_start(tinyusb_port_t port, const tinyusb_task_config_t *task_cfg, const tinyusb_desc_config_t *desc_cfg);
+esp_err_t tinyusb_task_start(tinyusb_port_t port,
+                             const tinyusb_task_config_t *task_cfg,
+                             const tinyusb_desc_config_t *desc_cfg,
+                             const tinyusb_task_dev_ext_params_t *ext_params);
 
 /**
  * @brief Stops TinyUSB Task
