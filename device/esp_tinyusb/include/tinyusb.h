@@ -51,6 +51,7 @@ typedef struct {
                                                 The voltage divider output should be (0.75 * Vdd) if VBUS is 4.4V (lowest valid voltage at device port).
                                                 The comparator thresholds should be set with hysteresis: 4.35V (falling edge) and 4.75V (raising edge). */
     int vbus_monitor_io;                      /*!< GPIO for VBUS monitoring, 3.3 V tolerant (use a comparator or a resistior divider to detect the VBUS valid condition). Ignored if not self_powered. */
+    uint32_t vbus_monitor_debounce_ms;        /*!< Debounce delay for VBUS monitoring in milliseconds. Default is 250 ms. Relevant only for ESP32P4 and ignored if not self_powered. */
 } tinyusb_phy_config_t;
 
 /**
