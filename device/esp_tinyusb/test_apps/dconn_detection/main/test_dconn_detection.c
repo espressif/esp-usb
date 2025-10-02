@@ -16,12 +16,17 @@
 #include "esp_log.h"
 #include "esp_err.h"
 #include "driver/gpio.h"
-#include "esp_rom_gpio.h"
-#include "soc/gpio_sig_map.h"
 #include "unity.h"
 #include "tinyusb.h"
 #include "tinyusb_cdc_acm.h"
 #include "tinyusb_default_config.h"
+
+// For GPIO matrix
+#include "esp_rom_gpio.h"
+#include "soc/gpio_sig_map.h"
+// For DWC USB registers access
+#include "soc/usb_dwc_struct.h"
+
 
 static const char *TAG = "dconn_detection";
 
@@ -83,11 +88,13 @@ void test_dconn_event_handler(tinyusb_event_t *event, void *arg)
 {
     switch (event->id) {
     case TINYUSB_EVENT_ATTACHED:
+        printf("\t -> TINYUSB_EVENT_ATTACHED\n");
         ESP_LOGD(TAG, "%s", __FUNCTION__);
         dev_mounted++;
         xSemaphoreGive(wait_dev_stage_change);
         break;
     case TINYUSB_EVENT_DETACHED:
+        printf("\t <- TINYUSB_EVENT_DETACHED\n");
         ESP_LOGD(TAG, "%s", __FUNCTION__);
         dev_umounted++;
         xSemaphoreGive(wait_dev_stage_change);
@@ -137,7 +144,7 @@ TEST_CASE("dconn_detection", "[ci][dconn]")
 
     tusb_cfg.phy.self_powered = true;
     // Doesn't matter in the current test scenario, as the connection and disconnection events are emulated by multiplexing bvalid signal
-    tusb_cfg.phy.vbus_monitor_io = 0;
+    tusb_cfg.phy.vbus_monitor_io = 14;
 
     TEST_ASSERT_EQUAL(ESP_OK, tinyusb_driver_install(&tusb_cfg));
     TEST_ASSERT_EQUAL(pdTRUE, xSemaphoreTake(wait_dev_stage_change, pdMS_TO_TICKS(TEARDOWN_DEVICE_ATTACH_TIMEOUT_MS)));
@@ -187,25 +194,49 @@ TEST_CASE("init device", "[dconn]")
 
     tusb_cfg.phy.self_powered = true;
     // Doesn't matter in the current test scenario, as the connection and disconnection events are emulated by multiplexing bvalid signal
-    tusb_cfg.phy.vbus_monitor_io = 0;
+    tusb_cfg.phy.vbus_monitor_io = 14;
 
     TEST_ASSERT_EQUAL(ESP_OK, tinyusb_driver_install(&tusb_cfg));
+
+#if CONFIG_IDF_TARGET_ESP32P4
+    USB_DWC_HS.gotgctl_reg.bvalidoven = 1; // Enable value override
+    esp_rom_delay_us(1); // Wait 5 PHY clocks
+    USB_DWC_HS.gotgctl_reg.bvalidovval = 1; // Set to valid
+#endif //
+
     TEST_ASSERT_EQUAL(pdTRUE, xSemaphoreTake(wait_dev_stage_change, pdMS_TO_TICKS(TEARDOWN_DEVICE_ATTACH_TIMEOUT_MS)));
 }
 
 TEST_CASE("attach device", "[dconn]")
 {
     // LOW to emulate connect USB device
-    ESP_LOGD(TAG, "bvalid(1)");
+    printf("bvalid(1)\n");
+#if CONFIG_IDF_TARGET_ESP32S2 || CONFIG_IDF_TARGET_ESP32S3
     esp_rom_gpio_connect_in_signal(GPIO_MATRIX_CONST_ONE_INPUT, USB_SRP_BVALID_IN_IDX, false);
+#elif CONFIG_IDF_TARGET_ESP32P4
+    printf("BVALIDOVEN %d\n", USB_DWC_HS.gotgctl_reg.bvalidoven);
+    printf("BVALIDOVVAL %d\n", USB_DWC_HS.gotgctl_reg.bvalidovval);
+    USB_DWC_HS.gotgctl_reg.bvalidovval = 1;
+    USB_DWC_HS.gotgctl_reg.vbvalidovval = 1; // Set VBUS
+    printf("BVALIDOVVAL %d\n", USB_DWC_HS.gotgctl_reg.bvalidovval);
+#endif // CONFIG_IDF_TARGET_ESP32S2 || CONFIG_IDF_TARGET_ESP32S3
+
     TEST_ASSERT_EQUAL(pdTRUE, xSemaphoreTake(wait_dev_stage_change, pdMS_TO_TICKS(TEARDOWN_DEVICE_ATTACH_TIMEOUT_MS)));
 }
 
 TEST_CASE("detach device", "[dconn]")
 {
     // HIGH to emulate disconnect USB device
-    ESP_LOGD(TAG, "bvalid(0)");
+    printf("bvalid(0)\n");
+#if CONFIG_IDF_TARGET_ESP32S2 || CONFIG_IDF_TARGET_ESP32S3
     esp_rom_gpio_connect_in_signal(GPIO_MATRIX_CONST_ZERO_INPUT, USB_SRP_BVALID_IN_IDX, false);
+#elif CONFIG_IDF_TARGET_ESP32P4
+    printf("BVALIDOVEN %d\n", USB_DWC_HS.gotgctl_reg.bvalidoven);
+    printf("BVALIDOVVAL %d\n", USB_DWC_HS.gotgctl_reg.bvalidovval);
+    USB_DWC_HS.gotgctl_reg.bvalidovval = 0;
+    USB_DWC_HS.gotgctl_reg.vbvalidovval = 0; // Reset VBUS
+    printf("BVALIDOVVAL %d\n", USB_DWC_HS.gotgctl_reg.bvalidovval);
+#endif // CONFIG_IDF_TARGET_ESP32S2 || CONFIG_IDF_TARGET_ESP32S3
     TEST_ASSERT_EQUAL(pdTRUE, xSemaphoreTake(wait_dev_stage_change, pdMS_TO_TICKS(TEARDOWN_DEVICE_ATTACH_TIMEOUT_MS)));
 }
 
