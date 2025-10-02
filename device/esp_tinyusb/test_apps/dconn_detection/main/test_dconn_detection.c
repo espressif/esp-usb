@@ -16,14 +16,23 @@
 #include "esp_log.h"
 #include "esp_err.h"
 #include "driver/gpio.h"
-#include "esp_rom_gpio.h"
-#include "soc/gpio_sig_map.h"
 #include "unity.h"
 #include "tinyusb.h"
+#include "tinyusb_cdc_acm.h"
 #include "tinyusb_default_config.h"
 
-#define DEVICE_DETACH_TEST_ROUNDS       10
-#define DEVICE_DETACH_ROUND_DELAY_MS    1000
+// For GPIO matrix
+#include "esp_rom_gpio.h"
+#include "soc/gpio_sig_map.h"
+// For DWC USB registers access
+#include "soc/usb_dwc_struct.h"
+
+
+static const char *TAG = "dconn_detection";
+
+#define DEVICE_DETACH_TEST_ROUNDS           10
+#define DEVICE_DETACH_ROUND_DELAY_MS        10
+#define TEARDOWN_DEVICE_ATTACH_TIMEOUT_MS   1000
 
 #if (CONFIG_IDF_TARGET_ESP32P4)
 #define USB_SRP_BVALID_IN_IDX       USB_SRP_BVALID_PAD_IN_IDX
@@ -31,27 +40,23 @@
 
 /* TinyUSB descriptors
    ********************************************************************* */
-#define TUSB_DESC_TOTAL_LEN         (TUD_CONFIG_DESC_LEN)
 
+SemaphoreHandle_t wait_dev_stage_change = NULL;
 static unsigned int dev_mounted = 0;
 static unsigned int dev_umounted = 0;
 
-static uint8_t const test_configuration_descriptor[] = {
-    // Config number, interface count, string index, total length, attribute, power in mA
-    TUD_CONFIG_DESCRIPTOR(1, 0, 0, TUSB_DESC_TOTAL_LEN, TUSB_DESC_CONFIG_ATT_SELF_POWERED | TUSB_DESC_CONFIG_ATT_REMOTE_WAKEUP, 100),
-};
 
-static const tusb_desc_device_t test_device_descriptor = {
-    .bLength = sizeof(test_device_descriptor),
+static const tusb_desc_device_t cdc_device_descriptor = {
+    .bLength = sizeof(cdc_device_descriptor),
     .bDescriptorType = TUSB_DESC_DEVICE,
     .bcdUSB = 0x0200,
     .bDeviceClass = TUSB_CLASS_MISC,
     .bDeviceSubClass = MISC_SUBCLASS_COMMON,
     .bDeviceProtocol = MISC_PROTOCOL_IAD,
     .bMaxPacketSize0 = CFG_TUD_ENDPOINT0_SIZE,
-    .idVendor = 0x303A, // This is Espressif VID. This needs to be changed according to Users / Customers
+    .idVendor = TINYUSB_ESPRESSIF_VID,
     .idProduct = 0x4002,
-    .bcdDevice = 0x100,
+    .bcdDevice = 0x0100,
     .iManufacturer = 0x01,
     .iProduct = 0x02,
     .iSerialNumber = 0x03,
@@ -83,12 +88,16 @@ void test_dconn_event_handler(tinyusb_event_t *event, void *arg)
 {
     switch (event->id) {
     case TINYUSB_EVENT_ATTACHED:
-        printf("%s\n", __FUNCTION__);
+        printf("\t -> TINYUSB_EVENT_ATTACHED\n");
+        ESP_LOGD(TAG, "%s", __FUNCTION__);
         dev_mounted++;
+        xSemaphoreGive(wait_dev_stage_change);
         break;
     case TINYUSB_EVENT_DETACHED:
-        printf("%s\n", __FUNCTION__);
+        printf("\t <- TINYUSB_EVENT_DETACHED\n");
+        ESP_LOGD(TAG, "%s", __FUNCTION__);
         dev_umounted++;
+        xSemaphoreGive(wait_dev_stage_change);
         break;
     default:
         break;
@@ -114,38 +123,127 @@ void test_dconn_event_handler(tinyusb_event_t *event, void *arg)
  * - Uninstall TinyUSB Device stack
  *
  */
-TEST_CASE("dconn_detection", "[esp_tinyusb][dconn]")
+TEST_CASE("dconn_detection", "[ci][dconn]")
 {
-    unsigned int rounds = DEVICE_DETACH_TEST_ROUNDS;
+    wait_dev_stage_change = xSemaphoreCreateBinary();
+
+    static const uint16_t cdc_desc_config_len = TUD_CONFIG_DESC_LEN + TUD_CDC_DESC_LEN;
+    static const uint8_t cdc_desc_configuration[] = {
+        TUD_CONFIG_DESCRIPTOR(1, 2, 0, cdc_desc_config_len, TUSB_DESC_CONFIG_ATT_REMOTE_WAKEUP, 100),
+        TUD_CDC_DESCRIPTOR(0, 4, 0x81, 8, 0x02, 0x82, (TUD_OPT_HIGH_SPEED ? 512 : 64)),
+    };
 
     // Install TinyUSB driver
     tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG(test_dconn_event_handler);
-    tusb_cfg.descriptor.device = &test_device_descriptor;
-    tusb_cfg.descriptor.full_speed_config = test_configuration_descriptor;
+    tusb_cfg.descriptor.device = &cdc_device_descriptor;
+    tusb_cfg.descriptor.full_speed_config = cdc_desc_configuration;
 #if (TUD_OPT_HIGH_SPEED)
     tusb_cfg.descriptor.qualifier = &device_qualifier;
-    tusb_cfg.descriptor.high_speed_config = test_configuration_descriptor;
+    tusb_cfg.descriptor.high_speed_config = cdc_desc_configuration;
 #endif // TUD_OPT_HIGH_SPEED
 
-    TEST_ASSERT_EQUAL(ESP_OK, tinyusb_driver_install(&tusb_cfg));
+    tusb_cfg.phy.self_powered = true;
+    // Doesn't matter in the current test scenario, as the connection and disconnection events are emulated by multiplexing bvalid signal
+    tusb_cfg.phy.vbus_monitor_io = 14;
 
+    TEST_ASSERT_EQUAL(ESP_OK, tinyusb_driver_install(&tusb_cfg));
+    TEST_ASSERT_EQUAL(pdTRUE, xSemaphoreTake(wait_dev_stage_change, pdMS_TO_TICKS(TEARDOWN_DEVICE_ATTACH_TIMEOUT_MS)));
+
+    unsigned int rounds = DEVICE_DETACH_TEST_ROUNDS;
     dev_mounted = 0;
     dev_umounted = 0;
 
     while (rounds--) {
-        // LOW to emulate disconnect USB device
+        // HIGH to emulate disconnect USB device
+        ESP_LOGD(TAG, "bvalid(0)");
         esp_rom_gpio_connect_in_signal(GPIO_MATRIX_CONST_ZERO_INPUT, USB_SRP_BVALID_IN_IDX, false);
-        vTaskDelay(pdMS_TO_TICKS(DEVICE_DETACH_ROUND_DELAY_MS));
+        TEST_ASSERT_EQUAL(pdTRUE, xSemaphoreTake(wait_dev_stage_change, pdMS_TO_TICKS(TEARDOWN_DEVICE_ATTACH_TIMEOUT_MS)));
         // HIGH to emulate connect USB device
+        ESP_LOGD(TAG, "bvalid(1)");
         esp_rom_gpio_connect_in_signal(GPIO_MATRIX_CONST_ONE_INPUT, USB_SRP_BVALID_IN_IDX, false);
-        vTaskDelay(pdMS_TO_TICKS(DEVICE_DETACH_ROUND_DELAY_MS));
+        TEST_ASSERT_EQUAL(pdTRUE, xSemaphoreTake(wait_dev_stage_change, pdMS_TO_TICKS(TEARDOWN_DEVICE_ATTACH_TIMEOUT_MS)));
     }
+    // Cleanup
+    TEST_ASSERT_EQUAL(ESP_OK, tinyusb_driver_uninstall());
 
-    // Verify
+    // Verify test results
     TEST_ASSERT_EQUAL(dev_umounted, dev_mounted);
     TEST_ASSERT_EQUAL(DEVICE_DETACH_TEST_ROUNDS, dev_mounted);
 
-    // Cleanup
+}
+
+
+TEST_CASE("init device", "[dconn]")
+{
+    wait_dev_stage_change = xSemaphoreCreateBinary();
+
+    static const uint16_t cdc_desc_config_len = TUD_CONFIG_DESC_LEN + TUD_CDC_DESC_LEN;
+    static const uint8_t cdc_desc_configuration[] = {
+        TUD_CONFIG_DESCRIPTOR(1, 2, 0, cdc_desc_config_len, TUSB_DESC_CONFIG_ATT_REMOTE_WAKEUP, 100),
+        TUD_CDC_DESCRIPTOR(0, 4, 0x81, 8, 0x02, 0x82, (TUD_OPT_HIGH_SPEED ? 512 : 64)),
+    };
+
+    // Install TinyUSB driver
+    tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG(test_dconn_event_handler);
+    tusb_cfg.descriptor.device = &cdc_device_descriptor;
+    tusb_cfg.descriptor.full_speed_config = cdc_desc_configuration;
+#if (TUD_OPT_HIGH_SPEED)
+    tusb_cfg.descriptor.qualifier = &device_qualifier;
+    tusb_cfg.descriptor.high_speed_config = cdc_desc_configuration;
+#endif // TUD_OPT_HIGH_SPEED
+
+    tusb_cfg.phy.self_powered = true;
+    // Doesn't matter in the current test scenario, as the connection and disconnection events are emulated by multiplexing bvalid signal
+    tusb_cfg.phy.vbus_monitor_io = 14;
+
+    TEST_ASSERT_EQUAL(ESP_OK, tinyusb_driver_install(&tusb_cfg));
+
+#if CONFIG_IDF_TARGET_ESP32P4
+    USB_DWC_HS.gotgctl_reg.bvalidoven = 1; // Enable value override
+    esp_rom_delay_us(1); // Wait 5 PHY clocks
+    USB_DWC_HS.gotgctl_reg.bvalidovval = 1; // Set to valid
+#endif //
+
+    TEST_ASSERT_EQUAL(pdTRUE, xSemaphoreTake(wait_dev_stage_change, pdMS_TO_TICKS(TEARDOWN_DEVICE_ATTACH_TIMEOUT_MS)));
+}
+
+TEST_CASE("attach device", "[dconn]")
+{
+    // LOW to emulate connect USB device
+    printf("bvalid(1)\n");
+#if CONFIG_IDF_TARGET_ESP32S2 || CONFIG_IDF_TARGET_ESP32S3
+    esp_rom_gpio_connect_in_signal(GPIO_MATRIX_CONST_ONE_INPUT, USB_SRP_BVALID_IN_IDX, false);
+#elif CONFIG_IDF_TARGET_ESP32P4
+    printf("BVALIDOVEN %d\n", USB_DWC_HS.gotgctl_reg.bvalidoven);
+    printf("BVALIDOVVAL %d\n", USB_DWC_HS.gotgctl_reg.bvalidovval);
+    USB_DWC_HS.gotgctl_reg.bvalidovval = 1;
+    USB_DWC_HS.gotgctl_reg.vbvalidovval = 1; // Set VBUS
+    printf("BVALIDOVVAL %d\n", USB_DWC_HS.gotgctl_reg.bvalidovval);
+#endif // CONFIG_IDF_TARGET_ESP32S2 || CONFIG_IDF_TARGET_ESP32S3
+
+    TEST_ASSERT_EQUAL(pdTRUE, xSemaphoreTake(wait_dev_stage_change, pdMS_TO_TICKS(TEARDOWN_DEVICE_ATTACH_TIMEOUT_MS)));
+}
+
+TEST_CASE("detach device", "[dconn]")
+{
+    // HIGH to emulate disconnect USB device
+    printf("bvalid(0)\n");
+#if CONFIG_IDF_TARGET_ESP32S2 || CONFIG_IDF_TARGET_ESP32S3
+    esp_rom_gpio_connect_in_signal(GPIO_MATRIX_CONST_ZERO_INPUT, USB_SRP_BVALID_IN_IDX, false);
+#elif CONFIG_IDF_TARGET_ESP32P4
+    printf("BVALIDOVEN %d\n", USB_DWC_HS.gotgctl_reg.bvalidoven);
+    printf("BVALIDOVVAL %d\n", USB_DWC_HS.gotgctl_reg.bvalidovval);
+    USB_DWC_HS.gotgctl_reg.bvalidovval = 0;
+    USB_DWC_HS.gotgctl_reg.vbvalidovval = 0; // Reset VBUS
+    printf("BVALIDOVVAL %d\n", USB_DWC_HS.gotgctl_reg.bvalidovval);
+#endif // CONFIG_IDF_TARGET_ESP32S2 || CONFIG_IDF_TARGET_ESP32S3
+    TEST_ASSERT_EQUAL(pdTRUE, xSemaphoreTake(wait_dev_stage_change, pdMS_TO_TICKS(TEARDOWN_DEVICE_ATTACH_TIMEOUT_MS)));
+}
+
+TEST_CASE("deinit device", "[dconn]")
+{
     TEST_ASSERT_EQUAL(ESP_OK, tinyusb_driver_uninstall());
+    vSemaphoreDelete(wait_dev_stage_change);
+    wait_dev_stage_change = NULL;
 }
 #endif // SOC_USB_OTG_SUPPORTED
