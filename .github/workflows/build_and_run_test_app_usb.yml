@@ -46,7 +46,9 @@ jobs:
             idf_ver: "release-v5.2"
           - test_app: host_managed
             idf_ver: "release-v5.3"
-          # TODO: Exclude native usb component for IDF Latest, once the USB component is removed from the esp-idf Jira issue IDF-14051
+            #Exclude native usb component for IDF Latest (usb component has been removed from esp-idf)
+          - test_app: host_native
+            idf_ver: "latest"
 
     runs-on: ubuntu-latest
     container: espressif/idf:${{ matrix.idf_ver }}
@@ -114,7 +116,9 @@ jobs:
             idf_ver: "release-v5.2"
           - test_app: host_managed
             idf_ver: "release-v5.3"
-          # TODO: Exclude native usb component for IDF Latest, once the USB component is removed from the esp-idf: Jira issue IDF-14051
+            #Exclude native usb component for IDF Latest (usb component has been removed from esp-idf)
+          - test_app: host_native
+            idf_ver: "latest"
 
     runs-on: [self-hosted, linux, docker, "${{ matrix.idf_target }}", "${{ matrix.runner_tag }}"]
     container:
