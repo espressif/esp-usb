@@ -154,9 +154,18 @@ ESP_STATIC_ASSERT(sizeof(usb_device_status_t) == sizeof(uint16_t), "Size of usb_
 #define USB_W_VALUE_DT_INTERFACE_POWER      0x08
 
 /**
+ * @brief Feature selector values belonging to the wValue field of a setup packet
+ *
+ * See Table 9-6 of USB2.0 specification for more details
+ */
+#define ENDPOINT_HALT                       0x00
+#define DEVICE_REMOTE_WAKEUP                0x01
+#define TEST_MODE                           0x02
+
+/**
  * @brief Initializer for a GET_STATUS request
  *
- * Sets the address of a connected device
+ * Gets the status of a connected device
  */
 #define USB_SETUP_PACKET_INIT_GET_STATUS(setup_pkt_ptr) ({  \
     (setup_pkt_ptr)->bmRequestType = USB_BM_REQUEST_TYPE_DIR_IN | USB_BM_REQUEST_TYPE_TYPE_STANDARD | USB_BM_REQUEST_TYPE_RECIP_DEVICE;   \
@@ -164,6 +173,36 @@ ESP_STATIC_ASSERT(sizeof(usb_device_status_t) == sizeof(uint16_t), "Size of usb_
     (setup_pkt_ptr)->wValue = 0;   \
     (setup_pkt_ptr)->wIndex = 0;    \
     (setup_pkt_ptr)->wLength = 2;   \
+})
+
+/**
+ * @brief Initializer for a CLEAR_FEATURE request
+ *
+ * Clears the feature of a connected device
+ *
+ * See Chapter 9.4.1 of USB2.0 specification for more details
+ */
+#define USB_SETUP_PACKET_INIT_CLEAR_FEATURE(setup_pkt_ptr, feature_to_clear) ({  \
+    (setup_pkt_ptr)->bmRequestType = USB_BM_REQUEST_TYPE_DIR_OUT | USB_BM_REQUEST_TYPE_TYPE_STANDARD | USB_BM_REQUEST_TYPE_RECIP_DEVICE;   \
+    (setup_pkt_ptr)->bRequest = USB_B_REQUEST_CLEAR_FEATURE;  \
+    (setup_pkt_ptr)->wValue = feature_to_clear;   \
+    (setup_pkt_ptr)->wIndex = 0;    \
+    (setup_pkt_ptr)->wLength = 0;   \
+})
+
+/**
+ * @brief Initializer for a SET_FEATURE request
+ *
+ * Sets the feature of a connected device
+ *
+ * See Chapter 9.4.9 of USB2.0 specification for more details
+ */
+#define USB_SETUP_PACKET_INIT_SET_FEATURE(setup_pkt_ptr, feature_to_set) ({  \
+    (setup_pkt_ptr)->bmRequestType = USB_BM_REQUEST_TYPE_DIR_OUT | USB_BM_REQUEST_TYPE_TYPE_STANDARD | USB_BM_REQUEST_TYPE_RECIP_DEVICE;   \
+    (setup_pkt_ptr)->bRequest = USB_B_REQUEST_SET_FEATURE;  \
+    (setup_pkt_ptr)->wValue = feature_to_set;   \
+    (setup_pkt_ptr)->wIndex = 0;    \
+    (setup_pkt_ptr)->wLength = 0;   \
 })
 
 /**

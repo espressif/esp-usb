@@ -40,6 +40,7 @@ The Host Library has the following features:
     - Allows single Hub support (If option `CONFIG_USB_HOST_HUBS_SUPPORTED` is enabled).
     - Allows multiple Hubs support (If option `CONFIG_USB_HOST_HUB_MULTI_LEVEL` is enabled).
     - Supports global suspend and resume, implemented by suspending or resuming the entire bus.
+    - Supports remote wakeup of the USB Host initiated by a USB Device
     - Supports automatic global resume by submitting a transfer.
 
 Currently, the Host Library and the underlying Host Stack has the following limitations:
@@ -50,7 +51,6 @@ Currently, the Host Library and the underlying Host Stack has the following limi
     - Only supports using one configuration. Changing to other configurations after enumeration is not supported yet.
     - Transfer timeouts are not supported yet.
     - Selective (per-device/per-port) suspend/resume is not supported yet.
-    - Remote Wakeup initiated by a USB device is not supported yet.
     - The External Hub Driver: Remote Wakeup feature is not supported (External Hubs are active, even if there are no devices inserted).
     - The External Hub Driver: Doesn't handle error cases (overcurrent handling, errors during initialization etc. are not implemented yet).
     - The External Hub Driver: No Interface selection. The Driver uses the first available Interface with Hub Class code (09h).
@@ -378,7 +378,7 @@ Global Suspend/Resume
 
 USB Host library supports global Suspend/Resume, which suspends and resumes the entire USB bus. The global Suspend/Resume is implemented through the root port(s). When suspended, the USB Host stops sending SOFs, which effectively puts all the devices connected to the USB bus to a suspended state.
 
-Note that the global Suspend/Resume does **not** suspend/resume the USB-OTG peripheral on the USB Host side, and therefore does **not** reduce power consumption on the host controller itself.
+Note that the global Suspend/Resume also suspends/resumes the USB-OTG peripheral (not the whole SoC) on the USB Host side, and therefore reduces power consumption on the host controller itself. The global suspend/resume implements power saving by the DWC-OTG internal clock gating.
 
 Events
 ^^^^^^
@@ -487,6 +487,35 @@ The following code snippet demonstrates how to cycle between suspended and resum
 .. note::
 
     For more details regarding suspend and resume, please refer to `USB 2.0 Specification <https://www.usb.org/document-library/usb-20-specification>`_ > Chapter 11.9 *Suspend and Resume*.
+
+Remote Wakeup
+^^^^^^^^^^^^^^
+
+The USB Host library supports USB Remote wakeup, which allows a suspended USB device to signal the host to resume the bus. Remote wakeup is initiated by the device.
+
+Remote wakeup behavior follows the USB 2.0 specification and has the following characteristics:
+
+ - Remote wakeup is only possible when the root port is in a suspended state.
+ - The device must explicitly support remote wakeup, as indicated in its configuration descriptor.
+ - Remote wakeup must be enabled by the host before a device is allowed to issue a remote wakeup signal.
+
+Enabling Remote Wakeup
+""""""""""""""""""""""
+
+Remote wakeup can be enabled only by USB class drivers (typically HID class). The USB Host library itself does not automatically enable remote wakeup. Instead, the class driver is responsible for:
+
+ - Checking whether the device supports remote wakeup.
+ - Enabling/Disabling remote wakeup on the device.
+
+Remote Wakeup Behavior
+""""""""""""""""""""""
+
+When a suspended device with remote wakeup enabled initiates a remote wakeup:
+
+ - The device signals resume on the USB bus.
+ - The root port transitions from suspended to active state.
+ - The USB Host library resumes normal operation and SOF generation.
+ - All clients that have opened the affected device are notified via the :cpp:enumerator:`USB_HOST_CLIENT_EVENT_DEV_RESUMED` event.
 
 .. ---------------------------------------------------- Examples -------------------------------------------------------
 

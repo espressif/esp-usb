@@ -352,7 +352,7 @@ static void host_lib_task(void *arg)
 TEST_CASE("Test USB Host multiconfig client (single client)", "[usb_host][full_speed][high_speed]")
 {
     SemaphoreHandle_t dev_open_smp = xSemaphoreCreateBinary();
-    TEST_ASSERT_NOT_NULL(dev_open_smp);
+    TEST_ASSERT_NOT_NULL_MESSAGE(dev_open_smp, "Failed to create semaphore");
 
     multiconf_client_test_param_t multiconf_params = {
         .dev_open_smp = dev_open_smp,
@@ -449,9 +449,6 @@ Procedure:
     - Free all devices
     - Uninstall USB Host Library
 */
-
-#define TEST_MSC_AUTO_RESUME_TRANSFERS      2
-
 TEST_CASE("Test USB Host resume by submit transfer", "[usb_host][full_speed][high_speed]")
 {
     // Create task to run client that communicates with MSC SCSI interface
@@ -676,3 +673,53 @@ TEST_CASE("Test USB Host suspend/resume multiple tasks access (no client)", "[us
     // Wait for the host library task to finish
     TEST_ASSERT_MESSAGE(ulTaskNotifyTake(pdFALSE, pdMS_TO_TICKS(1000)), "usb host lib task did not finish");
 }
+
+#ifdef REMOTE_WAKE_HAL_SUPPORTED
+/*
+Note: This test is run in CI only in limited state (open MSC device -> Check remote wakeup from descriptor -> close device)
+      It can be run manually with remote wakeup capable device
+
+Test:
+- Enabling/Disabling of the remote wakeup feature on the device
+- Reading the current state of the remote wakeup from the device
+- Test can be run with either a device which has or which does not have remote wakeup feature
+
+Purpose:
+- Test CLEAR_FEATURE, SET_FEATURE and GET_STATUS request types
+
+Procedure:
+    - Install USB Host Library
+    - Check if the connected device supports remote wakeup, from it's configuration descriptor
+      - Devices with no remote wakeup capability: just close the device and finish test
+      - Devices with remote wakeup:
+        - Test enabling, disabling and reading of the remote wakeup on/from the device
+        - Enable the remote wakeup and suspend the root port
+        - Wait for the user to generate remote wakeup signaling from the device (Keyboard, or PC Mouse button press)
+        - Expect the root port to resume
+    - Teardown
+*/
+TEST_CASE("Test USB Host remote wakeup", "[usb_host][low_speed][full_speed][high_speed]")
+{
+    TaskHandle_t client_task = NULL;
+    xTaskCreate(ctrl_client_remote_wake_task, "remote_wake_client", 4096, NULL, 2, &client_task);
+    TEST_ASSERT_NOT_NULL_MESSAGE(client_task, "Failed to create async client task");
+    // Start the task
+    xTaskNotifyGive(client_task);
+
+    while (1) {
+        // Start handling system events
+        uint32_t event_flags;
+        usb_host_lib_handle_events(portMAX_DELAY, &event_flags);
+        if (event_flags & USB_HOST_LIB_EVENT_FLAGS_NO_CLIENTS) {
+            printf("No more clients\n");
+            TEST_ASSERT_EQUAL(ESP_ERR_NOT_FINISHED, usb_host_device_free_all());
+        }
+        if (event_flags & USB_HOST_LIB_EVENT_FLAGS_ALL_FREE) {
+            printf("All devices freed\n");
+            break;
+        }
+    }
+    printf("Deleting host_lib_task\n");
+}
+
+#endif // REMOTE_WAKE_HAL_SUPPORTED

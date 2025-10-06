@@ -592,8 +592,10 @@ static esp_err_t convert_fifo_config_to_hal_config(const hcd_fifo_settings_t *sr
 /**
  * @brief Power ON the port
  *
- * @param port Port object
- * @return esp_err_t
+ * @param[in] port Pointer to the port object
+ * @return
+ *    - ESP_ERR_INVALID_STATE: Root port is not in a correct state to be powered on
+ *    - ESP_OK: Root port powered on
  */
 static esp_err_t _port_cmd_power_on(port_t *port);
 
@@ -602,8 +604,11 @@ static esp_err_t _port_cmd_power_on(port_t *port);
  *
  * - If a device is currently connected, this function will cause a disconnect event
  *
- * @param port Port object
- * @return esp_err_t
+ * @param[in] port Pointer to the port object
+ * @return
+ *    - ESP_ERR_INVALID_STATE: Root port is not in a correct state to be powered off
+ *    - ESP_ERR_NOT_ALLOWED: HCLK could not be un-gated
+ *    - ESP_OK: Root port powered off
  */
 static esp_err_t _port_cmd_power_off(port_t *port);
 
@@ -613,8 +618,13 @@ static esp_err_t _port_cmd_power_off(port_t *port);
  * - This function issues a reset signal using the timings specified by the USB2.0 spec
  *
  * @note This function can block
- * @param port Port object
- * @return esp_err_t
+ * @param[in] port Pointer to the port object
+ * @return
+ *    - ESP_ERR_INVALID_STATE: Root port is not in a correct state to be reset
+ *    - ESP_ERR_NOT_ALLOWED: HCLK could not be un-gated
+ *    - ESP_ERR_INVALID_RESPONSE: Root port state unexpectedly changed during the reset sequence
+ *    - ESP_ERR_INVALID_SIZE: Invalid FIFO config
+ *    - ESP_OK: Root port reset successful
  */
 static esp_err_t _port_cmd_reset(port_t *port);
 
@@ -623,11 +633,19 @@ static esp_err_t _port_cmd_reset(port_t *port);
  *
  * - Port must be enabled in order to to be suspended
  * - All pipes must be halted for the port to be suspended
- * - Suspending the port stops Keep Alive/SOF from being sent to the connected device
+ * - Suspending the port stops Keep Alive/SOF from being sent to the connected device and gates the internal clock
+ *
+ * - This sequence equals to a sequence from the DesignWare Cores USB 2.0 Programming Guide version 4.00a
+ *   14.2.2 Clock Gating
  *
  * @note This function can block
- * @param port Port object
- * @return esp_err_t
+ * @param[in] port Pointer to the port object
+ * @return
+ *    - ESP_ERR_INVALID_STATE: Port is not in a correct state to be suspended, or pipe(s) routed through this port is not halted
+ *    - ESP_ERR_INVALID_RESPONSE: Port state unexpectedly changed (for example: device was disconnected)
+ *    - ESP_ERR_NOT_FINISHED: Port did not finish the suspending sequence and is not in the suspended state
+ *    - ESP_ERR_NOT_ALLOWED: HCLK could not be gated
+ *    - ESP_OK: Root port suspended
  */
 static esp_err_t _port_cmd_bus_suspend(port_t *port);
 
@@ -635,10 +653,21 @@ static esp_err_t _port_cmd_bus_suspend(port_t *port);
  * @brief Resume the port
  *
  * - Port must be suspended in order to be resumed
+ * - Resuming the root port starts to send Keep Alive/SOF to the connected device and un-gates the internal clock
+ *
+ * - This sequence equals to a sequence from the DesignWare Cores USB 2.0 Programming Guide version 4.00a
+ *   14.2.2 Clock Gating
+ *   Sequence Exiting Suspend State Through Host Initiated Resume
+ *            Exiting Suspend State Through Device Initiated Remote Wakeup
  *
  * @note This function can block
- * @param port Port object
- * @return esp_err_t
+ * @note this sequence is used for both resume scenarios: the host initiated and the device initiated (remote wakeup) resume
+ * @param[in] port Pointer to the port object
+ * @return
+ *    - ESP_ERR_INVALID_STATE: Port is not in a correct state to be resumed
+ *    - ESP_ERR_NOT_ALLOWED: HCLK could not be un-gated
+ *    - ESP_ERR_INVALID_RESPONSE: Port state unexpectedly changed (for example: device was disconnected)
+ *    - ESP_OK: Root port resumed
  */
 static esp_err_t _port_cmd_bus_resume(port_t *port);
 
@@ -649,8 +678,12 @@ static esp_err_t _port_cmd_bus_resume(port_t *port);
  * - The port must be enabled or suspended in order to be disabled
  *
  * @note This function can block
- * @param port Port object
- * @return esp_err_t
+ * @param[in] port Pointer to the port object
+ * @return
+ *    - ESP_ERR_INVALID_STATE: Port is not in a correct state to be disabled, or pipe(s) routed through this port is not halted
+ *    - ESP_ERR_NOT_ALLOWED: HCLK could not be un-gated
+ *    - ESP_ERR_INVALID_RESPONSE: Port state unexpectedly changed (for example: device was disconnected)
+ *    - ESP_OK: Root port disabled
  */
 static esp_err_t _port_cmd_disable(port_t *port);
 
@@ -841,6 +874,16 @@ static hcd_port_event_t _intr_hdlr_hprt(port_t *port, usb_dwc_hal_port_event_t h
         port->flags.conn_dev_ena = 0;
         break;
     }
+#ifdef REMOTE_WAKE_HAL_SUPPORTED
+    case USB_DWC_HAL_PORT_EVENT_REMOTE_WAKEUP: {
+        ESP_EARLY_LOGD(HCD_DWC_TAG, "Remote wakeup generated from device");
+        // Port must have been previously suspended to start processing remote wakeup signaling
+        if (port->state == HCD_PORT_STATE_SUSPENDED) {
+            port_event = HCD_PORT_EVENT_REMOTE_WAKEUP;
+        }
+        break;
+    }
+#endif // REMOTE_WAKE_HAL_SUPPORTED
     default: {
         abort();
         break;
@@ -1236,6 +1279,34 @@ static inline bool _is_fifo_config_by_bias(const usb_dwc_hal_fifo_config_t *cfg)
             cfg->ptx_fifo_lines == 0);
 }
 
+/**
+ * @brief Gate internal clock
+ *
+ * @param[in] port Pointer to the port object
+ * @param[in] enable enable/disable internal clock gating
+ * @return True internal clk successfully gated/un-gated
+ * @return False internal clk could not be gated/un-gated
+ */
+static inline bool _internal_clk_gate(port_t *port, bool enable)
+{
+    // Stop PHY Clock and gate HCLK
+    usb_dwc_hal_pwr_clk_internal_clock_gate(port->hal, enable);
+
+    // Wait 10 PHY clock cycles, PHY Clock is 30MHz when using 16bit interface, 60MHz when 8bit interface
+    // which makes 33.3 nS. Busy wait for 1uS just to be sure
+    esp_rom_delay_us(1);
+
+    const bool phy_clk_stopped = usb_dwc_hal_pwr_clk_check_phy_clk_stopped(port->hal);
+    const bool hclk_gated = usb_dwc_hal_pwr_clk_check_hclk_gated(port->hal);
+
+    // enable == phy_clk_stopped == hclk_gated
+    // When gating the clock, all 3 variables must be 1. When un-gating, all 3 must be 0.
+    if ((enable == phy_clk_stopped) && (enable == hclk_gated)) {
+        return true;
+    }
+    return false;
+}
+
 // ---------------------- Commands -------------------------
 
 static esp_err_t _port_cmd_power_on(port_t *port)
@@ -1257,15 +1328,27 @@ static esp_err_t _port_cmd_power_off(port_t *port)
 {
     esp_err_t ret;
     // Port can only be unpowered if already powered
-    if (port->state != HCD_PORT_STATE_NOT_POWERED) {
-        port->state = HCD_PORT_STATE_NOT_POWERED;
-        usb_dwc_hal_port_deinit(port->hal);
-        usb_dwc_hal_port_toggle_power(port->hal, false);
-        // If a device is currently connected, this should trigger a disconnect event
-        ret = ESP_OK;
-    } else {
+    if (port->state == HCD_PORT_STATE_NOT_POWERED) {
         ret = ESP_ERR_INVALID_STATE;
+        goto exit;
     }
+
+    // Powering-off from suspended state
+    if (port->state == HCD_PORT_STATE_SUSPENDED) {
+        // un-gate internal clock, to be able to toggle power on the port
+        if (!_internal_clk_gate(port, false)) {
+            ret = ESP_ERR_NOT_ALLOWED;
+            goto exit;
+        }
+    }
+
+    port->state = HCD_PORT_STATE_NOT_POWERED;
+    usb_dwc_hal_port_deinit(port->hal);
+    usb_dwc_hal_port_toggle_power(port->hal, false);
+    // If a device is currently connected, this should trigger a disconnect event
+    ret = ESP_OK;
+
+exit:
     return ret;
 }
 
@@ -1285,6 +1368,14 @@ static esp_err_t _port_cmd_reset(port_t *port)
     if (port->num_pipes_queued > 0) {
         ret = ESP_ERR_INVALID_STATE;
         goto exit;
+    }
+    // If resetting from suspended state, we must un-gate the internal clock
+    if (port->state == HCD_PORT_STATE_SUSPENDED) {
+        // un-gate internal clock, to be able to toggle reset the port
+        if (!_internal_clk_gate(port, false)) {
+            ret = ESP_ERR_NOT_ALLOWED;
+            goto exit;
+        }
     }
     /*
     Proceed to resetting the bus
@@ -1369,6 +1460,12 @@ static esp_err_t _port_cmd_bus_suspend(port_t *port)
         goto exit;
     }
 
+    // Gate the internal clock
+    if (! _internal_clk_gate(port, true)) {
+        ret = ESP_ERR_NOT_ALLOWED;
+        goto exit;
+    }
+
     port->state = HCD_PORT_STATE_SUSPENDED;
     ret = ESP_OK;
 
@@ -1384,6 +1481,13 @@ static esp_err_t _port_cmd_bus_resume(port_t *port)
         ret = ESP_ERR_INVALID_STATE;
         goto exit;
     }
+
+    // Un-gate the internal clock first, to be able to resume the root port
+    if (!_internal_clk_gate(port, false)) {
+        ret = ESP_ERR_NOT_ALLOWED;
+        goto exit;
+    }
+
     // Put and hold the bus in the K state.
     usb_dwc_hal_port_toggle_resume(port->hal, true);
     port->state = HCD_PORT_STATE_RESUMING;
@@ -1424,6 +1528,15 @@ static esp_err_t _port_cmd_disable(port_t *port)
         ret = ESP_ERR_INVALID_STATE;
         goto exit;
     }
+
+    // If disabling from suspended state, un-gate the internal clock to be able the disable the root port
+    if (port->state == HCD_PORT_STATE_SUSPENDED) {
+        if (!_internal_clk_gate(port, false)) {
+            ret = ESP_ERR_NOT_ALLOWED;
+            goto exit;
+        }
+    }
+
     // All pipes are guaranteed to be halted or freed at this point. Proceed to disable the port
     port->flags.disable_requested = 1;
     usb_dwc_hal_port_disable(port->hal);
