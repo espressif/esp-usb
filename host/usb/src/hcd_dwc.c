@@ -831,6 +831,11 @@ static hcd_port_event_t _intr_hdlr_hprt(port_t *port, usb_dwc_hal_port_event_t h
         port->flags.conn_dev_ena = 0;
         break;
     }
+    case USB_DWC_HAL_PORT_EVENT_REMOTE_WAKEUP: {
+        ESP_EARLY_LOGI(HCD_DWC_TAG, "WAKE");
+        port_event = HCD_PORT_EVENT_REMOTE_WAKEUP;
+        break;
+    }
     default: {
         abort();
         break;

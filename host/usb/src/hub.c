@@ -441,6 +441,11 @@ reset_err:
 
         break;
     }
+    case HCD_PORT_EVENT_REMOTE_WAKEUP:
+        // Root port, including all the connected devices were resumed (global resume)
+        // Clear all EPs and propagate the resumed event to clients
+        usbh_devs_set_pm_actions_all(USBH_DEV_RESUME | USBH_DEV_RESUME_EVT);
+        break;
     default:
         abort();    // Should never occur
         break;

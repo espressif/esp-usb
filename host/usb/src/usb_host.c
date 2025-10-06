@@ -1459,6 +1459,189 @@ esp_err_t usb_host_free_config_desc(const usb_config_desc_t *config_desc)
     return ESP_OK;
 }
 
+/**
+ * @brief Do control transfer
+ *
+ * This function: allocates transfer, sets the transfer params, submits the transfer and evaluates it
+ *
+ * @note A control transfer is sent
+ *
+ * @param[in] client_hdl Handle of a client
+ * @param[in] dev_hdl Device handle
+ * @param[in] setup_packet Pointer to setup packet
+ * @param[in] data_buf Pointer to transfer data buffer
+ * @param[in] data_len Length of data
+ *
+ * @return
+ *    - ESP_OK: Transfer successful
+ *      TODO
+ */
+static esp_err_t do_control_transfer(usb_host_client_handle_t client_hdl, usb_device_handle_t dev_hdl,
+                                     usb_setup_packet_t *setup_packet, void *data_buf, size_t data_len)
+{
+    esp_err_t ret;
+    usb_transfer_t *ctrl_transfer = NULL;
+    if (usb_host_transfer_alloc(sizeof(usb_setup_packet_t) + 512, 0, &ctrl_transfer) != ESP_OK) {
+        ret = ESP_ERR_NO_MEM;
+        goto transfer_alloc_error;
+    }
+
+    SemaphoreHandle_t transfer_done = xSemaphoreCreateBinary();
+    if (transfer_done == NULL) {
+        ret = ESP_ERR_NO_MEM;
+        goto semaphore_alloc_error;
+    }
+
+    ctrl_transfer->device_handle = dev_hdl;
+    ctrl_transfer->bEndpointAddress = 0;
+    ctrl_transfer->callback = get_config_desc_transfer_cb;
+    ctrl_transfer->context = (void *)transfer_done;
+
+    // Copy setup packet
+    memcpy(ctrl_transfer->data_buffer, setup_packet, sizeof(usb_setup_packet_t));
+
+    const usb_device_desc_t *dev_desc;
+    ESP_ERROR_CHECK(usbh_dev_get_desc(dev_hdl, &dev_desc));
+    ctrl_transfer->num_bytes = sizeof(usb_setup_packet_t) + usb_round_up_to_mps(data_len, dev_desc->bMaxPacketSize0);
+    const int expect_num_bytes = (data_len > 0) ? (sizeof(usb_setup_packet_t) + data_len) : (0);
+
+    // Submit transfer
+    ret = usb_host_transfer_submit_control(client_hdl, ctrl_transfer);
+    if (ret != ESP_OK) {
+        ESP_LOGE(USB_HOST_TAG, "Submit ctrl transfer failed %s", esp_err_to_name(ret));
+        goto transfer_error;
+    }
+
+    // Wait for completion
+    //wait_for_transmission_done(ctrl_transfer);
+    if (xSemaphoreTake(transfer_done, portMAX_DELAY) != pdTRUE) {
+        ret = ESP_ERR_TIMEOUT; // should not happen, but just in case
+        goto transfer_error;
+    }
+
+    // Check transfer status
+    if (ctrl_transfer->status != USB_TRANSFER_STATUS_COMPLETED) {
+        ESP_LOGE(USB_HOST_TAG, "Control transfer failed, status=%d", ctrl_transfer->status);
+        ret = ESP_ERR_INVALID_STATE;
+        goto transfer_error;
+    }
+
+    // Check IN transfer returned the expected correct number of bytes
+    if ((expect_num_bytes != 0) && (ctrl_transfer->actual_num_bytes != expect_num_bytes)) {
+        if (ctrl_transfer->actual_num_bytes > expect_num_bytes) {
+            // The device returned more bytes than requested.
+            // This violates the USB specs chapter 9.3.5, but we can continue
+            ESP_LOGW(USB_HOST_TAG, "Incorrect number of bytes returned %d, %d expected", ctrl_transfer->actual_num_bytes, expect_num_bytes);
+        } else {
+            // The device returned less bytes than requested. We cannot continue.
+            ESP_LOGE(USB_HOST_TAG, "Incorrect number of bytes returned %d, %d expected", ctrl_transfer->actual_num_bytes, expect_num_bytes);
+            ret = ESP_ERR_INVALID_RESPONSE;
+            goto transfer_error;
+        }
+    }
+
+    // For IN transfers, copy data back to caller buffer
+    if (data_buf && (data_len > 0)) {
+        memcpy(data_buf, ctrl_transfer->data_buffer + sizeof(usb_setup_packet_t), data_len);
+    }
+
+    ret = ESP_OK;
+
+transfer_error:
+    vSemaphoreDelete(transfer_done);
+
+semaphore_alloc_error:
+    usb_host_transfer_free(ctrl_transfer);
+
+transfer_alloc_error:
+    return ret;
+}
+
+/**
+ * @brief Validate device's remote wakeup capability
+ *
+ * This function:
+ *  - checks, whether the device is opened by the client which is trying to modify it's remote wakeup settings
+ *  - checks, whether the device supports remote wakeup capability from it's configuration descriptor
+ *
+ * @note No control transfer is sent
+ *
+ * @param[in] client_hdl Handle of a client
+ * @param[in] dev_hdl Device handle
+ *
+ * @return
+ *    - ESP_OK: Device eligible for modifying remote wakeup settings
+ *    - ESP_ERR_INVALID_STATE: Provided client did not open this device
+ *    - ESP_ERR_NOT_ALLOWED: Device does not support remote wakeup
+ */
+static esp_err_t validate_device_remote_wakeup(usb_host_client_handle_t client_hdl, usb_device_handle_t dev_hdl)
+{
+    client_t *client_obj = (client_t *)client_hdl;
+    uint8_t dev_addr;
+    ESP_ERROR_CHECK(usbh_dev_get_addr(dev_hdl, &dev_addr));
+
+    HOST_ENTER_CRITICAL();
+    if (!_check_client_opened_device(client_obj, dev_addr)) {
+        // Client did not open this device, it can't enable/disable it's remote wake, return an error
+        HOST_EXIT_CRITICAL();
+        ESP_LOGE(USB_HOST_TAG, "Client did not open this device");
+        return ESP_ERR_INVALID_STATE;
+    }
+    HOST_EXIT_CRITICAL();
+
+    const usb_config_desc_t *config_desc;
+    ESP_ERROR_CHECK(usbh_dev_get_config_desc(dev_hdl, &config_desc));
+    if (!(config_desc->bmAttributes & USB_BM_ATTRIBUTES_WAKEUP)) {
+        ESP_LOGE(USB_HOST_TAG, "Device does not support remote wakeup");
+        return ESP_ERR_NOT_ALLOWED;
+    }
+
+    return ESP_OK;
+}
+
+esp_err_t usb_host_device_remote_wakeup_enable(usb_host_client_handle_t client_hdl, usb_device_handle_t dev_hdl, bool enable)
+{
+    HOST_CHECK(client_hdl != NULL && dev_hdl != NULL, ESP_ERR_INVALID_ARG);
+    esp_err_t ret;
+    ESP_RETURN_ON_ERROR(validate_device_remote_wakeup(client_hdl, dev_hdl), USB_HOST_TAG, "Device remote wakeup validation failed");
+
+    usb_setup_packet_t setup_packet = {0};
+    if (enable) {
+        ESP_LOGI(USB_HOST_TAG, "Enabling device remote wake-up");
+        USB_SETUP_PACKET_INIT_SET_FEATURE(&setup_packet, DEVICE_REMOTE_WAKEUP);
+    } else {
+        ESP_LOGI(USB_HOST_TAG, "Disabling device remote wake-up");
+        USB_SETUP_PACKET_INIT_CLEAR_FEATURE(&setup_packet, DEVICE_REMOTE_WAKEUP);
+    }
+
+    // Send ctrl transfer enabling/disabling the remote wakeup
+    ESP_RETURN_ON_ERROR(do_control_transfer(client_hdl, dev_hdl, &setup_packet, NULL, 0), USB_HOST_TAG, "CTRL transfer failed");
+
+    return ESP_OK;
+}
+
+esp_err_t usb_host_device_remote_wakeup_check(usb_host_client_handle_t client_hdl, usb_device_handle_t dev_hdl, bool *enabled)
+{
+    HOST_CHECK(client_hdl != NULL && dev_hdl != NULL, ESP_ERR_INVALID_ARG);
+    esp_err_t ret;
+    ESP_RETURN_ON_ERROR(validate_device_remote_wakeup(client_hdl, dev_hdl), USB_HOST_TAG, "Device remote wakeup validation failed");
+
+    usb_setup_packet_t setup_packet = {0};
+    usb_device_status_t device_status;
+    USB_SETUP_PACKET_INIT_GET_STATUS(&setup_packet);
+
+    // Send ctrl transfer checking the remote wakeup
+    ESP_RETURN_ON_ERROR(
+        do_control_transfer(client_hdl, dev_hdl, &setup_packet, &device_status, sizeof(device_status)),
+        USB_HOST_TAG, "CTRL transfer failed");
+
+    // Check current status of remote wakeup
+    *enabled = device_status.remote_wakeup;
+    ESP_LOGI(USB_HOST_TAG, "Remote wakeup is currently %s", ((*enabled)) ? ("enabled") : ("disabled") );
+
+    return ESP_OK;
+}
+
 // ----------------------------------------------- Interface Functions -------------------------------------------------
 
 // ----------------------- Private -------------------------
