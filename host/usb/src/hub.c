@@ -483,7 +483,7 @@ static void root_port_req(hcd_port_handle_t root_port_hdl)
         hcd_port_command(p_hub_driver_obj->constant.root_port_hdl, HCD_PORT_CMD_DISABLE);
     }
     if (port_reqs & PORT_REQ_RECOVER) {
-        ESP_LOGD(HUB_DRIVER_TAG, "Recovering root port");
+        ESP_LOGI(HUB_DRIVER_TAG, "Recovering root port");
         ESP_ERROR_CHECK(hcd_port_recover(p_hub_driver_obj->constant.root_port_hdl));
 
         // In case the port's power was turned off with usb_host_lib_set_root_port_power(false)
@@ -573,6 +573,7 @@ static void root_port_req(hcd_port_handle_t root_port_hdl)
         // Clear all EPs and propagate the resumed event to clients
         usbh_devs_set_pm_actions_all(USBH_DEV_RESUME | USBH_DEV_RESUME_EVT);    // NOLINT(clang-analyzer-optin.core.EnumCastOutOfRange)
     }
+
 }
 
 static esp_err_t root_port_recycle(void)

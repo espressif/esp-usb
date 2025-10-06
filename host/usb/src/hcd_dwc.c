@@ -876,7 +876,7 @@ static hcd_port_event_t _intr_hdlr_hprt(port_t *port, usb_dwc_hal_port_event_t h
     }
 #ifdef REMOTE_WAKE_HAL_SUPPORTED
     case USB_DWC_HAL_PORT_EVENT_REMOTE_WAKEUP: {
-        ESP_EARLY_LOGD(HCD_DWC_TAG, "Remote wakeup generated from device");
+        ESP_EARLY_LOGD(HCD_DWC_TAG, "Remote wakeup generated from device %d", port->state);
         // Port must have been previously suspended to start processing remote wakeup signaling
         if (port->state == HCD_PORT_STATE_SUSPENDED) {
             port_event = HCD_PORT_EVENT_REMOTE_WAKEUP;
@@ -1494,6 +1494,7 @@ static esp_err_t _port_cmd_bus_resume(port_t *port)
     HCD_EXIT_CRITICAL();
     vTaskDelay(pdMS_TO_TICKS(RESUME_HOLD_MS));
     HCD_ENTER_CRITICAL();
+
     // Return and hold the bus to the J state (as port of the LS EOP)
     usb_dwc_hal_port_toggle_resume(port->hal, false);
     if (port->state != HCD_PORT_STATE_RESUMING || !port->flags.conn_dev_ena) {
@@ -1504,6 +1505,7 @@ static esp_err_t _port_cmd_bus_resume(port_t *port)
     HCD_EXIT_CRITICAL();
     vTaskDelay(pdMS_TO_TICKS(RESUME_RECOVERY_MS));
     HCD_ENTER_CRITICAL();
+
     if (port->state != HCD_PORT_STATE_RESUMING || !port->flags.conn_dev_ena) {
         // Port state unexpectedly changed
         ret = ESP_ERR_INVALID_RESPONSE;

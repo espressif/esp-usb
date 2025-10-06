@@ -221,3 +221,67 @@ TEST_CASE("mock_dev_app_resume_dconn", "[cdc_acm_mock_dev][resume_dconn][ignore]
         }
     }
 }
+
+/**
+ * @brief Run CDC-ACM Device with 2 interfaces in a loopback mode
+ * Device performs remote wakeup upon receiving Suspend callback
+ */
+TEST_CASE("mock_dev_app_remote_wake", "[cdc_acm_mock_dev][remote_wake][ignore]")
+{
+    cdc_acm_mock_device_run();
+
+    while (1) {
+        const uint32_t notify_bits = device_cb_handler();
+        if (notify_bits & DEV_CB_EVT_RESUME) {
+            // The host resumed the device, no action
+            continue;
+        }
+
+        if (notify_bits & DEV_CB_EVT_SUSPEND_REMOTE_WAKE_DIS) {
+            TEST_FAIL_MESSAGE("Device does not have remote wakeup feature enabled");
+        }
+
+        if (notify_bits & DEV_CB_EVT_SUSPEND_REMOTE_WAKE_EN) {
+            // Device is now in suspended state with remote wakeup enabled, start remote wakeup signaling
+            vTaskDelay(pdMS_TO_TICKS(1000));
+            ESP_LOGI(CDC_DEV_TAG, "Triggering remote wakeup");
+            TEST_ASSERT(tud_remote_wakeup());
+            break;  // End of the test
+        }
+    }
+}
+
+/**
+ * @brief Run CDC-ACM Device with 2 interfaces in a loopback mode
+ * Device performs remote wakeup followed by a sudden disconnect and connect upon receiving Suspend callback
+ */
+TEST_CASE("mock_dev_app_remote_wake_dconn", "[cdc_acm_mock_dev][remote_wake_dconn][ignore]")
+{
+    cdc_acm_mock_device_run();
+
+    while (1) {
+        const uint32_t notify_bits = device_cb_handler();
+        if (notify_bits & DEV_CB_EVT_RESUME) {
+            TEST_FAIL_MESSAGE("We are not expecting the device to deliver resume callback in this test mode");
+        }
+
+        if (notify_bits & DEV_CB_EVT_SUSPEND_REMOTE_WAKE_DIS) {
+            TEST_FAIL_MESSAGE("Device does not have remote wakeup feature enabled");
+        }
+
+        if (notify_bits & DEV_CB_EVT_SUSPEND_REMOTE_WAKE_EN) {
+            // Device is now in suspended state with remote wakeup enabled
+            // Start remote wakeup signaling followed by sudden disconnect
+            vTaskDelay(pdMS_TO_TICKS(1000));
+            ESP_LOGI(CDC_DEV_TAG, "Triggering remote wakeup and sudden disconnect");
+            TEST_ASSERT(tud_remote_wakeup());
+            TEST_ASSERT(tud_disconnect());
+
+            // Stay disconnected for a while and trigger connect
+            vTaskDelay(pdMS_TO_TICKS(1000));
+            ESP_LOGI(CDC_DEV_TAG, "Triggering connect");
+            TEST_ASSERT(tud_connect());
+            break; // End of the test
+        }
+    }
+}
