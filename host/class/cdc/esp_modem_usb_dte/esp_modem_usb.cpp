@@ -82,7 +82,10 @@ public:
             .in_buffer_size = config->dte_buffer_size,
             .event_cb = handle_notif,
             .data_cb = handle_rx,
-            .user_arg = this
+            .user_arg = this,
+#ifdef CDC_HOST_REMOTE_WAKE_SUPPORTED
+            .enable_remote_wakeup = false,
+#endif // CDC_HOST_REMOTE_WAKE_SUPPORTED
         };
 
         // Determine Terminal interface index
