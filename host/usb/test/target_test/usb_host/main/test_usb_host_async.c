@@ -8,6 +8,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/semphr.h"
+#include "sdkconfig.h"
 #include "esp_err.h"
 #include "esp_log.h"
 #include "esp_intr_alloc.h"
@@ -15,6 +16,7 @@
 #include "msc_client.h"
 #include "ctrl_client.h"
 #include "multiconf_client.h"
+#include "remote_wake_client.h"
 #include "usb/usb_host.h"
 #include "unity.h"
 
@@ -298,6 +300,8 @@ Procedure:
     - Free all devices
     - Uninstall USB Host Library
 */
+#define TEST_MULTICONFIG_SMP_WAIT_MS 2000
+
 static void host_lib_task(void *arg)
 {
     TaskHandle_t pending_task = (TaskHandle_t)arg;
@@ -323,6 +327,7 @@ static void host_lib_task(void *arg)
 TEST_CASE("Test USB Host multiconfig client (single client)", "[usb_host][full_speed][high_speed]")
 {
     SemaphoreHandle_t dev_open_smp = xSemaphoreCreateBinary();
+    TEST_ASSERT_NOT_NULL_MESSAGE(dev_open_smp, "Failed to create semaphore");
     TaskHandle_t client_task;
 
     multiconf_client_test_param_t multiconf_params = {
@@ -342,10 +347,14 @@ TEST_CASE("Test USB Host multiconfig client (single client)", "[usb_host][full_s
     TEST_ASSERT_NOT_NULL_MESSAGE(host_lib_task_hdl, "Failed to create host lib task");
 
     // Wait for the device to be open
-    xSemaphoreTake(dev_open_smp, portMAX_DELAY);
+    TEST_ASSERT_EQUAL_MESSAGE(
+        pdTRUE, xSemaphoreTake(dev_open_smp, TEST_MULTICONFIG_SMP_WAIT_MS), "Device not opened on time");
+
     multiconf_client_get_conf_desc();
+
     // Wait for the host library task to finish
-    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+    TEST_ASSERT_EQUAL_MESSAGE(
+        pdTRUE, ulTaskNotifyTake(pdTRUE, TEST_MULTICONFIG_SMP_WAIT_MS), "usb_host_lib task not finished on time");
     // Cleanup
     vSemaphoreDelete(dev_open_smp);
 }
@@ -410,9 +419,6 @@ Procedure:
     - Free all devices
     - Uninstall USB Host Library
 */
-
-#define TEST_MSC_AUTO_RESUME_TRANSFERS      2
-
 TEST_CASE("Test USB Host resume by submit transfer", "[usb_host][full_speed][high_speed]")
 {
     // Create task to run client that communicates with MSC SCSI interface
@@ -635,4 +641,114 @@ TEST_CASE("Test USB Host suspend/resume multiple tasks access (no client)", "[us
     TEST_ASSERT_EQUAL(ESP_ERR_NOT_FINISHED, usb_host_device_free_all());
     // Wait for the host library task to finish
     TEST_ASSERT_MESSAGE(ulTaskNotifyTake(pdFALSE, pdMS_TO_TICKS(1000)), "usb host lib task did not finish");
+}
+
+/*
+Test:
+- Enabling/Disabling of the remote wakeup feature on the device
+- Reading the current state of the remote wakeup from the device
+- Test can be run with either a device which has or which does not have remote wakeup feature
+    - this is controlled in menuconfig with CONFIG_USB_HOST_TEST_DEVICE_HAS_REMOTE_WAKEUP
+
+Purpose:
+- Test CLEAR_FEATURE, SET_FEATURE and GET_STATUS request types
+- Test usb_host public API calls related to remote wakeup setup
+
+Procedure:
+    - Install USB Host Library
+    - Read the current remote wakeup state from the device
+    - For the device which does not have the feature:
+        - Try to check the feature is enabled and try to enable it (2 separate public API calls)
+    - For the device which does have the feature:
+        - Check the feature (must be disabled) -> Enable the feature -> Check the feature (must be enabled)
+        - Suspend the root port and expect the suspend event
+        - Manually induce the remote wakeup (button press on mouse or keyboard) and expect resume event
+        - Check the feature (must still be enabled) -> Disable the feature -> Check the feature (must be disabled)
+    - Teardown
+*/
+#define TEST_REMOTE_WAKE_SMP_WAIT_MS 2000
+#ifdef CONFIG_USB_HOST_TEST_DEVICE_HAS_REMOTE_WAKEUP
+#define HAS_REMOTE_WAKE 1
+#else
+#define HAS_REMOTE_WAKE 0
+#endif
+
+TEST_CASE("Test USB Host remote wakeup setup", "[usb_host][low_speed][full_speed][high_speed]")
+{
+    SemaphoreHandle_t dev_ready_smp = xSemaphoreCreateBinary();
+    TEST_ASSERT_NOT_NULL_MESSAGE(dev_ready_smp, "Failed to create semaphore");
+    TaskHandle_t client_task;
+
+    remote_wake_client_test_param_t multiconf_params = {
+        .dev_ready_smp = dev_ready_smp,
+    };
+
+    xTaskCreatePinnedToCore(remote_wake_client_async_task, "remote_wake client", 4096, (void *)&multiconf_params, 2, &client_task, 0);
+    TEST_ASSERT_NOT_NULL_MESSAGE(client_task, "Failed to create async client task");
+    // Start the task
+    xTaskNotifyGive(client_task);
+
+    TaskHandle_t host_lib_task_hdl;
+    // Get Current task handle
+    TaskHandle_t pending_task = xTaskGetCurrentTaskHandle();
+    xTaskCreatePinnedToCore(host_lib_task, "host lib", 4096, (void *)pending_task, 2, &host_lib_task_hdl, 0);
+    TEST_ASSERT_NOT_NULL_MESSAGE(host_lib_task_hdl, "Failed to create host lib task");
+
+    // Wait for the device to be open
+    TEST_ASSERT_EQUAL_MESSAGE(
+        pdTRUE, xSemaphoreTake(dev_ready_smp, TEST_REMOTE_WAKE_SMP_WAIT_MS), "Device not opened on time");
+
+    // Read the current remote wakeup state from the device, expect it to be disabled (default after device reset)
+    // Or to return ESP_ERR_NOT_ALLOWED if the device does not have the feature
+    test_remote_wake_check(false, HAS_REMOTE_WAKE);
+    TEST_ASSERT_EQUAL_MESSAGE(
+        pdTRUE, xSemaphoreTake(dev_ready_smp, TEST_REMOTE_WAKE_SMP_WAIT_MS), "Remote wake not checked on time");
+
+    // Enable remote wakeup on the device which has the feature,
+    // Or expect an error ESP_ERR_NOT_ALLOWED if the device does not have the feature
+    test_remote_wake_enable(HAS_REMOTE_WAKE);
+    TEST_ASSERT_EQUAL_MESSAGE(
+        pdTRUE, xSemaphoreTake(dev_ready_smp, TEST_REMOTE_WAKE_SMP_WAIT_MS), "Remote wake not enabled on time");
+
+    // Continue with further checks only for the devices with remote wakeup enabled
+    if (HAS_REMOTE_WAKE) {
+
+        // Read the current remote wakeup state from the device, expect it to be enabled from the previous operation
+        test_remote_wake_check(true, HAS_REMOTE_WAKE);
+        TEST_ASSERT_EQUAL_MESSAGE(
+            pdTRUE, xSemaphoreTake(dev_ready_smp, TEST_REMOTE_WAKE_SMP_WAIT_MS), "Remote wake not checked on time");
+
+        // Suspend the root port
+        TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_root_port_suspend());
+        TEST_ASSERT_EQUAL_MESSAGE(
+            pdTRUE, xSemaphoreTake(dev_ready_smp, TEST_REMOTE_WAKE_SMP_WAIT_MS), "Suspend event not generated on time");
+
+        // Do remote wake
+        printf("Expecting remote wake event\n");
+        TEST_ASSERT_EQUAL_MESSAGE(
+            pdTRUE, xSemaphoreTake(dev_ready_smp, TEST_REMOTE_WAKE_SMP_WAIT_MS * 2), "Resume event not generated on time");
+
+        // Read the current remote wakeup state from the device, expect it to be enabled from the previous operation
+        test_remote_wake_check(true, HAS_REMOTE_WAKE);
+        TEST_ASSERT_EQUAL_MESSAGE(
+            pdTRUE, xSemaphoreTake(dev_ready_smp, TEST_REMOTE_WAKE_SMP_WAIT_MS), "Remote wake not checked on time");
+
+        // Disable remote wakeup on the device
+        test_remote_wake_disable(HAS_REMOTE_WAKE);
+        TEST_ASSERT_EQUAL_MESSAGE(
+            pdTRUE, xSemaphoreTake(dev_ready_smp, TEST_REMOTE_WAKE_SMP_WAIT_MS), "Remote wake not disabled on time");
+
+        // Read the current remote wakeup state from the device, expect it to be disabled from the previous operation
+        test_remote_wake_check(false, HAS_REMOTE_WAKE);
+        TEST_ASSERT_EQUAL_MESSAGE(
+            pdTRUE, xSemaphoreTake(dev_ready_smp, TEST_REMOTE_WAKE_SMP_WAIT_MS), "Remote wake not checked on time");
+    }
+
+    // Test teardown
+    test_remote_wake_finish();
+    TEST_ASSERT_EQUAL_MESSAGE(
+        pdTRUE, ulTaskNotifyTake(pdTRUE, TEST_REMOTE_WAKE_SMP_WAIT_MS), "usb_host_lib task not finished on time");
+
+    // Cleanup
+    vSemaphoreDelete(dev_ready_smp);
 }

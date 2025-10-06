@@ -548,6 +548,50 @@ esp_err_t usb_host_get_config_desc(usb_host_client_handle_t client_hdl, usb_devi
  */
 esp_err_t usb_host_free_config_desc(const usb_config_desc_t *config_desc);
 
+/**
+ * @brief Set remote wakeup feature on a device
+ *
+ * This function enables, or disables remote wakeup feature on a connected device. Device must support remote wakeup
+ * at fist place
+ *
+ * @note A control transfer is sent to a device, to enable/disable the feature
+ * @note A client must open the device first
+ *
+ * @param[in] client_hdl Handle of a client, that opened the device
+ * @param[in] dev_hdl Handle of a device, on which the remote wakeup is about to be enabled/disabled
+ * @param[in] enable Remote wakeup enable/disable
+ *
+ * @return
+ *    - ESP_OK: Remote wakeup set successfully
+ *    - ESP_ERR_INVALID_ARG: Invalid argument
+ *    - ESP_ERR_INVALID_STATE: Client did not open the device
+ *    - ESP_ERR_NOT_ALLOWED: Device does not support remote wakeup
+ *    - ESP_ERR_NO_MEM: Not enough memory
+ */
+esp_err_t usb_host_device_remote_wakeup_enable(usb_host_client_handle_t client_hdl, usb_device_handle_t dev_hdl, bool enable);
+
+/**
+ * @brief Check if a remote wakeup is currently set
+ *
+ * This function checks if a remote wakeup feature is currently enabled or disabled on a connected device. Device must
+ * support remote wakeup at fist place
+ *
+ * @note A control transfer is sent to a device, get a device status descriptor
+ * @note A client must open the device first
+ *
+ * @param[in] client_hdl Handle of a client, that opened the device
+ * @param[in] dev_hdl Handle of a device, on which the remote wakeup is about to be checked
+ * @param[out] enabled Remote wakeup is currently enabled/disabled
+ *
+ * @return
+ *    - ESP_OK: Remote wakeup status checked successfully
+ *    - ESP_ERR_INVALID_ARG: Invalid argument
+ *    - ESP_ERR_INVALID_STATE: Client did not open the device
+ *    - ESP_ERR_NOT_ALLOWED: Device does not support remote wakeup
+ *    - ESP_ERR_NO_MEM: Not enough memory
+ */
+esp_err_t usb_host_device_remote_wakeup_check(usb_host_client_handle_t client_hdl, usb_device_handle_t dev_hdl, bool *enabled);
+
 // ----------------------------------------------- Interface Functions -------------------------------------------------
 
 /**

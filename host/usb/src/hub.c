@@ -455,6 +455,10 @@ reset_err:
 
         break;
     }
+    case HCD_PORT_EVENT_REMOTE_WAKEUP:
+        // Mark root port as ready to be resumed
+        hub_root_mark_resume();
+        break;
     default:
         abort();    // Should never occur
         break;
