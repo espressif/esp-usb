@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2024-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -227,7 +227,12 @@ esp_err_t test_cdc_acm_host_close(cdc_acm_dev_hdl_t *cdc_hdl, uint8_t interface_
     }
 
     // Release data interface
-    usb_host_interface_release_ExpectAndReturn(nullptr, nullptr, interface_index, ESP_OK);
+    if (p_cdc_dev_expects->notif.has_separate_interface) {
+        usb_host_interface_release_ExpectAnyArgsAndReturn(ESP_OK);
+        usb_host_interface_release_ExpectAnyArgsAndReturn(ESP_OK);
+    } else {
+        usb_host_interface_release_ExpectAndReturn(nullptr, nullptr, interface_index, ESP_OK);
+    }
     usb_host_interface_release_IgnoreArg_client_hdl();  // Ignore all function parameters, except interface_index
     usb_host_interface_release_IgnoreArg_dev_hdl();
 
@@ -309,6 +314,9 @@ esp_err_t test_cdc_acm_reset_transfer_endpoint(uint8_t ep_address)
 esp_err_t test_usb_host_interface_claim(uint8_t interface_index)
 {
     usb_host_interface_claim_ExpectAndReturn(nullptr, nullptr, interface_index, 0, ESP_OK);
+    if (p_cdc_dev_expects && p_cdc_dev_expects->notif.has_separate_interface) {
+        usb_host_interface_claim_IgnoreArg_bInterfaceNumber();
+    }
     usb_host_interface_claim_IgnoreArg_client_hdl();        // Ignore all function parameters, except interface_index
     usb_host_interface_claim_IgnoreArg_dev_hdl();
     usb_host_interface_claim_IgnoreArg_bAlternateSetting();

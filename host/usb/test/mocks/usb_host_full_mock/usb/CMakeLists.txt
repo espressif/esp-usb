@@ -28,3 +28,8 @@ target_sources(${COMPONENT_LIB} PRIVATE "${original_usb_dir}/src/usb_private.c")
 
 # Add the extra src files for USB device mocking
 target_sources(${COMPONENT_LIB} PRIVATE "mock_add_usb_device.cpp")
+
+# Set public symbol REMOTE_WAKE_HAL_SUPPORTED, which is normally set in usb component cmake
+# and depends on remote wakeup feature presence in USB HAL/LL
+set(REMOTE_WAKE_HAL_SUPPORTED ON)
+target_compile_definitions(${COMPONENT_LIB} PUBLIC REMOTE_WAKE_HAL_SUPPORTED)

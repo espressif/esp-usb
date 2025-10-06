@@ -191,6 +191,27 @@ esp_err_t cdc_acm_host_cdc_desc_get(cdc_acm_dev_hdl_t cdc_hdl, cdc_desc_subtype_
  */
 esp_err_t cdc_acm_host_send_custom_request(cdc_acm_dev_hdl_t cdc_hdl, uint8_t bmRequestType, uint8_t bRequest, uint16_t wValue, uint16_t wIndex, uint16_t wLength, uint8_t *data);
 
+#ifdef CDC_HOST_REMOTE_WAKE_SUPPORTED
+/**
+ * @brief Enable/Disable remote wakeup on device
+ * @note API availability depends on presence of remote wakeup support in esp-idf HAL
+ *       and is guarded by the CDC_HOST_REMOTE_WAKE_SUPPORTED
+ *
+ * @param[in] cdc_hdl       CDC device handle
+ * @param[in] enable        Enable/Disable remote wakeup
+ * @return
+ *     - ESP_OK:                   Remote wakeup successfully enabled/disabled, or already enabled/disabled on the device
+ *     - ESP_ERR_INVALID_ARG:      Invalid input argument
+ *     - ESP_ERR_INVALID_STATE     CDC driver is not installed
+ *     - ESP_ERR_NOT_FOUND:        Device not found in device list (probably already closed)
+ *     - ESP_ERR_NOT_SUPPORTED:    Device does not support remote wakeup
+ *     - ESP_ERR_TIMEOUT:          Transfer timed out, or failed to acquire ctr transfer mutex
+ *     - ESP_ERR_INVALID_RESPONSE: Invalid response of the control transfer
+ *     - Errors propagated from caller functions
+ */
+esp_err_t cdc_acm_host_enable_remote_wakeup(cdc_acm_dev_hdl_t cdc_hdl, bool enable);
+#endif // CDC_HOST_REMOTE_WAKE_SUPPORTED
+
 #ifdef __cplusplus
 }
 class CdcAcmDevice {
