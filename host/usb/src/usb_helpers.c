@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2015-2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2015-2025 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -199,6 +199,9 @@ static void print_ep_desc(const usb_ep_desc_t *ep_desc)
            USB_EP_DESC_GET_EP_DIR(ep_desc) ? "IN" : "OUT");
     printf("\t\tbmAttributes 0x%x\t%s\n", ep_desc->bmAttributes, ep_type_str);
     printf("\t\twMaxPacketSize %d\n", USB_EP_DESC_GET_MPS(ep_desc));
+    if (USB_EP_DESC_GET_MULT(ep_desc) > 0) {
+        printf("\t\twMaxPacketSize (with additional transactions in microframe) %d\n", USB_EP_DESC_GET_MPS(ep_desc) * (USB_EP_DESC_GET_MULT(ep_desc) + 1));
+    }
     printf("\t\tbInterval %d\n", ep_desc->bInterval);
 }
 
