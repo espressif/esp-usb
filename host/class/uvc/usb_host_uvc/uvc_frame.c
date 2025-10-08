@@ -14,6 +14,7 @@
 #include "uvc_frame_priv.h"
 #include "uvc_types_priv.h"
 #include "uvc_check_priv.h"
+#include "uvc_critical_priv.h"
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
@@ -35,15 +36,20 @@ esp_err_t uvc_frame_allocate(uvc_stream_t *uvc_stream, int nb_of_fb, size_t fb_s
     UVC_CHECK(uvc_stream, ESP_ERR_INVALID_ARG);
     esp_err_t ret;
 
+    // In case the user did not fill the config, set it to default
+    if (fb_size == 0) {
+        fb_size = UVC_ATOMIC_LOAD(uvc_stream->dynamic.dwMaxVideoFrameSize);
+    }
+    if (fb_caps == 0) {
+        fb_caps = MALLOC_CAP_DEFAULT;
+    }
+
     // We will be passing the frame buffers by reference
     uvc_stream->constant.empty_fb_queue = xQueueCreate(nb_of_fb, sizeof(uvc_host_frame_t *));
     UVC_CHECK(uvc_stream->constant.empty_fb_queue, ESP_ERR_NO_MEM);
     for (int i = 0; i < nb_of_fb; i++) {
         // Allocate the frame buffer
         uvc_host_frame_t *this_fb = malloc(sizeof(uvc_host_frame_t));
-        if (fb_caps == 0) {
-            fb_caps = MALLOC_CAP_DEFAULT; // In case the user did not fill the config, set it to default
-        }
         uint8_t *this_data = heap_caps_malloc(fb_size, fb_caps);
         if (this_data == NULL || this_fb == NULL) {
             free(this_fb);
