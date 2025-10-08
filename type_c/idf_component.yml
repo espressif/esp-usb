@@ -1,0 +1,29 @@
+## IDF Component Manager Manifest File
+
+description: ESP-IDF USB Type-C stack (beta)
+version: "0.1.0-beta"
+url: https://github.com/espressif/esp-usb/tree/master/type_c
+issues: "https://github.com/espressif/esp-usb/issues"
+repository: "https://github.com/espressif/esp-usb.git"
+repository_info:
+  path: "type_c"
+dependencies:
+  idf: ">=5.4"
+targets:
+  - esp32
+  - esp32c2
+  - esp32c3
+  - esp32c5
+  - esp32c6
+  - esp32c61
+  - esp32h2
+  - esp32h4
+  - esp32p4
+  - esp32s2
+  - esp32s3
+files:
+  exclude:
+    - "test/**/*"
+tags:
+  - usb
+  - usb_typec
