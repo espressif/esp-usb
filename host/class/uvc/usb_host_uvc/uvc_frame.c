@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2024-2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2024-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -15,6 +15,7 @@
 #include "uvc_frame_priv.h"
 #include "uvc_types_priv.h"
 #include "uvc_check_priv.h"
+#include "uvc_critical_priv.h"
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
@@ -58,10 +59,14 @@ esp_err_t uvc_frame_allocate(uvc_stream_t *uvc_stream, int nb_of_fb, size_t fb_s
             // Use user-provided buffer (already validated in uvc_host_stream_open)
             this_data = user_frame_buffers[i];
         } else {
-            // Allocate driver-managed buffer
+            // In case the user did not fill the config, set it to default
+            if (fb_size == 0) {
+                fb_size = UVC_ATOMIC_LOAD(uvc_stream->dynamic.dwMaxVideoFrameSize);
+            }
             if (fb_caps == 0) {
                 fb_caps = MALLOC_CAP_DEFAULT; // In case the user did not fill the config, set it to default
             }
+            // Allocate driver-managed buffer
             this_data = heap_caps_malloc(fb_size, fb_caps);
             if (this_data == NULL) {
                 free(this_fb);

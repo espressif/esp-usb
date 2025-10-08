@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2024-2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2024-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -368,11 +368,9 @@ void uvc_host_desc_print(uvc_host_stream_hdl_t stream_hdl)
 {
     assert(stream_hdl);
     uvc_stream_t *uvc_stream = (uvc_stream_t *)stream_hdl;
-
     const usb_device_desc_t *device_desc;
-    const usb_config_desc_t *config_desc;
+
     ESP_ERROR_CHECK_WITHOUT_ABORT(usb_host_get_device_descriptor(uvc_stream->constant.dev_hdl, &device_desc));
-    ESP_ERROR_CHECK_WITHOUT_ABORT(usb_host_get_active_config_descriptor(uvc_stream->constant.dev_hdl, &config_desc));
     usb_print_device_descriptor(device_desc);
-    usb_print_config_descriptor(config_desc, &uvc_print_desc);
+    usb_print_config_descriptor(uvc_stream->constant.cfg_desc, &uvc_print_desc);
 }

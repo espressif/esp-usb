@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2024-2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2024-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -37,8 +37,6 @@ static esp_err_t uvc_host_stream_control(uvc_host_stream_hdl_t stream_hdl, uvc_v
     uvc_stream_t *uvc_stream = (uvc_stream_t *)stream_hdl;
     uint8_t bmRequestType, bRequest;
     uint16_t wValue, wIndex, wLength;
-    const usb_config_desc_t *cfg_desc;
-    ESP_ERROR_CHECK(usb_host_get_active_config_descriptor(uvc_stream->constant.dev_hdl, &cfg_desc));
     esp_err_t ret = ESP_OK;
     const bool set = (req_code == UVC_SET_CUR) ? true : false;
 
@@ -56,7 +54,7 @@ static esp_err_t uvc_host_stream_control(uvc_host_stream_hdl_t stream_hdl, uvc_v
         const uvc_frame_desc_t *frame_desc;
 
         ESP_RETURN_ON_ERROR(
-            uvc_desc_get_frame_format_by_format(cfg_desc, uvc_stream->constant.bInterfaceNumber, vs_format, &format_desc, &frame_desc),
+            uvc_desc_get_frame_format_by_format(uvc_stream->constant.cfg_desc, uvc_stream->constant.bInterfaceNumber, vs_format, &format_desc, &frame_desc),
             TAG, "Could not find format that matches required format");
         UVC_CHECK(format_desc && frame_desc, ESP_ERR_NOT_FOUND);
 
@@ -92,7 +90,7 @@ static esp_err_t uvc_host_stream_control(uvc_host_stream_hdl_t stream_hdl, uvc_v
         const uvc_format_desc_t *format_desc = NULL;
         const uvc_frame_desc_t *frame_desc = NULL;
         ESP_RETURN_ON_ERROR(
-            uvc_desc_get_frame_format_by_index(cfg_desc, uvc_stream->constant.bInterfaceNumber, vs_control->bFormatIndex, vs_control->bFrameIndex, &format_desc, &frame_desc),
+            uvc_desc_get_frame_format_by_index(uvc_stream->constant.cfg_desc, uvc_stream->constant.bInterfaceNumber, vs_control->bFormatIndex, vs_control->bFrameIndex, &format_desc, &frame_desc),
             TAG, "Could not find requested frame format");
 
         vs_format->format = uvc_desc_parse_format(format_desc);
