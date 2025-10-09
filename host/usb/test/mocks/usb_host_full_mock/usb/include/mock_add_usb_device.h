@@ -9,22 +9,19 @@
 #include <stdint.h>
 #include "usb_host.h"
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 /**
  * @brief Add mocked USB device to device list
  *
  * @param[in] dev_address device address
  * @param[in] dev_desc device descriptor
  * @param[in] config_desc configuration descriptor
+ * @param[in] speed device speed (default is USB_SPEED_HIGH)
  *
  * @return
  *    - ESP_OK: Mocked device added successfully
  *    - ESP_ERR_INVALID_ARG: Invalid input argument(s)
  */
-esp_err_t usb_host_mock_add_device(uint8_t dev_address, const usb_device_desc_t *dev_desc, const usb_config_desc_t *config_desc);
+esp_err_t usb_host_mock_add_device(uint8_t dev_address, const usb_device_desc_t *dev_desc, const usb_config_desc_t *config_desc, usb_speed_t speed = USB_SPEED_HIGH);
 
 /**
  * @brief Get number of mocked USB devices in device list
@@ -350,7 +347,3 @@ esp_err_t usb_host_transfer_submit_control_timeout_mock_callback(usb_host_client
  *    - ESP_ERR_INVALID_ARG: Invalid argument
  */
 esp_err_t usb_host_device_info_mock_callback(usb_device_handle_t dev_hdl, usb_device_info_t *dev_info, int call_count);
-
-#ifdef __cplusplus
-}
-#endif
