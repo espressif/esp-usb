@@ -702,12 +702,19 @@ TEST_CASE("Test USB Host remote wakeup setup", "[usb_host][low_speed][full_speed
 
     printf("Remote wake enabled\n");
     usb_host_lib_root_port_suspend();
-    vTaskDelay(1000);
+    vTaskDelay(pdMS_TO_TICKS(5000));
+//    usb_host_lib_root_port_resume();
 
-//    // Disable remote wakeup on the device
-//    test_remote_wake_disable();
+
+//    // Read the current remote wakeup state from the device, expect it to be enabled from the previous operation
+//    test_remote_wake_check(true);
 //    TEST_ASSERT_EQUAL_MESSAGE(
-//        pdTRUE, xSemaphoreTake(dev_ready_smp, TEST_REMOTE_WAKE_SMP_WAIT_MS), "Remote wake not disabled on time");
+//        pdTRUE, xSemaphoreTake(dev_ready_smp, TEST_REMOTE_WAKE_SMP_WAIT_MS), "Remote wake not checked on time");
+
+    // Disable remote wakeup on the device
+    test_remote_wake_disable();
+    TEST_ASSERT_EQUAL_MESSAGE(
+        pdTRUE, xSemaphoreTake(dev_ready_smp, TEST_REMOTE_WAKE_SMP_WAIT_MS), "Remote wake not disabled on time");
 //
 //    // Read the current remote wakeup state from the device, expect it to be disabled from the previous operation
 //    test_remote_wake_check(false);

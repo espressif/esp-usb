@@ -486,7 +486,14 @@ static bool endpoint_callback(usbh_ep_handle_t ep_hdl, usbh_ep_event_t ep_event,
     return yield;
 }
 
-static void get_config_desc_transfer_cb(usb_transfer_t *transfer)
+/**
+ * @brief Control transfer callback
+ *
+ * This callback is used in ctrl transfers for remote wakeup feature and multiconfig feature
+ *
+ * @param[in] transfer Pointer to ctrl transfer
+ */
+static void ctrl_transfer_cb(usb_transfer_t *transfer)
 {
     SemaphoreHandle_t transfer_done = (SemaphoreHandle_t)transfer->context;
     xSemaphoreGive(transfer_done);
@@ -1333,7 +1340,9 @@ esp_err_t usb_host_get_active_config_descriptor(usb_device_handle_t dev_hdl, con
 static usb_transfer_status_t wait_for_transmission_done(usb_transfer_t *transfer)
 {
     SemaphoreHandle_t transfer_done = (SemaphoreHandle_t)transfer->context;
+    esp_rom_printf("Transfer wait\n");
     xSemaphoreTake(transfer_done, portMAX_DELAY);
+    esp_rom_printf("Transfer done\n");
     usb_transfer_status_t status = transfer->status;
 
     // EP0 halt->flush->clear is managed by USBH and lower layers
@@ -1409,7 +1418,7 @@ esp_err_t usb_host_get_config_desc(usb_host_client_handle_t client_hdl, usb_devi
 
     ctrl_transfer->device_handle = dev_hdl;
     ctrl_transfer->bEndpointAddress = 0;
-    ctrl_transfer->callback = get_config_desc_transfer_cb;
+    ctrl_transfer->callback = ctrl_transfer_cb;
     ctrl_transfer->context = (void *)transfer_done;
 
     // Initiate control transfer for short config descriptor
@@ -1460,7 +1469,7 @@ esp_err_t usb_host_free_config_desc(const usb_config_desc_t *config_desc)
 }
 
 /**
- * @brief Do control transfer
+ * @brief Do control transfer to get/set remote wakeup feature
  *
  * This function: allocates transfer, sets the transfer params, submits the transfer and evaluates it
  *
@@ -1474,10 +1483,12 @@ esp_err_t usb_host_free_config_desc(const usb_config_desc_t *config_desc)
  *
  * @return
  *    - ESP_OK: Transfer successful
- *      TODO
+ *    - ESP_ERR_NO_MEM: Not enough memory
+ *    - ESP_ERR_INVALID_STATE: Control transfer failed
+ *    - ESP_ERR_INVALID_RESPONSE: Invalid number of bytest returned by IN transfer stage
  */
-static esp_err_t do_control_transfer(usb_host_client_handle_t client_hdl, usb_device_handle_t dev_hdl,
-                                     usb_setup_packet_t *setup_packet, void *data_buf, size_t data_len)
+static esp_err_t remote_wake_do_control_transfer(usb_host_client_handle_t client_hdl, usb_device_handle_t dev_hdl,
+                                                 usb_setup_packet_t *setup_packet, void *data_buf, size_t data_len)
 {
     esp_err_t ret;
     usb_transfer_t *ctrl_transfer = NULL;
@@ -1494,7 +1505,7 @@ static esp_err_t do_control_transfer(usb_host_client_handle_t client_hdl, usb_de
 
     ctrl_transfer->device_handle = dev_hdl;
     ctrl_transfer->bEndpointAddress = 0;
-    ctrl_transfer->callback = get_config_desc_transfer_cb;
+    ctrl_transfer->callback = ctrl_transfer_cb;
     ctrl_transfer->context = (void *)transfer_done;
 
     // Copy setup packet
@@ -1512,15 +1523,9 @@ static esp_err_t do_control_transfer(usb_host_client_handle_t client_hdl, usb_de
         goto transfer_error;
     }
 
-    // Wait for completion
-    //wait_for_transmission_done(ctrl_transfer);
-    if (xSemaphoreTake(transfer_done, portMAX_DELAY) != pdTRUE) {
-        ret = ESP_ERR_TIMEOUT; // should not happen, but just in case
-        goto transfer_error;
-    }
-
-    // Check transfer status
-    if (ctrl_transfer->status != USB_TRANSFER_STATUS_COMPLETED) {
+    // Wait for transfer to finish
+    const usb_transfer_status_t status_short_desc = wait_for_transmission_done(ctrl_transfer);
+    if (status_short_desc != USB_TRANSFER_STATUS_COMPLETED) {
         ESP_LOGE(USB_HOST_TAG, "Control transfer failed, status=%d", ctrl_transfer->status);
         ret = ESP_ERR_INVALID_STATE;
         goto transfer_error;
@@ -1602,7 +1607,6 @@ static esp_err_t validate_device_remote_wakeup(usb_host_client_handle_t client_h
 esp_err_t usb_host_device_remote_wakeup_enable(usb_host_client_handle_t client_hdl, usb_device_handle_t dev_hdl, bool enable)
 {
     HOST_CHECK(client_hdl != NULL && dev_hdl != NULL, ESP_ERR_INVALID_ARG);
-    esp_err_t ret;
     ESP_RETURN_ON_ERROR(validate_device_remote_wakeup(client_hdl, dev_hdl), USB_HOST_TAG, "Device remote wakeup validation failed");
 
     usb_setup_packet_t setup_packet = {0};
@@ -1615,15 +1619,14 @@ esp_err_t usb_host_device_remote_wakeup_enable(usb_host_client_handle_t client_h
     }
 
     // Send ctrl transfer enabling/disabling the remote wakeup
-    ESP_RETURN_ON_ERROR(do_control_transfer(client_hdl, dev_hdl, &setup_packet, NULL, 0), USB_HOST_TAG, "CTRL transfer failed");
+    ESP_RETURN_ON_ERROR(remote_wake_do_control_transfer(client_hdl, dev_hdl, &setup_packet, NULL, 0), USB_HOST_TAG, "CTRL transfer failed");
 
     return ESP_OK;
 }
 
 esp_err_t usb_host_device_remote_wakeup_check(usb_host_client_handle_t client_hdl, usb_device_handle_t dev_hdl, bool *enabled)
 {
-    HOST_CHECK(client_hdl != NULL && dev_hdl != NULL, ESP_ERR_INVALID_ARG);
-    esp_err_t ret;
+    HOST_CHECK(client_hdl != NULL && dev_hdl != NULL && enabled != NULL, ESP_ERR_INVALID_ARG);
     ESP_RETURN_ON_ERROR(validate_device_remote_wakeup(client_hdl, dev_hdl), USB_HOST_TAG, "Device remote wakeup validation failed");
 
     usb_setup_packet_t setup_packet = {0};
@@ -1631,9 +1634,7 @@ esp_err_t usb_host_device_remote_wakeup_check(usb_host_client_handle_t client_hd
     USB_SETUP_PACKET_INIT_GET_STATUS(&setup_packet);
 
     // Send ctrl transfer checking the remote wakeup
-    ESP_RETURN_ON_ERROR(
-        do_control_transfer(client_hdl, dev_hdl, &setup_packet, &device_status, sizeof(device_status)),
-        USB_HOST_TAG, "CTRL transfer failed");
+    ESP_RETURN_ON_ERROR(remote_wake_do_control_transfer(client_hdl, dev_hdl, &setup_packet, &device_status, sizeof(device_status)), USB_HOST_TAG, "CTRL transfer failed");
 
     // Check current status of remote wakeup
     *enabled = device_status.remote_wakeup;
@@ -2063,7 +2064,7 @@ esp_err_t usb_host_transfer_submit_control(usb_host_client_handle_t client_hdl, 
     // Check if the root port is suspended (global suspend)
     if (hub_root_is_suspended()) {
         // Root port is suspended at the time we are submitting a ctrl transfer
-        ESP_LOGD(USB_HOST_TAG, "Resuming the root port");
+        ESP_LOGI(USB_HOST_TAG, "Resuming the root port");
 
         ret = usb_host_lib_root_port_resume();
         if (ret != ESP_OK) {

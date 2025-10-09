@@ -833,6 +833,7 @@ static hcd_port_event_t _intr_hdlr_hprt(port_t *port, usb_dwc_hal_port_event_t h
     }
     case USB_DWC_HAL_PORT_EVENT_REMOTE_WAKEUP: {
         ESP_EARLY_LOGI(HCD_DWC_TAG, "WAKE");
+        //port->state = HCD_PORT_STATE_ENABLED;
         port_event = HCD_PORT_EVENT_REMOTE_WAKEUP;
         break;
     }
@@ -1236,6 +1237,8 @@ static esp_err_t _port_cmd_power_on(port_t *port)
     } else {
         ret = ESP_ERR_INVALID_STATE;
     }
+    //esp_rom_printf("power on: HPRT = %lx\n", usb_dwc_hal_port_get_hprt_val(port->hal));
+    //esp_rom_printf("power on: GINTSTS = %lx\n", usb_dwc_hal_port_get_gintsts_val(port->hal));
     return ret;
 }
 
@@ -1373,11 +1376,17 @@ static esp_err_t _port_cmd_bus_resume(port_t *port)
         ret = ESP_ERR_INVALID_STATE;
         goto exit;
     }
+    HCD_EXIT_CRITICAL();
+    //vTaskDelay(pdMS_TO_TICKS(RESUME_HOLD_MS));
+    vTaskDelay(pdMS_TO_TICKS(500));
+    HCD_ENTER_CRITICAL();
+
     // Put and hold the bus in the K state.
     usb_dwc_hal_port_toggle_resume(port->hal, true);
     port->state = HCD_PORT_STATE_RESUMING;
     HCD_EXIT_CRITICAL();
-    vTaskDelay(pdMS_TO_TICKS(RESUME_HOLD_MS));
+    //vTaskDelay(pdMS_TO_TICKS(RESUME_HOLD_MS));
+    vTaskDelay(pdMS_TO_TICKS(500));
     HCD_ENTER_CRITICAL();
     // Return and hold the bus to the J state (as port of the LS EOP)
     usb_dwc_hal_port_toggle_resume(port->hal, false);
@@ -1387,7 +1396,8 @@ static esp_err_t _port_cmd_bus_resume(port_t *port)
         goto exit;
     }
     HCD_EXIT_CRITICAL();
-    vTaskDelay(pdMS_TO_TICKS(RESUME_RECOVERY_MS));
+    //vTaskDelay(pdMS_TO_TICKS(RESUME_RECOVERY_MS));
+    vTaskDelay(pdMS_TO_TICKS(500));
     HCD_ENTER_CRITICAL();
     if (port->state != HCD_PORT_STATE_RESUMING || !port->flags.conn_dev_ena) {
         // Port state unexpectedly changed
@@ -1396,7 +1406,14 @@ static esp_err_t _port_cmd_bus_resume(port_t *port)
     }
     port->state = HCD_PORT_STATE_ENABLED;
 
+    if (usb_dwc_hal_port_check_if_suspended(port->hal)) {
+        printf("Again suspended\n");
+    }
+
     ret = ESP_OK;
+//    esp_rom_printf("resume: HPRT = %lx\n", usb_dwc_hal_port_get_hprt_val(port->hal));
+//    esp_rom_printf("power on: GINTSTS = %lx\n", usb_dwc_hal_port_get_gintsts_val(port->hal));
+
 exit:
     return ret;
 }
@@ -1490,8 +1507,11 @@ esp_err_t hcd_port_deinit(hcd_port_handle_t port_hdl)
     return ESP_OK;
 }
 
+static port_t *s_port;
+
 esp_err_t hcd_port_command(hcd_port_handle_t port_hdl, hcd_port_cmd_t command)
 {
+    s_port = (port_t *)port_hdl;
     esp_err_t ret = ESP_ERR_INVALID_STATE;
     port_t *port = (port_t *)port_hdl;
     xSemaphoreTake(port->port_mux, portMAX_DELAY);
@@ -2693,6 +2713,8 @@ static inline bool _check_port_pipe_state(pipe_t *pipe, bool *submit_urb)
 
 esp_err_t hcd_urb_enqueue(hcd_pipe_handle_t pipe_hdl, urb_t *urb)
 {
+    //esp_rom_printf("HPRT: %lx\n", usb_dwc_hal_port_get_hprt_val(s_port->hal));
+    //esp_rom_printf("power on: GINTSTS = %lx\n", usb_dwc_hal_port_get_gintsts_val(s_port->hal));
     // Check that URB has not already been enqueued
     HCD_CHECK(urb->hcd_ptr == NULL && urb->hcd_var == URB_HCD_STATE_IDLE, ESP_ERR_INVALID_STATE);
     pipe_t *pipe = (pipe_t *)pipe_hdl;
