@@ -47,6 +47,7 @@ struct client_s {
 typedef struct {
     int address;                            /*!< Device address */
     unsigned opened;                        /*!< Device opened status */
+    usb_speed_t speed;                      /*!< Device speed */
     const usb_device_desc_t *dev_desc;      /*!< Device descriptor */
     const usb_config_desc_t *config_desc;   /*!< Config descriptor */
 } device_list_t;
@@ -59,6 +60,7 @@ void usb_host_mock_dev_list_init(void)
     for (int index = 0; index < MAX_DEV_COUNT; index++) {
         device_list[index].address = 0xFF;
         device_list[index].opened = 0;
+        device_list[index].speed = USB_SPEED_HIGH;
         device_list[index].dev_desc = NULL;
         device_list[index].config_desc = NULL;
     }
@@ -70,7 +72,7 @@ int usb_host_mock_get_devs_count(void)
     return mocked_devices_count;
 }
 
-esp_err_t usb_host_mock_add_device(uint8_t dev_address, const usb_device_desc_t *dev_desc, const usb_config_desc_t *config_desc)
+esp_err_t usb_host_mock_add_device(uint8_t dev_address, const usb_device_desc_t *dev_desc, const usb_config_desc_t *config_desc, usb_speed_t speed)
 {
     MOCK_CHECK(dev_address < MAX_DEV_COUNT && dev_desc != NULL && config_desc != NULL, ESP_ERR_INVALID_ARG);
 
@@ -82,6 +84,7 @@ esp_err_t usb_host_mock_add_device(uint8_t dev_address, const usb_device_desc_t 
     // Fill device_list with new device parameters
     device_list[dev_address].address = dev_address;
     device_list[dev_address].opened = 0;
+    device_list[dev_address].speed = speed;
     device_list[dev_address].dev_desc = dev_desc;
     device_list[dev_address].config_desc = config_desc;
 
@@ -420,8 +423,9 @@ esp_err_t usb_host_device_info_mock_callback(usb_device_handle_t dev_hdl, usb_de
 
     const device_list_t *current_device = (const device_list_t *) dev_hdl;
     memset(dev_info, 0, sizeof(usb_device_info_t));
-    dev_info->dev_addr = current_device->address;
-    dev_info->bMaxPacketSize0 = current_device->dev_desc->bMaxPacketSize0;
+    dev_info->speed               = current_device->speed;
+    dev_info->dev_addr            = current_device->address;
+    dev_info->bMaxPacketSize0     = current_device->dev_desc->bMaxPacketSize0;
     dev_info->bConfigurationValue = 1;
     return ESP_OK;
 }

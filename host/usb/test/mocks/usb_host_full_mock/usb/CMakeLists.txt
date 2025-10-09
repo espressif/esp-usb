@@ -27,4 +27,4 @@ target_sources(${COMPONENT_LIB} PRIVATE "${original_usb_dir}/src/usb_helpers.c")
 target_sources(${COMPONENT_LIB} PRIVATE "${original_usb_dir}/src/usb_private.c")
 
 # Add the extra src files for USB device mocking
-target_sources(${COMPONENT_LIB} PRIVATE "mock_add_usb_device.c")
+target_sources(${COMPONENT_LIB} PRIVATE "mock_add_usb_device.cpp")

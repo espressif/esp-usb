@@ -32,27 +32,27 @@ static void _add_mocked_devices(void)
 
     // ASIX Electronics Corp. AX88772A Fast Ethernet (FS descriptor)
     REQUIRE(ESP_OK == usb_host_mock_add_device(0, (const usb_device_desc_t *)premium_cord_device_desc_fs,
-                                               (const usb_config_desc_t *)premium_cord_config_desc_fs));
+                                               (const usb_config_desc_t *)premium_cord_config_desc_fs, USB_SPEED_FULL));
 
     // ASIX Electronics Corp. AX88772B (FS descriptor)
     REQUIRE(ESP_OK == usb_host_mock_add_device(1, (const usb_device_desc_t *)i_tec_device_desc_fs,
-                                               (const usb_config_desc_t *)i_tec_config_desc_fs));
+                                               (const usb_config_desc_t *)i_tec_config_desc_fs, USB_SPEED_FULL));
 
     // FTDI chip dual (FS descriptor)
     REQUIRE(ESP_OK == usb_host_mock_add_device(2, (const usb_device_desc_t *)ftdi_device_desc_fs_hs,
-                                               (const usb_config_desc_t *)ftdi_config_desc_fs));
+                                               (const usb_config_desc_t *)ftdi_config_desc_fs, USB_SPEED_FULL));
 
     // TTL232RG (FS descriptor)
     REQUIRE(ESP_OK == usb_host_mock_add_device(3, (const usb_device_desc_t *)ttl232_device_desc,
-                                               (const usb_config_desc_t *)ttl232_config_desc));
+                                               (const usb_config_desc_t *)ttl232_config_desc, USB_SPEED_FULL));
 
     // CP210x (FS descriptor)
     REQUIRE(ESP_OK == usb_host_mock_add_device(4, (const usb_device_desc_t *)cp210x_device_desc,
-                                               (const usb_config_desc_t *)cp210x_config_desc));
+                                               (const usb_config_desc_t *)cp210x_config_desc, USB_SPEED_FULL));
 
     // tusb_serial_device (HS descriptor)
     REQUIRE(ESP_OK == usb_host_mock_add_device(5, (const usb_device_desc_t *)tusb_serial_device_device_desc_fs_hs,
-                                               (const usb_config_desc_t *)tusb_serial_device_config_desc_hs));
+                                               (const usb_config_desc_t *)tusb_serial_device_config_desc_hs, USB_SPEED_HIGH));
 }
 
 /**
