@@ -10,6 +10,7 @@
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "esp_private/critical_section.h"
 #include "tusb.h"
 #include "tinyusb_cdc_acm.h"
 #include "cdc.h"
@@ -24,9 +25,9 @@
 #endif
 
 // CDC-ACM spinlock
-static portMUX_TYPE cdc_acm_lock = portMUX_INITIALIZER_UNLOCKED;
-#define CDC_ACM_ENTER_CRITICAL()   portENTER_CRITICAL(&cdc_acm_lock)
-#define CDC_ACM_EXIT_CRITICAL()    portEXIT_CRITICAL(&cdc_acm_lock)
+DEFINE_CRIT_SECTION_LOCK_STATIC(cdc_acm_lock);
+#define CDC_ACM_ENTER_CRITICAL()           esp_os_enter_critical(&cdc_acm_lock)
+#define CDC_ACM_EXIT_CRITICAL()            esp_os_exit_critical(&cdc_acm_lock)
 
 typedef struct {
     tusb_cdcacm_callback_t callback_rx;
