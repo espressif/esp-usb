@@ -456,8 +456,21 @@ static esp_err_t uvc_claim_interface(uvc_stream_t *uvc_stream, const usb_ep_desc
     const usb_intf_desc_t *intf_desc;
     const usb_ep_desc_t *ep_desc;
 
+    /* Calculate the requested bandwidth for the UVC stream.
+     * Theoretically, we could use dwMinBitRate and dwMaxBitRate from Video Frame Descriptor,
+     * but many cameras do not fill these fields correctly. So we use a more robust approach of
+     * calculating the bandwidth from the selected frame size and frame rate.
+     *
+     * We do **NOT** use user provided uvc_host_stream_config_t::advanced.frame_size to ensure enough bandwidth.
+     * The ESP32-S2 and S3 limitation that cannot use max MPS for ISOC transfers
+     * is handled in uvc_desc_get_streaming_intf_and_ep() function.
+     */
+    UVC_ENTER_CRITICAL();
+    const int requested_bandwidth = uvc_stream->dynamic.dwMaxVideoFrameSize * uvc_stream->dynamic.vs_format.fps;
+    UVC_EXIT_CRITICAL();
+
     ESP_RETURN_ON_ERROR(
-        uvc_desc_get_streaming_intf_and_ep(uvc_stream->constant.cfg_desc, uvc_stream->constant.bInterfaceNumber, MAX_MPS_IN, &intf_desc, &ep_desc),
+        uvc_desc_get_streaming_intf_and_ep(uvc_stream->constant.cfg_desc, uvc_stream->constant.bInterfaceNumber, requested_bandwidth, &intf_desc, &ep_desc),
         TAG, "Could not find Streaming interface %d", uvc_stream->constant.bInterfaceNumber);
 
     // Save all constant information about the UVC stream
