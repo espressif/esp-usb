@@ -11,8 +11,11 @@
 #include "esp_log.h"
 #include "esp_check.h"
 #include "tinyusb.h"
+#include "tinyusb_task.h"
+#include "tinyusb_vbus_monitor.h"
 #include "sdkconfig.h"
 #include "descriptors_control.h"
+
 
 const static char *TAG = "tinyusb_task";
 
@@ -39,6 +42,8 @@ typedef struct {
     uint8_t rhport;                         /*!< USB Peripheral hardware port number. Available when hardware has several available peripherals. */
     tusb_rhport_init_t rhport_init;         /*!< USB Device RH port initialization configuration pointer */
     const tinyusb_desc_config_t *desc_cfg;  /*!< USB Device descriptors configuration pointer */
+    // Additional parameters
+    int vbus_monitor_io;                    /*!< GPIO for VBUS monitoring, 3.3 V tolerant. */
     // Task related
     TaskHandle_t handle;                    /*!< Task handle */
     volatile TaskHandle_t awaiting_handle;           /*!< Task handle, waiting to be notified after successful start of TinyUSB stack */
@@ -71,6 +76,13 @@ static void tinyusb_device_task(void *arg)
     if (!tusb_rhport_init(task_ctx->rhport, &task_ctx->rhport_init)) {
         ESP_LOGE(TAG, "Init TinyUSB stack failed");
         goto desc_free;
+    }
+
+    if (task_ctx->vbus_monitor_io >= 0) {
+        if (tinyusb_vbus_monitor_init(task_ctx->vbus_monitor_io) != ESP_OK) {
+            ESP_LOGE(TAG, "Init VBUS monitoring failed");
+            goto desc_free;
+        }
     }
 
     TINYUSB_TASK_ENTER_CRITICAL();
@@ -107,7 +119,10 @@ esp_err_t tinyusb_task_check_config(const tinyusb_task_config_t *config)
     return ESP_OK;
 }
 
-esp_err_t tinyusb_task_start(tinyusb_port_t port, const tinyusb_task_config_t *config, const tinyusb_desc_config_t *desc_cfg)
+esp_err_t tinyusb_task_start(tinyusb_port_t port,
+                             const tinyusb_task_config_t *config,
+                             const tinyusb_desc_config_t *desc_cfg,
+                             const tinyusb_task_dev_ext_params_t *ext_params)
 {
     ESP_RETURN_ON_ERROR(tinyusb_descriptors_check(port, desc_cfg), TAG, "TinyUSB descriptors check failed");
 
@@ -129,6 +144,8 @@ esp_err_t tinyusb_task_start(tinyusb_port_t port, const tinyusb_task_config_t *c
     task_ctx->rhport_init.role = TUSB_ROLE_DEVICE;              // Role selection: esp_tinyusb is always a device
     task_ctx->rhport_init.speed = (port == TINYUSB_PORT_FULL_SPEED_0) ? TUSB_SPEED_FULL : TUSB_SPEED_HIGH; // Speed selection
     task_ctx->desc_cfg = desc_cfg;
+    // Additional parameters
+    task_ctx->vbus_monitor_io = ext_params->vbus_monitor_io;
 
     TaskHandle_t task_hdl = NULL;
     ESP_LOGD(TAG, "Creating TinyUSB main task on CPU%d", config->xCoreID);
@@ -173,8 +190,21 @@ esp_err_t tinyusb_task_stop(void)
         vTaskDelete(task_ctx->handle);
         task_ctx->handle = NULL;
     }
+
+    /* TODO: Free descriptors and disable the VBUS monitor should be in the task itself
+     * but currently we don't have a way to signal the task to do it and exit.
+     * So we do it here for now.
+     * Refer to https://github.com/espressif/esp-usb/pull/272
+     */
+
     // Free descriptors
     tinyusb_descriptors_free();
+
+    if (task_ctx->vbus_monitor_io >= 0) {
+        // Deinit VBUS monitoring if it was enabled
+        tinyusb_vbus_monitor_deinit(task_ctx->vbus_monitor_io);
+    }
+
     // Stop TinyUSB stack
     ESP_RETURN_ON_FALSE(tusb_rhport_teardown(task_ctx->rhport), ESP_ERR_NOT_FINISHED, TAG, "Unable to teardown TinyUSB stack");
     // Cleanup
