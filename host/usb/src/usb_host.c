@@ -159,7 +159,7 @@ typedef struct {
     struct {
         SemaphoreHandle_t event_sem;
         SemaphoreHandle_t mux_lock;
-        TimerHandle_t auto_pm_timer;    // Freertos timer used for automatic suspend/resume
+        TimerHandle_t auto_pm_timer;    // Freertos timer used for automatic power management
         usb_phy_handle_t phy_handle;    // Will be NULL if host library is installed with skip_phy_setup
         void *enum_client;              // Pointer to Enum driver (acting as a client). Used to reroute completed USBH control transfers
         void *hub_client;               // Pointer to External Hub driver (acting as a client). Used to reroute completed USBH control transfers. NULL, when External Hub Driver not available.
@@ -928,7 +928,7 @@ exit:
     return ret;
 }
 
-esp_err_t usb_host_lib_set_auto_pm(usb_host_lib_pm_t pm_action, size_t auto_pm_interval_ms)
+esp_err_t usb_host_lib_set_auto_pm(usb_host_lib_pm_t timer_type, size_t timer_interval_ms)
 {
     HOST_ENTER_CRITICAL();
     HOST_CHECK_FROM_CRIT(p_host_lib_obj != NULL, ESP_ERR_INVALID_STATE);
@@ -937,7 +937,7 @@ esp_err_t usb_host_lib_set_auto_pm(usb_host_lib_pm_t pm_action, size_t auto_pm_i
     TimerHandle_t suspend_tmr = p_host_lib_obj->constant.auto_pm_timer;
 
     // Interval is 0, stop the timer
-    if (auto_pm_interval_ms == 0) {
+    if (timer_interval_ms == 0) {
         if (xTimerIsTimerActive(suspend_tmr) == pdTRUE) {
             ESP_RETURN_ON_FALSE(xTimerStop(suspend_tmr, portMAX_DELAY), ESP_FAIL, USB_HOST_TAG, "Timer could not be stopped");
         }
@@ -946,7 +946,7 @@ esp_err_t usb_host_lib_set_auto_pm(usb_host_lib_pm_t pm_action, size_t auto_pm_i
     }
 
     // Set timer reload mode: One-Shot or periodic
-    switch (pm_action) {
+    switch (timer_type) {
     case USB_HOST_LIB_PM_SUSPEND_ONE_SHOT:
         vTimerSetReloadMode(suspend_tmr, pdFALSE);
         break;
@@ -958,11 +958,11 @@ esp_err_t usb_host_lib_set_auto_pm(usb_host_lib_pm_t pm_action, size_t auto_pm_i
     }
 
     // Change the timer period, this also starts the timer if stopped
-    ESP_RETURN_ON_FALSE(xTimerChangePeriod(suspend_tmr, pdMS_TO_TICKS(auto_pm_interval_ms), portMAX_DELAY),
+    ESP_RETURN_ON_FALSE(xTimerChangePeriod(suspend_tmr, pdMS_TO_TICKS(timer_interval_ms), portMAX_DELAY),
                         ESP_FAIL, USB_HOST_TAG, "Timer period could not be changed");
 
     ESP_LOGD(USB_HOST_TAG, "Auto suspend timer set to %d ms, %s mode and started",
-             auto_pm_interval_ms, ((pm_action == USB_HOST_LIB_PM_SUSPEND_ONE_SHOT) ? ("One-Shot") : ("Periodic")));
+             timer_interval_ms, ((timer_type == USB_HOST_LIB_PM_SUSPEND_ONE_SHOT) ? ("One-Shot") : ("Periodic")));
 
     return ESP_OK;
 }

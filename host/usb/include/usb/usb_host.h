@@ -53,7 +53,7 @@ typedef enum {
 } usb_host_client_event_t;
 
 /**
- * @brief USB Host lib power management
+ * @brief USB Host lib power management timer type
  */
 typedef enum {
     USB_HOST_LIB_PM_SUSPEND_ONE_SHOT,               /**< USB Host lib power management -> Auto suspend one-shot timer */
@@ -292,25 +292,26 @@ esp_err_t usb_host_lib_root_port_suspend(void);
 esp_err_t usb_host_lib_root_port_resume(void);
 
 /**
- * @brief Set auto power management timer (auto suspend/resume)
+ * @brief Set auto power management timer
  *
- * - The function sets the auto suspend (resume) timer, used for global suspend (resume) of the root port
- * - The timer is a one-shot timer which expires after the set period, only if there is no activity on the USB Bus
+ * - The function sets the auto suspend timer, used for global suspend of the root port
+ * - The timer is either one-shot or periodic
+ * - The timerexpires after the set period, only if there is no activity on the USB Bus
  * - The timer resets (if enabled) every time, the usb_host_client_handle_events() handles any client events,
- *   or the usb_host_lib_handle_events() handles any host lib events, thus checking any activity
- *   on all the registered clients or inside the host lib
+ *   or the usb_host_lib_handle_events() handles any host lib events, thus checking any activity on all the
+ *   registered clients or inside the host lib
  * - Once the timer expires, an auto_pm_timer_cb() is called, which delivers USB Host lib event flags
  *
- * @note set the timer interval to 0, to disable the timer (in case NO auto suspend (resume) functionality is required)
+ * @note set the timer interval to 0, to disable the timer (in case NO auto suspend functionality is required anymore)
  * @note this function is not ISR safe
- * @param[in] pm_action Power management action (Suspend/Resume)
- * @param[in] auto_pm_interval_ms Interval after which the automatic suspend (resume) occurs (0 to disable)
+ * @param[in] timer_type Power management timer type (periodic/one-shot)
+ * @param[in] timer_interval_ms Interval after which a usb_host lib event flag is delivered (0 to disable running timer)
  * @return
  *    - ESP_OK: Timer set or stopped
  *    - ESP_ERR_INVALID_STATE: USB Host lib is not installed
  *    - ESP_FAIL: Timer was not configured correctly
  */
-esp_err_t usb_host_lib_set_auto_pm(usb_host_lib_pm_t pm_action, size_t auto_pm_interval_ms);
+esp_err_t usb_host_lib_set_auto_pm(usb_host_lib_pm_t timer_type, size_t timer_interval_ms);
 
 // ------------------------------------------------ Client Functions ---------------------------------------------------
 

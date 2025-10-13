@@ -278,7 +278,7 @@ void msc_client_async_resume_by_transfer_task(void *arg)
                                    msc_obj.dev_info->scsi_sector_size,
                                    msc_obj.test_param.msc_scsi_xfer_tag);
             xfer_out->num_bytes = sizeof(mock_msc_bulk_cbw_t);
-            xfer_out->bEndpointAddress = msc_obj.dev_info->out_up_addr;
+            xfer_out->bEndpointAddress = msc_obj.dev_info->out_ep_addr;
             TEST_ASSERT_EQUAL(ESP_OK, usb_host_transfer_submit(xfer_out));
             // Test that pending transfers can't be resubmitted
             TEST_ASSERT_EQUAL(ESP_ERR_NOT_FINISHED, usb_host_transfer_submit(xfer_out));

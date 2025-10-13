@@ -338,7 +338,7 @@ static void pm_timer_measure_task(void *arg)
 }
 
 /*
-Test USB Host auto Suspend/Resume timer event flags delivery
+Test USB Host auto Suspend timer event flags delivery
 
 Purpose:
 - Test the PM Timer event flags delivery upon timer settings
@@ -526,7 +526,7 @@ static void pm_timer_cancel_task(void *arg)
 }
 
 /*
-Test USB Host auto Suspend/Resume timer cancellation
+Test USB Host auto Suspend timer cancellation
 
 Purpose:
 - Test the PM Timer cancellation upon device disconnection or reconnection

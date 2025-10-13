@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2015-2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2015-2025 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -49,7 +49,7 @@ TEST_CASE("Test USB Host sudden disconnection (no client)", "[usb_host][low_spee
                 connected = true;
                 printf("Forcing Sudden Disconnect\n");
                 // Trigger a disconnect by powering OFF the root port
-                usb_host_lib_set_root_port_power(false);
+                TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_set_root_port_power(false));
             }
         }
         if (event_flags & USB_HOST_LIB_EVENT_FLAGS_ALL_FREE) {
@@ -59,7 +59,92 @@ TEST_CASE("Test USB Host sudden disconnection (no client)", "[usb_host][low_spee
                 // Start next iteration
                 connected = false;
                 // Allow connections again by powering ON the root port
-                usb_host_lib_set_root_port_power(true);
+                TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_set_root_port_power(true));
+            } else {
+                break;
+            }
+        }
+    }
+}
+
+/*
+Test USB Host Library root port suspend with Sudden Disconnection Handling (no clients)
+Purpose:
+- Test that sudden disconnections after suspending are handled properly when there are no clients
+- Test that devices can reconnect after suspending with a sudden disconnection has been handled by the USB Host Library
+
+Procedure:
+- Install USB Host Library:
+- Wait for connection to occur and suspend the root port
+    - Let the usb_host lib to handle events caused by root port suspend call
+    - Force a disconnection, then wait for disconnection to be handled (USB_HOST_LIB_EVENT_FLAGS_ALL_FREE)
+    - Allow connections again, and repeat test for multiple iterations
+- Wait for connection to occur and suspend the root port
+    - Don't handle events (just mark the root port for suspending)
+    - Force a disconnection, then wait for disconnection to be handled (USB_HOST_LIB_EVENT_FLAGS_ALL_FREE)
+    - Allow connections again, and repeat test for multiple iterations
+*/
+
+#define TEST_DCONN_SUSPEND_ITERATIONS   6
+
+TEST_CASE("Test USB Host suspend + disconnection (no client)", "[usb_host][low_speed][full_speed][high_speed]")
+{
+    bool connected = false;
+    bool suspended = false;
+    int dconn_iter = 0;
+    while (1) {
+        // Start handling system events
+        uint32_t event_flags;
+        usb_host_lib_handle_events(portMAX_DELAY, &event_flags);
+
+        if (!connected) {
+            usb_host_lib_info_t lib_info_connected;
+            TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_info(&lib_info_connected));
+            if (lib_info_connected.num_devices == 1) {
+                // We've just connected. Trigger root port suspend
+                connected = true;
+
+                printf("Suspending the root port\n");
+                // Suspend the root port
+                TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_root_port_suspend());
+
+                // In first test variation, continue to the end of the loop, to handle events connected to the port suspend
+                // In second variation don't handle port suspend, disconnect immediately
+                if (dconn_iter < TEST_DCONN_SUSPEND_ITERATIONS / 2) {
+                    continue;
+                }
+            }
+        }
+
+        if (!suspended) {
+            usb_host_lib_info_t lib_info;
+            TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_info(&lib_info));
+            if (lib_info.num_devices == 1) {
+                // We've started suspend sequence. Trigger a disconnect
+                suspended = true;
+
+                if (dconn_iter < TEST_DCONN_SUSPEND_ITERATIONS / 2) {
+                    // Port suspend call has been handled, expect the port to be suspended
+                    TEST_ASSERT_MESSAGE(lib_info.root_port_suspended, "Root port should be suspended");
+                } else {
+                    // Port suspend call has not been handled, expect the port not to be suspended
+                    TEST_ASSERT_MESSAGE(!lib_info.root_port_suspended, "Root port should not be suspended");
+                }
+                printf("Forcing Sudden Disconnect\n");
+                // Trigger a disconnect by powering OFF the root port
+                TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_set_root_port_power(false));
+            }
+        }
+
+        if (event_flags & USB_HOST_LIB_EVENT_FLAGS_ALL_FREE) {
+            // The device has disconnected and it's disconnection has been handled
+            printf("Dconn iter %d done\n", dconn_iter);
+            if (++dconn_iter < TEST_DCONN_SUSPEND_ITERATIONS) {
+                // Start next iteration
+                connected = false;
+                suspended = false;
+                // Allow connections again by powering ON the root port
+                TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_set_root_port_power(true));
             } else {
                 break;
             }

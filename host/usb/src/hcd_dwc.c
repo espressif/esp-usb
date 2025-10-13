@@ -1337,6 +1337,7 @@ static esp_err_t _port_cmd_bus_suspend(port_t *port)
     HCD_ENTER_CRITICAL();
 
     if (port->state != HCD_PORT_STATE_SUSPENDING) {
+        // Port state unexpectedly changed
         ret = ESP_ERR_INVALID_RESPONSE;
         goto exit;
     }
@@ -1344,6 +1345,7 @@ static esp_err_t _port_cmd_bus_suspend(port_t *port)
     // Here we are calling ll directly instead of hal, to allow the suspend/resume feature to be used as a managed usb
     // component in all active IDF releases (Currently IDF 5.4.x, IDF 5.5.x and IDF 6.0) and all it's minor releases
     // because the hal function usb_dwc_hal_port_check_if_suspended(port->hal) starts to be supported in IDF 5.5.2, (and IDF 5.4.2)
+    // TODO: use usb_dwc_hal_hprt_get_port_suspend() instead of usb_dwc_ll_hprt_get_port_suspend() when IDF 5.5 is EOL
 
     // Sanity check, the root port should have entered the suspended state after the SUSPEND_ENTRY_MS delay
     if (!usb_dwc_ll_hprt_get_port_suspend(port->hal->dev)) {

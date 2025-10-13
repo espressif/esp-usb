@@ -633,7 +633,7 @@ static inline void handle_prop_resume_event(device_t *dev_obj)
 
 static inline void handle_prop_all_idle_event(void)
 {
-    ESP_LOGD(USBH_TAG, "ALl devices idle");
+    ESP_LOGD(USBH_TAG, "All devices idle");
     usbh_event_data_t event_data = {
         .event = USBH_EVENT_ALL_IDLE,
     };
