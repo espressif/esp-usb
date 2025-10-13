@@ -14,6 +14,10 @@
 #include "sdkconfig.h"
 #include "descriptors_control.h"
 
+#ifndef tusb_deinit
+#define tusb_deinit(x)  tusb_teardown(x)  // For compatibility with tinyusb component versions from 0.17.0~2 to 0.18.0~5
+#endif // tusb_deinit
+
 const static char *TAG = "tinyusb_task";
 
 static portMUX_TYPE tusb_task_lock = portMUX_INITIALIZER_UNLOCKED;
@@ -176,7 +180,7 @@ esp_err_t tinyusb_task_stop(void)
     // Free descriptors
     tinyusb_descriptors_free();
     // Stop TinyUSB stack
-    ESP_RETURN_ON_FALSE(tusb_rhport_teardown(task_ctx->rhport), ESP_ERR_NOT_FINISHED, TAG, "Unable to teardown TinyUSB stack");
+    ESP_RETURN_ON_FALSE(tusb_deinit(task_ctx->rhport), ESP_ERR_NOT_FINISHED, TAG, "Unable to teardown TinyUSB stack");
     // Cleanup
     heap_caps_free(task_ctx);
     return ESP_OK;
