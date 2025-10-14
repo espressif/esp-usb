@@ -1,8 +1,7 @@
 # Config file for build_idf_examples.yml workflow
 
 paths = [
-    # TODO: Uncomment the below line to run esp-idf USB Device examples in CI. See issue IDF-13618 for tracking.
-    #"examples/peripherals/usb/device",     # USB Device examples
+    "examples/peripherals/usb/device",      # USB Device examples
     "examples/peripherals/usb/host",        # USB Host examples
 ]
 

@@ -1,7 +1,7 @@
 # This workflow builds esp-idf examples:
 #
 #   - usb device examples: with overridden esp_tinyusb from esp-usb/device/esp_tinyusb
-#     - All (service + maintenance IDF releases)
+#     - Only IDF Latest
 #
 #   - usb host examples: with overridden usb component from esp-usb/host/usb
 #     - Only service IDF releases
@@ -45,8 +45,7 @@ jobs:
         run: |
           . ${IDF_PATH}/export.sh
 
-          # TODO: Uncomment the below line to run esp-idf USB Device examples in CI. See issue IDF-13618 for tracking.
-          #python .github/ci/override_managed_component.py esp_tinyusb device/esp_tinyusb ${IDF_PATH}/examples/peripherals/usb/device/*
+          python .github/ci/override_managed_component.py esp_tinyusb device/esp_tinyusb ${IDF_PATH}/examples/peripherals/usb/device/*
           python .github/ci/override_managed_component.py usb host/usb ${IDF_PATH}/examples/peripherals/usb/host/*
           cd ${IDF_PATH}
 
