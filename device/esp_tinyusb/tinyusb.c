@@ -32,11 +32,6 @@ typedef struct {
 
 static tinyusb_ctx_t s_ctx; // TinyUSB context
 
-// For the tinyusb component without tusb_teardown() implementation
-#ifndef tusb_teardown
-#   define tusb_teardown()   (true)
-#endif // tusb_teardown
-
 // ==================================================================================
 // ============================= TinyUSB Callbacks ==================================
 // ==================================================================================

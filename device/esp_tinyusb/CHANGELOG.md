@@ -1,3 +1,7 @@
+## [Unreleased]
+
+- Fixed forward compatibility with TinyUSB 0.19
+
 ## 2.0.1
 
 - esp_tinyusb: Added ESP32H4 support

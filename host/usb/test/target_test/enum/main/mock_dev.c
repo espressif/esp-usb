@@ -28,6 +28,10 @@
 #define USB_SRP_BVALID_IN_IDX       USB_SRP_BVALID_PAD_IN_IDX
 #endif // CONFIG_IDF_TARGET_ESP32P4
 
+#ifndef tusb_deinit
+#define tusb_deinit(x)  tusb_teardown(x)  // For compatibility with older tinyusb component versions
+#endif // tusb_deinit
+
 //
 // Test configuration
 //
@@ -56,13 +60,6 @@ static void mock_dev_remove(void)
         vTaskDelay(pdMS_TO_TICKS(mock_dev_cfg->conn_dconn.delay_ms));
     }
 }
-
-//
-// TinyUSB driver related logic
-//
-#ifndef tusb_teardown
-#warning "Teardown feature is not available, please use tinyUSB component with tusb_teardown() support"
-#endif // tusb_teardown
 
 static void mock_device_task(void *arg)
 {
@@ -121,7 +118,7 @@ void mock_dev_release(void)
     // Remove mock USB device
     mock_dev_remove();
     // Uninstall TinyUSB driver
-    tusb_teardown();
+    tusb_deinit(0);
 
     // Delete device handling task
     if (mock_device_task_hdl) {
