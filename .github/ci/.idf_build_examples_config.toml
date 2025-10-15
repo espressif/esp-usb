@@ -14,6 +14,7 @@ exclude = [
 recursive = true
 check_warnings = true
 target = "all"
+enable_preview_targets = true
 
 # build related options
 build_dir = "build_@t_@w"
