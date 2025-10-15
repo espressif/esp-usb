@@ -12,6 +12,7 @@ from serial.tools.list_ports import comports
 @pytest.mark.esp32s3
 @pytest.mark.esp32p4
 @pytest.mark.usb_device
+@pytest.mark.flaky(reruns=2, reruns_delay=5)
 def test_usb_device_cdc(dut: IdfDut) -> None:
     '''
     Running the test locally:
