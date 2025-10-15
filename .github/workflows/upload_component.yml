@@ -20,7 +20,7 @@ jobs:
       - run: |
           echo "${{ ( github.ref_name != 'master' || github.repository_owner != 'espressif' ) && 'Checking' || 'Uploading' }} components"
       - name: Upload components to component service
-        uses: espressif/upload-components-ci-action@v1
+        uses: espressif/upload-components-ci-action@v2
         with:
           # Please try to keep the directories list sorted.
           #
@@ -31,19 +31,19 @@ jobs:
           # This is only a problem if you are adding two components for the first time,
           # or if the 2nd component depends on the exact (new) version of the first one.
           #
-          directories: >
-            device/esp_tinyusb;
-            host/class/cdc/esp_modem_usb_dte;
-            host/class/cdc/usb_host_cdc_acm;
-            host/class/cdc/usb_host_ch34x_vcp;
-            host/class/cdc/usb_host_cp210x_vcp;
-            host/class/cdc/usb_host_ftdi_vcp;
-            host/class/cdc/usb_host_vcp;
-            host/class/hid/usb_host_hid;
-            host/class/msc/usb_host_msc;
-            host/class/uac/usb_host_uac;
-            host/class/uvc/usb_host_uvc;
-            host/usb;
+          components: |
+            device/esp_tinyusb
+            host/class/cdc/esp_modem_usb_dte
+            host/class/cdc/usb_host_cdc_acm
+            host/class/cdc/usb_host_ch34x_vcp
+            host/class/cdc/usb_host_cp210x_vcp
+            host/class/cdc/usb_host_ftdi_vcp
+            host/class/cdc/usb_host_vcp
+            host/class/hid/usb_host_hid
+            host/class/msc/usb_host_msc
+            host/class/uac/usb_host_uac
+            host/class/uvc/usb_host_uvc
+            host/usb
           namespace: "espressif"
           # API token will only be available in the master branch in the main repository.
           # However, dry-run doesn't require a valid token.
