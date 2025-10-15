@@ -255,6 +255,15 @@ esp_err_t esp_vfs_tusb_cdc_unregister(char const *path)
     return res;
 }
 
+static esp_vfs_fs_ops_t g_fs_ops = {
+    .close = &tusb_close,
+    .fcntl = &tusb_fcntl,
+    .fstat = &tusb_fstat,
+    .open = &tusb_open,
+    .read = &tusb_read,
+    .write = &tusb_write,
+};
+
 esp_err_t esp_vfs_tusb_cdc_register(int cdc_intf, char const *path)
 {
     ESP_LOGD(TAG, "Registering CDC-VFS driver");
@@ -269,17 +278,7 @@ esp_err_t esp_vfs_tusb_cdc_register(int cdc_intf, char const *path)
         return res;
     }
 
-    esp_vfs_t vfs = {
-        .flags = ESP_VFS_FLAG_DEFAULT,
-        .close = &tusb_close,
-        .fcntl = &tusb_fcntl,
-        .fstat = &tusb_fstat,
-        .open = &tusb_open,
-        .read = &tusb_read,
-        .write = &tusb_write,
-    };
-
-    res = esp_vfs_register(s_vfstusb.vfs_path, &vfs, NULL);
+    res = esp_vfs_register_fs(s_vfstusb.vfs_path, &g_fs_ops, ESP_VFS_FLAG_DEFAULT, NULL);
     if (res != ESP_OK) {
         ESP_LOGE(TAG, "Can't register CDC-VFS driver (err: %x)", res);
     } else {
