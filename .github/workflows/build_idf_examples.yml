@@ -39,7 +39,7 @@ jobs:
         shell: bash
         run: |
           . ${IDF_PATH}/export.sh
-          pip install idf-component-manager>=2.1.2 idf-build-apps==2.4.3 pyyaml --upgrade
+          pip install idf-component-manager>=2.1.2 idf-build-apps==2.12.2 pyyaml --upgrade
       - name: Build ESP-IDF ${{ matrix.idf_ver }} USB examples
         shell: bash
         run: |

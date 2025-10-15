@@ -27,7 +27,7 @@ jobs:
         shell: bash
         run: |
           . ${IDF_PATH}/export.sh
-          pip install pytest pytest-embedded pytest-embedded-serial-esp pytest-embedded-idf pyusb idf-build-apps==2.4.3 --upgrade
+          pip install pytest pytest-embedded pytest-embedded-serial-esp pytest-embedded-idf pyusb idf-build-apps==2.12.2 --upgrade
       - name: Build
         shell: bash
         run: |
@@ -38,4 +38,4 @@ jobs:
         shell: bash
         run: |
           . ${IDF_PATH}/export.sh
-          pytest --target=linux -m host_test --build-dir=build_linux
+          pytest --target=linux -m host_test --build-dir=build_linux_default
