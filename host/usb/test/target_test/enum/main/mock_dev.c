@@ -28,9 +28,9 @@
 #define USB_SRP_BVALID_IN_IDX       USB_SRP_BVALID_PAD_IN_IDX
 #endif // CONFIG_IDF_TARGET_ESP32P4
 
-#ifndef tusb_deinit
-#define tusb_deinit(x)  tusb_teardown(x)  // For compatibility with older tinyusb component versions
-#endif // tusb_deinit
+#if TUSB_VERSION_NUMBER < 1900 // < 0.19.0
+#define tusb_deinit(x)  tusb_teardown(x)  // For compatibility with tinyusb component versions from 0.17.0~2 to 0.18.0~5
+#endif
 
 //
 // Test configuration

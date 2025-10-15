@@ -14,9 +14,9 @@
 #include "sdkconfig.h"
 #include "descriptors_control.h"
 
-#ifndef tusb_deinit
+#if TUSB_VERSION_NUMBER < 1900 // < 0.19.0
 #define tusb_deinit(x)  tusb_teardown(x)  // For compatibility with tinyusb component versions from 0.17.0~2 to 0.18.0~5
-#endif // tusb_deinit
+#endif
 
 const static char *TAG = "tinyusb_task";
 
