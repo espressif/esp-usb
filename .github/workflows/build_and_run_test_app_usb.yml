@@ -70,7 +70,7 @@ jobs:
           export ENV_VAR_USB_COMP_MANAGED=${{ matrix.usb_comp_managed }}
 
           idf-build-apps find --config-file ${CONFIG_PATH} --paths ${{ matrix.path }}
-          idf-build-apps build --config-file ${CONFIG_PATH} --paths ${{ matrix.path }}
+          cat ${CONFIG_PATH}
       - uses: actions/upload-artifact@v4
         with:
           name: usb_${{ matrix.test_app }}_test_app_bin_${{ matrix.idf_ver }}
