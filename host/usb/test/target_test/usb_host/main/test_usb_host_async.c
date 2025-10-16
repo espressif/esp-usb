@@ -700,7 +700,7 @@ TEST_CASE("Test USB Host remote wakeup setup", "[usb_host][low_speed][full_speed
     TEST_ASSERT_EQUAL_MESSAGE(
         pdTRUE, xSemaphoreTake(dev_ready_smp, TEST_REMOTE_WAKE_SMP_WAIT_MS), "Remote wake not checked on time");
 
-    printf("Remote wake enabled\n");
+//    printf("Remote wake enabled\n");
     usb_host_lib_root_port_suspend();
     vTaskDelay(pdMS_TO_TICKS(5000));
 //    usb_host_lib_root_port_resume();

@@ -173,7 +173,7 @@ TEST_CASE("Test HCD port suspend and resume", "[port][low_speed][full_speed][hig
     TEST_ASSERT_EQUAL(ESP_OK, hcd_port_command(port_hdl, HCD_PORT_CMD_SUSPEND));
     TEST_ASSERT_EQUAL(HCD_PORT_STATE_SUSPENDED, hcd_port_get_state(port_hdl));
     printf("Suspended\n");
-    vTaskDelay(pdMS_TO_TICKS(100)); // Give some time for bus to remain suspended
+    vTaskDelay(pdMS_TO_TICKS(5000)); // Give some time for bus to remain suspended
 
     // Resume the port
     TEST_ASSERT_EQUAL(ESP_OK, hcd_port_command(port_hdl, HCD_PORT_CMD_RESUME));
@@ -391,4 +391,97 @@ TEST_CASE("Test HCD port command bailout", "[port][low_speed][full_speed][high_s
     vTaskDelay(pdMS_TO_TICKS(10)); // Short delay for concurrent task finish running
     vTaskDelete(task_handle);
     vSemaphoreDelete(sync_sem);
+}
+
+bool test_hcd_check_remote_wake(hcd_pipe_handle_t *pipe, urb_t *get_status_urb)
+{
+    // Initialize with a "Get status request" USB_SETUP_PACKET_INIT_GET_STATUS
+    get_status_urb->transfer.num_bytes = sizeof(usb_setup_packet_t) + sizeof(usb_device_status_t);
+    USB_SETUP_PACKET_INIT_GET_STATUS((usb_setup_packet_t *)get_status_urb->transfer.data_buffer);
+    get_status_urb->transfer.context = URB_CONTEXT_VAL;
+
+    TEST_ASSERT_EQUAL(ESP_OK, hcd_urb_enqueue(pipe, get_status_urb));
+    test_hcd_expect_pipe_event(pipe, HCD_PIPE_EVENT_URB_DONE);
+    urb_t *urb = hcd_urb_dequeue(pipe);
+    TEST_ASSERT_EQUAL(get_status_urb, urb);
+    TEST_ASSERT_EQUAL_MESSAGE(USB_TRANSFER_STATUS_COMPLETED, urb->transfer.status, "Transfer NOT completed");
+    TEST_ASSERT_EQUAL(URB_CONTEXT_VAL, urb->transfer.context);
+
+    TEST_ASSERT_EQUAL(sizeof(usb_setup_packet_t) + sizeof(usb_device_status_t), urb->transfer.actual_num_bytes);
+    TEST_ASSERT_EQUAL(urb->transfer.num_bytes, urb->transfer.actual_num_bytes);
+    usb_device_status_t *device_status = (usb_device_status_t *)(urb->transfer.data_buffer + sizeof(usb_setup_packet_t));
+
+    const bool enabled = device_status->remote_wakeup;
+    printf("Remote wakeup is currently %s\n", ((enabled)) ? ("enabled") : ("disabled") );
+    return enabled;
+}
+
+void test_hcd_set_remote_wake(hcd_pipe_handle_t *pipe, urb_t *set_feature_urb)
+{
+    set_feature_urb->transfer.num_bytes = sizeof(usb_setup_packet_t);
+    USB_SETUP_PACKET_INIT_SET_FEATURE((usb_setup_packet_t *)set_feature_urb->transfer.data_buffer, DEVICE_REMOTE_WAKEUP);
+    set_feature_urb->transfer.context = URB_CONTEXT_VAL;
+
+
+    TEST_ASSERT_EQUAL(ESP_OK, hcd_urb_enqueue(pipe, set_feature_urb));
+    test_hcd_expect_pipe_event(pipe, HCD_PIPE_EVENT_URB_DONE);
+    urb_t *urb = hcd_urb_dequeue(pipe);
+    TEST_ASSERT_EQUAL(set_feature_urb, urb);
+    TEST_ASSERT_EQUAL_MESSAGE(USB_TRANSFER_STATUS_COMPLETED, urb->transfer.status, "Transfer NOT completed");
+    TEST_ASSERT_EQUAL(URB_CONTEXT_VAL, urb->transfer.context);
+
+    TEST_ASSERT_EQUAL(sizeof(usb_setup_packet_t), urb->transfer.actual_num_bytes);
+    TEST_ASSERT_EQUAL(urb->transfer.num_bytes, urb->transfer.actual_num_bytes);
+}
+#define TEST_HID_DEV_SPEED                  USB_SPEED_LOW
+TEST_CASE("Test HCD port remote wakeup", "[port][low_speed][full_speed][high_speed]")
+{
+    usb_speed_t port_speed = test_hcd_wait_for_conn(port_hdl);  // Trigger a connection
+    TEST_ASSERT_EQUAL_MESSAGE(TEST_HID_DEV_SPEED, port_speed, "Connected device is not Low Speed!");
+    vTaskDelay(pdMS_TO_TICKS(100)); // Short delay send of SOF (for FS) or EOPs (for LS)
+
+    hcd_pipe_handle_t default_pipe = test_hcd_pipe_alloc(port_hdl, NULL, 0, port_speed); // Create a default pipe (using a NULL EP descriptor)
+    uint8_t dev_addr = test_hcd_enum_device(default_pipe);
+
+    urb_t *get_status_urb = test_hcd_alloc_urb(0, URB_DATA_BUFF_SIZE);
+    urb_t *set_feature_urb = test_hcd_alloc_urb(0, URB_DATA_BUFF_SIZE);
+
+    test_hcd_check_remote_wake(default_pipe, get_status_urb);
+    test_hcd_set_remote_wake(default_pipe, set_feature_urb);
+    test_hcd_check_remote_wake(default_pipe, get_status_urb);
+
+    // Halt the default pipe before suspending
+    TEST_ASSERT_EQUAL(HCD_PIPE_STATE_ACTIVE, hcd_pipe_get_state(default_pipe));
+    TEST_ASSERT_EQUAL(ESP_OK, hcd_pipe_command(default_pipe, HCD_PIPE_CMD_HALT));
+    TEST_ASSERT_EQUAL(HCD_PIPE_STATE_HALTED, hcd_pipe_get_state(default_pipe));
+
+    // Suspend the port
+    TEST_ASSERT_EQUAL(ESP_OK, hcd_port_command(port_hdl, HCD_PORT_CMD_SUSPEND));
+    TEST_ASSERT_EQUAL(HCD_PORT_STATE_SUSPENDED, hcd_port_get_state(port_hdl));
+    printf("Suspended\n");
+    test_hcd_expect_port_event(port_hdl, HCD_PORT_EVENT_REMOTE_WAKEUP);
+    TEST_ASSERT_EQUAL(HCD_PORT_EVENT_REMOTE_WAKEUP, hcd_port_handle_event(port_hdl));
+    //printf("Waken\n");
+
+    // Resume the port
+    TEST_ASSERT_EQUAL(ESP_OK, hcd_port_command(port_hdl, HCD_PORT_CMD_RESUME));
+    TEST_ASSERT_EQUAL(HCD_PORT_STATE_ENABLED, hcd_port_get_state(port_hdl));
+    printf("Resumed\n");
+
+    vTaskDelay(pdMS_TO_TICKS(5000));
+
+    TEST_ASSERT_EQUAL(HCD_PIPE_STATE_HALTED, hcd_pipe_get_state(default_pipe));
+    TEST_ASSERT_EQUAL(ESP_OK, hcd_pipe_command(default_pipe, HCD_PIPE_CMD_CLEAR));
+    TEST_ASSERT_EQUAL(HCD_PIPE_STATE_ACTIVE, hcd_pipe_get_state(default_pipe));
+
+
+
+    printf("Issue check\n");
+    test_hcd_check_remote_wake(default_pipe, get_status_urb);
+
+    test_hcd_pipe_free(default_pipe);
+    test_hcd_free_urb(get_status_urb);
+    test_hcd_free_urb(set_feature_urb);
+    // Cleanup
+    test_hcd_wait_for_disconn(port_hdl, false);
 }

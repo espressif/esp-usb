@@ -491,7 +491,7 @@ static void root_port_req(hcd_port_handle_t root_port_hdl)
         }
     }
     if (port_reqs & PORT_REQ_SUSPEND) {
-        ESP_LOGI(HUB_DRIVER_TAG, "Suspending the root port");
+        ESP_LOGD(HUB_DRIVER_TAG, "Suspending the root port");
 
         HUB_DRIVER_ENTER_CRITICAL();
         const root_port_state_t root_state = p_hub_driver_obj->dynamic.root_port_state;
@@ -514,7 +514,7 @@ static void root_port_req(hcd_port_handle_t root_port_hdl)
         usbh_devs_set_pm_actions_all(USBH_DEV_SUSPEND_EVT);
     }
     if (port_reqs & PORT_REQ_RESUME) {
-        ESP_LOGI(HUB_DRIVER_TAG, "Resuming the root port");
+        ESP_LOGD(HUB_DRIVER_TAG, "Resuming the root port");
 
         HUB_DRIVER_ENTER_CRITICAL();
         const root_port_state_t root_state = p_hub_driver_obj->dynamic.root_port_state;
