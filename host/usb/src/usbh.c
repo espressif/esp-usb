@@ -33,6 +33,10 @@ typedef enum {
     DEV_ACTION_PROP_GONE_EVT        = (1 << 4),     // Propagate a USBH_EVENT_DEV_GONE event
     DEV_ACTION_FREE                 = (1 << 5),     // Free the device object
     DEV_ACTION_PROP_NEW_DEV         = (1 << 6),     // Propagate a USBH_EVENT_NEW_DEV event
+    DEV_ACTION_EPn_CLEAR            = (1 << 7),     // Move all non-default endpoints to active state
+    DEV_ACTION_PROP_SUSPEND_EVT     = (1 << 8),     // Propagate USBH_EVENT_DEV_SUSPEND event
+    DEV_ACTION_PROP_RESUME_EVT      = (1 << 9),     // Propagate USBH_EVENT_DEV_RESUME event
+    DEV_ACTION_PROP_ALL_IDLE_EVT    = (1 << 10),    // Propagate USBH_EVENT_ALL_IDLE event
 } dev_action_t;
 
 typedef struct device_s device_t;
@@ -63,6 +67,7 @@ struct device_s {
         uint32_t action_flags;                  /**< Device action flags */
         int num_ctrl_xfers_inflight;            /**< Amount of ongoing Control transfers */
         usb_device_state_t state;               /**< Device state */
+        usb_device_state_t last_state;          /**< Device state before being suspended */
         uint32_t open_count;                    /**< Amount of clients which opened this device */
     } dynamic;                                  /**< Dynamic members. Require a critical section */
 
@@ -106,12 +111,12 @@ typedef struct {
     } mux_protected;                        /**< Mutex protected members. Must be protected by the USBH mux_lock when accessed */
 
     struct {
-        usb_proc_req_cb_t proc_req_cb;      /**< USB Host process request callback. Refer to proc_req_callback() in usb_host.c */
-        void *proc_req_cb_arg;              /**< USB Host process request callback argument */
-        usbh_event_cb_t event_cb;           /**< USBH event callback */
-        void *event_cb_arg;                 /**< USBH event callback argument */
-        SemaphoreHandle_t mux_lock;         /**< Mutex for protected members */
-    } constant;                             /**< Constant members. Do not change after installation thus do not require a critical section or mutex */
+        usb_proc_req_cb_t proc_req_cb;          /**< USB Host process request callback. Refer to proc_req_callback() in usb_host.c */
+        void *proc_req_cb_arg;                  /**< USB Host process request callback argument */
+        usbh_event_cb_t event_cb;               /**< USBH event callback */
+        void *event_cb_arg;                     /**< USBH event callback argument */
+        SemaphoreHandle_t mux_lock;             /**< Mutex for protected members */
+    } constant;                                 /**< Constant members. Do not change after installation thus do not require a critical section or mutex */
 } usbh_t;
 
 static usbh_t *p_usbh_obj = NULL;
@@ -527,6 +532,7 @@ static inline void handle_epn_halt_flush(device_t *dev_obj)
     // Halt then flush all non-default EPs
     for (int i = 0; i < NUM_NON_DEFAULT_EP; i++) {
         if (dev_obj->mux_protected.endpoints[i] != NULL) {
+            ESP_LOGD(USBH_TAG, "EP%d halt flush", i);
             ESP_ERROR_CHECK(hcd_pipe_command(dev_obj->mux_protected.endpoints[i]->constant.pipe_hdl, HCD_PIPE_CMD_HALT));
             ESP_ERROR_CHECK(hcd_pipe_command(dev_obj->mux_protected.endpoints[i]->constant.pipe_hdl, HCD_PIPE_CMD_FLUSH));
         }
@@ -534,8 +540,23 @@ static inline void handle_epn_halt_flush(device_t *dev_obj)
     xSemaphoreGive(p_usbh_obj->constant.mux_lock);
 }
 
+static inline void handle_epn_clear(device_t *dev_obj)
+{
+    // We need to take the mux_lock to access mux_protected members
+    xSemaphoreTake(p_usbh_obj->constant.mux_lock, portMAX_DELAY);
+    // Resume all non-default EPs
+    for (int i = 0; i < NUM_NON_DEFAULT_EP; i++) {
+        if (dev_obj->mux_protected.endpoints[i] != NULL) {
+            ESP_LOGD(USBH_TAG, "EP%d clear", i);
+            hcd_pipe_command(dev_obj->mux_protected.endpoints[i]->constant.pipe_hdl, HCD_PIPE_CMD_CLEAR);
+        }
+    }
+    xSemaphoreGive(p_usbh_obj->constant.mux_lock);
+}
+
 static inline void handle_ep0_flush(device_t *dev_obj)
 {
+    ESP_LOGD(USBH_TAG, "EP0 halt flush");
     ESP_ERROR_CHECK(hcd_pipe_command(dev_obj->constant.default_pipe, HCD_PIPE_CMD_HALT));
     ESP_ERROR_CHECK(hcd_pipe_command(dev_obj->constant.default_pipe, HCD_PIPE_CMD_FLUSH));
 }
@@ -566,6 +587,7 @@ static inline void handle_ep0_dequeue(device_t *dev_obj)
 static inline void handle_ep0_clear(device_t *dev_obj)
 {
     // We allow the pipe command to fail just in case the pipe becomes invalid mid command
+    ESP_LOGD(USBH_TAG, "EP0 clear");
     hcd_pipe_command(dev_obj->constant.default_pipe, HCD_PIPE_CMD_CLEAR);
 }
 
@@ -579,6 +601,41 @@ static inline void handle_prop_gone_evt(device_t *dev_obj)
             .dev_addr = dev_obj->constant.address,
             .dev_hdl = (usb_device_handle_t)dev_obj,
         },
+    };
+    p_usbh_obj->constant.event_cb(&event_data, p_usbh_obj->constant.event_cb_arg);
+}
+
+static inline void handle_prop_suspend_event(device_t *dev_obj)
+{
+    ESP_LOGD(USBH_TAG, "Device %d suspended", dev_obj->constant.address);
+    usbh_event_data_t event_data = {
+        .event = USBH_EVENT_DEV_SUSPEND,
+        .dev_suspend_resume_data = {
+            .dev_addr = dev_obj->constant.address,
+            .dev_hdl = (usb_device_handle_t)dev_obj,
+        },
+    };
+    p_usbh_obj->constant.event_cb(&event_data, p_usbh_obj->constant.event_cb_arg);
+}
+
+static inline void handle_prop_resume_event(device_t *dev_obj)
+{
+    ESP_LOGD(USBH_TAG, "Device %d resumed", dev_obj->constant.address);
+    usbh_event_data_t event_data = {
+        .event = USBH_EVENT_DEV_RESUME,
+        .dev_suspend_resume_data = {
+            .dev_addr = dev_obj->constant.address,
+            .dev_hdl = (usb_device_handle_t)dev_obj,
+        },
+    };
+    p_usbh_obj->constant.event_cb(&event_data, p_usbh_obj->constant.event_cb_arg);
+}
+
+static inline void handle_prop_all_idle_event(void)
+{
+    ESP_LOGD(USBH_TAG, "All devices idle");
+    usbh_event_data_t event_data = {
+        .event = USBH_EVENT_ALL_IDLE,
     };
     p_usbh_obj->constant.event_cb(&event_data, p_usbh_obj->constant.event_cb_arg);
 }
@@ -657,6 +714,7 @@ esp_err_t usbh_install(const usbh_config_t *usbh_config)
         ret = ESP_ERR_NO_MEM;
         goto err;
     }
+
     // Initialize USBH object
     TAILQ_INIT(&usbh_obj->dynamic.devs_idle_tailq);
     TAILQ_INIT(&usbh_obj->dynamic.devs_pending_tailq);
@@ -757,6 +815,18 @@ esp_err_t usbh_process(void)
         if (action_flags & DEV_ACTION_PROP_GONE_EVT) {
             handle_prop_gone_evt(dev_obj);
         }
+        if (action_flags & DEV_ACTION_EPn_CLEAR) {
+            handle_epn_clear(dev_obj);
+        }
+        if (action_flags & DEV_ACTION_PROP_SUSPEND_EVT) {
+            handle_prop_suspend_event(dev_obj);
+        }
+        if (action_flags & DEV_ACTION_PROP_RESUME_EVT) {
+            handle_prop_resume_event(dev_obj);
+        }
+        if (action_flags & DEV_ACTION_PROP_ALL_IDLE_EVT) {
+            handle_prop_all_idle_event();
+        }
         /*
         Note: We make these action flags mutually exclusive in case they happen in rapid succession. They are handled
         in the order of precedence
@@ -768,6 +838,7 @@ esp_err_t usbh_process(void)
         } else if (action_flags & DEV_ACTION_PROP_NEW_DEV) {
             handle_prop_new_dev(dev_obj);
         }
+
         USBH_ENTER_CRITICAL();
         /* ---------------------------------------------------------------------
         Re-enter critical sections. All device action flags should have been handled.
@@ -990,6 +1061,74 @@ esp_err_t usbh_devs_mark_all_free(void)
         p_usbh_obj->constant.proc_req_cb(USB_PROC_REQ_SOURCE_USBH, false, p_usbh_obj->constant.proc_req_cb_arg);
     }
     return (wait_for_free) ? ESP_ERR_NOT_FINISHED : ESP_OK;
+}
+
+void usbh_devs_set_pm_actions_all(usbh_dev_ctrl_t device_ctrl)
+{
+    // Decode the device_ctrl to dev_actions flags
+    uint32_t dev_actions_flags = 0;
+    if (device_ctrl & USBH_DEV_SUSPEND) {
+        dev_actions_flags |= (DEV_ACTION_EPn_HALT_FLUSH | DEV_ACTION_EP0_FLUSH);
+    }
+
+    if (device_ctrl & USBH_DEV_RESUME) {
+        dev_actions_flags |= (DEV_ACTION_EP0_CLEAR | DEV_ACTION_EPn_CLEAR);
+    }
+
+    if (device_ctrl & USBH_DEV_SUSPEND_EVT) {
+        dev_actions_flags |= DEV_ACTION_PROP_SUSPEND_EVT;
+    }
+
+    if (device_ctrl & USBH_DEV_RESUME_EVT) {
+        dev_actions_flags |= DEV_ACTION_PROP_RESUME_EVT;
+    }
+
+    USBH_ENTER_CRITICAL();
+    /*
+    Go through the device list and mark each device with a device action.
+    Note: We manually traverse the list because we need to add/remove items while traversing
+    */
+    device_t *dev_obj_last = NULL;
+    bool call_proc_req_cb = false;
+    for (int i = 0; i < 2; i++) {
+        device_t *dev_obj_cur;
+        device_t *dev_obj_next;
+        // Go through pending list first as it's more efficient
+        if (i == 0) {
+            dev_obj_cur = TAILQ_FIRST(&p_usbh_obj->dynamic.devs_pending_tailq);
+        } else {
+            dev_obj_cur = TAILQ_FIRST(&p_usbh_obj->dynamic.devs_idle_tailq);
+        }
+        while (dev_obj_cur != NULL) {
+
+            // Update device state
+            if (device_ctrl & USBH_DEV_SUSPEND_EVT) {
+                // Change device state to suspended and backup the current device state for resuming
+                dev_obj_cur->dynamic.last_state = dev_obj_cur->dynamic.state;
+                dev_obj_cur->dynamic.state = USB_DEVICE_STATE_SUSPENDED;
+            } else if (device_ctrl & USBH_DEV_RESUME_EVT) {
+                // Set the device state, to the state in which it was before suspending
+                dev_obj_cur->dynamic.state = dev_obj_cur->dynamic.last_state;
+            }
+
+            // Keep a copy of the next item first in case we remove the current item
+            dev_obj_next = TAILQ_NEXT(dev_obj_cur, dynamic.tailq_entry);
+            call_proc_req_cb |= _dev_set_actions(dev_obj_cur, dev_actions_flags);
+            dev_obj_last = dev_obj_cur;
+            dev_obj_cur = dev_obj_next;
+        }
+    }
+
+    // As the last device is being marked, add DEV_ACTION_PROP_ALL_IDLE_EVT to event flags
+    if (dev_obj_last != NULL && device_ctrl & USBH_DEV_SUSPEND) {
+        dev_actions_flags |= DEV_ACTION_PROP_ALL_IDLE_EVT;
+        _dev_set_actions(dev_obj_last, dev_actions_flags);
+    }
+    USBH_EXIT_CRITICAL();
+
+    if (call_proc_req_cb) {
+        p_usbh_obj->constant.proc_req_cb(USB_PROC_REQ_SOURCE_USBH, false, p_usbh_obj->constant.proc_req_cb_arg);
+    }
 }
 
 esp_err_t usbh_devs_open(uint8_t dev_addr, usb_device_handle_t *dev_hdl)
@@ -1538,13 +1677,10 @@ esp_err_t usbh_dev_submit_ctrl_urb(usb_device_handle_t dev_hdl, urb_t *urb)
     dev_obj->dynamic.num_ctrl_xfers_inflight++;
     USBH_EXIT_CRITICAL();
 
-    esp_err_t ret;
-    if (hcd_pipe_get_state(dev_obj->constant.default_pipe) != HCD_PIPE_STATE_ACTIVE) {
-        ESP_LOGE(USBH_TAG, "HCD Pipe not in active state");
-        ret = ESP_ERR_INVALID_STATE;
-        goto hcd_err;
-    }
-    ret = hcd_urb_enqueue(dev_obj->constant.default_pipe, urb);
+    // We will check the EP's underlying pipe state in the hcd layer,
+    // as the pipe can be in both states (active and halted) to submit an URB
+
+    esp_err_t ret = hcd_urb_enqueue(dev_obj->constant.default_pipe, urb);
     if (ret != ESP_OK) {
         goto hcd_err;
     }
@@ -1570,10 +1706,10 @@ esp_err_t usbh_ep_enqueue_urb(usbh_ep_handle_t ep_hdl, urb_t *urb)
                                              USB_EP_DESC_GET_MPS(ep_obj->constant.ep_desc),
                                              USB_EP_DESC_GET_EP_DIR(ep_obj->constant.ep_desc)),
                ESP_ERR_INVALID_ARG);
-    // Check that the EP's underlying pipe is in the active state before submitting the URB
-    if (hcd_pipe_get_state(ep_obj->constant.pipe_hdl) != HCD_PIPE_STATE_ACTIVE) {
-        return ESP_ERR_INVALID_STATE;
-    }
+
+    // We will check the EP's underlying pipe state in the hcd layer,
+    // as the pipe can be in both states (active and halted) to submit an URB
+
     // Enqueue the URB to the EP's underlying pipe
     return hcd_urb_enqueue(ep_obj->constant.pipe_hdl, urb);
 }
@@ -1583,7 +1719,7 @@ esp_err_t usbh_ep_dequeue_urb(usbh_ep_handle_t ep_hdl, urb_t **urb_ret)
     USBH_CHECK(ep_hdl != NULL && urb_ret != NULL, ESP_ERR_INVALID_ARG);
 
     endpoint_t *ep_obj = (endpoint_t *)ep_hdl;
-    // Enqueue the URB to the EP's underlying pipe
+    // Dequeue the URB from the EP's underlying pipe
     *urb_ret = hcd_urb_dequeue(ep_obj->constant.pipe_hdl);
     return ESP_OK;
 }

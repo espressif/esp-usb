@@ -40,6 +40,7 @@ typedef struct usb_host_client_handle_s *usb_host_client_handle_t;
 
 #define USB_HOST_LIB_EVENT_FLAGS_NO_CLIENTS     0x01    /**< All clients have been deregistered from the USB Host Library */
 #define USB_HOST_LIB_EVENT_FLAGS_ALL_FREE       0x02    /**< The USB Host Library has freed all devices */
+#define USB_HOST_LIB_EVENT_FLAGS_AUTO_SUSPEND   0x04    /**< Timer for automatic suspend has expired */
 
 /**
  * @brief The type event in a client event message
@@ -47,7 +48,17 @@ typedef struct usb_host_client_handle_s *usb_host_client_handle_t;
 typedef enum {
     USB_HOST_CLIENT_EVENT_NEW_DEV,                  /**< A new device has been enumerated and added to the USB Host Library */
     USB_HOST_CLIENT_EVENT_DEV_GONE,                 /**< A device opened by the client is now gone */
+    USB_HOST_CLIENT_EVENT_DEV_SUSPENDED,            /**< A device opened by the client is now suspended */
+    USB_HOST_CLIENT_EVENT_DEV_RESUMED,              /**< A device opened by the client is now resumed */
 } usb_host_client_event_t;
+
+/**
+ * @brief USB Host lib power management timer type
+ */
+typedef enum {
+    USB_HOST_LIB_PM_SUSPEND_ONE_SHOT,               /**< USB Host lib power management -> Auto suspend one-shot timer */
+    USB_HOST_LIB_PM_SUSPEND_PERIODIC,               /**< USB Host lib power management -> Auto suspend periodic timer */
+} usb_host_lib_pm_t;
 
 /**
  * @brief Client event message
@@ -69,6 +80,9 @@ typedef struct {
         struct {
             usb_device_handle_t dev_hdl;        /**< The handle of the device that was gone */
         } dev_gone;                             /**< Gone device info */
+        struct {
+            usb_device_handle_t dev_hdl;        /**< The handle of the device that was suspended/resumed */
+        } dev_suspend_resume;                   /**< Suspend/Resume device info */
     };
 } usb_host_client_event_msg_t;
 
@@ -78,8 +92,9 @@ typedef struct {
  * @brief Current information about the USB Host Library obtained via usb_host_lib_info()
  */
 typedef struct {
-    int num_devices;    /**< Current number of connected (and enumerated) devices */
-    int num_clients;    /**< Current number of registered clients */
+    int num_devices;            /**< Current number of connected (and enumerated) devices */
+    int num_clients;            /**< Current number of registered clients */
+    bool root_port_suspended;   /**< Current status of the root port (suspended/resumed) */
 } usb_host_lib_info_t;
 
 // ---------------------- Callbacks ------------------------
@@ -242,6 +257,61 @@ esp_err_t usb_host_lib_info(usb_host_lib_info_t *info_ret);
  *    - ESP_ERR_INVALID_STATE: Root port already powered or HUB driver not installed
  */
 esp_err_t usb_host_lib_set_root_port_power(bool enable);
+
+/**
+ * @brief Suspend the root port
+ *
+ * - The function checks, if a device is connected and if a transfer is submitted
+ * - Then halts and flushes all endpoints of all the connected devices and suspends the root port
+ * - Finally, it notifies all the clients which opened the device, that the device is now suspended
+ *
+ * @note Remote wakeup from device is not implemented yet
+ * @note The root port and the devices are not suspended immediately after returning from this function, this function
+ *       only sets actions for devices and root port, which are handled by the usb_host_lib_handle_events() in separate task.
+ * @return
+ *    - ESP_OK: Root port marked to be suspended, or already issuing a suspend sequence
+ *    - ESP_ERR_NOT_FOUND: No device is connected
+ *    - ESP_ERR_INVALID_STATE: Root port is not in correct state to be suspended
+ */
+esp_err_t usb_host_lib_root_port_suspend(void);
+
+/**
+ * @brief Resume the root port from suspended state
+ *
+ * - The function resumes the root port from suspended state
+ * - Then resumes all the endpoints of all the connected devices
+ * - Finally, it notifies all the clients which opened the device, that the device is now resumed
+ *
+ * @note The root port and the devices are not resumed immediately after returning from this function, this function
+ *       only sets actions for devices and root port, which are handled by the usb_host_lib_handle_events() in separate task.
+ * @return
+ *    - ESP_OK: Root port marked to be resumed, or already issuing a resume sequence
+ *    - ESP_ERR_NOT_FOUND: No device is connected
+ *    - ESP_ERR_INVALID_STATE: Root port is not in correct state to be resumed
+ */
+esp_err_t usb_host_lib_root_port_resume(void);
+
+/**
+ * @brief Set auto power management timer
+ *
+ * - The function sets the auto suspend timer, used for global suspend of the root port
+ * - The timer is either one-shot or periodic
+ * - The timerexpires after the set period, only if there is no activity on the USB Bus
+ * - The timer resets (if enabled) every time, the usb_host_client_handle_events() handles any client events,
+ *   or the usb_host_lib_handle_events() handles any host lib events, thus checking any activity on all the
+ *   registered clients or inside the host lib
+ * - Once the timer expires, an auto_pm_timer_cb() is called, which delivers USB Host lib event flags
+ *
+ * @note set the timer interval to 0, to disable the timer (in case NO auto suspend functionality is required anymore)
+ * @note this function is not ISR safe
+ * @param[in] timer_type Power management timer type (periodic/one-shot)
+ * @param[in] timer_interval_ms Interval after which a usb_host lib event flag is delivered (0 to disable running timer)
+ * @return
+ *    - ESP_OK: Timer set or stopped
+ *    - ESP_ERR_INVALID_STATE: USB Host lib is not installed
+ *    - ESP_FAIL: Timer was not configured correctly
+ */
+esp_err_t usb_host_lib_set_auto_pm(usb_host_lib_pm_t timer_type, size_t timer_interval_ms);
 
 // ------------------------------------------------ Client Functions ---------------------------------------------------
 
@@ -628,7 +698,7 @@ esp_err_t usb_host_transfer_free(usb_transfer_t *transfer);
  *    - ESP_ERR_INVALID_ARG: Invalid argument
  *    - ESP_ERR_NOT_FINISHED: Transfer already in-flight
  *    - ESP_ERR_NOT_FOUND: Endpoint address not found
- *    - ESP_ERR_INVALID_STATE: Endpoint pipe is not in a correct state to submit transfer
+ *    - ESP_ERR_INVALID_STATE: Endpoint pipe or root port is not in a correct state to submit transfer, or to resume the root port
  */
 esp_err_t usb_host_transfer_submit(usb_transfer_t *transfer);
 
@@ -647,8 +717,7 @@ esp_err_t usb_host_transfer_submit(usb_transfer_t *transfer);
  *    - ESP_OK: Control transfer submitted successfully
  *    - ESP_ERR_INVALID_ARG: Invalid argument
  *    - ESP_ERR_NOT_FINISHED: Transfer already in-flight
- *    - ESP_ERR_NOT_FOUND: Endpoint address not found
- *    - ESP_ERR_INVALID_STATE: Endpoint pipe is not in a correct state to submit transfer
+ *    - ESP_ERR_INVALID_STATE: Endpoint pipe or root port is not in a correct state to submit transfer, or to resume the root port
  */
 esp_err_t usb_host_transfer_submit_control(usb_host_client_handle_t client_hdl, usb_transfer_t *transfer);
 

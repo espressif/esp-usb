@@ -38,6 +38,8 @@ implement the bare minimum to control the root HCD port.
 
 #define PORT_REQ_DISABLE                            0x01
 #define PORT_REQ_RECOVER                            0x02
+#define PORT_REQ_SUSPEND                            0x04
+#define PORT_REQ_RESUME                             0x08
 
 /**
  * @brief Hub driver action flags
@@ -60,6 +62,7 @@ typedef enum {
     ROOT_PORT_STATE_POWERED,        /**< Root port is powered, device is not connected */
     ROOT_PORT_STATE_DISABLED,       /**< A device is connected but is disabled (i.e., not reset, no SOFs are sent) */
     ROOT_PORT_STATE_ENABLED,        /**< A device is connected, port has been reset, SOFs are sent */
+    ROOT_PORT_STATE_SUSPENDED,      /**< Root port is suspended, no SOFs are sent */
 } root_port_state_t;
 
 /**
@@ -423,6 +426,7 @@ reset_err:
             break;
         case ROOT_PORT_STATE_NOT_POWERED: // The user turned off ports' power. Indicate to USBH that the device is gone
         case ROOT_PORT_STATE_ENABLED: // There is an enabled (active) device. Indicate to USBH that the device is gone
+        case ROOT_PORT_STATE_SUSPENDED: // The user called usb host suspend, Indicate to USBH that the device is suspended
             port_has_device = true;
             break;
         default:
@@ -474,6 +478,52 @@ static void root_port_req(hcd_port_handle_t root_port_hdl)
             HUB_DRIVER_EXIT_CRITICAL();
         }
     }
+    if (port_reqs & PORT_REQ_SUSPEND) {
+        ESP_LOGD(HUB_DRIVER_TAG, "Suspending the root port");
+
+        HUB_DRIVER_ENTER_CRITICAL();
+        const root_port_state_t root_state = p_hub_driver_obj->dynamic.root_port_state;
+        HUB_DRIVER_EXIT_CRITICAL();
+
+        // In case the port's state changed (disconnection, reconnection) prior to issuing PORT_REQ_SUSPEND request,
+        // we will not proceed with the resuming sequence
+        if (root_state != ROOT_PORT_STATE_ENABLED) {
+            return;
+        }
+
+        ESP_ERROR_CHECK(hcd_port_command(p_hub_driver_obj->constant.root_port_hdl, HCD_PORT_CMD_SUSPEND));
+
+        HUB_DRIVER_ENTER_CRITICAL();
+        p_hub_driver_obj->dynamic.root_port_state = ROOT_PORT_STATE_SUSPENDED;
+        HUB_DRIVER_EXIT_CRITICAL();
+
+        // Root port, including all the connected devices were suspended (global suspend)
+        // Propagate the suspended event to clients
+        usbh_devs_set_pm_actions_all(USBH_DEV_SUSPEND_EVT);
+    }
+    if (port_reqs & PORT_REQ_RESUME) {
+        ESP_LOGD(HUB_DRIVER_TAG, "Resuming the root port");
+
+        HUB_DRIVER_ENTER_CRITICAL();
+        const root_port_state_t root_state = p_hub_driver_obj->dynamic.root_port_state;
+        HUB_DRIVER_EXIT_CRITICAL();
+
+        // In case the port's state changed (disconnection, reconnection) prior to issuing PORT_REQ_RESUME request,
+        // we will not proceed with the resuming sequence
+        if (root_state != ROOT_PORT_STATE_SUSPENDED) {
+            return;
+        }
+
+        ESP_ERROR_CHECK(hcd_port_command(p_hub_driver_obj->constant.root_port_hdl, HCD_PORT_CMD_RESUME));
+
+        HUB_DRIVER_ENTER_CRITICAL();
+        p_hub_driver_obj->dynamic.root_port_state = ROOT_PORT_STATE_ENABLED;
+        HUB_DRIVER_EXIT_CRITICAL();
+
+        // Root port, including all the connected devices were resumed (global resume)
+        // Clear all EPs and propagate the resumed event to clients
+        usbh_devs_set_pm_actions_all(USBH_DEV_RESUME | USBH_DEV_RESUME_EVT);    // NOLINT(clang-analyzer-optin.core.EnumCastOutOfRange)
+    }
 }
 
 static esp_err_t root_port_recycle(void)
@@ -484,6 +534,7 @@ static esp_err_t root_port_recycle(void)
     // How the port is recycled will depend on the port's state
     switch (port_state) {
     case HCD_PORT_STATE_ENABLED:
+    case HCD_PORT_STATE_SUSPENDED:
         p_hub_driver_obj->dynamic.port_reqs |= PORT_REQ_DISABLE;
         break;
     case HCD_PORT_STATE_RECOVERY:
@@ -665,6 +716,93 @@ esp_err_t hub_root_stop(void)
     const esp_err_t ret = hcd_port_command(p_hub_driver_obj->constant.root_port_hdl, HCD_PORT_CMD_POWER_OFF);
     assert(ret == ESP_OK);
     return ret;
+}
+
+bool hub_root_is_suspended(void)
+{
+    HUB_DRIVER_ENTER_CRITICAL();
+    HUB_DRIVER_CHECK_FROM_CRIT(p_hub_driver_obj != NULL, false);
+    HUB_DRIVER_CHECK_FROM_CRIT(p_hub_driver_obj->dynamic.root_port_state == ROOT_PORT_STATE_SUSPENDED, false);
+    HUB_DRIVER_EXIT_CRITICAL();
+
+    return true;
+}
+
+esp_err_t hub_root_can_suspend(void)
+{
+    HUB_DRIVER_ENTER_CRITICAL();
+    HUB_DRIVER_CHECK_FROM_CRIT(p_hub_driver_obj != NULL, ESP_ERR_INVALID_STATE);
+    HUB_DRIVER_CHECK_FROM_CRIT(p_hub_driver_obj->dynamic.root_port_state == ROOT_PORT_STATE_ENABLED, ESP_ERR_NOT_ALLOWED);
+    HUB_DRIVER_EXIT_CRITICAL();
+
+    const hcd_port_state_t port_state = hcd_port_get_state(p_hub_driver_obj->constant.root_port_hdl);
+    if (port_state == HCD_PORT_STATE_SUSPENDING) {
+        // Root port is already issuing suspend command and is within a SUSPEND_ENTRY_MS timeout,
+        // no need to issue the suspend command again
+        return ESP_ERR_TIMEOUT;
+    }
+
+    return hcd_port_check_all_pipes_idle(p_hub_driver_obj->constant.root_port_hdl);
+}
+
+esp_err_t hub_root_can_resume(void)
+{
+    HUB_DRIVER_ENTER_CRITICAL();
+    HUB_DRIVER_CHECK_FROM_CRIT(p_hub_driver_obj != NULL, ESP_ERR_INVALID_STATE);
+    HUB_DRIVER_CHECK_FROM_CRIT(p_hub_driver_obj->dynamic.root_port_state == ROOT_PORT_STATE_SUSPENDED, ESP_ERR_NOT_ALLOWED);
+    HUB_DRIVER_EXIT_CRITICAL();
+
+    const hcd_port_state_t port_state = hcd_port_get_state(p_hub_driver_obj->constant.root_port_hdl);
+    esp_err_t ret;
+    switch (port_state) {
+    case HCD_PORT_STATE_RESUMING:
+        // Root port is already issuing resume command and is within a RESUME_RECOVERY_MS or a RESUME_HOLD_MS timeout,
+        // no need to issue the resume command again
+        ret = ESP_ERR_TIMEOUT;
+        break;
+    case HCD_PORT_STATE_SUSPENDING:
+        // Root port is within a SUSPEND_ENTRY_MS timeout
+        // We can't resume the port right now, as it would have caused an undefined state
+        ret = ESP_ERR_NOT_ALLOWED;
+        break;
+    default:
+        ret = ESP_OK;
+        break;
+    }
+
+    return ret;
+}
+
+esp_err_t hub_root_mark_suspend(void)
+{
+    HUB_DRIVER_ENTER_CRITICAL();
+    HUB_DRIVER_CHECK_FROM_CRIT(p_hub_driver_obj != NULL, ESP_ERR_INVALID_STATE);
+    HUB_DRIVER_CHECK_FROM_CRIT(p_hub_driver_obj->dynamic.root_port_state == ROOT_PORT_STATE_ENABLED, ESP_ERR_NOT_ALLOWED);
+
+    // Set port request to suspend
+    p_hub_driver_obj->dynamic.port_reqs |= PORT_REQ_SUSPEND;
+    p_hub_driver_obj->dynamic.flags.actions |= HUB_DRIVER_ACTION_ROOT_REQ;
+    HUB_DRIVER_EXIT_CRITICAL();
+
+    // Call processing callback
+    p_hub_driver_obj->constant.proc_req_cb(USB_PROC_REQ_SOURCE_HUB, false, p_hub_driver_obj->constant.proc_req_cb_arg);
+    return ESP_OK;
+}
+
+esp_err_t hub_root_mark_resume(void)
+{
+    HUB_DRIVER_ENTER_CRITICAL();
+    HUB_DRIVER_CHECK_FROM_CRIT(p_hub_driver_obj != NULL, ESP_ERR_INVALID_STATE);
+    HUB_DRIVER_CHECK_FROM_CRIT(p_hub_driver_obj->dynamic.root_port_state == ROOT_PORT_STATE_SUSPENDED, ESP_ERR_NOT_ALLOWED);
+
+    // Set port request to resume
+    p_hub_driver_obj->dynamic.port_reqs |= PORT_REQ_RESUME;
+    p_hub_driver_obj->dynamic.flags.actions |= HUB_DRIVER_ACTION_ROOT_REQ;
+    HUB_DRIVER_EXIT_CRITICAL();
+
+    // Call processing callback
+    p_hub_driver_obj->constant.proc_req_cb(USB_PROC_REQ_SOURCE_HUB, false, p_hub_driver_obj->constant.proc_req_cb_arg);
+    return ESP_OK;
 }
 
 esp_err_t hub_port_recycle(usb_device_handle_t parent_dev_hdl, uint8_t parent_port_num, unsigned int dev_uid)

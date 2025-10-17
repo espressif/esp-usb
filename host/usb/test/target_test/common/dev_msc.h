@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2024-2025 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -34,7 +34,7 @@ typedef struct {
     uint8_t bInterfaceNumber;
     uint8_t bAlternateSetting;
     uint8_t in_ep_addr;
-    uint8_t out_up_addr;
+    uint8_t out_ep_addr;
     unsigned int scsi_sector_size;
 } dev_msc_info_t;
 
