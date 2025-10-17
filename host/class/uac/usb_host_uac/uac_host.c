@@ -276,25 +276,58 @@ static esp_err_t _ring_buffer_push(RingbufHandle_t ringbuf_hdl, uint8_t *buf, si
 static esp_err_t _ring_buffer_pop(RingbufHandle_t ringbuf_hdl, uint8_t *buf, size_t req_bytes, size_t *read_bytes, TickType_t ticks_to_wait)
 {
     assert(ringbuf_hdl && buf && read_bytes);
-    uint8_t *buf_rcv = xRingbufferReceiveUpTo(ringbuf_hdl, read_bytes, ticks_to_wait, req_bytes);
-
-    if (!buf_rcv) {
-        return ESP_FAIL;
+    /* Read up to req_bytes, blocking up to ticks_to_wait in total.
+     * xRingbufferReceiveUpTo may return fewer bytes than requested even if
+     * the caller asked for more, so loop until we've collected the full
+     * amount or the timeout expires. If nothing is read before timeout,
+     * return ESP_ERR_TIMEOUT. If some bytes were read and timeout expires, return
+     * ESP_OK with the actual number of bytes read.
+     */
+    if (req_bytes == 0) {
+        *read_bytes = 0;
+        return ESP_OK;
     }
 
-    memcpy(buf, buf_rcv, *read_bytes);
-    vRingbufferReturnItem(ringbuf_hdl, (void *)(buf_rcv));
+    size_t total_read = 0;
+    TickType_t start_ticks = xTaskGetTickCount();
 
-    size_t read_bytes2 = 0;
-    if (*read_bytes < req_bytes) {
-        buf_rcv = xRingbufferReceiveUpTo(ringbuf_hdl, &read_bytes2, 0, req_bytes - *read_bytes);
-        if (buf_rcv) {
-            memcpy(buf + *read_bytes, buf_rcv, read_bytes2);
-            *read_bytes += read_bytes2;
-            vRingbufferReturnItem(ringbuf_hdl, (void *)(buf_rcv));
+    while (total_read < req_bytes) {
+        size_t chunk_read = 0;
+        size_t want = req_bytes - total_read;
+
+        /* compute remaining ticks to wait */
+        TickType_t elapsed = xTaskGetTickCount() - start_ticks;
+        TickType_t remain = 0;
+        if (ticks_to_wait == portMAX_DELAY) {
+            remain = portMAX_DELAY;
+        } else if (elapsed >= ticks_to_wait) {
+            remain = 0;
+        } else {
+            remain = ticks_to_wait - elapsed;
+        }
+
+        uint8_t *buf_rcv = xRingbufferReceiveUpTo(ringbuf_hdl, &chunk_read, remain, want);
+
+        if (!buf_rcv) {
+            /* nothing available within remaining timeout */
+            break;
+        }
+
+        /* copy received chunk */
+        memcpy(buf + total_read, buf_rcv, chunk_read);
+        vRingbufferReturnItem(ringbuf_hdl, (void *)buf_rcv);
+        total_read += chunk_read;
+        if (chunk_read == 0) {
+            /* defensive: in case the chunk is zero length */
+            break;
         }
     }
 
+    if (total_read == 0) {
+        return ESP_ERR_TIMEOUT;
+    }
+
+    *read_bytes = total_read;
     return ESP_OK;
 }
 
@@ -2385,11 +2418,7 @@ esp_err_t uac_host_device_read(uac_host_device_handle_t uac_dev_handle, uint8_t 
     }
     uac_host_interface_unlock(iface);
 
-    size_t data_len = _ring_buffer_get_len(iface->ringbuf);
-    if (data_len > size) {
-        data_len = size;
-    }
-    esp_err_t ret = _ring_buffer_pop(iface->ringbuf, data, data_len, (size_t *)bytes_read, timeout);
+    esp_err_t ret = _ring_buffer_pop(iface->ringbuf, data, size, (size_t *)bytes_read, timeout);
 
     if (ESP_OK != ret) {
         ESP_LOGD(TAG, "RX Ringbuffer read failed");
