@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2015-2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2025 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -19,30 +19,44 @@
 #include "unity.h"
 
 /*
-Implementation of an MSC client used for USB Host Tests
+Implementation of an asynchronous MSC client used for USB Host's root port suspend/resume functionality.
 
-- Implemented using sequential call patterns, meaning:
-    - The entire client is contained within a single task
-    - All API calls and callbacks are run sequentially
-    - No critical sections required since everything is sequential
 - The MSC client will:
     - Register itself as a client
     - Receive USB_HOST_CLIENT_EVENT_NEW_DEV event message, and open the device
+    - Suspend/Resume the root port without the client opening the device
+    - Open the device
     - Allocate IN and OUT transfer objects for MSC SCSI transfers
-    - Iterate through multiple MSC SCSI block reads
-    - Free transfer objects
-    - Close device
+    - Suspend/Resume the root port without any transfer submitted
+        - Receive USB_HOST_CLIENT_EVENT_DEV_SUSPENDED and USB_HOST_CLIENT_EVENT_DEV_RESUMED events messages
+    - Trigger a single MSC SCSI transfer
+        - Split the data stage into multiple transfers (so that the endpoint multiple queued up transfers)
+        - Fail to suspend the root port mid-way through the data stage, because of ongoing transfers
+    - Wait for all transfers to finish
+    - Successfully suspend the root port and cause device disconnection
+        - Receive USB_HOST_CLIENT_EVENT_DEV_SUSPENDED and USB_HOST_CLIENT_EVENT_DEV_GONE
+    - Close device and try to resume the root port (with no device connected)
+    - Power on the root port back, wait for the USB_HOST_CLIENT_EVENT_NEW_DEV event message, and open the device
+    - Fail to resume the root port (after it was suspended, but a device reconnection happened)
+    - Repeat the above steps, to ensure correct behaviour after Suspend/Resume/Connect/Disconnect events
     - Deregister MSC client
 */
 
+#define TEST_DCONN_ITERATIONS   2
+
 typedef enum {
-    TEST_STAGE_WAIT_CONN,
-    TEST_STAGE_DEV_OPEN,
-    TEST_STAGE_MSC_RESET,
-    TEST_STAGE_MSC_CBW,
-    TEST_STAGE_MSC_DATA,
-    TEST_STAGE_MSC_CSW,
-    TEST_STAGE_DEV_CLOSE,
+    TEST_STAGE_WAIT_CONN,                       /**< Wait for device connection */
+    TEST_STAGE_DEV_SUSPEND_RESUME_NO_CLIENT,    /**< Suspend and Resume a device without opening it by a Client */
+    TEST_STAGE_DEV_OPEN,                        /**< Open the device by the Client */
+    TEST_STAGE_MSC_RESET,                       /**< Issue reset to the device */
+    TEST_STAGE_SUSPEND_NO_TRANSFER,             /**< Suspend the device (opened by the Client), while no transfers are submitted */
+    TEST_STAGE_RESUME_NO_TRANSFER,              /**< Resume the device (opened by the Client), while no transfers are submitted */
+    TEST_STAGE_MSC_CBW,                         /**< Issue CBW to the MSC device */
+    TEST_STAGE_MSC_DATA,                        /**< Send data to the MSC device, try to suspend the device while transfers are submitted */
+    TEST_STAGE_MSC_CSW,                         /**< Issue CSW to the MSC device */
+    TEST_STAGE_SUSPEND_POWER_OFF,               /**< Suspend the device and immediately power off the Root port (disconnect the device) */
+    TEST_STAGE_DEV_CLOSE,                       /**< Handle device closing by the Client */
+    TEST_STAGE_RESUME_POWER_ON,                 /**< Try to resume the device after it was disconnected, then power on the port */
 } test_stage_t;
 
 typedef struct {
@@ -69,7 +83,7 @@ static void msc_transfer_cb(usb_transfer_t *transfer)
         // Check MSC SCSI interface reset
         TEST_ASSERT_EQUAL_MESSAGE(USB_TRANSFER_STATUS_COMPLETED, transfer->status, "Transfer NOT completed");
         TEST_ASSERT_EQUAL(transfer->num_bytes, transfer->actual_num_bytes);
-        msc_obj->next_stage = TEST_STAGE_MSC_CBW;
+        msc_obj->next_stage = TEST_STAGE_SUSPEND_NO_TRANSFER;
         break;
     }
     case TEST_STAGE_MSC_CBW: {
@@ -94,12 +108,12 @@ static void msc_transfer_cb(usb_transfer_t *transfer)
         if (msc_obj->num_sectors_read < msc_obj->test_param.num_sectors_to_read) {
             msc_obj->next_stage = TEST_STAGE_MSC_CBW;
         } else {
-            msc_obj->next_stage = TEST_STAGE_DEV_CLOSE;
+            msc_obj->next_stage = TEST_STAGE_SUSPEND_POWER_OFF;
         }
         break;
     }
     default: {
-        abort();
+        abort();    // Should never occur in this test
         break;
     }
     }
@@ -110,9 +124,30 @@ static void msc_client_event_cb(const usb_host_client_event_msg_t *event_msg, vo
     msc_client_obj_t *msc_obj = (msc_client_obj_t *)arg;
     switch (event_msg->event) {
     case USB_HOST_CLIENT_EVENT_NEW_DEV:
+        ESP_LOGI(MSC_CLIENT_TAG, "Client event -> New device");
         TEST_ASSERT_EQUAL(TEST_STAGE_WAIT_CONN, msc_obj->cur_stage);
-        msc_obj->next_stage = TEST_STAGE_DEV_OPEN;
+        msc_obj->next_stage = TEST_STAGE_DEV_SUSPEND_RESUME_NO_CLIENT;
         msc_obj->dev_addr = event_msg->new_dev.address;
+        break;
+    case USB_HOST_CLIENT_EVENT_DEV_SUSPENDED:
+        ESP_LOGI(MSC_CLIENT_TAG, "Client event -> Device suspended");
+        TEST_ASSERT_TRUE(msc_obj->cur_stage == TEST_STAGE_SUSPEND_NO_TRANSFER ||
+                         msc_obj->cur_stage == TEST_STAGE_SUSPEND_POWER_OFF);
+        if (msc_obj->cur_stage == TEST_STAGE_SUSPEND_NO_TRANSFER) {
+            msc_obj->next_stage = TEST_STAGE_RESUME_NO_TRANSFER;
+        }
+        TEST_ASSERT_EQUAL_PTR_MESSAGE(msc_obj->dev_hdl, event_msg->dev_suspend_resume.dev_hdl, "Suspended device handle not correct");
+        break;
+    case USB_HOST_CLIENT_EVENT_DEV_RESUMED:
+        ESP_LOGI(MSC_CLIENT_TAG, "Client event -> Device resumed");
+        TEST_ASSERT_EQUAL(msc_obj->cur_stage, TEST_STAGE_RESUME_NO_TRANSFER);
+        msc_obj->next_stage = TEST_STAGE_MSC_CBW;
+        TEST_ASSERT_EQUAL_PTR_MESSAGE(msc_obj->dev_hdl, event_msg->dev_suspend_resume.dev_hdl, "Resumed device handle not correct");
+        break;
+    case USB_HOST_CLIENT_EVENT_DEV_GONE:
+        ESP_LOGI(MSC_CLIENT_TAG, "Client event -> Device gone");
+        TEST_ASSERT_EQUAL(msc_obj->cur_stage, TEST_STAGE_SUSPEND_POWER_OFF);
+        msc_obj->next_stage = TEST_STAGE_DEV_CLOSE;
         break;
     default:
         abort();    // Should never occur in this test
@@ -121,7 +156,7 @@ static void msc_client_event_cb(const usb_host_client_event_msg_t *event_msg, vo
     }
 }
 
-void msc_client_async_seq_task(void *arg)
+void msc_client_async_suspend_resume_task(void *arg)
 {
     msc_client_obj_t msc_obj;
     // Initialize test params
@@ -135,10 +170,9 @@ void msc_client_async_seq_task(void *arg)
     msc_obj.cur_stage = TEST_STAGE_WAIT_CONN;
     msc_obj.next_stage = TEST_STAGE_WAIT_CONN;
     msc_obj.dev_addr = 0;
-    msc_obj.num_sectors_read = 0;
 
-    // Register client
-    usb_host_client_config_t client_config = {
+    // Register MSC client
+    usb_host_client_config_t msc_client_config = {
         .is_synchronous = false,
         .max_num_event_msg = MSC_ASYNC_CLIENT_MAX_EVENT_MSGS,
         .async = {
@@ -146,7 +180,7 @@ void msc_client_async_seq_task(void *arg)
             .callback_arg = (void *) &msc_obj,
         },
     };
-    TEST_ASSERT_EQUAL(ESP_OK, usb_host_client_register(&client_config, &msc_obj.client_hdl));
+    TEST_ASSERT_EQUAL(ESP_OK, usb_host_client_register(&msc_client_config, &msc_obj.client_hdl));
 
     // IN MPS and transfers to be set/allocated later (after device connects and MPS is determined)
     int in_ep_mps = 0;
@@ -155,14 +189,20 @@ void msc_client_async_seq_task(void *arg)
 
     // Wait to be started by main thread
     ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
-    ESP_LOGD(MSC_CLIENT_TAG, "Starting");
+    ESP_LOGI(MSC_CLIENT_TAG, "Starting");
+
+    // Try to suspend, when no device is yet connected
+    TEST_ASSERT_EQUAL(ESP_ERR_NOT_FOUND, usb_host_lib_root_port_suspend());
 
     bool exit_loop = false;
     bool skip_event_handling = false;
+    int dconn_iter = 0;
+
     while (!exit_loop) {
         if (!skip_event_handling) {
             TEST_ASSERT_EQUAL(ESP_OK, usb_host_client_handle_events(msc_obj.client_hdl, portMAX_DELAY));
         }
+
         skip_event_handling = false;
         if (msc_obj.cur_stage == msc_obj.next_stage) {
             continue;
@@ -170,8 +210,38 @@ void msc_client_async_seq_task(void *arg)
         msc_obj.cur_stage = msc_obj.next_stage;
 
         switch (msc_obj.cur_stage) {
+
+        case TEST_STAGE_WAIT_CONN: {
+            // Nothing to do while waiting for connection
+            break;
+        }
+        case TEST_STAGE_DEV_SUSPEND_RESUME_NO_CLIENT: {
+            ESP_LOGD(MSC_CLIENT_TAG, "Suspend/Resume device no client");
+
+            // 1 run of the test stages: Try to resume without previously being suspended
+            // 2 run of the test stages: Try to resume after sequence: Suspend -> Disconnect -> Connect
+            TEST_ASSERT_EQUAL(ESP_ERR_NOT_ALLOWED, usb_host_lib_root_port_resume());
+
+            // Suspend the device, without being opened by a client
+            TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_root_port_suspend());
+
+            // Wait until the root port is suspended
+            // Normally USB_HOST_CLIENT_EVENT_DEV_RESUMED is delivered to a client which opened the device
+            vTaskDelay(10);
+            // Resume the device, without being opened by a client
+            TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_root_port_resume());
+
+            // Wait until the root port is resumed
+            // Normally USB_HOST_CLIENT_EVENT_DEV_SUSPENDED is delivered to a client which opened the device
+            vTaskDelay(10);
+
+            msc_obj.next_stage = TEST_STAGE_DEV_OPEN;
+            skip_event_handling = true; // No need to handle any events, we are not expecting client Suspend/Resume events
+            break;
+        }
         case TEST_STAGE_DEV_OPEN: {
             ESP_LOGD(MSC_CLIENT_TAG, "Open");
+            msc_obj.num_sectors_read = 0;
             // Open the device
             TEST_ASSERT_EQUAL(ESP_OK, usb_host_device_open(msc_obj.client_hdl, msc_obj.dev_addr, &msc_obj.dev_hdl));
             // Get device info to get device speed
@@ -222,9 +292,21 @@ void msc_client_async_seq_task(void *arg)
             xfer_out->num_bytes = sizeof(usb_setup_packet_t);
             xfer_out->bEndpointAddress = 0;
             TEST_ASSERT_EQUAL(ESP_OK, usb_host_transfer_submit_control(msc_obj.client_hdl, xfer_out));
-            // Test that an inflight control transfer cannot be resubmitted
-            TEST_ASSERT_EQUAL(ESP_ERR_NOT_FINISHED, usb_host_transfer_submit_control(msc_obj.client_hdl, xfer_out));
             // Next stage set from transfer callback
+            break;
+        }
+        case TEST_STAGE_SUSPEND_NO_TRANSFER: {
+            ESP_LOGD(MSC_CLIENT_TAG, "Suspend: No transfer");
+            TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_root_port_suspend());
+
+            // Next stage is set from msc_client_event_cb
+            break;
+        }
+        case TEST_STAGE_RESUME_NO_TRANSFER: {
+            ESP_LOGD(MSC_CLIENT_TAG, "Resume: No transfer");
+            TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_root_port_resume());
+
+            // Next stage is set from msc_client_event_cb
             break;
         }
         case TEST_STAGE_MSC_CBW: {
@@ -238,8 +320,6 @@ void msc_client_async_seq_task(void *arg)
             xfer_out->num_bytes = sizeof(mock_msc_bulk_cbw_t);
             xfer_out->bEndpointAddress = msc_obj.dev_info->out_ep_addr;
             TEST_ASSERT_EQUAL(ESP_OK, usb_host_transfer_submit(xfer_out));
-            // Test that an inflight transfer cannot be resubmitted
-            TEST_ASSERT_EQUAL(ESP_ERR_NOT_FINISHED, usb_host_transfer_submit(xfer_out));
             // Next stage set from transfer callback
             break;
         }
@@ -248,8 +328,7 @@ void msc_client_async_seq_task(void *arg)
             xfer_in->num_bytes = usb_round_up_to_mps(msc_obj.dev_info->scsi_sector_size * msc_obj.test_param.num_sectors_per_xfer, in_ep_mps);
             xfer_in->bEndpointAddress = msc_obj.dev_info->in_ep_addr;
             TEST_ASSERT_EQUAL(ESP_OK, usb_host_transfer_submit(xfer_in));
-            // Test that an inflight transfer cannot be resubmitted
-            TEST_ASSERT_EQUAL(ESP_ERR_NOT_FINISHED, usb_host_transfer_submit(xfer_in));
+
             // Next stage set from transfer callback
             break;
         }
@@ -258,27 +337,56 @@ void msc_client_async_seq_task(void *arg)
             xfer_in->num_bytes = usb_round_up_to_mps(sizeof(mock_msc_bulk_csw_t), in_ep_mps);
             xfer_in->bEndpointAddress = msc_obj.dev_info->in_ep_addr;
             TEST_ASSERT_EQUAL(ESP_OK, usb_host_transfer_submit(xfer_in));
-            // Test that an inflight transfer cannot be resubmitted
-            TEST_ASSERT_EQUAL(ESP_ERR_NOT_FINISHED, usb_host_transfer_submit(xfer_in));
             // Next stage set from transfer callback
+            break;
+        }
+        case TEST_STAGE_SUSPEND_POWER_OFF: {
+            ESP_LOGD(MSC_CLIENT_TAG, "Suspend and power off");
+
+            TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_root_port_suspend());        // Successfully suspend device
+            vTaskDelay(10);                                                     // Stay suspended for a while
+            usb_host_lib_set_root_port_power(false);                            // Disconnect device after it was suspended
+            // Next stage is set from msc_client_event_cb
             break;
         }
         case TEST_STAGE_DEV_CLOSE: {
             ESP_LOGD(MSC_CLIENT_TAG, "Close");
             TEST_ASSERT_EQUAL(ESP_OK, usb_host_interface_release(msc_obj.client_hdl, msc_obj.dev_hdl, msc_obj.dev_info->bInterfaceNumber));
             TEST_ASSERT_EQUAL(ESP_OK, usb_host_device_close(msc_obj.client_hdl, msc_obj.dev_hdl));
-            exit_loop = true;
+            vTaskDelay(10); // Yield to USB Host task so it can handle the disconnection
+
+            TEST_ASSERT_EQUAL(ESP_OK, usb_host_transfer_free(xfer_out));
+            TEST_ASSERT_EQUAL(ESP_OK, usb_host_transfer_free(xfer_in));
+
+            msc_obj.next_stage = TEST_STAGE_RESUME_POWER_ON;
+            skip_event_handling = true;
+            break;
+        }
+        case TEST_STAGE_RESUME_POWER_ON: {
+            ESP_LOGD(MSC_CLIENT_TAG, "Resume and power on");
+
+            // Try to resume the device, after it was suspended in the TEST_STAGE_SUSPEND_POWER_OFF stage
+            // But a disconnection happened, during the suspended state
+            // The root port can't be resumed as there is no device connected and the port is not in suspended state anymore
+            TEST_ASSERT_EQUAL(ESP_ERR_NOT_FOUND, usb_host_lib_root_port_resume());
+
+            // Reconnect the device again
+            if (++dconn_iter < TEST_DCONN_ITERATIONS) {
+                msc_obj.next_stage = TEST_STAGE_WAIT_CONN;                      // Reconnect the device
+                skip_event_handling = true;                                     // Need to execute TEST_STAGE_WAIT_CONN
+                usb_host_lib_set_root_port_power(true);                         // Power on the root port
+            } else {
+                exit_loop = true;
+            }
             break;
         }
         default:
-            abort();
+            abort();    // Should never occur in this test
             break;
         }
     }
     // Free transfers and deregister the client
-    TEST_ASSERT_EQUAL(ESP_OK, usb_host_transfer_free(xfer_out));
-    TEST_ASSERT_EQUAL(ESP_OK, usb_host_transfer_free(xfer_in));
     TEST_ASSERT_EQUAL(ESP_OK, usb_host_client_deregister(msc_obj.client_hdl));
-    ESP_LOGD(MSC_CLIENT_TAG, "Done");
+    ESP_LOGI(MSC_CLIENT_TAG, "Done");
     vTaskDelete(NULL);
 }

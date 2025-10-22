@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2024-2025 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -99,7 +99,7 @@ static const dev_msc_info_t dev_info = {
     .bInterfaceNumber = 0x00,
     .bAlternateSetting = 0x00,
     .in_ep_addr = 0x81,
-    .out_up_addr = 0x02,
+    .out_ep_addr = 0x02,
     .scsi_sector_size = 512,
 };
 

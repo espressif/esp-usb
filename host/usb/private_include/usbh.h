@@ -38,6 +38,9 @@ typedef enum {
     USBH_EVENT_DEV_GONE,            /**< A device is gone. Clients should close the device */
     USBH_EVENT_DEV_FREE,            /**< A device has been freed. Its upstream port can now be recycled */
     USBH_EVENT_ALL_FREE,            /**< All devices have been freed */
+    USBH_EVENT_DEV_SUSPEND,         /**< A device has been suspended */
+    USBH_EVENT_DEV_RESUME,          /**< A device has been resumed */
+    USBH_EVENT_ALL_IDLE,            /**< All devices idle (all EPs halted and flushed) */
 } usbh_event_t;
 
 /**
@@ -62,6 +65,10 @@ typedef struct {
             usb_device_handle_t parent_dev_hdl;
             uint8_t port_num;
         } dev_free_data;
+        struct {
+            uint8_t dev_addr;
+            usb_device_handle_t dev_hdl;
+        } dev_suspend_resume_data;
     };
 } usbh_event_data_t;
 
@@ -91,6 +98,16 @@ typedef enum {
     USBH_EP_CMD_FLUSH,          /**< Can only be called when halted. Will cause all enqueued URBs to be canceled */
     USBH_EP_CMD_CLEAR,          /**< Causes a halted endpoint to become active again. Any enqueued URBs will being executing.*/
 } usbh_ep_cmd_t;
+
+/**
+ * @brief Device control commands
+ */
+typedef enum {
+    USBH_DEV_SUSPEND        = (1 << 0),     /**< Suspend device(s) -> Halt and Flush all endpoints */
+    USBH_DEV_RESUME         = (1 << 1),     /**< Resume device(s) -> Clear all endpoints */
+    USBH_DEV_SUSPEND_EVT    = (1 << 2),     /**< Propagate Suspended event -> Device was suspended, propagate the event to clients */
+    USBH_DEV_RESUME_EVT     = (1 << 3),     /**< Propagate Resumed event -> Device was resumed, propagate the event to clients */
+} usbh_dev_ctrl_t;
 
 // ---------------------- Callbacks ------------------------
 
@@ -294,6 +311,13 @@ esp_err_t usbh_devs_get_parent_info(unsigned int uid, usb_parent_dev_info_t *par
  *    - ESP_ERR_NOT_FINISHED: One or more devices still need to be freed (but have been marked "to be freed")
  */
 esp_err_t usbh_devs_mark_all_free(void);
+
+/**
+ * @brief Mark that all devices should be issued with a power management related device action
+ *
+ * @param[in] device_ctrl Device control command
+ */
+void usbh_devs_set_pm_actions_all(usbh_dev_ctrl_t device_ctrl);
 
 /**
  * @brief Open a device by address
@@ -660,7 +684,7 @@ void *usbh_ep_get_context(usbh_ep_handle_t ep_hdl);
  * @return
  *    - ESP_OK: Control transfer submitted successfully
  *    - ESP_ERR_INVALID_ARG: Invalid argument
- *    - ESP_ERR_INVALID_STATE: The pipe is not in an active state or an URB can't be enqueued
+ *    - ESP_ERR_INVALID_STATE: The pipe or (and) the root port is not in a correct state
  */
 esp_err_t usbh_dev_submit_ctrl_urb(usb_device_handle_t dev_hdl, urb_t *urb);
 
@@ -676,7 +700,7 @@ esp_err_t usbh_dev_submit_ctrl_urb(usb_device_handle_t dev_hdl, urb_t *urb);
  * @return
  *    - ESP_OK: URB enqueued successfully
  *    - ESP_ERR_INVALID_ARG: Invalid argument
- *    - ESP_ERR_INVALID_STATE: The pipe is not in an active state or an URB can't be enqueued
+ *    - ESP_ERR_INVALID_STATE: The pipe or (and) the root port is not in a correct state
  */
 esp_err_t usbh_ep_enqueue_urb(usbh_ep_handle_t ep_hdl, urb_t *urb);
 
