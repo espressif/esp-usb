@@ -127,7 +127,7 @@ void test_hcd_expect_port_event(hcd_port_handle_t port_hdl, hcd_port_event_t exp
     // Check the contents of that event message
     TEST_ASSERT_EQUAL(port_hdl, msg.port_hdl);
     TEST_ASSERT_EQUAL_MESSAGE(expected_event, msg.port_event, "Unexpected event");
-    //printf("\t-> Port event\n");
+    printf("\t-> Port event\n");
 }
 
 void test_hcd_expect_pipe_event(hcd_pipe_handle_t pipe_hdl, hcd_pipe_event_t expected_event)

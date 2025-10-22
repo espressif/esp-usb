@@ -173,7 +173,7 @@ TEST_CASE("Test HCD port suspend and resume", "[port][low_speed][full_speed][hig
     TEST_ASSERT_EQUAL(ESP_OK, hcd_port_command(port_hdl, HCD_PORT_CMD_SUSPEND));
     TEST_ASSERT_EQUAL(HCD_PORT_STATE_SUSPENDED, hcd_port_get_state(port_hdl));
     printf("Suspended\n");
-    vTaskDelay(pdMS_TO_TICKS(5000)); // Give some time for bus to remain suspended
+    vTaskDelay(pdMS_TO_TICKS(100)); // Give some time for bus to remain suspended
 
     // Resume the port
     TEST_ASSERT_EQUAL(ESP_OK, hcd_port_command(port_hdl, HCD_PORT_CMD_RESUME));
