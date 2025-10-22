@@ -20,6 +20,7 @@
 #include "tinyusb.h"
 #include "tinyusb_cdc_acm.h"
 #include "vfs_tinyusb.h"
+#include "esp_idf_version.h"
 #include "sdkconfig.h"
 
 const static char *TAG = "tusb_vfs";
@@ -269,6 +270,19 @@ esp_err_t esp_vfs_tusb_cdc_register(int cdc_intf, char const *path)
         return res;
     }
 
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 4, 0)
+    static const esp_vfs_fs_ops_t fs_ops = {
+        .close = &tusb_close,
+        .fcntl = &tusb_fcntl,
+        .fstat = &tusb_fstat,
+        .open = &tusb_open,
+        .read = &tusb_read,
+        .write = &tusb_write,
+    };
+
+    res = esp_vfs_register_fs(s_vfstusb.vfs_path, &fs_ops, ESP_VFS_FLAG_STATIC, NULL);
+
+#else
     esp_vfs_t vfs = {
         .flags = ESP_VFS_FLAG_DEFAULT,
         .close = &tusb_close,
@@ -280,6 +294,9 @@ esp_err_t esp_vfs_tusb_cdc_register(int cdc_intf, char const *path)
     };
 
     res = esp_vfs_register(s_vfstusb.vfs_path, &vfs, NULL);
+
+#endif
+
     if (res != ESP_OK) {
         ESP_LOGE(TAG, "Can't register CDC-VFS driver (err: %x)", res);
     } else {
