@@ -209,10 +209,12 @@ esp_err_t tinyusb_task_stop(void)
     // Free descriptors
     tinyusb_descriptors_free();
 
+#if (CONFIG_IDF_TARGET_ESP32P4)
     if (task_ctx->vbus_monitor_cfg.gpio_num >= 0) {
         // Deinit VBUS monitoring if it was enabled
         tinyusb_vbus_monitor_deinit();
     }
+#endif // CONFIG_IDF_TARGET_ESP32P4
 
     // Stop TinyUSB stack
     ESP_RETURN_ON_FALSE(tusb_deinit(task_ctx->rhport), ESP_ERR_NOT_FINISHED, TAG, "Unable to teardown TinyUSB stack");
