@@ -1,9 +1,10 @@
+idf_build_get_property(target IDF_TARGET)
+
 set(srcs
     "descriptors_control.c"
     "tinyusb.c"
     "usb_descriptors.c"
     "tinyusb_task.c"
-    "tinyusb_vbus_monitor.c"
     )
 
 set(priv_req "")
@@ -44,11 +45,18 @@ if(CONFIG_TINYUSB_NET_MODE_NCM)
          )
 endif() # CONFIG_TINYUSB_NET_MODE_NCM
 
+# Software VBUS monitoring is available only on esp32p4
+if(${target} STREQUAL "esp32p4")
+    list(APPEND srcs
+        "tinyusb_vbus_monitor.c"
+        )
+endif() # esp32p4
+
 idf_component_register(SRCS ${srcs}
                        INCLUDE_DIRS "include"
                        PRIV_INCLUDE_DIRS "include_private"
                        PRIV_REQUIRES ${priv_req}
-                       REQUIRES fatfs vfs esp_timer
+                       REQUIRES fatfs vfs
                        )
 
 # Determine whether tinyusb is fetched from component registry or from local path
