@@ -204,27 +204,26 @@ esp_err_t tinyusb_vbus_monitor_init(tinyusb_vbus_monitor_config_t *config)
         ESP_LOGE(TAG, "Add GPIO ISR handler failed");
         goto add_isr_hdl_fail;
     }
+    // Disable GPIO interrupt
+    gpio_intr_disable(_vbus_ctx.vbus_io_num);
+    // Set initial Bvalid override value and enable override
+    usb_dwc_ll_gotgctl_set_bvalid_override_value(&USB_DWC_REG, 0);
+    // Wait 1 microsecond (sufficient for >5 PHY clocks)
+    esp_rom_delay_us(1);
+    // Enable to override the signal from PHY
+    usb_dwc_ll_gotgctl_enable_bvalid_override(&USB_DWC_REG, true);
 
     // Device could be already connected, check the status and start the timer if needed
     if (gpio_get_level(_vbus_ctx.vbus_io_num)) {
-        // Set Bvalid signal to 1
-        usb_dwc_ll_gotgctl_set_bvalid_override_value(&USB_DWC_REG, 0);
-
         _vbus_ctx.vbus_prev_state = true;
-        // Disable interrupts for a while to debounce
-        gpio_intr_disable(_vbus_ctx.vbus_io_num);
         // Start debounce timer
         if (xTimerStart(_vbus_debounce_timer, 0) != pdPASS) {
             ESP_LOGE(TAG, "Failed to start VBUS debounce timer");
         }
     } else {
-        usb_dwc_ll_gotgctl_set_bvalid_override_value(&USB_DWC_REG, 0);
+        // Enable GPIO interrupt
+        gpio_intr_enable(_vbus_ctx.vbus_io_num);
     }
-
-    // Wait 1 microsecond (sufficient for >5 PHY clocks)
-    esp_rom_delay_us(1);
-    // Enable to override the signal from PHY
-    usb_dwc_ll_gotgctl_enable_bvalid_override(&USB_DWC_REG, true);
 
     ESP_LOGD(TAG, "Configured via GPIO%d, debounce delay: %"PRIu32" ms", _vbus_ctx.vbus_io_num, config->debounce_delay_ms);
     return ESP_OK;
