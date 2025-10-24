@@ -15,9 +15,6 @@ examples/peripherals/usb/device/tusb_ncm:
     - if: SOC_USB_OTG_SUPPORTED != 1 or SOC_WIFI_SUPPORTED != 1
 
 examples/peripherals/usb/host:
-  enable:
-    - if: (IDF_VERSION >= "5.4.0")
-      reason: Run USB Host examples with overridden (esp-usb) USB component only for service releases
   disable:
     - if: SOC_USB_OTG_SUPPORTED != 1
 
