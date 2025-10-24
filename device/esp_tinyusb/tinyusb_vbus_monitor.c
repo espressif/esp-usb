@@ -226,7 +226,7 @@ esp_err_t tinyusb_vbus_monitor_init(tinyusb_vbus_monitor_config_t *config)
     // Enable to override the signal from PHY
     usb_dwc_ll_gotgctl_enable_bvalid_override(&USB_DWC_REG, true);
 
-    ESP_LOGD(TAG, "Configured via GPIO%d, debounce delay: %u ms", _vbus_ctx.vbus_io_num, config->debounce_delay_ms);
+    ESP_LOGD(TAG, "Configured via GPIO%d, debounce delay: %"PRIu32" ms", _vbus_ctx.vbus_io_num, config->debounce_delay_ms);
     return ESP_OK;
 
 add_isr_hdl_fail:
