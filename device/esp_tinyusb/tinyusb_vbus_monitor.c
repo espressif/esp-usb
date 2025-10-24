@@ -12,6 +12,7 @@
 #include "driver/gpio.h"
 // #include "driver/gpio_filter.h"
 #include "tinyusb.h"
+#include "tinyusb_vbus_monitor.h"
 #include "sdkconfig.h"
 
 const static char *TAG = "VBUS mon";
@@ -23,10 +24,9 @@ const static char *TAG = "VBUS mon";
 #define USB_DWC_REG                     USB_DWC_HS
 #endif // CONFIG_IDF_TARGET_ESP32P4
 
-#define GLITCH_FILTER       0           /* TODO: make configurable */
-#define DEBOUNCE_DELAY_MS   250         /* TODO: make configurable */
+#define GLITCH_FILTER       0           /* TODO: make configurable ? */
 typedef struct {
-    int vbus_io_num;
+    gpio_num_t vbus_io_num;
     bool vbus_prev_state;
     bool vbus_state_changed;
 } vbus_context_t;
@@ -34,25 +34,48 @@ typedef struct {
 static vbus_context_t _vbus_ctx;
 static TimerHandle_t _vbus_debounce_timer = NULL;
 
+// --------------- GOTGCTL register ------------------
 
-static void vbus_appeared()
+static void usb_dwc_ll_gotgctl_set_bvalid_override_value(usb_dwc_dev_t *hw, uint8_t value)
 {
-    ESP_LOGD(TAG, "Appeared");
-    USB_DWC_REG.gotgctl_reg.bvalidovval = 1;
+    hw->gotgctl_reg.bvalidovval = value;
 }
 
-static void vbus_disappeared()
+static void usb_dwc_ll_gotgctl_enable_bvalid_override(usb_dwc_dev_t *hw, bool enable)
+{
+    hw->gotgctl_reg.bvalidoven = enable ? 1 : 0;
+}
+
+// -------------- VBUS Internal Logic ------------------
+
+/**
+ * @brief Handle VBUS appeared event
+ */
+static void vbus_appeared(void)
+{
+    ESP_LOGD(TAG, "Appeared");
+    usb_dwc_ll_gotgctl_set_bvalid_override_value(&USB_DWC_REG, 1);
+}
+
+/**
+ * @brief Handle VBUS disappeared event
+ */
+static void vbus_disappeared(void)
 {
     ESP_LOGD(TAG, "Disappeared");
-    USB_DWC_REG.gotgctl_reg.bvalidovval = 0;
+    usb_dwc_ll_gotgctl_set_bvalid_override_value(&USB_DWC_REG, 0);
 
     // Note:
     // When device stayed connected in the USB Host port, we need to disable the pull-up resistor on D+ D- first
     // Disable pull-up resistor on D+ D-
     // But this creates a breaking change, so we can call it in the notification callback
-
 }
 
+/**
+ * @brief GPIO interrupt handler for VBUS monitoring io
+ *
+ * @param arg GPIO number
+ */
 static void vbus_io_cb(void *arg)
 {
     int vbus_io_num  = (int) arg;
@@ -73,13 +96,19 @@ static void vbus_io_cb(void *arg)
             portYIELD_FROM_ISR();
         }
     } else {
+        /* TODO: Verify happening with and without glitch filter */
         // VBUS gpio glitch, ignore and re-enable interrupt
         _vbus_ctx.vbus_state_changed = false;
         gpio_intr_enable(vbus_io_num);
     }
 }
 
-static void freertos_vbus_debounce_timer_cb(TimerHandle_t xTimer)
+/**
+ * @brief VBUS debounce timer callback
+ *
+ * @param xTimer Timer handle
+ */
+static void vbus_debounce_timer_cb(TimerHandle_t xTimer)
 {
     int vbus_io_num = _vbus_ctx.vbus_io_num;
     bool vbus_prev_state = _vbus_ctx.vbus_prev_state;
@@ -98,7 +127,9 @@ static void freertos_vbus_debounce_timer_cb(TimerHandle_t xTimer)
     gpio_intr_enable(vbus_io_num);
 }
 
-esp_err_t tinyusb_vbus_monitor_init(int vbus_io_num)
+// -------------- Public API ------------------
+
+esp_err_t tinyusb_vbus_monitor_init(tinyusb_vbus_monitor_config_t *config)
 {
     esp_err_t ret;
 
@@ -108,14 +139,16 @@ esp_err_t tinyusb_vbus_monitor_init(int vbus_io_num)
         return ESP_ERR_INVALID_STATE;
     }
 
-    _vbus_ctx.vbus_io_num = vbus_io_num;
+    _vbus_ctx.vbus_io_num = config->gpio_num;
+    _vbus_ctx.vbus_prev_state = false;
+    _vbus_ctx.vbus_state_changed = false;
 
     // VBUS Debounce timer
     _vbus_debounce_timer = xTimerCreate("vbus_debounce_timer",
-                                        pdMS_TO_TICKS(DEBOUNCE_DELAY_MS),
+                                        pdMS_TO_TICKS(config->debounce_delay_ms),
                                         pdFALSE,
                                         NULL,
-                                        freertos_vbus_debounce_timer_cb);
+                                        vbus_debounce_timer_cb);
 
     if (_vbus_debounce_timer == NULL) {
         ESP_LOGE(TAG, "Create VBUS debounce timer failed");
@@ -124,7 +157,7 @@ esp_err_t tinyusb_vbus_monitor_init(int vbus_io_num)
 
     // Init gpio IRQ for VBUS monitoring
     const gpio_config_t vbus_io_cfg = {
-        .pin_bit_mask = BIT64(vbus_io_num),
+        .pin_bit_mask = BIT64(_vbus_ctx.vbus_io_num),
         .mode = GPIO_MODE_INPUT,
         .pull_down_en = GPIO_PULLDOWN_ENABLE,
         .intr_type = GPIO_INTR_ANYEDGE,
@@ -141,7 +174,7 @@ esp_err_t tinyusb_vbus_monitor_init(int vbus_io_num)
     gpio_glitch_filter_handle_t filter;
     gpio_flex_glitch_filter_config_t filter_cfg = {
         .clk_src = GLITCH_FILTER_CLK_SRC_DEFAULT,
-        .gpio_num = vbus_io_num,
+        .gpio_num = _vbus_ctx.vbus_io_num,
         .window_thres_ns = 500 /* DEBOUNCE_DELAY_MS * 1000 * 1000 */,
         .window_width_ns = 500 /* DEBOUNCE_DELAY_MS * 1000 * 1000 */,
     };
@@ -166,41 +199,40 @@ esp_err_t tinyusb_vbus_monitor_init(int vbus_io_num)
         goto isr_fail;
     }
 
-    ret = gpio_isr_handler_add(vbus_io_num, vbus_io_cb, (void *) vbus_io_num);
+    ret = gpio_isr_handler_add(_vbus_ctx.vbus_io_num, vbus_io_cb, (void *) _vbus_ctx.vbus_io_num);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Add GPIO ISR handler failed");
         goto add_isr_hdl_fail;
     }
 
     // Device could be already connected, check the status and start the timer if needed
-    if (gpio_get_level(vbus_io_num)) {
+    if (gpio_get_level(_vbus_ctx.vbus_io_num)) {
         // Set Bvalid signal to 1
-        USB_DWC_REG.gotgctl_reg.bvalidovval = 1;
+        usb_dwc_ll_gotgctl_set_bvalid_override_value(&USB_DWC_REG, 0);
 
         _vbus_ctx.vbus_prev_state = true;
         // Disable interrupts for a while to debounce
-        gpio_intr_disable(vbus_io_num);
+        gpio_intr_disable(_vbus_ctx.vbus_io_num);
         // Start debounce timer
         if (xTimerStart(_vbus_debounce_timer, 0) != pdPASS) {
             ESP_LOGE(TAG, "Failed to start VBUS debounce timer");
         }
     } else {
-        // Set Bvalid signal to 0
-        USB_DWC_REG.gotgctl_reg.bvalidoven = 0;
+        usb_dwc_ll_gotgctl_set_bvalid_override_value(&USB_DWC_REG, 0);
     }
 
     // Wait 1 microsecond (sufficient for >5 PHY clocks)
     esp_rom_delay_us(1);
     // Enable to override the signal from PHY
-    USB_DWC_REG.gotgctl_reg.bvalidoven = 1;
+    usb_dwc_ll_gotgctl_enable_bvalid_override(&USB_DWC_REG, true);
 
-    ESP_LOGD(TAG, "Configured via GPIO%d, debounce delay: %d ms", vbus_io_num, DEBOUNCE_DELAY_MS);
+    ESP_LOGD(TAG, "Configured via GPIO%d, debounce delay: %d ms", _vbus_ctx.vbus_io_num, config->debounce_delay_ms);
     return ESP_OK;
 
 add_isr_hdl_fail:
     gpio_uninstall_isr_service();
 isr_fail:
-    gpio_reset_pin(vbus_io_num);
+    gpio_reset_pin(_vbus_ctx.vbus_io_num);
 gpio_fail:
     if (_vbus_debounce_timer) {
         xTimerDelete(_vbus_debounce_timer, 0);
@@ -209,7 +241,7 @@ gpio_fail:
     return ret;
 }
 
-void tinyusb_vbus_monitor_deinit(int vbus_io_num)
+void tinyusb_vbus_monitor_deinit(void)
 {
     // Deinit gpio IRQ for VBUS monitoring
     if (xTimerIsTimerActive(_vbus_debounce_timer) == pdTRUE) {
@@ -219,8 +251,8 @@ void tinyusb_vbus_monitor_deinit(int vbus_io_num)
     _vbus_debounce_timer = NULL;
 
     // Deinit gpio IRQ for VBUS monitoring
-    ESP_ERROR_CHECK(gpio_isr_handler_remove(vbus_io_num));
-    gpio_intr_disable(vbus_io_num);
+    ESP_ERROR_CHECK(gpio_isr_handler_remove(_vbus_ctx.vbus_io_num));
+    gpio_intr_disable(_vbus_ctx.vbus_io_num);
     gpio_uninstall_isr_service();
 
     ESP_LOGD(TAG, "Deinit");

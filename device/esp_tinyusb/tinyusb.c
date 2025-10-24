@@ -110,8 +110,8 @@ esp_err_t tinyusb_driver_install(const tinyusb_config_t *config)
 
     esp_err_t ret;
     usb_phy_handle_t phy_hdl = NULL;
-    tinyusb_task_dev_ext_params_t ext_params = {
-        .vbus_monitor_io = -1,
+    tinyusb_vbus_monitor_config_t vbus_cfg = {
+        .gpio_num = GPIO_NUM_NC,
     };
 
     if (!config->phy.skip_setup) {
@@ -141,14 +141,15 @@ esp_err_t tinyusb_driver_install(const tinyusb_config_t *config)
 #if (SOC_USB_OTG_PERIPH_NUM > 1)
             else if (config->port == TINYUSB_PORT_HIGH_SPEED_0) {
                 // For USB OTG 2.0, we use VBUS monitoring GPIO to control BVALID value over GOTGCTL register
-                ext_params.vbus_monitor_io = config->phy.vbus_monitor_io;
+                vbus_cfg.gpio_num = config->phy.vbus_monitor_io;
+                vbus_cfg.debounce_delay_ms = 250; /* TODO: make configurable */
             }
 #endif // SOC_USB_OTG_PERIPH_NUM > 1
         }
         ESP_RETURN_ON_ERROR(usb_new_phy(&phy_conf, &phy_hdl), TAG, "Install USB PHY failed");
     }
     // Init TinyUSB stack in task
-    ESP_GOTO_ON_ERROR(tinyusb_task_start(config->port, &config->task, &config->descriptor, &ext_params), del_phy, TAG, "Init TinyUSB task failed");
+    ESP_GOTO_ON_ERROR(tinyusb_task_start(config->port, &config->task, &config->descriptor, &vbus_cfg), del_phy, TAG, "Init TinyUSB task failed");
 
     s_ctx.port = config->port;              // Save the port number
     s_ctx.phy_hdl = phy_hdl;                // Save the PHY handle for uninstallation
