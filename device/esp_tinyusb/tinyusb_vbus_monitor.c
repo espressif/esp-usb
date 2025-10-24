@@ -250,6 +250,9 @@ void tinyusb_vbus_monitor_deinit(void)
     xTimerDelete(_vbus_debounce_timer, 0);
     _vbus_debounce_timer = NULL;
 
+    // Disable to override the signal from PHY
+    usb_dwc_ll_gotgctl_enable_bvalid_override(&USB_DWC_REG, false);
+
     // Deinit gpio IRQ for VBUS monitoring
     ESP_ERROR_CHECK(gpio_isr_handler_remove(_vbus_ctx.vbus_io_num));
     gpio_intr_disable(_vbus_ctx.vbus_io_num);
