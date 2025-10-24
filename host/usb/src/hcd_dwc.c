@@ -831,6 +831,12 @@ static hcd_port_event_t _intr_hdlr_hprt(port_t *port, usb_dwc_hal_port_event_t h
         port->flags.conn_dev_ena = 0;
         break;
     }
+    case USB_DWC_HAL_PORT_EVENT_REMOTE_WAKEUP: {
+        ESP_EARLY_LOGI(HCD_DWC_TAG, "WAKE");
+        port->state = HCD_PORT_STATE_ENABLED;
+        port_event = HCD_PORT_EVENT_REMOTE_WAKEUP;
+        break;
+    }
     default: {
         abort();
         break;
@@ -1368,6 +1374,7 @@ static esp_err_t _port_cmd_bus_resume(port_t *port)
         ret = ESP_ERR_INVALID_STATE;
         goto exit;
     }
+
     // Put and hold the bus in the K state.
     usb_dwc_hal_port_toggle_resume(port->hal, true);
     port->state = HCD_PORT_STATE_RESUMING;
@@ -1485,8 +1492,11 @@ esp_err_t hcd_port_deinit(hcd_port_handle_t port_hdl)
     return ESP_OK;
 }
 
+static port_t *s_port;
+
 esp_err_t hcd_port_command(hcd_port_handle_t port_hdl, hcd_port_cmd_t command)
 {
+    s_port = (port_t *)port_hdl;
     esp_err_t ret = ESP_ERR_INVALID_STATE;
     port_t *port = (port_t *)port_hdl;
     xSemaphoreTake(port->port_mux, portMAX_DELAY);
