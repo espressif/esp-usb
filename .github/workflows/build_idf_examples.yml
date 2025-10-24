@@ -56,19 +56,19 @@ jobs:
           . ${IDF_PATH}/export.sh
 
           # cdc
-          python .github/ci/override_managed_component.py usb_host_cdc_acm host/class/cdc/usb_host_cdc_acm ${{ env.EXAMPLES_PATH }}/host/cdc/*
+          python .github/ci/override_managed_component.py usb_host_cdc_acm host/class/cdc/usb_host_cdc_acm ${{ env.EXAMPLES_PATH }}/host/cdc
 
           # hid
-          python .github/ci/override_managed_component.py usb_host_hid host/class/cdc/usb_host_hid ${{ env.EXAMPLES_PATH }}/host/hid/*
+          python .github/ci/override_managed_component.py usb_host_hid host/class/cdc/usb_host_hid ${{ env.EXAMPLES_PATH }}/host/hid
 
           # msc
-          python .github/ci/override_managed_component.py usb_host_msc host/class/cdc/usb_host_msc ${{ env.EXAMPLES_PATH }}/host/msc/*
+          python .github/ci/override_managed_component.py usb_host_msc host/class/cdc/usb_host_msc ${{ env.EXAMPLES_PATH }}/host/msc
 
           # uac
-          python .github/ci/override_managed_component.py usb_host_uac host/class/cdc/usb_host_uac ${{ env.EXAMPLES_PATH }}/host/uac/*
+          python .github/ci/override_managed_component.py usb_host_uac host/class/cdc/usb_host_uac ${{ env.EXAMPLES_PATH }}/host/uac
 
           # uvc
-          python .github/ci/override_managed_component.py usb_host_uvc host/class/cdc/usb_host_uvc ${{ env.EXAMPLES_PATH }}/host/uvc/*
+          python .github/ci/override_managed_component.py usb_host_uvc host/class/cdc/usb_host_uvc ${{ env.EXAMPLES_PATH }}/host/uvc
 
       - name: Override usb component
         if: contains('release-v5.4 release-v5.5 latest', matrix.idf_ver)
