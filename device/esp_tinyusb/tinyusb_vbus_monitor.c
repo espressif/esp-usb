@@ -225,7 +225,7 @@ esp_err_t tinyusb_vbus_monitor_init(tinyusb_vbus_monitor_config_t *config)
         gpio_intr_enable(_vbus_ctx.vbus_io_num);
     }
 
-    ESP_LOGD(TAG, "Configured via GPIO%d, debounce delay: %"PRIu32" ms", _vbus_ctx.vbus_io_num, config->debounce_delay_ms);
+    ESP_LOGW(TAG, "Configured via GPIO%d, debounce delay: %"PRIu32" ms", _vbus_ctx.vbus_io_num, config->debounce_delay_ms);
     return ESP_OK;
 
 add_isr_hdl_fail:

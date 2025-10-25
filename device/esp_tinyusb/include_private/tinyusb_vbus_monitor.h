@@ -15,7 +15,8 @@ extern "C" {
 #endif
 
 typedef struct {
-    gpio_num_t  gpio_num;           /*!< GPIO number used for VBUS monitoring, 3.3 V tolerant */
+    bool        enabled;           /*!< Enable VBUS monitoring */
+    gpio_num_t  gpio_num;          /*!< GPIO number used for VBUS monitoring, 3.3 V tolerant */
     uint32_t    debounce_delay_ms; /*!< Debounce delay in milliseconds */
 } tinyusb_vbus_monitor_config_t;
 

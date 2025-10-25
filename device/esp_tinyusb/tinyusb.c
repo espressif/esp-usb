@@ -111,7 +111,7 @@ esp_err_t tinyusb_driver_install(const tinyusb_config_t *config)
     esp_err_t ret;
     usb_phy_handle_t phy_hdl = NULL;
     tinyusb_vbus_monitor_config_t vbus_cfg = {
-        .gpio_num = GPIO_NUM_NC,
+        .enabled = false,
     };
 
     if (!config->phy.skip_setup) {
@@ -143,6 +143,7 @@ esp_err_t tinyusb_driver_install(const tinyusb_config_t *config)
                 // For USB OTG 2.0, we use VBUS monitoring GPIO to control BVALID value over GOTGCTL register
                 vbus_cfg.gpio_num = config->phy.vbus_monitor_io;
                 vbus_cfg.debounce_delay_ms = 250; /* TODO: make configurable */
+                vbus_cfg.enabled = true;
             }
 #endif // SOC_USB_OTG_PERIPH_NUM > 1
         }
