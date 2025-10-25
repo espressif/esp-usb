@@ -516,8 +516,7 @@ TEST_CASE("Emulated VBUS USB OTG 2.0, verify attach/detach events callback (via 
     TEST_ASSERT_EQUAL_MESSAGE(ESP_OK, tinyusb_driver_install(&tusb_cfg), "Failed to install TinyUSB driver");
 
     // When we do not set self_powered mode, the Bvalid override should be not enabled
-    /* TODO: Enable the verification back after fixing the regression in TinyUSB v0.19.0 */
-    // TEST_ASSERT_EQUAL_MESSAGE(0, USB_DWC_HS.gotgctl_reg.bvalidoven, "Bvalid override value is already enabled");
+    TEST_ASSERT_EQUAL_MESSAGE(0, USB_DWC_HS.gotgctl_reg.bvalidoven, "Bvalid override value is already enabled");
 
     // Set Bvalid signal to 1 initially
     USB_DWC_HS.gotgctl_reg.bvalidovval = 1;
