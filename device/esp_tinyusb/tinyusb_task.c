@@ -83,7 +83,7 @@ static void tinyusb_device_task(void *arg)
     }
 
 #if (CONFIG_IDF_TARGET_ESP32P4)
-    if (task_ctx->vbus_monitor_cfg.gpio_num >= 0) {
+    if (task_ctx->vbus_monitor_cfg.gpio_num != GPIO_NUM_NC) {
         if (tinyusb_vbus_monitor_init(&task_ctx->vbus_monitor_cfg) != ESP_OK) {
             ESP_LOGE(TAG, "Init VBUS monitoring failed");
             goto desc_free;
