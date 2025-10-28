@@ -190,11 +190,27 @@ void test_hcd_free_urb(urb_t *urb);
  */
 uint8_t test_hcd_enum_device(hcd_pipe_handle_t default_pipe);
 
+// ---------------------------------------------- Transfer submit ------------------------------------------------------
+
 /**
- * @brief Set endpoint descriptor
+ * @brief Enable remote wakeup feature on device
  *
- * Set endpoint descriptor of the mock device with different wMaxPacketSize according to the connected device's speed
+ * This function enables or disables remote wakeup on device by sending set feature or clear feature requests
  *
- * @param port_speed Port speed after the device is connected
+ * @note this function sends a control transfer to the device
+ * @param default_pipe The connected device's default pipe
+ * @param feature_urb A default_pipe's URB used for set feature / clear feature
+ * @param enable Enable/Disable remote wake-up
  */
-void test_hcd_set_mock_msc_ep_descriptor(usb_speed_t port_speed);
+void test_hcd_remote_wake_enable(hcd_pipe_handle_t *default_pipe, urb_t *feature_urb, bool enable);
+
+/**
+ * @brief Check if remote wakeup feature is currently enabled on device
+ *
+ * @note this function sends a control transfer to the device
+ * @param default_pipe The connected device's default pipe
+ * @param feature_urb A default_pipe's URB used for get status request
+ * @return True if remote wake-up is currently enabled
+ *         False if remote wake-up is currently disabled
+ */
+bool test_hcd_remote_wake_check(hcd_pipe_handle_t *default_pipe, urb_t *get_status_urb);

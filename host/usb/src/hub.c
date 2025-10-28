@@ -445,7 +445,6 @@ reset_err:
         // Root port, including all the connected devices were resumed (global resume)
         // Clear all EPs and propagate the resumed event to clients
         //usbh_devs_set_pm_actions_all(USBH_DEV_RESUME | USBH_DEV_RESUME_EVT);
-        //esp_rom_printf("p_hub_driver_obj->dynamic.root_port_state = %d\n", p_hub_driver_obj->dynamic.root_port_state);
 
         // Change Port state
         //HUB_DRIVER_ENTER_CRITICAL();
