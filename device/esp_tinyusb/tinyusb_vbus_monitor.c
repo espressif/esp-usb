@@ -33,6 +33,10 @@ typedef struct {
 static vbus_context_t _vbus_ctx;
 static TimerHandle_t _vbus_debounce_timer = NULL;
 
+//
+// Additional low-level USB DWC functions, which are not present in the IDF USB DWC HAL
+//
+
 // --------------- GOTGCTL register ------------------
 
 static void usb_dwc_ll_gotgctl_set_bvalid_override_value(usb_dwc_dev_t *hw, uint8_t value)
@@ -45,6 +49,13 @@ static void usb_dwc_ll_gotgctl_enable_bvalid_override(usb_dwc_dev_t *hw, bool en
     hw->gotgctl_reg.bvalidoven = enable ? 1 : 0;
 }
 
+// ------------------ DCTL register --------------------
+
+static void usb_dwc_ll_dctl_set_soft_disconnect(usb_dwc_dev_t *hw, bool enable)
+{
+    hw->dctl_reg.sftdiscon = enable ? 1 : 0;
+}
+
 // -------------- VBUS Internal Logic ------------------
 
 /**
@@ -54,6 +65,7 @@ static void vbus_appeared(void)
 {
     ESP_LOGD(TAG, "Appeared");
     usb_dwc_ll_gotgctl_set_bvalid_override_value(&USB_DWC_REG, 1);
+    usb_dwc_ll_dctl_set_soft_disconnect(&USB_DWC_REG, false);
 }
 
 /**
@@ -63,11 +75,7 @@ static void vbus_disappeared(void)
 {
     ESP_LOGD(TAG, "Disappeared");
     usb_dwc_ll_gotgctl_set_bvalid_override_value(&USB_DWC_REG, 0);
-
-    // Note:
-    // When device stayed connected in the USB Host port, we need to disable the pull-up resistor on D+ D- first
-    // Disable pull-up resistor on D+ D-
-    // But this creates a breaking change, so we can call it in the notification callback
+    usb_dwc_ll_dctl_set_soft_disconnect(&USB_DWC_REG, true);
 }
 
 /**

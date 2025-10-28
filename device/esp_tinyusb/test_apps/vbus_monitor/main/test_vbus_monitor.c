@@ -173,14 +173,8 @@ static void test_vbus_monitor_control_gotgctl_connect(usb_dwc_dev_t *dwc_otg)
     TEST_ASSERT_EQUAL_MESSAGE(1, dwc_otg->gotgctl_reg.bvalidoven, "Bvalid overriding is not enabled");
     // Set Bvalid signal to 1
     dwc_otg->gotgctl_reg.bvalidovval = 1;
-
-    /* TODO: Verify, why device staying connected after setting value to 0 and why signaling works differently */
-
-    // We need to manipulate the D+ and D- lines to trigger the USB Host detection, as we
-    // do not use the real VBUS value, as the device stays connected in the USB Host port
-
-    // Enable pull-up resistor on D+ D-
-    tud_connect();
+    // For USB OTG2.0 we need to reset the soft-disconnect bit
+    dwc_otg->dctl_reg.sftdiscon = 0;
 }
 
 /**
@@ -194,14 +188,8 @@ static void test_vbus_monitor_control_gotgctl_disconnect(usb_dwc_dev_t *dwc_otg)
     TEST_ASSERT_EQUAL_MESSAGE(1, dwc_otg->gotgctl_reg.bvalidoven, "Bvalid overriding is not enabled");
     // Set Bvalid signal to 1
     dwc_otg->gotgctl_reg.bvalidovval = 0;
-
-    /* TODO: Verify, why device staying connected after setting value to 0 and why signaling works differently */
-
-    // We need to manipulate the D+ and D- lines to trigger the USB Host detection, as we
-    // do not use the real VBUS value, as the device stays connected in the USB Host port
-
-    // Disable pull-up resistor on D+ D-
-    tud_disconnect();
+    // For USB OTG2.0 we need to set the soft-disconnect bit
+    dwc_otg->dctl_reg.sftdiscon = 1;
 }
 #endif // (SOC_USB_OTG_SUPPORTED > 1)
 
@@ -214,12 +202,6 @@ static void test_vbus_monitor_control_trigger_connect(void)
 {
     // Set the GPIO to HIGH to emulate the VBUS presence
     gpio_set_level(VBUS_TRIGGER_GPIO_NUM, 1);
-
-    // We need to manipulate the D+ and D- lines to trigger the USB Host detection, as we
-    // do not use the real VBUS value, as the device stays connected in the USB Host port
-
-    // Enable pull-up resistor on D+ D-
-    tud_connect();
 }
 
 /**
@@ -231,12 +213,6 @@ static void test_vbus_monitor_control_trigger_disconnect(void)
 {
     // Set the GPIO to LOW to emulate the VBUS absence
     gpio_set_level(VBUS_TRIGGER_GPIO_NUM, 0);
-
-    // We need to manipulate the D+ and D- lines to trigger the USB Host detection, as we
-    // do not use the real VBUS value, as the device stays connected in the USB Host port
-
-    // Disable pull-up resistor on D+ D-
-    tud_disconnect();
 }
 
 /**
