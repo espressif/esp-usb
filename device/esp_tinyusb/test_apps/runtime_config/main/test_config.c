@@ -61,6 +61,7 @@ TEST_CASE("Config: Full-speed default (Full-speed)", "[runtime_config][full_spee
     TEST_ASSERT_EQUAL_MESSAGE(false, tusb_cfg.phy.skip_setup, "Wrong default skip_setup value");
     TEST_ASSERT_EQUAL_MESSAGE(false, tusb_cfg.phy.self_powered, "Wrong default self-powered flag");
     TEST_ASSERT_EQUAL_MESSAGE(-1, tusb_cfg.phy.vbus_monitor_io, "Wrong default VBUS monitor IO");
+    TEST_ASSERT_EQUAL_MESSAGE(TINYUSB_DEFAULT_DEBOUNCE_MS, tusb_cfg.phy.vbus_monitor_debounce_ms, "Wrong default VBUS monitor debounce time");
     TEST_ASSERT_EQUAL_MESSAGE(TINYUSB_DEFAULT_TASK_SIZE, tusb_cfg.task.size, "Wrong default task size");
     TEST_ASSERT_EQUAL_MESSAGE(TINYUSB_DEFAULT_TASK_PRIO, tusb_cfg.task.priority, "Wrong default task priority");
 #if CONFIG_FREERTOS_UNICORE
@@ -85,6 +86,7 @@ TEST_CASE("Config: Full-speed (High-speed)", "[runtime_config][full_speed]")
     TEST_ASSERT_EQUAL_MESSAGE(false, tusb_cfg.phy.skip_setup, "Wrong default skip_setup value");
     TEST_ASSERT_EQUAL_MESSAGE(false, tusb_cfg.phy.self_powered, "Wrong default self-powered flag");
     TEST_ASSERT_EQUAL_MESSAGE(-1, tusb_cfg.phy.vbus_monitor_io, "Wrong default VBUS monitor IO");
+    TEST_ASSERT_EQUAL_MESSAGE(TINYUSB_DEFAULT_DEBOUNCE_MS, tusb_cfg.phy.vbus_monitor_debounce_ms, "Wrong default VBUS monitor debounce time");
     TEST_ASSERT_EQUAL_MESSAGE(TINYUSB_DEFAULT_TASK_SIZE, tusb_cfg.task.size, "Wrong default task size");
     TEST_ASSERT_EQUAL_MESSAGE(TINYUSB_DEFAULT_TASK_PRIO, tusb_cfg.task.priority, "Wrong default task priority");
     TEST_ASSERT_EQUAL_MESSAGE(1, tusb_cfg.task.xCoreID, "Wrong default task affinity, should be 1 on multicore");
@@ -104,6 +106,7 @@ TEST_CASE("Config: High-speed default (High-speed)", "[runtime_config][high_spee
     TEST_ASSERT_EQUAL_MESSAGE(false, tusb_cfg.phy.skip_setup, "Wrong default skip_setup value");
     TEST_ASSERT_EQUAL_MESSAGE(false, tusb_cfg.phy.self_powered, "Wrong default self-powered flag");
     TEST_ASSERT_EQUAL_MESSAGE(-1, tusb_cfg.phy.vbus_monitor_io, "Wrong default VBUS monitor IO");
+    TEST_ASSERT_EQUAL_MESSAGE(TINYUSB_DEFAULT_DEBOUNCE_MS, tusb_cfg.phy.vbus_monitor_debounce_ms, "Wrong default VBUS monitor debounce time");
     TEST_ASSERT_EQUAL_MESSAGE(TINYUSB_DEFAULT_TASK_SIZE, tusb_cfg.task.size, "Wrong default task size");
     TEST_ASSERT_EQUAL_MESSAGE(TINYUSB_DEFAULT_TASK_PRIO, tusb_cfg.task.priority, "Wrong default task priority");
     TEST_ASSERT_EQUAL_MESSAGE(1, tusb_cfg.task.xCoreID, "Wrong default task affinity, should be 1 on multicore");
