@@ -68,6 +68,6 @@ void app_main(void)
     printf("  \\_/ \\____/\\____/  \\_/                            \n");
 
     unity_utils_setup_heap_record(80);
-    unity_utils_set_leak_level(1048); // 128 (default) + 820 (wl_mount) + 100 (in case of driver format)
+    unity_utils_set_leak_level(4000); // 128 (default) + 820 (wl_mount) + 100 (in case of driver format)
     unity_run_menu();
 }

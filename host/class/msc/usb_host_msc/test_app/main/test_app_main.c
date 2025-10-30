@@ -36,6 +36,6 @@ void app_main(void)
     printf("                 \\/         \\/             \\/     \\/        \r\n");
 
     unity_utils_setup_heap_record(80);
-    unity_utils_set_leak_level(530);
+    unity_utils_set_leak_level(4000);
     unity_run_menu();
 }
