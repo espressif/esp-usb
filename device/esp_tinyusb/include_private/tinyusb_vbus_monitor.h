@@ -30,14 +30,20 @@ typedef struct {
  *
  * @return
  *    - ESP_ERR_INVALID_ARG if config is NULL
+ *    - ESP_ERR_INVALID_STATE if VBUS monitoring is already initialized
+ *    - ESP_ERR_NO_MEM if debounce timer creation failed
  *    - ESP_OK if VBUS monitoring was initialized successfully
  */
 esp_err_t tinyusb_vbus_monitor_init(tinyusb_vbus_monitor_config_t *config);
 
 /**
  * @brief Deinitialize VBUS monitoring
+ *
+ * @return
+ *    - ESP_ERR_INVALID_STATE if VBUS monitoring is not initialized
+ *    - ESP_OK on success
  */
-void tinyusb_vbus_monitor_deinit(void);
+esp_err_t tinyusb_vbus_monitor_deinit(void);
 
 #ifdef __cplusplus
 }
