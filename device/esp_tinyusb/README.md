@@ -81,7 +81,7 @@ The default installation automatically configures the port (High-speed if suppor
 
 Default descriptors are provided for the following USB classes: CDC, MSC, and NCM.
 
-> **⚠️ Important:** For demonstration purposes, all error handling logic has been removed from the code examples. Do not ignore proper error handling in actual development.
+> ⚠️ For demonstration purposes, all error handling logic has been removed from the code examples. Do not ignore proper error handling in actual development.
 
 ```c
   #include "tinyusb_default_config.h"
@@ -226,6 +226,34 @@ For self-powered devices, monitoring the VBUS voltage is required. To do this:
     tinyusb_driver_install(&tusb_cfg);
   }
 ```
+
+> ⚠️ **ESP32-P4**, USB OTG 2.0, High-speed doesn't have hardware detection of VBUS BVALID signal
+
+To solve this, an additional software timer is implemented in the driver.
+
+To filter glitches on the VBUS-monitor GPIO, a configurable `vbus_debounce_ms` parameter is available.
+
+> **Note:** Default value of debounce timer is 250 ms
+
+The default debounce interval might be changed during the driver configuration:
+
+```c
+  #include "tinyusb_default_config.h"
+  #include "sdkconfig.h"
+
+  void app_main(void)
+  {
+    tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG();
+
+    tusb_cfg.phy.self_powered     = true;
+    tusb_cfg.phy.vbus_monitor_io  = GPIO_NUM_0;
+#if (CONFIG_IDF_TARGET_ESP32P4)
+    tusb_cfg.phy.vbus_monitor_debounce_ms = 350; // new debounce value
+#endif
+    tinyusb_driver_install(&tusb_cfg);
+  }
+```
+
 If external PHY is used:
 
 ```c
