@@ -133,7 +133,9 @@ static void storage_init(void)
     tusb_cfg.descriptor.string_count = sizeof(string_desc_arr) / sizeof(string_desc_arr[0]);
     tusb_cfg.phy.self_powered = true;
     tusb_cfg.phy.vbus_monitor_io = VBUS_MONITORING_GPIO_NUM;
-
+#if (CONFIG_IDF_TARGET_ESP32P4)
+    gpio_install_isr_service(ESP_INTR_FLAG_LOWMED);
+#endif // CONFIG_IDF_TARGET_ESP32P4
     ESP_ERROR_CHECK(tinyusb_driver_install(&tusb_cfg));
     ESP_LOGI(TAG, "USB initialization DONE");
 }
