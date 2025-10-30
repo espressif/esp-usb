@@ -133,28 +133,6 @@ TEST_CASE("Test HCD port sudden disconnect", "[port][low_speed][full_speed][high
     test_hcd_wait_for_disconn(port_hdl, false);
 }
 
-#define URB_CONTEXT_VAL ((void *)0xDEADBEEF)
-
-static void test_hcd_ping_device(urb_t *default_urb, hcd_pipe_handle_t *default_pipe)
-{
-    default_urb->transfer.num_bytes = sizeof(usb_setup_packet_t) + TRANSFER_MAX_BYTES;
-    USB_SETUP_PACKET_INIT_GET_CONFIG_DESC((usb_setup_packet_t *)default_urb->transfer.data_buffer, 0, TRANSFER_MAX_BYTES);
-    default_urb->transfer.context = URB_CONTEXT_VAL;
-    TEST_ASSERT_EQUAL(ESP_OK, hcd_urb_enqueue(default_pipe, default_urb));
-
-    test_hcd_expect_pipe_event(default_pipe, HCD_PIPE_EVENT_URB_DONE);
-
-    urb_t *urb = hcd_urb_dequeue(default_pipe);
-    TEST_ASSERT_EQUAL(urb, default_urb);
-    TEST_ASSERT_EQUAL(urb->transfer.status, USB_TRANSFER_STATUS_COMPLETED);
-    TEST_ASSERT_EQUAL(urb->transfer.context, URB_CONTEXT_VAL);
-    // We must have transmitted at least the setup packet, but device may return less than bytes requested
-    TEST_ASSERT_GREATER_OR_EQUAL(sizeof(usb_setup_packet_t), urb->transfer.actual_num_bytes);
-    TEST_ASSERT_LESS_OR_EQUAL(urb->transfer.num_bytes, urb->transfer.actual_num_bytes);
-    usb_config_desc_t *config_desc = (usb_config_desc_t *)(urb->transfer.data_buffer + sizeof(usb_setup_packet_t));
-    TEST_ASSERT_EQUAL(USB_B_DESCRIPTOR_TYPE_CONFIGURATION, config_desc->bDescriptorType);
-}
-
 /*
 Test port suspend and resume with active pipes
 
@@ -185,7 +163,7 @@ TEST_CASE("Test HCD port suspend and resume", "[port][low_speed][full_speed][hig
     // Allocate some URBs and initialize their data buffers with control transfers
     hcd_pipe_handle_t default_pipe = test_hcd_pipe_alloc(port_hdl, NULL, TEST_DEV_ADDR, port_speed); // Create a default pipe (using a NULL EP descriptor)
     urb_t *urb = test_hcd_alloc_urb(0, URB_DATA_BUFF_SIZE);
-    test_hcd_ping_device(urb, default_pipe);
+    test_hcd_ping_device(default_pipe, urb);
 
     // Test that suspending the port now fails as there is an active pipe
     TEST_ASSERT_EQUAL(ESP_ERR_INVALID_STATE, hcd_port_command(port_hdl, HCD_PORT_CMD_SUSPEND));
@@ -211,7 +189,7 @@ TEST_CASE("Test HCD port suspend and resume", "[port][low_speed][full_speed][hig
     TEST_ASSERT_EQUAL(HCD_PIPE_STATE_ACTIVE, hcd_pipe_get_state(default_pipe));
     vTaskDelay(pdMS_TO_TICKS(100)); // Give some time for resumed URBs to complete
 
-    test_hcd_ping_device(urb, default_pipe);
+    test_hcd_ping_device(default_pipe, urb);
     test_hcd_free_urb(urb);
     test_hcd_pipe_free(default_pipe);
     // Cleanup
@@ -234,7 +212,6 @@ Procedure:
     - Ping a device (send get configuration descriptor transfer)
     - Halt the default pipe after a short delay
     - Suspend the port
-    - Cleanup default pipe
     - Power off the port and recover the port
     - Try to Suspend and Resume the port with no devices connected
     - Trigger connection again (to make sure the port works post recovery)
@@ -250,10 +227,7 @@ TEST_CASE("Test HCD port suspend and resume sudden disconnect", "[port][low_spee
     // Allocate some URBs and initialize their data buffers with control transfers
     hcd_pipe_handle_t default_pipe = test_hcd_pipe_alloc(port_hdl, NULL, TEST_DEV_ADDR, port_speed); // Create a default pipe (using a NULL EP descriptor)
     urb_t *urb = test_hcd_alloc_urb(0, URB_DATA_BUFF_SIZE);
-    test_hcd_ping_device(urb, default_pipe);
-
-    // Test that suspending the port now fails as there is an active pipe
-    TEST_ASSERT_EQUAL(ESP_ERR_INVALID_STATE, hcd_port_command(port_hdl, HCD_PORT_CMD_SUSPEND));
+    test_hcd_ping_device(default_pipe, urb);
 
     // Halt the default pipe before suspending
     TEST_ASSERT_EQUAL(HCD_PIPE_STATE_ACTIVE, hcd_pipe_get_state(default_pipe));
@@ -292,13 +266,33 @@ TEST_CASE("Test HCD port suspend and resume sudden disconnect", "[port][low_spee
     // Allocate some URBs and initialize their data buffers with control transfers
     default_pipe = test_hcd_pipe_alloc(port_hdl, NULL, TEST_DEV_ADDR, port_speed); // Create a default pipe (using a NULL EP descriptor)
     urb = test_hcd_alloc_urb(0, URB_DATA_BUFF_SIZE);
-    test_hcd_ping_device(urb, default_pipe);
+    test_hcd_ping_device(default_pipe, urb);
 
     test_hcd_free_urb(urb);
     test_hcd_pipe_free(default_pipe);
     test_hcd_wait_for_disconn(port_hdl, false);
 }
 
+/*
+Test port suspend and resume with port reset
+
+Purpose:
+    - Test port suspend and resume procedure with port reset
+    - When suspended, the port must react to reset command
+    - Test exiting suspend state Through port reset
+
+Procedure:
+    - Setup the HCD and a port
+    - Trigger a port connection
+    - Create a default pipe
+    - Ping a device (send get configuration descriptor transfer)
+    - Halt the default pipe
+    - Suspend the port
+    - Reset and recover the port
+    - Ping a device
+    - Trigger disconnection and cleanup
+    - Teardown port and HCD
+*/
 TEST_CASE("Test HCD port suspend and resume port reset", "[port][low_speed][full_speed][high_speed]")
 {
     usb_speed_t port_speed = test_hcd_wait_for_conn(port_hdl);  // Trigger a connection
@@ -307,10 +301,7 @@ TEST_CASE("Test HCD port suspend and resume port reset", "[port][low_speed][full
     // Allocate some URBs and initialize their data buffers with control transfers
     hcd_pipe_handle_t default_pipe = test_hcd_pipe_alloc(port_hdl, NULL, TEST_DEV_ADDR, port_speed); // Create a default pipe (using a NULL EP descriptor)
     urb_t *urb = test_hcd_alloc_urb(0, URB_DATA_BUFF_SIZE);
-    test_hcd_ping_device(urb, default_pipe);
-
-    // Test that suspending the port now fails as there is an active pipe
-    TEST_ASSERT_EQUAL(ESP_ERR_INVALID_STATE, hcd_port_command(port_hdl, HCD_PORT_CMD_SUSPEND));
+    test_hcd_ping_device(default_pipe, urb);
 
     // Halt the default pipe before suspending
     TEST_ASSERT_EQUAL(HCD_PIPE_STATE_ACTIVE, hcd_pipe_get_state(default_pipe));
@@ -334,7 +325,7 @@ TEST_CASE("Test HCD port suspend and resume port reset", "[port][low_speed][full
     TEST_ASSERT_EQUAL(ESP_OK, hcd_pipe_command(default_pipe, HCD_PIPE_CMD_CLEAR));
     TEST_ASSERT_EQUAL(HCD_PIPE_STATE_ACTIVE, hcd_pipe_get_state(default_pipe));
 
-    test_hcd_ping_device(urb, default_pipe);
+    test_hcd_ping_device(default_pipe, urb);
 
     test_hcd_free_urb(urb);
     test_hcd_pipe_free(default_pipe);

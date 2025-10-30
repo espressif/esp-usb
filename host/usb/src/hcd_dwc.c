@@ -1261,7 +1261,7 @@ static esp_err_t _port_cmd_power_on(port_t *port)
         port->state = HCD_PORT_STATE_DISCONNECTED;
         usb_dwc_hal_port_init(port->hal);
         usb_dwc_hal_port_toggle_power(port->hal, true);
-        _suspend_phy_clk(port, false);
+        //_suspend_phy_clk(port, false);  // Un-gate the phy clock                  TODO: Test this
         ret = ESP_OK;
     } else {
         ret = ESP_ERR_INVALID_STATE;
@@ -1275,7 +1275,7 @@ static esp_err_t _port_cmd_power_off(port_t *port)
     // Port can only be unpowered if already powered
     if (port->state != HCD_PORT_STATE_NOT_POWERED) {
         port->state = HCD_PORT_STATE_NOT_POWERED;
-        _suspend_phy_clk(port, false);
+        //_suspend_phy_clk(port, false);  // Un-gate the phy clock                  TODO: Test this
         usb_dwc_hal_port_deinit(port->hal);
         usb_dwc_hal_port_toggle_power(port->hal, false);
         // If a device is currently connected, this should trigger a disconnect event
@@ -1301,6 +1301,10 @@ static esp_err_t _port_cmd_reset(port_t *port)
         ret = ESP_ERR_INVALID_STATE;
         goto exit;
     }
+    // If resetting from suspended state, we must un-gate the internal clock
+    if (port->state == HCD_PORT_STATE_SUSPENDED) {
+        _suspend_phy_clk(port, false);
+    }
     /*
     Proceed to resetting the bus
     - Update the port's state variable
@@ -1308,8 +1312,6 @@ static esp_err_t _port_cmd_reset(port_t *port)
     - Return the bus to the idle state for RESET_RECOVERY_MS
     */
     port->state = HCD_PORT_STATE_RESETTING;
-
-    _suspend_phy_clk(port, false);
 
     // Place the bus into the reset state. If the port was previously enabled, a disabled event will occur after this
     usb_dwc_hal_port_toggle_reset(port->hal, true);

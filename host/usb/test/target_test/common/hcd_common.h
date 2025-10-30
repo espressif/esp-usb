@@ -214,3 +214,16 @@ void test_hcd_remote_wake_enable(hcd_pipe_handle_t *default_pipe, urb_t *feature
  *         False if remote wake-up is currently disabled
  */
 bool test_hcd_remote_wake_check(hcd_pipe_handle_t *default_pipe, urb_t *get_status_urb);
+
+/**
+ * @brief Ping device to check whether the device is responsive or not
+ *
+ * Use this function to check whether it is possible to communicate with a device.
+ * For example after resuming a device, to check whether the device has been resumed correctly
+ * The function sends a get configuration descriptor request to a device, checking both, the IN and OUT transfers
+ *
+ * @note this function sends a control transfer to the device
+ * @param default_pipe The connected device's default pipe
+ * @param default_urb A default_pipe's URB used for get configuration descriptor request
+ */
+void test_hcd_ping_device(hcd_pipe_handle_t *default_pipe, urb_t *default_urb);
