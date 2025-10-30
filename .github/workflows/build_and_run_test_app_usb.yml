@@ -46,7 +46,9 @@ jobs:
             idf_ver: "release-v5.2"
           - test_app: host_managed
             idf_ver: "release-v5.3"
-            #Exclude native usb component for IDF Latest (usb component has been removed from esp-idf)
+          # Exclude native usb component for IDF >= 6 (usb component has been removed from esp-idf)
+          - test_app: host_native
+            idf_ver: "release-v6.0"
           - test_app: host_native
             idf_ver: "latest"
 
@@ -116,7 +118,9 @@ jobs:
             idf_ver: "release-v5.2"
           - test_app: host_managed
             idf_ver: "release-v5.3"
-            #Exclude native usb component for IDF Latest (usb component has been removed from esp-idf)
+          # Exclude native usb component for IDF >= 6 (usb component has been removed from esp-idf)
+          - test_app: host_native
+            idf_ver: "release-v6.0"
           - test_app: host_native
             idf_ver: "latest"
 
