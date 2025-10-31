@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2024-2025 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -36,6 +36,9 @@ void app_main(void)
     printf("                 \\/         \\/             \\/     \\/        \r\n");
 
     unity_utils_setup_heap_record(80);
-    unity_utils_set_leak_level(530);
+    /* Memory leakage level is different in different esp-idf releases */
+    /* <= 6.0: 530 */
+    /*    6.1: 548 */
+    unity_utils_set_leak_level(548);
     unity_run_menu();
 }
