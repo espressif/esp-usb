@@ -11,5 +11,7 @@ targets:
 dependencies:
   idf: '>=5.0' # IDF 4.x contains TinyUSB as submodule
   tinyusb:
-    version: '>=0.17.0~2' # 0.17.0~2 is the first version that supports deinit
+    # TODO: Revert after IEC-403
+    # version: '>=0.17.0~2' # 0.17.0~2 is the first version that supports deinit
+    version: '^0.18.0'
     public: true

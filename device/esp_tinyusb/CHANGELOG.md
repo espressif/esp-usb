@@ -1,6 +1,7 @@
 ## [Unreleased]
 
 - Fixed forward compatibility with TinyUSB 0.19
+- Added VBUS monitoring feature for ESP32P4 USB OTG 2.0 (HS)
 
 ## 2.0.1
 
