@@ -831,6 +831,12 @@ static hcd_port_event_t _intr_hdlr_hprt(port_t *port, usb_dwc_hal_port_event_t h
         port->flags.conn_dev_ena = 0;
         break;
     }
+    case USB_DWC_HAL_PORT_EVENT_REMOTE_WAKEUP: {
+        esp_rom_printf("WAKE\n");
+        //port->state = HCD_PORT_STATE_ENABLED;
+        port_event = HCD_PORT_EVENT_REMOTE_WAKEUP;
+        break;
+    }
     default: {
         abort();
         break;
@@ -1217,6 +1223,34 @@ static inline bool _is_fifo_config_by_bias(const usb_dwc_hal_fifo_config_t *cfg)
             cfg->ptx_fifo_lines == 0);
 }
 
+/**
+ * @brief Suspend PHY clock
+ *
+ * @param[in] port Pointer to the port object
+ * @param[in] suspend PHY is about to be suspended/resumed
+ * @return True PHY clock successfully suspended/resumed
+ * @return False PHY clock not suspended/resumed
+ */
+static inline bool _suspend_phy_clk(port_t *port, bool suspend)
+{
+    // Stop PHY Clock and gate HCLK
+    usb_dwc_hal_pwr_clk_toggle_phy_suspend(port->hal, suspend);
+
+    // Wait 10 PHY clock cycles, PHY Clock is 30MHz when using 16bit interface, 60MHz when 8bit interface
+    // which makes 33.3 nS. Busy wait for 1uS just to be sure
+    esp_rom_delay_us(1);
+
+    const bool phy_clk_stopped = usb_dwc_hal_pwr_clk_check_phy_clk_stopped(port->hal);
+    const bool hclk_gated = usb_dwc_hal_pwr_clk_check_hclk_gated(port->hal);
+
+    // supend == phy_clk_stopped == hclk_gated
+    // When suspending, all 3 variables must be 1. When resuming, all 3 must be 0.
+    if ((suspend == phy_clk_stopped) && (suspend == hclk_gated)) {
+        return true;
+    }
+    return false;
+}
+
 // ---------------------- Commands -------------------------
 
 static esp_err_t _port_cmd_power_on(port_t *port)
@@ -1227,6 +1261,7 @@ static esp_err_t _port_cmd_power_on(port_t *port)
         port->state = HCD_PORT_STATE_DISCONNECTED;
         usb_dwc_hal_port_init(port->hal);
         usb_dwc_hal_port_toggle_power(port->hal, true);
+        //_suspend_phy_clk(port, false);  // Un-gate the phy clock                  TODO: Test this
         ret = ESP_OK;
     } else {
         ret = ESP_ERR_INVALID_STATE;
@@ -1240,6 +1275,7 @@ static esp_err_t _port_cmd_power_off(port_t *port)
     // Port can only be unpowered if already powered
     if (port->state != HCD_PORT_STATE_NOT_POWERED) {
         port->state = HCD_PORT_STATE_NOT_POWERED;
+        //_suspend_phy_clk(port, false);  // Un-gate the phy clock                  TODO: Test this
         usb_dwc_hal_port_deinit(port->hal);
         usb_dwc_hal_port_toggle_power(port->hal, false);
         // If a device is currently connected, this should trigger a disconnect event
@@ -1255,7 +1291,8 @@ static esp_err_t _port_cmd_reset(port_t *port)
     esp_err_t ret;
 
     // Port can only a reset when it is in the enabled or disabled (in the case of a new connection)states.
-    if (port->state != HCD_PORT_STATE_ENABLED && port->state != HCD_PORT_STATE_DISABLED) {
+    // Or suspended, to exit suspended state through host initiated reset
+    if (port->state != HCD_PORT_STATE_ENABLED && port->state != HCD_PORT_STATE_DISABLED && port->state != HCD_PORT_STATE_SUSPENDED) {
         ret = ESP_ERR_INVALID_STATE;
         goto exit;
     }
@@ -1263,6 +1300,10 @@ static esp_err_t _port_cmd_reset(port_t *port)
     if (port->num_pipes_queued > 0) {
         ret = ESP_ERR_INVALID_STATE;
         goto exit;
+    }
+    // If resetting from suspended state, we must un-gate the internal clock
+    if (port->state == HCD_PORT_STATE_SUSPENDED) {
+        _suspend_phy_clk(port, false);
     }
     /*
     Proceed to resetting the bus
@@ -1320,6 +1361,21 @@ exit:
     return ret;
 }
 
+/**
+ * @brief Suspend the root port
+ *
+ * This sequence equals to a sequence from the DesignWare Cores USB 2.0 Programming Guide version 4.00a
+ * 14.2.3.3 External HCLK Gating When the Host Core is in Partial Power Down Mode
+ * Sequence Entering suspend state
+ *
+ * @param[in] port Pointer to the port object
+ * @return:
+ *    - ESP_ERR_INVALID_STATE Port is not in a correct state to be suspended, or pipe(s) routed through this port is not halted
+ *    - ESP_ERR_INVALID_RESPONSE Port state unexpectedly changed (for example: device was disconnected)
+ *    - ESP_ERR_NOT_FINISHED Port did not finish the suspending sequence and is not in the suspended state
+ *    - ESP_ERR_NOT_ALLOWED PHY clk was not suspended
+ *    - ESP_OK Root port suspended
+ */
 static esp_err_t _port_cmd_bus_suspend(port_t *port)
 {
     esp_err_t ret;
@@ -1353,6 +1409,11 @@ static esp_err_t _port_cmd_bus_suspend(port_t *port)
         goto exit;
     }
 
+    if (! _suspend_phy_clk(port, true)) {
+        ret = ESP_ERR_NOT_ALLOWED;
+        goto exit;
+    }
+
     port->state = HCD_PORT_STATE_SUSPENDED;
     ret = ESP_OK;
 
@@ -1360,6 +1421,22 @@ exit:
     return ret;
 }
 
+/**
+ * @brief Resume the root port
+ *
+ * This sequence equals to a sequence from the DesignWare Cores USB 2.0 Programming Guide version 4.00a
+ * 14.2.3.3 External HCLK Gating When the Host Core is in Partial Power Down Mode
+ * Sequence Exiting Suspend State Through Host Initiated Resume
+ *          Exiting Suspend State Through Device Initiated Remote Wakeup
+ *
+ * @note this sequence is used for both resume scenarios: the host initiated and the device initiated (remote wakeup) resume
+ * @param[in] port Pointer to the port object
+ * @return:
+ *    - ESP_ERR_INVALID_STATE Port is not in a correct state to be resumed
+ *    - ESP_ERR_NOT_ALLOWED PHY clk was not resumed
+ *    - ESP_ERR_INVALID_RESPONSE Port state unexpectedly changed (for example: device was disconnected)
+ *    - ESP_OK Root port resumed
+ */
 static esp_err_t _port_cmd_bus_resume(port_t *port)
 {
     esp_err_t ret;
@@ -1368,6 +1445,12 @@ static esp_err_t _port_cmd_bus_resume(port_t *port)
         ret = ESP_ERR_INVALID_STATE;
         goto exit;
     }
+
+    if (!_suspend_phy_clk(port, false)) {
+        ret = ESP_ERR_NOT_ALLOWED;
+        goto exit;
+    }
+
     // Put and hold the bus in the K state.
     usb_dwc_hal_port_toggle_resume(port->hal, true);
     port->state = HCD_PORT_STATE_RESUMING;
@@ -1484,6 +1567,7 @@ esp_err_t hcd_port_deinit(hcd_port_handle_t port_hdl)
 
     return ESP_OK;
 }
+
 
 esp_err_t hcd_port_command(hcd_port_handle_t port_hdl, hcd_port_cmd_t command)
 {

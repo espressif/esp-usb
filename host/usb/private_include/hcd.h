@@ -69,6 +69,7 @@ typedef enum {
     HCD_PORT_EVENT_DISCONNECTION,   /**< A device disconnection has been detected */
     HCD_PORT_EVENT_ERROR,           /**< A port error has been detected. Port is now HCD_PORT_STATE_RECOVERY  */
     HCD_PORT_EVENT_OVERCURRENT,     /**< Overcurrent detected on the port. Port is now HCD_PORT_STATE_RECOVERY */
+    HCD_PORT_EVENT_REMOTE_WAKEUP,   /**< A remote-wakeup event from device has been detected */
 } hcd_port_event_t;
 
 /**
