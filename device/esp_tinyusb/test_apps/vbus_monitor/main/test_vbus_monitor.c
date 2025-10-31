@@ -510,7 +510,7 @@ TEST_CASE("Emulated VBUS USB OTG 2.0, verify attach/detach events callback (via 
 
     test_device_wait_event(TINYUSB_EVENT_ATTACHED);
 
-    uint8_t dev_mounted = 0; /* TODO: Expect to fail on run. Enable in VBUS monitor part2 */
+    uint8_t dev_mounted = test_vbus_emulated_via_gotgctl_bvalid(&USB_DWC_HS);
 
     // Cleanup
     TEST_ASSERT_EQUAL_MESSAGE(ESP_OK, tinyusb_driver_uninstall(), "Failed to uninstall TinyUSB driver");
@@ -558,7 +558,7 @@ TEST_CASE("Controlled VBUS USB OTG 2.0, verify attach/detach events callback", "
     TEST_ASSERT_EQUAL_MESSAGE(ESP_OK, tinyusb_driver_install(&tusb_cfg), "Failed to install TinyUSB driver");
     test_device_wait_event(TINYUSB_EVENT_ATTACHED);
 
-    uint8_t dev_mounted = 0; /* TODO: Expect to fail on run. Enable in VBUS monitor part2 */
+    uint8_t dev_mounted = test_vbus_controlled_by_gpio();
 
     // Cleanup
     TEST_ASSERT_EQUAL_MESSAGE(ESP_OK, tinyusb_driver_uninstall(), "Failed to uninstall TinyUSB driver");
@@ -606,7 +606,7 @@ TEST_CASE("Real VBUS USB OTG 2.0, verify attach/detach events callback (requires
     TEST_ASSERT_EQUAL_MESSAGE(ESP_OK, tinyusb_driver_install(&tusb_cfg), "Failed to install TinyUSB driver");
     test_device_wait_event(TINYUSB_EVENT_ATTACHED);
 
-    uint8_t dev_mounted = 0; /* TODO: Expect to fail on run. Enable in VBUS monitor part2 */
+    uint8_t dev_mounted = test_vbus_manual_attach_detach();
 
     // Cleanup
     TEST_ASSERT_EQUAL_MESSAGE(ESP_OK, tinyusb_driver_uninstall(), "Failed to uninstall TinyUSB driver");

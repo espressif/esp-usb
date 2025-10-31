@@ -26,17 +26,23 @@ typedef struct {
  * - This function should be called after tusb_init() when GOTGCTL register is initialized
  * - This is a single-threaded implementation, so only one instance of VBUS monitoring is supported
  *
- * @param vbus_io_num GPIO number used for VBUS monitoring, 3.3 V tolerant (use a comparator or a resistor divider to detect the VBUS valid condition).
+ * @param config  Pointer to VBUS monitoring configuration structure
  *
  * @return
- *    - ESP_ERR_NOT_SUPPORTED: VBUS monitoring is not supported yet
+ *    - ESP_ERR_INVALID_STATE if VBUS monitoring is already initialized
+ *    - ESP_ERR_NO_MEM if debounce timer creation failed
+ *    - ESP_OK on success
  */
 esp_err_t tinyusb_vbus_monitor_init(tinyusb_vbus_monitor_config_t *config);
 
 /**
  * @brief Deinitialize VBUS monitoring
+ *
+ * @return
+ *    - ESP_ERR_INVALID_STATE if VBUS monitoring is not initialized
+ *    - ESP_OK on success
  */
-void tinyusb_vbus_monitor_deinit(void);
+esp_err_t tinyusb_vbus_monitor_deinit(void);
 
 #ifdef __cplusplus
 }
