@@ -5,13 +5,23 @@ paths = [
     "examples/peripherals/usb/host",        # USB Host examples
 ]
 
+# exclude cherryusb build
+exclude = [
+    "examples/peripherals/usb/device/cherryusb_serial_device",
+    "examples/peripherals/usb/host/cherryusb_host"
+]
+
 recursive = true
 check_warnings = true
 target = "all"
 
 # build related options
 build_dir = "build_@t_@w"
-work_dir = "@f_@t_@w"
+
+# use ignore_build_warnings.txt from esp-idf
+ignore_warning_files = [
+    'tools/ci/ignore_build_warnings.txt',
+]
 
 # config rules
 config_rules = [

@@ -1,10 +1,16 @@
 # This workflow builds esp-idf examples:
 #
 #   - usb device examples: with overridden esp_tinyusb from esp-usb/device/esp_tinyusb
-#     - Only IDF Latest
+#     - Override esp_tinyusb component only for IDF >= 6.0 temporarily
 #
-#   - usb host examples: with overridden usb component from esp-usb/host/usb
-#     - Only service IDF releases
+#   - usb host examples:
+#     - Overridden usb component from esp-usb/host/usb and overridden class drivers from esp-usb/host/class
+#       - Only service IDF releases
+#     - Overridden class drivers from esp-usb/host/class
+#       - All (service + maintenance IDF releases)
+#
+#   - cherryusb examples are ignored
+#   - usb_host_lib example -> manifest file must be created for IDF < 6.0 to override usb component
 
 name: Build ESP-IDF USB examples
 
@@ -32,6 +38,7 @@ jobs:
     env:
       CONFIG_PATH: ${{ github.workspace }}/.github/ci/.idf_build_examples_config.toml
       MANIFEST_PATH: ${{ github.workspace }}/.github/ci/.idf-build-examples-rules.yml
+      EXAMPLES_PATH: ${{ github.workspace }}  # Will be set-up in "Setup IDF Examples path" step
     steps:
       - uses: actions/checkout@v4
         with:
@@ -41,14 +48,81 @@ jobs:
         run: |
           . ${IDF_PATH}/export.sh
           pip install idf-component-manager>=2.1.2 idf-build-apps==2.12.2 pyyaml --upgrade
-      - name: Build ESP-IDF ${{ matrix.idf_ver }} USB examples
-        shell: bash
+      - name: Setup IDF Examples path
+        run: echo "EXAMPLES_PATH=${IDF_PATH}/examples/peripherals/usb" >> $GITHUB_ENV
+      - name: Override device component
+        # Override esp_tinyusb component only for IDF >= 6.0 temporarily
+        if: contains('release-v6.0 latest', matrix.idf_ver)
+        run: |
+          . ${IDF_PATH}/export.sh
+          python .github/ci/override_managed_component.py esp_tinyusb device/esp_tinyusb ${{ env.EXAMPLES_PATH }}/device/*
+      - name: Override class components
+        # Override all class drivers for all IDF releases
         run: |
           . ${IDF_PATH}/export.sh
 
-          python .github/ci/override_managed_component.py esp_tinyusb device/esp_tinyusb ${IDF_PATH}/examples/peripherals/usb/device/*
-          python .github/ci/override_managed_component.py usb host/usb ${IDF_PATH}/examples/peripherals/usb/host/*
+          # usb_host_cdc_acm component
+          python .github/ci/override_managed_component.py usb_host_cdc_acm host/class/cdc/usb_host_cdc_acm ${{ env.EXAMPLES_PATH }}/host/cdc
+
+          # usb_host_ch34x_vcp component
+          python .github/ci/override_managed_component.py usb_host_ch34x_vcp host/class/cdc/usb_host_ch34x_vcp ${{ env.EXAMPLES_PATH }}/host/cdc/cdc_acm_vcp
+
+          # usb_host_cp210x_vcp component
+          python .github/ci/override_managed_component.py usb_host_cp210x_vcp host/class/cdc/usb_host_cp210x_vcp ${{ env.EXAMPLES_PATH }}/host/cdc/cdc_acm_vcp
+
+          # usb_host_ftdi_vcp component
+          python .github/ci/override_managed_component.py usb_host_ftdi_vcp host/class/cdc/usb_host_ftdi_vcp ${{ env.EXAMPLES_PATH }}/host/cdc/cdc_acm_vcp
+
+          # usb_host_vcp component
+          python .github/ci/override_managed_component.py usb_host_vcp host/class/cdc/usb_host_vcp ${{ env.EXAMPLES_PATH }}/host/cdc/cdc_acm_vcp
+
+          # usb_host_hid component
+          python .github/ci/override_managed_component.py usb_host_hid host/class/hid/usb_host_hid ${{ env.EXAMPLES_PATH }}/host/hid
+
+          # usb_host_msc component
+          python .github/ci/override_managed_component.py usb_host_msc host/class/msc/usb_host_msc ${{ env.EXAMPLES_PATH }}/host/msc
+
+          # usb_host_uvc component
+          python .github/ci/override_managed_component.py usb_host_uvc host/class/uvc/usb_host_uvc ${{ env.EXAMPLES_PATH }}/host/uvc
+
+      - name: Create component manifest file for usb_host_lib
+        # Create manifest file for usb_host_lib example, because the examples does not have it for IDF < 6.0
+        # and we need to override the usb component
+        if: contains('release-v5.4 release-v5.5', matrix.idf_ver)
+        working-directory: ${{ env.EXAMPLES_PATH }}/host/usb_host_lib/main
+        run: |
+          python3 - << 'EOF'
+          content = """## IDF Component Manager Manifest File
+          dependencies:
+            espressif/usb: "*"
+          """
+          with open("idf_component.yml", "w") as f:
+              f.write(content)
+          EOF
+
+          if [ -f idf_component.yml ]; then
+            echo "✅ File created successfully." && cat idf_component.yml
+          else
+            echo "❌ File was not created"
+            exit 1
+          fi
+      - name: Override usb component
+        # Override usb host component only for service releases
+        if: contains('release-v5.4 release-v5.5 release-v6.0 latest', matrix.idf_ver)
+        run: |
+          . ${IDF_PATH}/export.sh
+          python .github/ci/override_managed_component.py usb host/usb ${{ env.EXAMPLES_PATH }}/host/*
+      - name: Build ESP-IDF ${{ matrix.idf_ver }} USB examples
+        # Build esp-idf examples with overridden components
+        shell: bash
+        run: |
+          . ${IDF_PATH}/export.sh
           cd ${IDF_PATH}
+
+          # Export compiler flags
+          export PEDANTIC_FLAGS="-DIDF_CI_BUILD -Werror -Werror=deprecated-declarations -Werror=unused-variable -Werror=unused-but-set-variable -Werror=unused-function"
+          export EXTRA_CFLAGS="${PEDANTIC_FLAGS} -Wstrict-prototypes"
+          export EXTRA_CXXFLAGS="${PEDANTIC_FLAGS}"
 
           idf-build-apps find --config-file ${CONFIG_PATH} --manifest-file ${MANIFEST_PATH}
           idf-build-apps build --config-file ${CONFIG_PATH} --manifest-file ${MANIFEST_PATH}
