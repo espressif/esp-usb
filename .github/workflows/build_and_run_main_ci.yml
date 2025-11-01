@@ -19,5 +19,11 @@ jobs:
   build_run:
     uses: ./.github/workflows/build_and_run_test_app_usb.yml
     with:
-      idf_releases: '["release-v5.1", "release-v5.2", "release-v5.3", "release-v5.4", "release-v5.5", "latest"]'
+      idf_releases: '["release-v5.1",
+                      "release-v5.2",
+                      "release-v5.3",
+                      "release-v5.4",
+                      "release-v5.5",
+                      "release-v6.0",
+                      "latest"]'
       idf_targets: '["esp32s2", "esp32p4"]'
