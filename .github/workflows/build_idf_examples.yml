@@ -47,7 +47,7 @@ jobs:
         shell: bash
         run: |
           . ${IDF_PATH}/export.sh
-          pip install idf-component-manager>=2.1.2 idf-build-apps==2.12.2 pyyaml --upgrade
+          pip install idf-component-manager>=2.1.2 idf-build-apps==2.13.3 pyyaml --upgrade
       - name: Setup IDF Examples path
         run: echo "EXAMPLES_PATH=${IDF_PATH}/examples/peripherals/usb" >> $GITHUB_ENV
       - name: Override device component
