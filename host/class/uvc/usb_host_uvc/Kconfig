@@ -13,4 +13,9 @@ menu "USB HOST UVC"
             This option sets the size of the interval array in the `uvc_host_frame_info_t` structure.
             Increase this value if you need to support more discrete frame intervals.
 
+    config UVC_CHECK_PAYLOAD_HEADER_EOH
+        bool "Check EOH bit in payload header"
+        default y
+        help
+            "If EOH is set in the header, this is the last header group in the packet"
 endmenu
