@@ -16,6 +16,7 @@
 #include "sdkconfig.h"
 #include "esp_log.h"
 #include "esp_check.h"
+#include "esp_memory_utils.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/semphr.h"
@@ -739,6 +740,11 @@ static esp_err_t uac_host_interface_add(uac_device_t *uac_device, uint8_t iface_
 
     usb_host_get_active_config_descriptor(uac_device->dev_hdl, &config_desc);
     UAC_GOTO_ON_FALSE(config_desc, ESP_ERR_INVALID_STATE, "No active configuration descriptor");
+    // Query device speed once to decide whether to force bInterval for Full-Speed
+    usb_device_info_t dev_info_local;
+    ESP_RETURN_ON_ERROR(usb_host_device_info(uac_device->dev_hdl, &dev_info_local), TAG, "Failed to get device info");
+    ESP_RETURN_ON_FALSE(dev_info_local.speed != USB_SPEED_LOW, ESP_ERR_NOT_SUPPORTED, TAG, "Low-Speed device not supported");
+    const bool is_full_speed = (dev_info_local.speed == USB_SPEED_FULL);
     const size_t total_length = config_desc->wTotalLength;
     int iface_alt_offset = 0;
     int iface_alt_idx = 0;
@@ -803,6 +809,21 @@ static esp_err_t uac_host_interface_add(uac_device_t *uac_device, uint8_t iface_
                 iface_alt->ep_addr = ep_desc->bEndpointAddress;
                 iface_alt->ep_mps = ep_desc->wMaxPacketSize;
                 iface_alt->ep_attr = ep_desc->bmAttributes;
+                if (is_full_speed && ep_desc->bInterval != 1) {
+                    // Full-Speed isochronous endpoints must have bInterval = 1
+                    uint8_t *_bInterval = (uint8_t *) & (ep_desc->bInterval);
+                    // Check if we can modify the bInterval value
+                    if (esp_ptr_in_dram(_bInterval) || esp_ptr_in_diram_dram(_bInterval)
+#if CONFIG_SPIRAM
+                            || esp_ptr_in_psram(_bInterval)
+#endif
+                       ) {
+                        ESP_LOGW(TAG, "UAC Full-Speed device, Endpoint %d, bInterval %d, set to 1", USB_EP_DESC_GET_EP_NUM(ep_desc), ep_desc->bInterval);
+                        *_bInterval = 1;
+                    } else {
+                        ESP_LOGW(TAG, "UAC Full-Speed device, Endpoint %d, bInterval %d, can't set to 1", USB_EP_DESC_GET_EP_NUM(ep_desc), ep_desc->bInterval);
+                    }
+                }
                 iface_alt->interval = ep_desc->bInterval;
                 uac_iface->dev_info.type = (ep_desc->bEndpointAddress & UAC_EP_DIR_IN) ? UAC_STREAM_RX : UAC_STREAM_TX;
                 uac_ac_feature_unit_desc_t *feature_unit_desc = _uac_host_device_find_feature_unit((uint8_t *)uac_device->cs_ac_desc,
@@ -823,7 +844,7 @@ static esp_err_t uac_host_interface_add(uac_device_t *uac_device, uint8_t iface_
                     ESP_LOGD(TAG, "UAC %s Feature Unit ID %d, Volume Ch Map %02X, Mute Ch Map %02X", uac_iface->dev_info.type == UAC_STREAM_RX ? "RX" : "TX",
                              feature_unit_desc->bUnitID, iface_alt->vol_ch_map, iface_alt->mute_ch_map);
                 }
-                ESP_LOGD(TAG, "UAC Endpoint 0x%02X, Max Packet Size %d, Attributes 0x%02X, Interval %d", ep_desc->bEndpointAddress, ep_desc->wMaxPacketSize, ep_desc->bmAttributes, ep_desc->bInterval);
+                ESP_LOGD(TAG, "UAC Endpoint 0x%02X, Max Packet Size %d, Attributes 0x%02X, Interval %d", USB_EP_DESC_GET_EP_NUM(ep_desc), ep_desc->wMaxPacketSize, ep_desc->bmAttributes, ep_desc->bInterval);
                 break;
             }
             case UAC_CS_ENDPOINT: {
@@ -1305,9 +1326,9 @@ static esp_err_t uac_host_interface_suspend(uac_iface_t *iface)
     memcpy(&uac_request, &usb_request, sizeof(usb_setup_packet_t));
     esp_err_t ret = uac_cs_request_set(iface->parent, &uac_request);
     if (ret != ESP_OK) {
-        ESP_LOGW(TAG, "Set Interface %d-%d Failed", iface->dev_info.iface_num, 0);
+        ESP_LOGW(TAG, "Suspend Interface %d-%d Failed", iface->dev_info.iface_num, 0);
     } else {
-        ESP_LOGI(TAG, "Set Interface %d-%d", iface->dev_info.iface_num, 0);
+        ESP_LOGI(TAG, "Suspend Interface %d-%d", iface->dev_info.iface_num, 0);
     }
 
     uint8_t ep_addr = iface->iface_alt[iface->cur_alt].ep_addr;
@@ -1353,16 +1374,16 @@ static esp_err_t uac_host_interface_resume(uac_iface_t *iface)
     uac_cs_request_t uac_request = {0};
     memcpy(&uac_request, &usb_request, sizeof(usb_setup_packet_t));
     UAC_RETURN_ON_ERROR(uac_cs_request_set(iface->parent, &uac_request), "Unable to set Interface alternate");
-    ESP_LOGI(TAG, "Set Interface %d-%d", iface->dev_info.iface_num, iface->cur_alt + 1);
+    ESP_LOGI(TAG, "Resume Interface %d-%d", iface->dev_info.iface_num, iface->cur_alt + 1);
     // Set endpoint frequency control
     if (iface->iface_alt[iface->cur_alt].freq_ctrl_supported) {
-        ESP_LOGI(TAG, "Set EP %02X frequency %"PRIu32, iface->iface_alt[iface->cur_alt].ep_addr, iface->iface_alt[iface->cur_alt].cur_sampling_freq);
+        ESP_LOGI(TAG, "Set EP %d frequency %"PRIu32, iface->iface_alt[iface->cur_alt].ep_addr & USB_B_ENDPOINT_ADDRESS_EP_NUM_MASK, iface->iface_alt[iface->cur_alt].cur_sampling_freq);
         UAC_RETURN_ON_ERROR(uac_cs_request_set_ep_frequency(iface, iface->iface_alt[iface->cur_alt].ep_addr,
                                                             iface->iface_alt[iface->cur_alt].cur_sampling_freq), "Unable to set endpoint frequency");
     }
     // for RX, we just submit all the transfers
     if (iface->dev_info.type == UAC_STREAM_RX) {
-        assert(iface->iface_alt[iface->cur_alt].ep_addr & 0x80);
+        assert(iface->iface_alt[iface->cur_alt].ep_addr & USB_B_ENDPOINT_ADDRESS_EP_DIR_MASK);
         for (int i = 0; i < iface->xfer_num; i++) {
             assert(iface->free_xfer_list[i]);
             iface->free_xfer_list[i]->device_handle = iface->parent->dev_hdl;
@@ -1381,7 +1402,7 @@ static esp_err_t uac_host_interface_resume(uac_iface_t *iface)
             UAC_RETURN_ON_ERROR(usb_host_transfer_submit(iface->xfer_list[i]), "Unable to submit RX transfer");
         }
     } else if (iface->dev_info.type == UAC_STREAM_TX) {
-        assert(!(iface->iface_alt[iface->cur_alt].ep_addr & 0x80));
+        assert(!(iface->iface_alt[iface->cur_alt].ep_addr & USB_B_ENDPOINT_ADDRESS_EP_DIR_MASK));
         // for TX, we submit the first transfer with data 0 to make the speaker quiet
         for (int i = 0; i < iface->xfer_num; i++) {
             assert(iface->free_xfer_list[i]);
