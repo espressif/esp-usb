@@ -76,7 +76,7 @@ esp_err_t uvc_desc_get_streaming_intf_and_ep(
             *intf_desc_ret = intf_desc;
             ret = ESP_OK;
         } else {
-            break;
+            continue; // Not the best match, try next
         }
     }
 
