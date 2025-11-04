@@ -89,6 +89,17 @@ static inline void uvc_frame_reset(uvc_host_frame_t *frame)
  */
 void uvc_frame_format_update(uvc_stream_t *uvc_stream, const uvc_host_stream_format_t *vs_format);
 
+/**
+ * @brief Check if UVC payload header is valid
+ *
+ * @param[in] hdr Pointer to UVC payload header
+ * @param[in] packet_len Length of packet in bytes
+ * @return
+ *     - true:  Header is valid
+ *     - false: Header is invalid
+ */
+bool uvc_frame_payload_header_validate(const uvc_payload_header_t *hdr, size_t packet_len);
+
 #ifdef __cplusplus
 }
 #endif

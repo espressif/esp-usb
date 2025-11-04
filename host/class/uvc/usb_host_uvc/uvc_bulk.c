@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2024-2025 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -81,49 +81,36 @@ void bulk_transfer_callback(usb_transfer_t *transfer)
     // Consequently, it becomes impossible to distinguish between the last data packet and the EoF header.
     // To address this, the hack discards all frames whose last data packet has the MPS size.
     switch (uvc_stream->single_thread.next_bulk_packet) {
-    case UVC_STREAM_BULK_PACKET_EOF: {
-        const uvc_payload_header_t *payload_header = (const uvc_payload_header_t *)payload;
-        uvc_stream->single_thread.next_bulk_packet = UVC_STREAM_BULK_PACKET_SOF;
-
-        if (payload_header->bmHeaderInfo.end_of_frame) {
-            assert(payload_header->bmHeaderInfo.frame_id == uvc_stream->single_thread.current_frame_id);
-            if (payload_header->bmHeaderInfo.error) {
-                uvc_stream->single_thread.skip_current_frame = true;
-            }
-
-            // Get the current frame being processed and clear it from the stream,
-            // so no more data is written to this frame after the end of frame
-            UVC_ENTER_CRITICAL(); // Enter critical section to safely check and modify the stream state.
-            uvc_host_frame_t *this_frame = uvc_stream->dynamic.current_frame;
-            uvc_stream->dynamic.current_frame = NULL;
-
-            // Determine if we should invoke the frame callback:
-            // Only invoke the callback if streaming is active, a frame callback exists,
-            // and we have a valid frame to pass to the user.
-            const bool invoke_fb_callback = (uvc_stream->dynamic.streaming && uvc_stream->constant.frame_cb && this_frame && !uvc_stream->single_thread.skip_current_frame);
-            UVC_EXIT_CRITICAL();
-
-            bool return_frame = true; // Default to returning the frame in case streaming has been stopped
-            if (invoke_fb_callback) {
-                // Call the user's frame callback. If the callback returns false,
-                // we do not return the frame to the empty queue (i.e., the user wants to keep it for processing)
-                return_frame = uvc_stream->constant.frame_cb(this_frame, uvc_stream->constant.cb_arg);
-            }
-            if (return_frame) {
-                // If the user has processed the frame (or the stream is stopped), return it to the empty frame queue
-                uvc_host_frame_return(uvc_stream, this_frame);
-            }
-            break;
-        }
-
-        __attribute__((fallthrough));  // Fall through! This is not EoF but SoF!
-    }
     case UVC_STREAM_BULK_PACKET_SOF: {
         const uvc_payload_header_t *payload_header = (const uvc_payload_header_t *)payload;
 
         // We detected start of new frame. Update Frame ID and start fetching this frame
         uvc_stream->single_thread.current_frame_id   = payload_header->bmHeaderInfo.frame_id;
         uvc_stream->single_thread.skip_current_frame = payload_header->bmHeaderInfo.error; // Check for error flag
+        // Validate header before accessing it
+        if (!uvc_frame_payload_header_validate(payload_header, transfer->actual_num_bytes)) {
+            ESP_LOGD(TAG, "invalid UVC payload header, %02x, %02x, len:%d", payload[0], payload[1], transfer->actual_num_bytes);
+            uvc_stream->single_thread.skip_current_frame = true;
+            goto skip_sof;
+        }
+        payload_data     += payload_header->bHeaderLength; // Pointer arithmetic!
+        payload_data_len -= payload_header->bHeaderLength;
+
+        // Drop frame if device signals error in header
+        if (payload_header->bmHeaderInfo.error) {
+            ESP_LOGW(TAG, "frame error flag set");
+            uvc_stream->single_thread.skip_current_frame = true;
+            goto skip_sof;
+        }
+
+        // Check mjpeg frame start
+        if (uvc_stream->dynamic.vs_format.format == UVC_VS_FORMAT_MJPEG &&
+                payload_data[0] != 0xff && payload_data[1] != 0xd8) {
+            // We received frame with invalid frame, skip this frame
+            uvc_stream->single_thread.skip_current_frame = true;
+            ESP_LOGW(TAG, "invalid MJPEG SOI");
+            goto skip_sof;
+        }
 
         // Get free frame buffer for this new frame
         UVC_ENTER_CRITICAL();
@@ -149,17 +136,11 @@ void bulk_transfer_callback(usb_transfer_t *transfer)
             uvc_frame_reset(uvc_stream->dynamic.current_frame);
             UVC_EXIT_CRITICAL();
         }
-
-        payload_data     += payload_header->bHeaderLength; // Pointer arithmetic!
-        payload_data_len -= payload_header->bHeaderLength;
+skip_sof:
         uvc_stream->single_thread.next_bulk_packet = UVC_STREAM_BULK_PACKET_DATA;
         __attribute__((fallthrough));  // Fall through! There can be data after SoF!
     }
     case UVC_STREAM_BULK_PACKET_DATA: {
-        // We got short packet in data section, next packet is EoF
-        if (transfer->data_buffer_size > transfer->actual_num_bytes) {
-            uvc_stream->single_thread.next_bulk_packet = UVC_STREAM_BULK_PACKET_EOF;
-        }
         // Add received data to frame buffer
         if (!uvc_stream->single_thread.skip_current_frame) {
             uvc_host_frame_t *current_frame = UVC_ATOMIC_LOAD(uvc_stream->dynamic.current_frame);
@@ -178,7 +159,40 @@ void bulk_transfer_callback(usb_transfer_t *transfer)
                 }
             }
         }
+        // We got short packet in data section, this packet is EoF
+        if (transfer->data_buffer_size > transfer->actual_num_bytes) {
+            uvc_stream->single_thread.next_bulk_packet = UVC_STREAM_BULK_PACKET_EOF;
+        } else {
+            break; //only break if we have got full packet
+        }
+    }
+    case UVC_STREAM_BULK_PACKET_EOF: {
+        uvc_stream->single_thread.next_bulk_packet = UVC_STREAM_BULK_PACKET_SOF;
+
+        // Get the current frame being processed and clear it from the stream,
+        // so no more data is written to this frame after the end of frame
+        UVC_ENTER_CRITICAL(); // Enter critical section to safely check and modify the stream state.
+        uvc_host_frame_t *this_frame = uvc_stream->dynamic.current_frame;
+        uvc_stream->dynamic.current_frame = NULL;
+
+        // Determine if we should invoke the frame callback:
+        // Only invoke the callback if streaming is active, a frame callback exists,
+        // and we have a valid frame to pass to the user.
+        const bool invoke_fb_callback = (uvc_stream->dynamic.streaming && uvc_stream->constant.frame_cb && this_frame && !uvc_stream->single_thread.skip_current_frame);
+        UVC_EXIT_CRITICAL();
+
+        bool return_frame = true; // Default to returning the frame in case streaming has been stopped
+        if (invoke_fb_callback) {
+            // Call the user's frame callback. If the callback returns false,
+            // we do not return the frame to the empty queue (i.e., the user wants to keep it for processing)
+            return_frame = uvc_stream->constant.frame_cb(this_frame, uvc_stream->constant.cb_arg);
+        }
+        if (return_frame) {
+            // If the user has processed the frame (or the stream is stopped), return it to the empty frame queue
+            uvc_host_frame_return(uvc_stream, this_frame);
+        }
         break;
+
     }
     default: abort();
     }

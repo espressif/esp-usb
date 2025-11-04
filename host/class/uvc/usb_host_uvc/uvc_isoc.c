@@ -80,18 +80,37 @@ void isoc_transfer_callback(usb_transfer_t *transfer)
             assert(false);
         }
 
-        // Check for Zero Length Packet
-        if (isoc_desc->actual_num_bytes == 0) {
+        // Check for start of new frame
+        const uvc_payload_header_t *payload_header = (const uvc_payload_header_t *)payload;
+        if (!uvc_frame_payload_header_validate(payload_header, isoc_desc->actual_num_bytes)) {
+            ESP_LOGD(TAG, "invalid UVC payload header, %02x, %02x, len:%d", payload[0], payload[1], transfer->actual_num_bytes);
+            uvc_stream->single_thread.skip_current_frame = true;
             goto next_isoc_packet;
         }
 
-        // Check for start of new frame
-        const uvc_payload_header_t *payload_header = (const uvc_payload_header_t *)payload;
+        // Derive payload data pointer/length once and reuse below
+        const uint8_t *payload_data = payload + payload_header->bHeaderLength;
+        const size_t payload_data_len = isoc_desc->actual_num_bytes - payload_header->bHeaderLength;
+
+        // Check for error flag
+        if (payload_header->bmHeaderInfo.error) {
+            ESP_LOGW(TAG, "frame error");
+            uvc_stream->single_thread.skip_current_frame = true;
+        }
+
         const bool start_of_frame = (uvc_stream->single_thread.current_frame_id != payload_header->bmHeaderInfo.frame_id);
         if (start_of_frame) {
             // We detected start of new frame. Update Frame ID and start fetching this frame
             uvc_stream->single_thread.current_frame_id   = payload_header->bmHeaderInfo.frame_id;
             uvc_stream->single_thread.skip_current_frame = payload_header->bmHeaderInfo.error;
+
+            // Check mjpeg frame start
+            if (uvc_stream->dynamic.vs_format.format == UVC_VS_FORMAT_MJPEG &&
+                    payload_data[0] != 0xff && payload_data[1] != 0xd8) {
+                // We received frame with invalid frame, skip this frame
+                uvc_stream->single_thread.skip_current_frame = true;
+                ESP_LOGW(TAG, "invalid MJPEG SOI");
+            }
 
             // Get free frame buffer for this new frame
             UVC_ENTER_CRITICAL();
@@ -115,20 +134,15 @@ void isoc_transfer_callback(usb_transfer_t *transfer)
                 }
             } else {
                 // We received SoF but current_frame is not NULL: We missed EoF - reset the frame buffer
+                ESP_EARLY_LOGW(TAG, "missed EoF");
+                uvc_stream->single_thread.skip_current_frame = true;
                 uvc_frame_reset(uvc_stream->dynamic.current_frame);
                 UVC_EXIT_CRITICAL();
             }
         }
 
-        // Check for error flag
-        if (payload_header->bmHeaderInfo.error) {
-            uvc_stream->single_thread.skip_current_frame = true;
-        }
-
         // Add received data to frame buffer
         if (!uvc_stream->single_thread.skip_current_frame) {
-            const uint8_t *payload_data = payload + payload_header->bHeaderLength;
-            const size_t payload_data_len = isoc_desc->actual_num_bytes - payload_header->bHeaderLength;
             uvc_host_frame_t *current_frame = UVC_ATOMIC_LOAD(uvc_stream->dynamic.current_frame);
 
             esp_err_t ret = uvc_frame_add_data(current_frame, payload_data, payload_data_len);
@@ -156,6 +170,11 @@ void isoc_transfer_callback(usb_transfer_t *transfer)
             UVC_ENTER_CRITICAL();
             uvc_host_frame_t *this_frame = uvc_stream->dynamic.current_frame;
             uvc_stream->dynamic.current_frame = NULL; // Stop writing more data to this frame
+
+            if (this_frame && this_frame->data_len <= 2) {
+                // We received too small frame, skip this frame
+                uvc_stream->single_thread.skip_current_frame = true;
+            }
 
             // Determine if we should invoke the frame callback:
             // Only invoke the callback if streaming is active, a frame callback exists,
