@@ -5,10 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## [2.4.1] - 2025-11-27
+
+### Added
+
+- Added SOI check to prevent output of corrupted MJPEG frames
+- Added UVC payload header check
 
 ### Fixed
 
+- Moved `usb_types_uvc.h` to `private_include` directory
+- Fixed bulk transfer EOF handling to improve robustness
 - Fixed parsing of non-conforming UVC VideoStreaming descriptors where `bNumFormats` is inconsistent with actual `bFormatIndex` values (e.g., `bNumFormats=1` but format descriptors use `bFormatIndex=2`)
 - Fixed potential `ESP_ERR_INVALID_STATE` error when uninstalling UVC driver by always waiting for teardown completion regardless of driver state
 

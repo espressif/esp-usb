@@ -12,7 +12,7 @@
 
 #include "uvc_control.h"
 #include "usb/usb_types_ch9.h"
-#include "usb/usb_types_uvc.h"
+#include "usb_types_uvc.h"
 #include "uvc_types_priv.h"
 #include "uvc_descriptors_priv.h"
 #include "uvc_check_priv.h"
