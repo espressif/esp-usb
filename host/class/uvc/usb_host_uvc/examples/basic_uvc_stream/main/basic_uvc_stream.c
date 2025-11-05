@@ -36,9 +36,22 @@
 #define EXAMPLE_NUMBER_OF_STREAMS   (1) // This example shows how to control multiple UVC streams. Set this to 1 if you camera offers only 1 stream
 #define EXAMPLE_USE_SDCARD          (0) // SD card on P4 evaluation board will be initialized
 
+#define UVC_DESC_DWFRAMEINTERVAL_TO_FPS(dwFrameInterval) (((dwFrameInterval) != 0) ? 10000000 / ((float)(dwFrameInterval)) : 0)
+
 static const char *TAG = "UVC example";
 static QueueHandle_t rx_frames_queue[EXAMPLE_NUMBER_OF_STREAMS];
+static int device_count = 0;
 static bool dev_connected = false;
+static uvc_host_frame_info_t *frame_info_list[EXAMPLE_NUMBER_OF_STREAMS] = {NULL};
+static size_t frame_info_list_size[EXAMPLE_NUMBER_OF_STREAMS] = {0};
+
+static const char *FORMAT_STR[] = {
+    "FORMAT_UNDEFINED",
+    "FORMAT_MJPEG",
+    "FORMAT_YUY2",
+    "FORMAT_H264",
+    "FORMAT_H265",
+};
 
 bool frame_callback(const uvc_host_frame_t *frame, void *user_ctx)
 {
@@ -63,6 +76,7 @@ static void stream_callback(const uvc_host_stream_event_data_t *event, void *use
     case UVC_HOST_DEVICE_DISCONNECTED:
         ESP_LOGI(TAG, "Device suddenly disconnected");
         dev_connected = false;
+        device_count--;
         ESP_ERROR_CHECK(uvc_host_stream_close(event->device_disconnected.stream_hdl));
         break;
     case UVC_HOST_FRAME_BUFFER_OVERFLOW:
@@ -103,7 +117,7 @@ static void usb_lib_task(void *arg)
 
 static void frame_handling_task(void *arg)
 {
-    const uvc_host_stream_config_t *stream_config = (const uvc_host_stream_config_t *)arg;
+    const uvc_host_stream_config_t *stream_config = (uvc_host_stream_config_t *)arg;
     QueueHandle_t frame_q = *((QueueHandle_t *)(stream_config->user_ctx));
     const int uvc_index = stream_config->usb.uvc_stream_index;
 
@@ -160,54 +174,6 @@ static void frame_handling_task(void *arg)
         }
     }
 }
-
-static const uvc_host_stream_config_t stream_mjpeg_config = {
-    .event_cb = stream_callback,
-    .frame_cb = frame_callback,
-    .user_ctx = &rx_frames_queue[0],
-    .usb = {
-        .vid = EXAMPLE_USB_DEVICE_VID,
-        .pid = EXAMPLE_USB_DEVICE_PID,
-        .uvc_stream_index = 0,
-    },
-    .vs_format = {
-        .h_res = 1280,
-        .v_res = 720,
-        .fps = 15,
-        .format = UVC_VS_FORMAT_MJPEG,
-    },
-    .advanced = {
-        .number_of_frame_buffers = EXAMPLE_FRAME_COUNT,
-        .frame_size = 0,
-        .number_of_urbs = 4,
-        .urb_size = 10 * 1024,
-    },
-};
-
-#if EXAMPLE_NUMBER_OF_STREAMS > 1
-static const uvc_host_stream_config_t stream_h265_config = {
-    .event_cb = stream_callback,
-    .frame_cb = frame_callback,
-    .user_ctx = &rx_frames_queue[1],
-    .usb = {
-        .vid = EXAMPLE_USB_DEVICE_VID,
-        .pid = EXAMPLE_USB_DEVICE_PID,
-        .uvc_stream_index = 1,
-    },
-    .vs_format = {
-        .h_res = 1280,
-        .v_res = 720,
-        .fps = 15,
-        .format = UVC_VS_FORMAT_H265,
-    },
-    .advanced = {
-        .number_of_frame_buffers = EXAMPLE_FRAME_COUNT,
-        .frame_size = 0,
-        .number_of_urbs = 4,
-        .urb_size = 10 * 1024,
-    },
-};
-#endif // EXAMPLE_NUMBER_OF_STREAMS > 1
 
 #if EXAMPLE_USE_SDCARD
 #define MOUNT_POINT "/sdcard"
@@ -287,6 +253,85 @@ void app_init_sdcard(void)
 }
 #endif // EXAMPLE_USE_SDCARD
 
+static void start_uvc_frame_handling_tasks(void)
+{
+    uvc_host_stream_config_t _stream_config = {
+        .event_cb = stream_callback,
+        .frame_cb = frame_callback,
+        .user_ctx = &rx_frames_queue[0],
+        .usb = {
+            .vid = EXAMPLE_USB_DEVICE_VID,
+            .pid = EXAMPLE_USB_DEVICE_PID,
+            .uvc_stream_index = 0,
+        },
+        .vs_format = {
+            .h_res = frame_info_list[0][0].h_res,
+            .v_res = frame_info_list[0][0].v_res,
+            .fps = UVC_DESC_DWFRAMEINTERVAL_TO_FPS(frame_info_list[0][0].default_interval),
+            .format = UVC_VS_FORMAT_MJPEG,
+        },
+        .advanced = {
+            .number_of_frame_buffers = EXAMPLE_FRAME_COUNT,
+            .frame_size = 0,
+            .number_of_urbs = 4,
+            .urb_size = 10 * 1024,
+        },
+    };
+    static uvc_host_stream_config_t stream_mjpeg_config;
+    memcpy(&stream_mjpeg_config, &_stream_config, sizeof(uvc_host_stream_config_t));
+    BaseType_t task_created = xTaskCreatePinnedToCore(frame_handling_task, "mjpeg_handling", 4096, (void *)&stream_mjpeg_config, EXAMPLE_USB_HOST_PRIORITY - 2, NULL, tskNO_AFFINITY);
+    assert(task_created == pdTRUE);
+
+#if EXAMPLE_NUMBER_OF_STREAMS > 1
+    vTaskDelay(pdMS_TO_TICKS(1000));
+    _stream_config.usb.uvc_stream_index = 1;
+    _stream_config.vs_format.h_res = frame_info_list[1][0].h_res;
+    _stream_config.vs_format.v_res = frame_info_list[1][0].v_res;
+    _stream_config.vs_format.fps = UVC_DESC_DWFRAMEINTERVAL_TO_FPS(frame_info_list[1][0].default_interval);
+    _stream_config.vs_format.format = UVC_VS_FORMAT_H265;
+    _stream_config.user_ctx = &rx_frames_queue[1];
+    static uvc_host_stream_config_t stream_h265_config;
+    memcpy(&stream_h265_config, &_stream_config, sizeof(uvc_host_stream_config_t));
+    task_created = xTaskCreatePinnedToCore(frame_handling_task, "h265_handling", 4096, (void *)&stream_h265_config, EXAMPLE_USB_HOST_PRIORITY - 3, NULL, tskNO_AFFINITY);
+    assert(task_created == pdTRUE);
+#endif // EXAMPLE_NUMBER_OF_STREAMS > 1
+}
+
+static void uvc_event_cb(const uvc_host_driver_event_data_t *event, void *user_ctx)
+{
+    switch (event->type) {
+    case UVC_HOST_DRIVER_EVENT_DEVICE_CONNECTED: {
+        ESP_LOGI(TAG, "Device connected, addr: %d, stream index: %d", event->device_connected.dev_addr, event->device_connected.uvc_stream_index);
+        int stream_index = event->device_connected.uvc_stream_index;
+        if (stream_index >= EXAMPLE_NUMBER_OF_STREAMS) {
+            ESP_LOGW(TAG, "Stream index %d is out of range. Max supported is %d", stream_index, EXAMPLE_NUMBER_OF_STREAMS - 1);
+            break;
+        }
+        device_count++;
+        if (device_count > 1) {
+            ESP_LOGW(TAG, "Multiple devices connected. ignoring additional devices.");
+            break;
+        }
+
+        frame_info_list_size[stream_index] = event->device_connected.frame_info_num;
+        frame_info_list[stream_index] = calloc(frame_info_list_size[stream_index], sizeof(uvc_host_frame_info_t));
+        assert(frame_info_list[stream_index]);
+        uvc_host_get_frame_list(event->device_connected.dev_addr, stream_index, (uvc_host_frame_info_t (*)[])frame_info_list[stream_index], &frame_info_list_size[stream_index]);
+        for (int i = 0; i < frame_info_list_size[stream_index]; i++) {
+            ESP_LOGI(TAG, "Camera format: %s %d*%d@%.1ffps",
+                     FORMAT_STR[frame_info_list[stream_index][i].format],
+                     frame_info_list[stream_index][i].h_res,
+                     frame_info_list[stream_index][i].v_res,
+                     UVC_DESC_DWFRAMEINTERVAL_TO_FPS(frame_info_list[stream_index][i].default_interval));
+        }
+        start_uvc_frame_handling_tasks();
+        break;
+    }
+    default:
+        break;
+    }
+}
+
 /**
  * @brief Main application
  */
@@ -319,15 +364,7 @@ void app_main(void)
         .driver_task_priority = EXAMPLE_USB_HOST_PRIORITY + 1,
         .xCoreID = tskNO_AFFINITY,
         .create_background_task = true,
+        .event_cb = uvc_event_cb,
     };
     ESP_ERROR_CHECK(uvc_host_install(&uvc_driver_config));
-
-    task_created = xTaskCreatePinnedToCore(frame_handling_task, "mjpeg_handling", 4096, (void *)&stream_mjpeg_config, EXAMPLE_USB_HOST_PRIORITY - 2, NULL, tskNO_AFFINITY);
-    assert(task_created == pdTRUE);
-
-#if EXAMPLE_NUMBER_OF_STREAMS > 1
-    vTaskDelay(pdMS_TO_TICKS(1000));
-    task_created = xTaskCreatePinnedToCore(frame_handling_task, "h265_handling", 4096, (void *)&stream_h265_config, EXAMPLE_USB_HOST_PRIORITY - 3, NULL, tskNO_AFFINITY);
-    assert(task_created == pdTRUE);
-#endif // EXAMPLE_USE_SDCARD
 }
