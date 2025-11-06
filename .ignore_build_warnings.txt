@@ -1,0 +1,1 @@
+warning: unknown kconfig symbol 'ESP32P4_SELECTS_REV_LESS_V3' assigned to*
