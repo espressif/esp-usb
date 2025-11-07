@@ -8,7 +8,6 @@
 
 #include <stdbool.h>
 #include "usb/usb_host.h"
-#include "usb/usb_types_uvc.h"
 #include "esp_err.h"
 
 // Use this macros for opening a UVC stream with any VID or PID

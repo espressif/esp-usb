@@ -36,9 +36,19 @@
 #define EXAMPLE_NUMBER_OF_STREAMS   (1) // This example shows how to control multiple UVC streams. Set this to 1 if you camera offers only 1 stream
 #define EXAMPLE_USE_SDCARD          (0) // SD card on P4 evaluation board will be initialized
 
+#define UVC_DESC_DWFRAMEINTERVAL_TO_FPS(dwFrameInterval) (((dwFrameInterval) != 0) ? 10000000 / ((float)(dwFrameInterval)) : 0)
+
 static const char *TAG = "UVC example";
 static QueueHandle_t rx_frames_queue[EXAMPLE_NUMBER_OF_STREAMS];
 static bool dev_connected = false;
+
+static const char *FORMAT_STR[] = {
+    "FORMAT_UNDEFINED",
+    "FORMAT_MJPEG",
+    "FORMAT_YUY2",
+    "FORMAT_H264",
+    "FORMAT_H265",
+};
 
 bool frame_callback(const uvc_host_frame_t *frame, void *user_ctx)
 {
@@ -279,6 +289,27 @@ void app_init_sdcard(void)
 }
 #endif // EXAMPLE_USE_SDCARD
 
+static void uvc_event_cb(const uvc_host_driver_event_data_t *event, void *user_ctx)
+{
+    switch (event->type) {
+    case UVC_HOST_DRIVER_EVENT_DEVICE_CONNECTED: {
+        ESP_LOGI(TAG, "Device connected, addr: %d", event->device_connected.dev_addr);
+
+        size_t list_size = event->device_connected.frame_info_num;
+        uvc_host_frame_info_t *frame_info = (uvc_host_frame_info_t *)calloc(list_size, sizeof(uvc_host_frame_info_t));
+        assert(frame_info);
+        uvc_host_get_frame_list(event->device_connected.dev_addr, event->device_connected.uvc_stream_index, (uvc_host_frame_info_t (*)[])frame_info, &list_size);
+        for (int i = 0; i < list_size; i++) {
+            ESP_LOGI(TAG, "Camera format: %s %d*%d@%.1ffps", FORMAT_STR[frame_info[i].format], frame_info[i].h_res, frame_info[i].v_res, UVC_DESC_DWFRAMEINTERVAL_TO_FPS(frame_info[i].default_interval));
+        }
+        free(frame_info);
+        break;
+    }
+    default:
+        break;
+    }
+}
+
 /**
  * @brief Main application
  */
@@ -311,6 +342,7 @@ void app_main(void)
         .driver_task_priority = EXAMPLE_USB_HOST_PRIORITY + 1,
         .xCoreID = tskNO_AFFINITY,
         .create_background_task = true,
+        .event_cb = uvc_event_cb,
     };
     ESP_ERROR_CHECK(uvc_host_install(&uvc_driver_config));
 
@@ -321,5 +353,5 @@ void app_main(void)
     vTaskDelay(pdMS_TO_TICKS(1000));
     task_created = xTaskCreatePinnedToCore(frame_handling_task, "h265_handling", 4096, (void *)&stream_h265_config, EXAMPLE_USB_HOST_PRIORITY - 3, NULL, tskNO_AFFINITY);
     assert(task_created == pdTRUE);
-#endif // EXAMPLE_USE_SDCARD
+#endif // EXAMPLE_NUMBER_OF_STREAMS > 1
 }

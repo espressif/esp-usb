@@ -1,3 +1,9 @@
+## 2.3.2
+
+- Added SOI check to prevent output of corrupted MJPEG frames
+- Moved `usb_types_uvc.h` to `private_include` directory
+- Fixed bulk transfer EOF handling to improve robustness
+
 ## 2.3.1
 
 - Added support for ESP32-H4
