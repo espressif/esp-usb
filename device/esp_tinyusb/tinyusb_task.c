@@ -24,6 +24,9 @@ static portMUX_TYPE tusb_task_lock = portMUX_INITIALIZER_UNLOCKED;
 #define TINYUSB_TASK_ENTER_CRITICAL()    portENTER_CRITICAL(&tusb_task_lock)
 #define TINYUSB_TASK_EXIT_CRITICAL()     portEXIT_CRITICAL(&tusb_task_lock)
 
+// Timeout for taking the start/stop semaphore in milliseconds
+#define TINYUSB_TASK_SEM_TAKE_TIMEOUT_MS    (5000)
+
 #define TINYUSB_TASK_CHECK(cond, ret_val) ({                \
     if (!(cond)) {                                          \
         return (ret_val);                                   \
@@ -59,7 +62,7 @@ static tinyusb_task_ctx_t *p_tusb_task_ctx = NULL;  // TinyUSB task context
 static void tinyusb_device_task(void *arg)
 {
     tinyusb_task_ctx_t *task_ctx = (tinyusb_task_ctx_t *)arg;
-    bool pending_stop = false;
+    bool stop_in_pending = false;
 
     // Sanity check
     assert(task_ctx != NULL);
@@ -103,7 +106,7 @@ static void tinyusb_device_task(void *arg)
                     0                  // no wait; just poll the bit
                 ) == pdTRUE && (notif & TASK_NOTIF_STOP_BIT)) {
             // Stop requested
-            pending_stop = true;
+            stop_in_pending = true;
             break;
         }
         // TinyUSB Device task
@@ -125,7 +128,7 @@ del:
     p_tusb_task_ctx = NULL;         // Clear global task context pointer
     TINYUSB_TASK_EXIT_CRITICAL();
 
-    if (pending_stop) {
+    if (stop_in_pending) {
         // Notify that TinyUSB stack was stopped
         xSemaphoreGive(task_ctx->start_stop_sem);
     }
@@ -158,14 +161,11 @@ esp_err_t tinyusb_task_start(tinyusb_port_t port, const tinyusb_task_config_t *c
 
     esp_err_t ret;
     tinyusb_task_ctx_t *task_ctx = heap_caps_calloc(1, sizeof(tinyusb_task_ctx_t), MALLOC_CAP_DEFAULT);
-    if (task_ctx == NULL) {
-        return ESP_ERR_NO_MEM;
-    }
-
     SemaphoreHandle_t sem = xSemaphoreCreateBinary();
-    if (sem == NULL) {
+
+    if (task_ctx == NULL || sem == NULL) {
         ret = ESP_ERR_NO_MEM;
-        goto err;
+        goto no_task;
     }
 
     task_ctx->start_stop_sem = sem;                             // TunyUSB Device task start stop semaphore
@@ -187,18 +187,28 @@ esp_err_t tinyusb_task_start(tinyusb_port_t port, const tinyusb_task_config_t *c
     if (task_hdl == NULL) {
         ESP_LOGE(TAG, "Create TinyUSB main task failed");
         ret = ESP_ERR_NOT_FINISHED;
-        goto err;
+        goto no_task;
     }
 
-    // Wait until the Task notify that port is active, 5 sec is more than enough
-    if (xSemaphoreTake(task_ctx->start_stop_sem, pdMS_TO_TICKS(5000)) != pdTRUE) {
+    // Wait for "start" semophore with timeout
+    if (xSemaphoreTake(task_ctx->start_stop_sem, pdMS_TO_TICKS(TINYUSB_TASK_SEM_TAKE_TIMEOUT_MS)) != pdTRUE) {
         ESP_LOGE(TAG, "Task wasn't able to start TinyUSB stack");
         ret = ESP_ERR_TIMEOUT;
         goto err;
     }
 
+    // Check the global task context pointer and pending state
+    TINYUSB_TASK_ENTER_CRITICAL();
+    TINYUSB_TASK_CHECK_FROM_CRIT(!_task_is_pending, ESP_ERR_INVALID_STATE);
+    TINYUSB_TASK_CHECK_FROM_CRIT(p_tusb_task_ctx == task_ctx, ESP_ERR_NOT_FOUND);
+    TINYUSB_TASK_EXIT_CRITICAL();
+
     return ESP_OK;
 
+no_task:
+    TINYUSB_TASK_ENTER_CRITICAL();
+    _task_is_pending = false;   // Clear pending flag
+    TINYUSB_TASK_EXIT_CRITICAL();
 err:
     if (sem) {
         vSemaphoreDelete(sem);
@@ -222,11 +232,17 @@ esp_err_t tinyusb_task_stop(void)
         return ESP_ERR_INVALID_STATE;
     }
 
-    /* Wait for "stop" semaphore with timeout, usually 5 sec is enough */
-    if (xSemaphoreTake(task_ctx->start_stop_sem, pdMS_TO_TICKS(5000)) != pdTRUE) {
+    /* Wait for "stop" semaphore with timeout */
+    if (xSemaphoreTake(task_ctx->start_stop_sem, pdMS_TO_TICKS(TINYUSB_TASK_SEM_TAKE_TIMEOUT_MS)) != pdTRUE) {
         ESP_LOGE(TAG, "Timeout while TinyUSB task stop");
         return ESP_ERR_TIMEOUT;
     }
+
+    /* Check the global task context pointer and pending state */
+    TINYUSB_TASK_ENTER_CRITICAL();
+    TINYUSB_TASK_CHECK_FROM_CRIT(!_task_is_pending, ESP_ERR_INVALID_STATE);
+    TINYUSB_TASK_CHECK_FROM_CRIT(p_tusb_task_ctx == NULL, ESP_ERR_INVALID_STATE);
+    TINYUSB_TASK_EXIT_CRITICAL();
 
     /* Cleanup */
     vSemaphoreDelete(task_ctx->start_stop_sem);
