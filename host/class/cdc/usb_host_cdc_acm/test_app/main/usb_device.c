@@ -8,7 +8,7 @@
 #include "sdkconfig.h"
 #include "tinyusb.h"
 #include "tinyusb_default_config.h"
-#include "tusb_cdc_acm.h"
+#include "tinyusb_cdc_acm.h"
 
 static uint8_t buf[CONFIG_TINYUSB_CDC_RX_BUFSIZE + 1];
 static void tinyusb_cdc_rx_callback(int itf, cdcacm_event_t *event)
@@ -85,10 +85,10 @@ void run_usb_dual_cdc_device(void)
         .callback_line_coding_changed = NULL
     };
 
-    ESP_ERROR_CHECK(tusb_cdc_acm_init(&amc_cfg));
+    ESP_ERROR_CHECK(tinyusb_cdcacm_init(&amc_cfg));
 #if (CONFIG_TINYUSB_CDC_COUNT > 1)
     amc_cfg.cdc_port = TINYUSB_CDC_ACM_1;
-    ESP_ERROR_CHECK(tusb_cdc_acm_init(&amc_cfg));
+    ESP_ERROR_CHECK(tinyusb_cdcacm_init(&amc_cfg));
 #endif
 
     printf("USB initialization DONE\n");

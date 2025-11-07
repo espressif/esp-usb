@@ -1,4 +1,5 @@
 CONFIG_IDF_TARGET="esp32p4"
+CONFIG_ESP32P4_SELECTS_REV_LESS_V3=y
 
 # Enable experimental features, to set PSRAM frequency to 200 MHz
 CONFIG_IDF_EXPERIMENTAL_FEATURES=y

@@ -5,6 +5,7 @@ exclude = [
 recursive = true
 manifest_file = ".build-test-rules.yml"
 check_warnings = true
+ignore_warning_file = ".ignore_build_warnings.txt"
 target = "all"
 enable_preview_targets = true
 
