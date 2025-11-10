@@ -32,6 +32,42 @@ typedef struct {
 
 static tinyusb_ctx_t s_ctx; // TinyUSB context
 
+/**
+ * @brief Notify the upper layer that the device is attached to a USB Host
+ */
+void tinyusb_device_attached(void)
+{
+#if (CONFIG_TINYUSB_MSC_ENABLED)
+    msc_storage_mount_to_usb();
+#endif // CONFIG_TINYUSB_MSC_ENABLED
+    tinyusb_event_t event = {
+        .id = TINYUSB_EVENT_ATTACHED,
+        .rhport = s_ctx.port,
+    };
+
+    if (s_ctx.event_cb) {
+        s_ctx.event_cb(&event, s_ctx.event_arg);
+    }
+}
+
+/**
+ * @brief Notify the upper layer that the device is detached from a USB Host
+ */
+void tinyusb_device_detached(void)
+{
+#if (CONFIG_TINYUSB_MSC_ENABLED)
+    msc_storage_mount_to_app();
+#endif // CONFIG_TINYUSB_MSC_ENABLED
+    tinyusb_event_t event = {
+        .id = TINYUSB_EVENT_DETACHED,
+        .rhport = s_ctx.port,
+    };
+
+    if (s_ctx.event_cb) {
+        s_ctx.event_cb(&event, s_ctx.event_arg);
+    }
+}
+
 // ==================================================================================
 // ============================= TinyUSB Callbacks ==================================
 // ==================================================================================
@@ -48,17 +84,7 @@ static tinyusb_ctx_t s_ctx; // TinyUSB context
  */
 void tud_mount_cb(void)
 {
-#if (CONFIG_TINYUSB_MSC_ENABLED)
-    msc_storage_mount_to_usb();
-#endif // CONFIG_TINYUSB_MSC_ENABLED
-    tinyusb_event_t event = {
-        .id = TINYUSB_EVENT_ATTACHED,
-        .rhport = s_ctx.port,
-    };
-
-    if (s_ctx.event_cb) {
-        s_ctx.event_cb(&event, s_ctx.event_arg);
-    }
+    tinyusb_device_attached();
 }
 
 /**
@@ -71,18 +97,25 @@ void tud_mount_cb(void)
  */
 void tud_umount_cb(void)
 {
-#if (CONFIG_TINYUSB_MSC_ENABLED)
-    msc_storage_mount_to_app();
-#endif // CONFIG_TINYUSB_MSC_ENABLED
-    tinyusb_event_t event = {
-        .id = TINYUSB_EVENT_DETACHED,
-        .rhport = s_ctx.port,
-    };
-
-    if (s_ctx.event_cb) {
-        s_ctx.event_cb(&event, s_ctx.event_arg);
-    }
+    tinyusb_device_detached();
 }
+
+#if (CONFIG_IDF_TARGET_ESP32P4)
+/**
+ * @brief VBUS monitor state changed callback
+ *
+ * This function is called when the VBUS monitoring GPIO state changes.
+ *
+ * Note: This is a workaround for ESP32-P4 ECO5, USB OTG 2.0 when:
+ * - BValid signal override is not supported
+ * - BValid signal is not driven by the PHY when VBUS goes low
+ */
+void vbus_monitor_state_changed_cb(bool vbus_present)
+{
+    assert(!vbus_present); // Sanity check: only detach is expected in current implementation
+    tinyusb_device_detached();
+}
+#endif // CONFIG_IDF_TARGET_ESP32P4
 
 // ==================================================================================
 // ============================= ESP TinyUSB Driver =================================
@@ -125,6 +158,7 @@ esp_err_t tinyusb_driver_install(const tinyusb_config_t *config)
     tinyusb_vbus_monitor_config_t vbus_cfg = {
         .gpio_num = GPIO_NUM_NC,                /*!< Default: Not connected */
         .debounce_delay_ms = 0,                 /*!< Default: No debounce */
+        .state_changed_cb = NULL,               /*!< Default: No callback */
     };
 
     if (!config->phy.skip_setup) {
@@ -158,6 +192,7 @@ esp_err_t tinyusb_driver_install(const tinyusb_config_t *config)
 #if CONFIG_IDF_TARGET_ESP32P4
                 vbus_cfg.gpio_num          = config->phy.vbus_monitor_io;
                 vbus_cfg.debounce_delay_ms = config->phy.vbus_monitor_debounce_ms;
+                vbus_cfg.state_changed_cb  = vbus_monitor_state_changed_cb;
 #else
                 ESP_LOGW(TAG, "VBUS monitoring GPIO for OTG 2.0 is not supported on this target yet");
 #endif

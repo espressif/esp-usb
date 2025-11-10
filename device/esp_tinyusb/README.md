@@ -349,6 +349,10 @@ To enable Mass Storage Device:
 - select the option from `menuconfig`
 - configure storage for MSC Device class: SPI Flash or SD/MMC (when supported by the hardware).
 
+> **🔧 Self-powered Flash Drive**:
+>
+> When VBUS monitoring is enabled with `TINYUSB_PORT_HIGH_SPEED_0` (ESP32-P4 USB OTG 2.0), the storage filesystem is mounted and unmounted between the application and the USB Host based on software VBUS monitoring events. In this scenario, the Timer Task Stack Size (`configTIMER_TASK_STACK_DEPTH`) must be large enough to handle filesystem operations during detach events. It is recommended to set this value to at least 2304 bytes (2048 + 256).
+
 **SPI-Flash Storage**
 
 ```c
