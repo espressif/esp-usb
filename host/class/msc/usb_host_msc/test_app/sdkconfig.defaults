@@ -4,6 +4,9 @@ CONFIG_TINYUSB_CDC_ENABLED=n
 CONFIG_TINYUSB_CDC_COUNT=0
 CONFIG_TINYUSB_HID_COUNT=0
 
+# Configure FreeRTOS
+CONFIG_FREERTOS_TIMER_TASK_STACK_DEPTH=2304
+
 # Disable watchdogs, they'd get triggered during unity interactive menu
 # CONFIG_ESP_TASK_WDT_INIT is not set
 
