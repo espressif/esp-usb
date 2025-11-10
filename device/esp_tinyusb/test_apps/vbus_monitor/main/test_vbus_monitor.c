@@ -27,6 +27,8 @@
 // For DWC USB registers access
 #include "soc/usb_dwc_struct.h"
 
+#include "sdkconfig.h"
+
 /* BVALID via signal matrix is supported only on these targets */
 #if CONFIG_IDF_TARGET_ESP32S2 || \
     CONFIG_IDF_TARGET_ESP32S3 || \
@@ -41,6 +43,11 @@
 
 /* Select correct PAD index macro */
 #if CONFIG_IDF_TARGET_ESP32P4
+#if (CONFIG_ESP32P4_REV_MIN_300)
+#define BVALID_OVERRIDE_SUPPORT_ENABLE  0
+#else
+#define BVALID_OVERRIDE_SUPPORT_ENABLE  1
+#endif // CONFIG_ESP32P4_REV_MIN_300
 // For ESP32-P4, testing via BVALID signal uses the *_PAD_IN_IDX variant
 #define USB_BVALID_PAD_IN_IDX  USB_SRP_BVALID_PAD_IN_IDX
 #else
@@ -56,8 +63,20 @@
 #define TEST_DEVICE_EVENT_QUEUE_LEN          4 // Length of the queue for device events
 #define TEST_DEVICE_EVENT_TIMEOUT_MS          5000 // Timeout for waiting device events
 // Device event queue
+
+#define TINYUSB_EXTRA_EVENT_BASE 10    /*!< Base value to avoid overlap with tinyusb_event_id_t */
+
+typedef enum {
+    TINYUSB_EVENT_SUSPENDED = TINYUSB_EXTRA_EVENT_BASE,     /*!< USB device suspended event */
+    TINYUSB_EVENT_RESUMED,            /*!< USB device resumed event */
+} tinyusb_extra_event_id_t;
+
 typedef struct {
-    tinyusb_event_id_t id;  /*!< Event ID */
+    union {
+        tinyusb_event_id_t tinyusb_event_id;  /*!< Event ID, comes from tinyusb.h */
+        tinyusb_extra_event_id_t extra_event_id;  /*!< Extra Event ID, extra, that isn't handled inside the driver */
+        int id;                             /*!< Common field to get the data of event_id */
+    };
 } test_device_event_t;
 
 static QueueHandle_t _test_device_event_queue = NULL;
@@ -98,7 +117,7 @@ static void test_dconn_event_handler(tinyusb_event_t *event, void *arg)
     }
 
     test_device_event_t dev_evt = {
-        .id = event->id,
+        .tinyusb_event_id = event->id,
     };
     if (_test_device_event_queue) {
         xQueueSend(_test_device_event_queue, &dev_evt, portMAX_DELAY);
@@ -106,11 +125,22 @@ static void test_dconn_event_handler(tinyusb_event_t *event, void *arg)
 }
 
 /**
+ * @brief TinyUSB callback for suspend event
+ */
+void tud_suspend_cb(bool remote_wakeup_en)
+{
+    printf("\t Device event: \n");
+    printf("\t\t -> SUSPENDED\n");
+
+    // TODO: Return adding the event to the queue after solving IEC-412
+}
+
+/**
  * @brief Wait for a specific device event to be received in the event queue
  *
  * @param event_id The expected event ID to wait for
  */
-static void test_device_wait_event(tinyusb_event_id_t event_id)
+static void test_device_wait_event(int event_id)
 {
     TEST_ASSERT_NOT_NULL(_test_device_event_queue);
     // Wait for port callback to send an event message
@@ -187,13 +217,21 @@ static void test_vbus_monitor_control_signal_disconnect(void)
  */
 static void test_vbus_monitor_control_gotgctl_connect(usb_dwc_dev_t *dwc_otg)
 {
-    // Hardware should allow to override the BVALIDOVVAL register value
-    TEST_ASSERT_EQUAL_MESSAGE(1, dwc_otg->gotgctl_reg.bvalidoven, "Bvalid overriding is not enabled");
-    // Set Bvalid signal to 1
-    dwc_otg->gotgctl_reg.bvalidovval = 1;
-
-    // For USB OTG2.0 we need to drive the soft-disconnect bit
-    if (dwc_otg == &USB_DWC_HS) {
+    if (dwc_otg == &USB_DWC_FS) {
+        // Hardware should allow to override the BVALIDOVVAL register value
+        TEST_ASSERT_EQUAL_MESSAGE(1, dwc_otg->gotgctl_reg.bvalidoven, "Bvalid overriding is not enabled");
+        // Set Bvalid signal to 1
+        dwc_otg->gotgctl_reg.bvalidovval = 1;
+    } else {
+#if (BVALID_OVERRIDE_SUPPORT_ENABLE)
+        // Hardware should allow to override the BVALIDOVVAL register value
+        TEST_ASSERT_EQUAL_MESSAGE(1, dwc_otg->gotgctl_reg.bvalidoven, "Bvalid overriding is not enabled");
+        // Set Bvalid signal to 1
+        dwc_otg->gotgctl_reg.bvalidovval = 1;
+#else
+        // On ESP32-P4 ECO5, USB-OTG peripheral v4.30a we get the connect event via tud_mount_cb() after SetConfiguration()
+#endif // BVALID_OVERRIDE_SUPPORT_ENABLE
+        // For USB OTG2.0 we need to drive the soft-disconnect bit
         // Clear the soft-disconnect bit
         dwc_otg->dctl_reg.sftdiscon = 0;
     }
@@ -206,13 +244,30 @@ static void test_vbus_monitor_control_gotgctl_connect(usb_dwc_dev_t *dwc_otg)
  */
 static void test_vbus_monitor_control_gotgctl_disconnect(usb_dwc_dev_t *dwc_otg)
 {
-    // Hardware should allow to override the BVALIDOVVAL register value
-    TEST_ASSERT_EQUAL_MESSAGE(1, dwc_otg->gotgctl_reg.bvalidoven, "Bvalid overriding is not enabled");
-    // Set Bvalid signal to 0
-    dwc_otg->gotgctl_reg.bvalidovval = 0;
-
-    // For USB OTG2.0 we need to drive the soft-disconnect bit
-    if (dwc_otg == &USB_DWC_HS) {
+    if (dwc_otg == &USB_DWC_FS) {
+        // Hardware should allow to override the BVALIDOVVAL register value
+        TEST_ASSERT_EQUAL_MESSAGE(1, dwc_otg->gotgctl_reg.bvalidoven, "Bvalid overriding is not enabled");
+        // Set Bvalid signal to 0
+        dwc_otg->gotgctl_reg.bvalidovval = 0;
+    } else {
+#if (BVALID_OVERRIDE_SUPPORT_ENABLE)
+        // Hardware should allow to override the BVALIDOVVAL register value
+        TEST_ASSERT_EQUAL_MESSAGE(1, dwc_otg->gotgctl_reg.bvalidoven, "Bvalid overriding is not enabled");
+        // Set Bvalid signal to 0
+        dwc_otg->gotgctl_reg.bvalidovval = 0;
+#else
+        // On ESP32-P4 ECO5, USB-OTG peripheral v4.30a
+        // So we need to notify the upper logic about the disconnection event manually
+        printf("\t (!)Emulated event: \n");
+        printf("\t\t -> DETACHED\n");
+        test_device_event_t dev_evt = {
+            .tinyusb_event_id = TINYUSB_EVENT_DETACHED,
+        };
+        if (_test_device_event_queue) {
+            xQueueSend(_test_device_event_queue, &dev_evt, portMAX_DELAY);
+        }
+#endif
+        // For USB OTG2.0 we need to drive the soft-disconnect bit
         // Set the soft-disconnect bit
         dwc_otg->dctl_reg.sftdiscon = 1;
     }
@@ -517,6 +572,7 @@ TEST_CASE("Emulated VBUS USB OTG 2.0, verify attach/detach events callback (via 
     // Install TinyUSB driver
     TEST_ASSERT_EQUAL_MESSAGE(ESP_OK, tinyusb_driver_install(&tusb_cfg), "Failed to install TinyUSB driver");
 
+#if (BVALID_OVERRIDE_SUPPORT_ENABLE)
     // When we do not set self_powered mode, the Bvalid override should be not enabled
     TEST_ASSERT_EQUAL_MESSAGE(0, USB_DWC_HS.gotgctl_reg.bvalidoven, "Bvalid override value is already enabled");
     // Set Bvalid signal to 1 initially
@@ -525,6 +581,7 @@ TEST_CASE("Emulated VBUS USB OTG 2.0, verify attach/detach events callback (via 
     esp_rom_delay_us(1);
     // Enable to override the signal from PHY
     USB_DWC_HS.gotgctl_reg.bvalidoven = 1;
+#endif // (BVALID_OVERRIDE_SUPPORT_ENABLE)
 
     test_device_wait_event(TINYUSB_EVENT_ATTACHED);
 
