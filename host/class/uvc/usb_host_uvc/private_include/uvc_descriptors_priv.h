@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2024-2025 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -38,15 +38,14 @@ esp_err_t uvc_desc_get_streaming_interface_num(
 /**
  * @brief Get Streaming Interface and Endpoint descriptors
  *
- * We go through all alternate interfaces and pick the one that offers endpoint with MPS that:
- * * Is lower than or equal to dwMaxPayloadTransferSize
- * * Has as few as possible extra transactions per microframe (HS only)
+ * Bulk: We expect only one alternate interface with one BULK IN endpoint.
  *
- * @note The caller is responsible for dwMaxPayloadTransferSize fitting in the IN FIFO
+ * Isoc: We go through all alternate interfaces and pick the one that offers endpoint with
+ * interval, MPS and multiplier (HS only) that is best suited for the requested bandwidth.
  *
  * @param[in] cfg_desc                 Configuration descriptor
  * @param[in] bInterfaceNumber         Index of Streaming interface
- * @param[in] dwMaxPayloadTransferSize Maximum requested MPS
+ * @param[in] requested_bandwidth      Minimum bandwidth that the endpoint should support (in bytes per second)
  * @param[out] intf_desc_ret           Interface descriptor
  * @param[out] ep_desc_ret             Endpoint descriptor
  * @return
@@ -57,7 +56,7 @@ esp_err_t uvc_desc_get_streaming_interface_num(
 esp_err_t uvc_desc_get_streaming_intf_and_ep(
     const usb_config_desc_t *cfg_desc,
     uint8_t bInterfaceNumber,
-    uint16_t dwMaxPayloadTransferSize,
+    int requested_bandwidth,
     const usb_intf_desc_t **intf_desc_ret,
     const usb_ep_desc_t **ep_desc_ret);
 
