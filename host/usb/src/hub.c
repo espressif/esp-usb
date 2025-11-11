@@ -441,6 +441,17 @@ reset_err:
 
         break;
     }
+    case HCD_PORT_EVENT_REMOTE_WAKEUP:
+        // Root port, including all the connected devices were resumed (global resume)
+        // Clear all EPs and propagate the resumed event to clients
+        //usbh_devs_set_pm_actions_all(USBH_DEV_RESUME | USBH_DEV_RESUME_EVT);
+
+        // Change Port state
+        //HUB_DRIVER_ENTER_CRITICAL();
+        //p_hub_driver_obj->dynamic.root_port_state = ROOT_PORT_STATE_ENABLED;
+        //HUB_DRIVER_EXIT_CRITICAL();
+        hub_root_mark_resume();
+        break;
     default:
         abort();    // Should never occur
         break;
