@@ -54,6 +54,7 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: docs
+          path: docs/_build
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -78,6 +79,17 @@ jobs:
           echo "${{ secrets.DOCS_PRIVATEKEY }}" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
           ssh-keyscan -H ${{ vars.DOCS_SERVER }} >> ~/.ssh/known_hosts || true
+
+      - name: Verify build directory
+        run: |
+          echo "Checking if docs/_build exists..."
+          ls -la docs/_build || echo "ERROR: docs/_build does not exist!"
+          echo ""
+          echo "Checking for HTML directories..."
+          find docs/_build -type d -name "html" 2>/dev/null || echo "WARNING: No html directories found"
+          echo ""
+          echo "Build directory structure:"
+          find docs/_build -maxdepth 3 -type d 2>/dev/null | head -20 || true
 
       - name: Deploy documentation
         working-directory: docs
