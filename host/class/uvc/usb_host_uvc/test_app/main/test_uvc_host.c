@@ -310,4 +310,120 @@ TEST_CASE("Open and change format", "[uvc]")
     vTaskDelay(20); // Short delay to allow task to be cleaned up
 }
 
+/**
+ * @brief UVC user-provided frame buffers streaming test
+ *
+ * This test verifies zero-copy streaming with user-provided buffers.
+ *
+ * -# Allocate user frame buffers
+ * -# Open UVC stream with user-provided buffers
+ * -# Start streaming
+ * -# Receive frames and verify they use user buffers (pointer check)
+ * -# Stop streaming
+ * -# Close stream and free buffers
+ */
+static volatile int frames_received = 0;
+static uint8_t **test_user_buffers_ptr = NULL;
+static int test_num_buffers = 0;
+
+static bool test_frame_callback(const uvc_host_frame_t *frame, void *user_ctx)
+{
+    frames_received++;
+
+    // Verify that frame data pointer is one of our user buffers
+    bool is_user_buffer = false;
+    for (int i = 0; i < test_num_buffers; i++) {
+        if (frame->data == test_user_buffers_ptr[i]) {
+            is_user_buffer = true;
+            printf("Frame %d received in user buffer[%d] (%p), size: %zu bytes\n",
+                   frames_received, i, frame->data, frame->data_len);
+            break;
+        }
+    }
+
+    TEST_ASSERT_TRUE_MESSAGE(is_user_buffer, "Frame data is not in user-provided buffer!");
+    return true; // Return frame immediately
+}
+
+TEST_CASE("Streaming with user-provided frame buffers", "[uvc]")
+{
+    test_install_uvc_driver();
+
+    // Allocate user frame buffers
+    const int num_buffers = 3;
+    const size_t buffer_size = 60 * 1024;
+    uint8_t *user_buffers[num_buffers];
+
+    printf("Allocating %d * %d KB buffers for streaming test\n", num_buffers, buffer_size / 1024);
+    for (int i = 0; i < num_buffers; i++) {
+#if CONFIG_SPIRAM
+        user_buffers[i] = heap_caps_malloc(buffer_size, MALLOC_CAP_SPIRAM);
+#else
+        user_buffers[i] = heap_caps_malloc(buffer_size, MALLOC_CAP_DEFAULT);
+#endif
+        TEST_ASSERT_NOT_NULL(user_buffers[i]);
+        printf("  Buffer[%d] at %p\n", i, user_buffers[i]);
+    }
+
+    // Set global pointers for callback verification
+    test_user_buffers_ptr = user_buffers;
+    test_num_buffers = num_buffers;
+    frames_received = 0;
+
+    printf("Opening UVC stream\n");
+    uvc_host_stream_hdl_t stream = NULL;
+    uvc_host_stream_config_t stream_config = {
+        .event_cb = NULL,
+        .frame_cb = test_frame_callback,
+        .user_ctx = NULL,
+        .usb = {
+            .dev_addr = UVC_HOST_ANY_DEV_ADDR,
+            .vid = UVC_HOST_ANY_VID,
+            .pid = UVC_HOST_ANY_PID,
+            .uvc_stream_index = 0,
+        },
+        .vs_format = {
+            .h_res = 1280,
+            .v_res = 720,
+            .fps = 15,
+            .format = UVC_VS_FORMAT_MJPEG,
+        },
+        .advanced = {
+            .number_of_frame_buffers = num_buffers,
+            .frame_size = buffer_size,
+            .frame_heap_caps = 0,
+            .number_of_urbs = 4,
+            .urb_size = 10 * 1024,
+            .user_frame_buffers = user_buffers,
+        },
+    };
+
+    TEST_ASSERT_EQUAL(ESP_OK, uvc_host_stream_open(&stream_config, 1000, &stream));
+    TEST_ASSERT_NOT_NULL(stream);
+
+    printf("Starting stream\n");
+    TEST_ASSERT_EQUAL(ESP_OK, uvc_host_stream_start(stream));
+
+    // Receive frames for 3 seconds
+    printf("Streaming for 3 seconds...\n");
+    vTaskDelay(pdMS_TO_TICKS(3000));
+
+    printf("Stopping stream\n");
+    TEST_ASSERT_EQUAL(ESP_OK, uvc_host_stream_stop(stream));
+
+    printf("Total frames received: %d\n", frames_received);
+    TEST_ASSERT_GREATER_THAN(0, frames_received);
+
+    // Clean-up
+    TEST_ASSERT_EQUAL(ESP_OK, uvc_host_stream_close(stream));
+
+    printf("Freeing user frame buffers\n");
+    for (int i = 0; i < num_buffers; i++) {
+        free(user_buffers[i]);
+    }
+
+    TEST_ASSERT_EQUAL(ESP_OK, uvc_host_uninstall());
+    vTaskDelay(20);
+}
+
 #endif // SOC_USB_OTG_SUPPORTED

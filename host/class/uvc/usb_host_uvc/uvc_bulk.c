@@ -86,8 +86,9 @@ void bulk_transfer_callback(usb_transfer_t *transfer)
         uvc_stream->single_thread.next_bulk_packet = UVC_STREAM_BULK_PACKET_SOF;
 
         if (payload_header->bmHeaderInfo.end_of_frame) {
-            assert(payload_header->bmHeaderInfo.frame_id == uvc_stream->single_thread.current_frame_id);
-            if (payload_header->bmHeaderInfo.error) {
+            // Just skip the current frame if the frame_id does not match, we plan to include a better fix in #308
+            // Due to the SOF of the next frame may not be handled， this may result in dropping two consecutive frames.
+            if (payload_header->bmHeaderInfo.error || payload_header->bmHeaderInfo.frame_id != uvc_stream->single_thread.current_frame_id) {
                 uvc_stream->single_thread.skip_current_frame = true;
             }
 
