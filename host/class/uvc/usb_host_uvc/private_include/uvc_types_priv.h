@@ -36,6 +36,7 @@ struct uvc_host_stream_s {
         uvc_host_frame_callback_t frame_cb;   // User's frame callback
         void *cb_arg;                         // Common argument for user's callbacks
         QueueHandle_t empty_fb_queue;         // Queue of empty framebuffers
+        bool user_provided_fb;                // Flag indicating if frame buffers are user-provided
 
         // Constant USB descriptor values
         uint16_t bcdUVC;                      // Version of UVC specs this device implements
