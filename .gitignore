@@ -6,5 +6,5 @@ sdkconfig.old
 dependencies.lock
 **/managed_components/**
 .vscode/
-doxygen/
 warnings.txt
+docs/_build/**
