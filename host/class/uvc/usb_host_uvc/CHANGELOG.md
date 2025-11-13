@@ -1,3 +1,8 @@
+## 2.4.0
+
+- Added support for user-provided frame buffers via `user_frame_buffers` field in `uvc_host_stream_config_t.advanced`
+- Fixed assertion failure when receiving packets with unexpected `frame_id`
+
 ## 2.3.1
 
 - Added support for ESP32-H4

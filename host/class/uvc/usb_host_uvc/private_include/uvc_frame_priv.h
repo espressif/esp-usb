@@ -20,12 +20,13 @@ extern "C" {
  * @param[in] nb_of_fb   Number of frame buffers to allocate
  * @param[in] fb_size    Size of 1 frame buffer in bytes
  * @param[in] fb_caps    Memory capabilities of memory for frame buffers
+ * @param[in] user_frame_buffers Optional user-provided frame buffers. If not NULL, use these instead of allocating
  * @return
  *     - ESP_OK: Success
  *     - ESP_ERR_NO_MEM: Not enough memory for frame buffers
  *     - ESP_ERR_INVALID_ARG: Invalid count or size of frame buffers
  */
-esp_err_t uvc_frame_allocate(uvc_stream_t *uvc_stream, int nb_of_fb, size_t fb_size, uint32_t fb_caps);
+esp_err_t uvc_frame_allocate(uvc_stream_t *uvc_stream, int nb_of_fb, size_t fb_size, uint32_t fb_caps, uint8_t **user_frame_buffers);
 
 /**
  * @brief Free allocated frame buffers

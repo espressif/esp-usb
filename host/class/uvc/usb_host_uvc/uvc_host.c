@@ -665,6 +665,19 @@ esp_err_t uvc_host_stream_open(const uvc_host_stream_config_t *stream_config, in
     UVC_CHECK(stream_config, ESP_ERR_INVALID_ARG);
     UVC_CHECK(stream_hdl_ret, ESP_ERR_INVALID_ARG);
 
+    // Validate user-provided frame buffers configuration
+    if (stream_config->advanced.user_frame_buffers != NULL) {
+        UVC_CHECK(stream_config->advanced.number_of_frame_buffers > 0, ESP_ERR_INVALID_ARG);
+        UVC_CHECK(stream_config->advanced.frame_size > 0, ESP_ERR_INVALID_ARG);
+        // Verify that all user-provided buffers are not NULL
+        for (int i = 0; i < stream_config->advanced.number_of_frame_buffers; i++) {
+            if (stream_config->advanced.user_frame_buffers[i] == NULL) {
+                ESP_LOGE(TAG, "User-provided frame buffer[%d] is NULL", i);
+                return ESP_ERR_INVALID_ARG;
+            }
+        }
+    }
+
     uvc_stream_t *uvc_stream;
     xSemaphoreTake(p_uvc_host_driver->open_close_mutex, portMAX_DELAY);
 
@@ -717,7 +730,8 @@ esp_err_t uvc_host_stream_open(const uvc_host_stream_config_t *stream_config, in
             uvc_stream,
             stream_config->advanced.number_of_frame_buffers,
             stream_config->advanced.frame_size ? stream_config->advanced.frame_size : vs_result.dwMaxVideoFrameSize,
-            stream_config->advanced.frame_heap_caps),
+            stream_config->advanced.frame_heap_caps,
+            stream_config->advanced.user_frame_buffers),
         err, TAG,);
 
     // Save info

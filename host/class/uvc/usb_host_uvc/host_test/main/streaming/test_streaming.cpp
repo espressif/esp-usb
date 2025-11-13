@@ -69,7 +69,7 @@ void run_streaming_frame_reconstruction_scenario(void)
                 return true;
             };
 
-            REQUIRE(uvc_frame_allocate(&stream, 1, 100 * 1024, 0) == ESP_OK);
+            REQUIRE(uvc_frame_allocate(&stream, 1, 100 * 1024, 0, NULL) == ESP_OK);
             uvc_frame_format_update(&stream, &logo_jpg_format);
 
             // Test
@@ -147,7 +147,7 @@ void run_streaming_frame_reconstruction_scenario(void)
                 enum uvc_host_dev_event *event_type = static_cast<enum uvc_host_dev_event *>(user_ctx);
                 *event_type = event->type;
             };
-            REQUIRE(uvc_frame_allocate(&stream, 1, logo_jpg.size() - 100, 0) == ESP_OK);
+            REQUIRE(uvc_frame_allocate(&stream, 1, logo_jpg.size() - 100, 0, NULL) == ESP_OK);
 
             WHEN("The frame is too big") {
                 send_function_wrapper(1024, &stream, std::span(logo_jpg));
@@ -170,7 +170,7 @@ void run_streaming_frame_reconstruction_scenario(void)
             };
 
             uvc_host_frame_t *temp_frame = nullptr;
-            REQUIRE(uvc_frame_allocate(&stream, 1, 100 * 1024, 0) == ESP_OK);
+            REQUIRE(uvc_frame_allocate(&stream, 1, 100 * 1024, 0, NULL) == ESP_OK);
             temp_frame = uvc_frame_get_empty(&stream);
             REQUIRE(temp_frame != nullptr);
 
@@ -236,7 +236,7 @@ SCENARIO("Bulk stream frame reconstruction", "[streaming][bulk]")
 
     GIVEN("Streaming enabled and frame allocated") {
         REQUIRE(uvc_host_stream_unpause(&stream) == ESP_OK);
-        REQUIRE(uvc_frame_allocate(&stream, 1, 100 * 1024, 0) == ESP_OK);
+        REQUIRE(uvc_frame_allocate(&stream, 1, 100 * 1024, 0, NULL) == ESP_OK);
         uvc_frame_format_update(&stream, &logo_jpg_format);
 
         WHEN("Expected SoF but got EoF") {
