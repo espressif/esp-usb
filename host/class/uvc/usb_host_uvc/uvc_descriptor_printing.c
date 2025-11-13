@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2024-2025 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -183,12 +183,8 @@ static void print_vs_format_mjpeg_desc(const usb_standard_desc_t *_desc)
 
 static void print_vs_frame_mjpeg_desc(const usb_standard_desc_t *_desc)
 {
-    // Copy to local buffer due to potential misalignment issues.
-    uint32_t raw_desc[25];
-    uint32_t desc_size = ((const uvc_frame_desc_t *)_desc)->bLength;
-    memcpy(raw_desc, _desc, desc_size);
-
-    const uvc_frame_desc_t *desc = (const uvc_frame_desc_t *) raw_desc;
+    // ESP32 supports unaligned memory access without penalty, so we can access directly
+    const uvc_frame_desc_t *desc = (const uvc_frame_desc_t *)_desc;
     printf("\t*** VS Frame Descriptor ***\n");
     printf("\tbLength %u\n", desc->bLength);
     printf("\tbDescriptorType 0x%02X\n", desc->bDescriptorType);
@@ -196,7 +192,7 @@ static void print_vs_frame_mjpeg_desc(const usb_standard_desc_t *_desc)
     printf("\tbFrameIndex %u\n", desc->bFrameIndex);
     printf("\tbmCapabilities 0x%X\n", desc->bmCapabilities);
     printf("\twWidth %u\n", desc->wWidth);
-    printf("\twHeigh %u\n", desc->wHeight);
+    printf("\twHeight %u\n", desc->wHeight);
     printf("\tdwMinBitRate %"PRIu32"\n", desc->dwMinBitRate);
     printf("\tdwMaxBitRate %"PRIu32"\n", desc->dwMaxBitRate);
     printf("\tdwMaxVideoFrameBufSize %"PRIu32"\n", desc->mjpeg_uncompressed.dwMaxVideoFrameBufferSize);
@@ -235,12 +231,8 @@ static void print_vs_format_frame_based_desc(const usb_standard_desc_t *_desc)
 
 static void print_vs_frame_frame_based_desc(const usb_standard_desc_t *_desc)
 {
-    // Copy to local buffer due to potential misalignment issues.
-    uint32_t raw_desc[25];
-    uint32_t desc_size = ((const uvc_frame_desc_t *)_desc)->bLength;
-    memcpy(raw_desc, _desc, desc_size);
-
-    const uvc_frame_desc_t *desc = (const uvc_frame_desc_t *) raw_desc;
+    // ESP32 supports unaligned memory access without penalty, so we can access directly
+    const uvc_frame_desc_t *desc = (const uvc_frame_desc_t *)_desc;
     printf("\t*** VS Frame Frame-Based Descriptor ***\n");
     printf("\tbLength %u\n", desc->bLength);
     printf("\tbDescriptorType 0x%02X\n", desc->bDescriptorType);
