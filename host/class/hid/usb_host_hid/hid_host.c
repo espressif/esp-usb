@@ -806,8 +806,6 @@ static esp_err_t hid_host_interface_release_and_free_transfer(hid_iface_t *iface
 
     ESP_ERROR_CHECK( usb_host_transfer_free(iface->in_xfer) );
 
-    // Change state
-    iface->state = HID_INTERFACE_STATE_IDLE;
     return ESP_OK;
 }
 
@@ -840,8 +838,6 @@ static esp_err_t hid_host_disable_interface(hid_iface_t *iface)
     // If interface state is suspended, the EP is already flushed and halted, only clear the EP
     // If suspended, may return ESP_ERR_INVALID_STATE
     usb_host_endpoint_clear(iface->parent->dev_hdl, iface->ep_in);
-
-    iface->state = HID_INTERFACE_STATE_READY;
 
     return ESP_OK;
 }
@@ -1441,8 +1437,7 @@ esp_err_t hid_host_device_close(hid_host_device_handle_t hid_dev_handle)
             prev_state == HID_INTERFACE_STATE_SUSPENDED) {
         HID_RETURN_ON_ERROR( hid_host_disable_interface(hid_iface),
                              "Unable to disable HID Interface");
-        // After disabling, the we set the state to READY internally.
-        // But we still consider ourselves the "closer".
+        hid_iface->state = HID_INTERFACE_STATE_READY;
     }
 
     if (prev_state == HID_INTERFACE_STATE_ACTIVE ||
@@ -1591,7 +1586,15 @@ esp_err_t hid_host_device_stop(hid_host_device_handle_t hid_dev_handle)
         return ESP_OK;
     }
 
-    return hid_host_disable_interface(iface);
+    // TODO: concurrent issue with hid_host_device_close(), add semaphore
+
+    esp_err_t ret = hid_host_disable_interface(iface);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+    iface->state = HID_INTERFACE_STATE_READY;
+
+    return ESP_OK;
 }
 
 uint8_t *hid_host_get_report_descriptor(hid_host_device_handle_t hid_dev_handle,
