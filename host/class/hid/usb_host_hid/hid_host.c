@@ -95,6 +95,7 @@ typedef enum {
     HID_INTERFACE_STATE_IDLE,                   /**< HID Interface has been found in connected USB device */
     HID_INTERFACE_STATE_READY,                  /**< HID Interface opened and ready to start transfer */
     HID_INTERFACE_STATE_ACTIVE,                 /**< HID Interface is in use */
+    HID_INTERFACE_STATE_CLOSING,                /**< HID Interface is in the process on closing */
     HID_INTERFACE_STATE_WAIT_USER_DELETION,     /**< HID Interface wait user to be removed */
     HID_INTERFACE_STATE_MAX
 } hid_iface_state_t;
@@ -403,7 +404,6 @@ static esp_err_t hid_host_add_interface(hid_device_t *hid_device,
  */
 static esp_err_t _hid_host_remove_interface(hid_iface_t *iface)
 {
-    iface->state = HID_INTERFACE_STATE_NOT_INITIALIZED;
     STAILQ_REMOVE(&s_hid_driver->hid_ifaces_tailq, iface, hid_interface, tailq_entry);
     free(iface);
     return ESP_OK;
@@ -613,8 +613,6 @@ static esp_err_t hid_host_interface_release_and_free_transfer(hid_iface_t *iface
 
     ESP_ERROR_CHECK( usb_host_transfer_free(iface->in_xfer) );
 
-    // Change state
-    iface->state = HID_INTERFACE_STATE_IDLE;
     return ESP_OK;
 }
 
@@ -633,17 +631,11 @@ static esp_err_t hid_host_disable_interface(hid_iface_t *iface)
                         ESP_ERR_NOT_FOUND,
                         "Interface handle not found");
 
-    HID_RETURN_ON_FALSE((HID_INTERFACE_STATE_ACTIVE == iface->state),
-                        ESP_ERR_INVALID_STATE,
-                        "Interface wrong state");
-
     HID_RETURN_ON_ERROR( usb_host_endpoint_halt(iface->parent->dev_hdl, iface->ep_in),
                          "Unable to HALT EP");
     HID_RETURN_ON_ERROR( usb_host_endpoint_flush(iface->parent->dev_hdl, iface->ep_in),
                          "Unable to FLUSH EP");
     usb_host_endpoint_clear(iface->parent->dev_hdl, iface->ep_in);
-
-    iface->state = HID_INTERFACE_STATE_READY;
 
     return ESP_OK;
 }
@@ -1212,7 +1204,6 @@ esp_err_t hid_host_device_open(hid_host_device_handle_t hid_dev_handle,
 esp_err_t hid_host_device_close(hid_host_device_handle_t hid_dev_handle)
 {
     hid_iface_t *hid_iface = get_iface_by_handle(hid_dev_handle);
-
     HID_RETURN_ON_INVALID_ARG(hid_iface);
 
     ESP_LOGD(TAG, "Close addr %d, iface %d, state %d",
@@ -1220,36 +1211,64 @@ esp_err_t hid_host_device_close(hid_host_device_handle_t hid_dev_handle)
              hid_iface->dev_params.iface_num,
              hid_iface->state);
 
-    if (HID_INTERFACE_STATE_ACTIVE == hid_iface->state) {
-        HID_RETURN_ON_ERROR( hid_host_disable_interface(hid_iface),
-                             "Unable to disable HID Interface");
+
+    hid_iface_state_t prev_state;
+    HID_ENTER_CRITICAL();
+    prev_state = hid_iface->state;
+
+    if (prev_state == HID_INTERFACE_STATE_CLOSING ||
+            prev_state == HID_INTERFACE_STATE_NOT_INITIALIZED) {
+        // Interface is already in the closing process or already closed
+        HID_EXIT_CRITICAL();
+        return ESP_OK;
     }
 
-    if (HID_INTERFACE_STATE_READY == hid_iface->state) {
+    if (prev_state == HID_INTERFACE_STATE_ACTIVE ||
+            prev_state == HID_INTERFACE_STATE_READY) {
+        hid_iface->state = HID_INTERFACE_STATE_CLOSING;
+    }
+
+    HID_EXIT_CRITICAL();
+
+    if (prev_state == HID_INTERFACE_STATE_ACTIVE) {
+        HID_RETURN_ON_ERROR( hid_host_disable_interface(hid_iface),
+                             "Unable to disable HID Interface");
+        hid_iface->state = HID_INTERFACE_STATE_READY;
+    }
+
+    if (prev_state == HID_INTERFACE_STATE_ACTIVE ||
+            prev_state == HID_INTERFACE_STATE_READY) {
         HID_RETURN_ON_ERROR( hid_host_interface_release_and_free_transfer(hid_iface),
                              "Unable to release HID Interface");
 
-        // If the device is closing by user before device detached we need to flush user callback here
+        hid_iface->state = HID_INTERFACE_STATE_IDLE;
+        // Release Report Descriptor memory
         free(hid_iface->report_desc);
         hid_iface->report_desc = NULL;
     }
 
+    // Now handle user_cb & list removal
+    bool need_user_callback = false;
+
+    HID_ENTER_CRITICAL();
     if (hid_iface->user_cb && hid_iface->state != HID_INTERFACE_STATE_WAIT_USER_DELETION) {
-        // Let user handle the remove process and wait for next hid_host_device_close() call
+        // When user_cb is set, we do a two-step deletion
         hid_iface->state = HID_INTERFACE_STATE_WAIT_USER_DELETION;
-        hid_host_user_interface_callback(hid_iface, HID_HOST_INTERFACE_EVENT_DISCONNECTED);
-    } else {
-        // Second call
+        need_user_callback = true;
+    } else if ((hid_iface->state == HID_INTERFACE_STATE_WAIT_USER_DELETION ||
+                hid_iface->user_cb == NULL) &&
+               hid_iface->state != HID_INTERFACE_STATE_NOT_INITIALIZED) {
+        // Second close OR no user callback at all AND not already removed: remove from list
         hid_iface->user_cb = NULL;
         hid_iface->user_cb_arg = NULL;
-
-        /* Remove Interface from the list */
-        ESP_LOGD(TAG, "Remove addr %d, iface %d from list",
-                 hid_iface->dev_params.addr,
-                 hid_iface->dev_params.iface_num);
-        HID_ENTER_CRITICAL();
+        hid_iface->state = HID_INTERFACE_STATE_NOT_INITIALIZED;
         _hid_host_remove_interface(hid_iface);
-        HID_EXIT_CRITICAL();
+    }
+    HID_EXIT_CRITICAL();
+
+    if (need_user_callback) {
+        // Inform the user and wait for next hid_host_device_close() call
+        hid_host_user_interface_callback(hid_iface, HID_HOST_INTERFACE_EVENT_DISCONNECTED);
     }
 
     return ESP_OK;
@@ -1353,7 +1372,15 @@ esp_err_t hid_host_device_stop(hid_host_device_handle_t hid_dev_handle)
 
     HID_RETURN_ON_INVALID_ARG(iface);
 
-    return hid_host_disable_interface(iface);
+    // TODO: concurrent issue with hid_host_device_close(), add semaphore
+
+    esp_err_t ret = hid_host_disable_interface(iface);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+    iface->state = HID_INTERFACE_STATE_READY;
+
+    return ESP_OK;
 }
 
 uint8_t *hid_host_get_report_descriptor(hid_host_device_handle_t hid_dev_handle,
