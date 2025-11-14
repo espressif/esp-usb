@@ -29,7 +29,9 @@
 
 #define MULTIPLE_THREADS_TASKS_NUM 5
 
-static int nb_of_success = 0;
+// Unlocked spinlock, ready to use
+static portMUX_TYPE _spinlock = portMUX_INITIALIZER_UNLOCKED;
+static volatile int nb_of_success = 0;
 
 static void test_task_install(void *arg)
 {
@@ -42,7 +44,9 @@ static void test_task_install(void *arg)
     if (tinyusb_driver_install(&tusb_cfg) == ESP_OK) {
         test_device_wait();
         TEST_ASSERT_EQUAL(ESP_OK, tinyusb_driver_uninstall());
+        taskENTER_CRITICAL(&_spinlock);
         nb_of_success++;
+        taskEXIT_CRITICAL(&_spinlock);
     }
 
     // Notify the parent task that the task completed the job
@@ -70,19 +74,20 @@ TEST_CASE("Multitask: Install", "[runtime_config][full_speed][high_speed]")
     };
     TEST_ASSERT_EQUAL_MESSAGE(ESP_OK, usb_new_phy(&phy_conf, &phy_hdl), "Unable to install USB PHY ");
 
+    taskENTER_CRITICAL(&_spinlock);
     nb_of_success = 0;
+    taskEXIT_CRITICAL(&_spinlock);
     // Create tasks that will start the driver
     for (int i = 0; i < MULTIPLE_THREADS_TASKS_NUM; i++) {
-        TEST_ASSERT_EQUAL(pdTRUE, xTaskCreate(test_task_install,
+        TEST_ASSERT_EQUAL(pdPASS, xTaskCreate(test_task_install,
                                               "InstallTask",
                                               4096,
                                               (void *) xTaskGetCurrentTaskHandle(),
                                               4 + i,
                                               NULL));
     }
-
-    // Wait until all tasks are finished
-    vTaskDelay(pdMS_TO_TICKS(5000));
+    // Wait some time for all tasks to complete
+    vTaskDelay(pdMS_TO_TICKS(1000));
     // Check if all tasks finished, we should get all notification from the tasks
     TEST_ASSERT_EQUAL_MESSAGE(MULTIPLE_THREADS_TASKS_NUM, ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(5000)), "Not all tasks finished");
     // There should be only one task that was able to install the driver
