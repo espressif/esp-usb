@@ -5,12 +5,13 @@
  */
 
 #include <stdint.h>
+#include "unity.h"
 #include "tinyusb.h"
 #include "tinyusb_default_config.h"
 #include "class/hid/hid_device.h"
 #include "hid_mock_device.h"
 
-static tusb_iface_count_t tusb_iface_count = 0;
+static enum test_hid_mock_device _test_hid_mock_device_mode = TEST_HID_MOCK_DEVICE_MAX;
 
 /************* TinyUSB descriptors ****************/
 #define TUSB_DESC_TOTAL_LEN      (TUD_CONFIG_DESC_LEN + CFG_TUD_HID * TUD_HID_DESC_LEN)
@@ -33,6 +34,31 @@ const uint8_t hid_keyboard_report_descriptor[] = {
 const uint8_t hid_mouse_report_descriptor[] = {
     TUD_HID_REPORT_DESC_MOUSE(HID_REPORT_ID(HID_ITF_PROTOCOL_MOUSE) )
 };
+
+/**
+ * Valid HID report descriptor of 1905 bytes.
+ *
+ * This large descriptor is intentionally sized to exceed the default 512-byte buffer
+ * used for HID report descriptors. The size is larger than the default buffer limit,
+ * forcing the HID Host driver to realloc the memory for CTRL transfer.
+*/
+const uint8_t hid_report_descriptor_1905B[] = {
+    TUD_HID_REPORT_DESC_KEYBOARD(HID_REPORT_ID(HID_ITF_PROTOCOL_KEYBOARD) ),
+    TUD_HID_REPORT_DESC_MOUSE(HID_REPORT_ID(HID_ITF_PROTOCOL_MOUSE) ),
+    TUD_HID_REPORT_DESC_LIGHTING(3),
+    TUD_HID_REPORT_DESC_CONSUMER(HID_REPORT_ID(4)),
+    TUD_HID_REPORT_DESC_GAMEPAD(HID_REPORT_ID(5)),
+    TUD_HID_REPORT_DESC_SYSTEM_CONTROL(HID_REPORT_ID(6)),
+    TUD_HID_REPORT_DESC_LIGHTING(7),
+    TUD_HID_REPORT_DESC_LIGHTING(8),
+    TUD_HID_REPORT_DESC_LIGHTING(9),
+    TUD_HID_REPORT_DESC_LIGHTING(10),
+};
+
+/**
+ * Empty HID report descriptor of 32 KB.
+*/
+const uint8_t hid_report_descriptor_32KB[32 * 1024] = {0};
 
 /**
  * @brief String descriptor
@@ -69,9 +95,30 @@ static const uint8_t hid_configuration_descriptor_two_ifaces[] = {
     TUD_HID_DESCRIPTOR(2, 4, HID_ITF_PROTOCOL_MOUSE, sizeof(hid_mouse_report_descriptor), 0x82, 16, 10),
 };
 
-static const uint8_t *hid_configuration_descriptor_list[TUSB_IFACE_COUNT_MAX] = {
+static const uint8_t hid_configuration_descriptor_report_1905B[] = {
+    // Configuration number, interface count, string index, total length, attribute, power in mA
+    TUD_CONFIG_DESCRIPTOR(1, CFG_TUD_HID, 0, TUSB_DESC_TOTAL_LEN, TUSB_DESC_CONFIG_ATT_REMOTE_WAKEUP, 100),
+
+    // Interface number, string index, boot protocol, report descriptor len, EP In address, size & polling interval
+    TUD_HID_DESCRIPTOR(0, 4, false, sizeof(hid_report_descriptor_1905B), 0x81, 16, 10),
+    TUD_HID_DESCRIPTOR(1, 4, false, sizeof(hid_report_descriptor_1905B), 0x82, 16, 10),
+};
+
+static const uint8_t hid_configuration_descriptor_report_32K[] = {
+    // Configuration number, interface count, string index, total length, attribute, power in mA
+    TUD_CONFIG_DESCRIPTOR(1, CFG_TUD_HID, 0, TUSB_DESC_TOTAL_LEN, TUSB_DESC_CONFIG_ATT_REMOTE_WAKEUP, 100),
+
+    // Interface number, string index, boot protocol, report descriptor len, EP In address, size & polling interval
+    TUD_HID_DESCRIPTOR(0, 4, false, 32 * 1024, 0x81, 16, 10),
+    TUD_HID_DESCRIPTOR(1, 4, false, 32 * 1024, 0x82, 16, 10),
+};
+
+
+static const uint8_t *hid_configuration_descriptor_list[TEST_HID_MOCK_DEVICE_MAX] = {
     hid_configuration_descriptor_one_iface,
-    hid_configuration_descriptor_two_ifaces
+    hid_configuration_descriptor_two_ifaces,
+    hid_configuration_descriptor_report_1905B,
+    hid_configuration_descriptor_report_32K
 };
 
 /**
@@ -99,15 +146,17 @@ static const tusb_desc_device_qualifier_t device_qualifier = {
 // Application return pointer to descriptor, whose contents must exist long enough for transfer to complete
 uint8_t const *tud_hid_descriptor_report_cb(uint8_t instance)
 {
-    switch (tusb_iface_count) {
-    case TUSB_IFACE_COUNT_ONE:
+    switch (_test_hid_mock_device_mode) {
+    case TEST_HID_MOCK_DEVICE_WITH_ONE_IFACE:
         return hid_report_descriptor;
-
-    case TUSB_IFACE_COUNT_TWO:
+    case TEST_HID_MOCK_DEVICE_WITH_TWO_IFACES:
         return (!!instance) ? hid_mouse_report_descriptor : hid_keyboard_report_descriptor;
-
+    case TEST_HID_MOCK_DEVICE_WITH_REPORT_DESC_1905B:
+        return hid_report_descriptor_1905B;
+    case TEST_HID_MOCK_DEVICE_WITH_REPORT_DESC_32KB:
+        return hid_report_descriptor_32KB;
     default:
-        break;
+        TEST_FAIL_MESSAGE("HID mock device, unhandled test mode");
     }
     return NULL;
 }
@@ -178,27 +227,45 @@ void tud_hid_set_report_cb(uint8_t instance, uint8_t report_id, hid_report_type_
 
 }
 
+// HID Mock Device
+
 /**
- * @brief HID Mock device start
+ * @brief Callback for device events.
  *
- * @param[in] iface_count   Interface count, when TUSB_IFACE_COUNT_ONE then there is two Interfaces, but equal (Protocol=None).
- * when TUSB_IFACE_COUNT_TWO then HID device mocked with two independent Interfaces (Protocol=BootKeyboard, Protocol=BootMouse).
+ * @note
+ * For Linux-based Hosts: Reflects the SetConfiguration() request from the Host Driver.
+ * For Win-based Hosts: SetConfiguration() request is present only with available Class in device descriptor.
  */
-void hid_mock_device(tusb_iface_count_t iface_count)
+static void hid_mock_device_event_handler(tinyusb_event_t *event, void *arg)
 {
-    if (iface_count > TUSB_IFACE_COUNT_MAX) {
-        printf("HID mock device, wrong iface_count parameter (%d)\n",
-               iface_count);
-        return;
+    switch (event->id) {
+    case TINYUSB_EVENT_ATTACHED:
+        printf("\t --> Attached\n");
+        break;
+    case TINYUSB_EVENT_DETACHED:
+        printf("\t <-- Detached\n");
+        break;
+    default:
+        break;
     }
+}
 
-    // Global Interfaces count value
-    tusb_iface_count = iface_count;
+void hid_mock_device_set_mode(const enum test_hid_mock_device mode)
+{
+    // Validate test mode parameter, should be less than max value
+    TEST_ASSERT_LESS_THAN_MESSAGE(TEST_HID_MOCK_DEVICE_MAX, mode, "HID mock device set mode, wrong test mode");
+    _test_hid_mock_device_mode = mode;
+}
 
-    tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG();
-    tusb_cfg.descriptor.full_speed_config = hid_configuration_descriptor_list[tusb_iface_count];
+void hid_mock_device_run(void)
+{
+    tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG(hid_mock_device_event_handler);
+
+    TEST_ASSERT_LESS_THAN_MESSAGE(TEST_HID_MOCK_DEVICE_MAX, _test_hid_mock_device_mode, "HID mock device run, wrong test mode");
+
+    tusb_cfg.descriptor.full_speed_config = hid_configuration_descriptor_list[_test_hid_mock_device_mode];
 #if (TUD_OPT_HIGH_SPEED)
-    tusb_cfg.descriptor.high_speed_config = hid_configuration_descriptor_list[tusb_iface_count];
+    tusb_cfg.descriptor.high_speed_config = hid_configuration_descriptor_list[_test_hid_mock_device_mode];
     tusb_cfg.descriptor.qualifier = &device_qualifier;
 #endif // TUD_OPT_HIGH_SPEED
     tusb_cfg.descriptor.string = hid_string_descriptor;
@@ -206,8 +273,23 @@ void hid_mock_device(tusb_iface_count_t iface_count)
 
     ESP_ERROR_CHECK(tinyusb_driver_install(&tusb_cfg));
 
-    printf("HID mock device with %s has been started\n",
-           (TUSB_IFACE_COUNT_ONE == tusb_iface_count)
-           ? "1xInterface (Protocol=None)"
-           : "2xInterfaces (Protocol=BootKeyboard, Protocol=BootMouse)");
+    // Print the message about the mode
+    // Note: these messages are used in the pytest, so change them carefully
+    switch (_test_hid_mock_device_mode) {
+    case TEST_HID_MOCK_DEVICE_WITH_ONE_IFACE:
+        printf("HID mock device with 1xInterface (Protocol=None) has been started\n");
+        break;
+    case TEST_HID_MOCK_DEVICE_WITH_TWO_IFACES:
+        printf("HID mock device with 2xInterfaces (Protocol=BootKeyboard, Protocol=BootMouse) has been started\n");
+        break;
+    case TEST_HID_MOCK_DEVICE_WITH_REPORT_DESC_1905B:
+        printf("HID mock device with large report descriptor has been started\n");
+        break;
+    case TEST_HID_MOCK_DEVICE_WITH_REPORT_DESC_32KB:
+        printf("HID mock device with extra large report descriptor has been started\n");
+        break;
+    default:
+        TEST_FAIL_MESSAGE("HID mock device, unhandled test mode");
+        break;
+    }
 }

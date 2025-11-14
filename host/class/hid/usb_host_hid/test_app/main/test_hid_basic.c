@@ -34,8 +34,8 @@ QueueHandle_t hid_host_test_event_queue;
 TaskHandle_t hid_test_task_handle;
 
 // Multiple tasks testing
-static hid_host_device_handle_t global_hdl;
-static int test_num_passed;
+static SemaphoreHandle_t s_global_hdl_sem;
+static hid_host_device_handle_t s_global_hdl;
 
 static const char *test_hid_sub_class_names[] = {
     "NO_SUBCLASS",
@@ -53,11 +53,6 @@ typedef struct {
     hid_host_driver_event_t event;
     void *arg;
 } hid_host_test_event_queue_t;
-
-typedef enum {
-    HID_HOST_TEST_TOUCH_WAY_ASSERT = 0x00,
-    HID_HOST_TEST_TOUCH_WAY_SUDDEN_DISCONNECT = 0x01,
-} hid_host_test_touch_way_t;
 
 // usb_host_lib_set_root_port_power is used to force toggle connection, primary developed for esp32p4
 // esp32p4 is supported from IDF 5.3
@@ -192,6 +187,7 @@ void hid_host_test_concurrent(hid_host_device_handle_t hid_device_handle,
                               void *arg)
 {
     hid_host_dev_params_t dev_params;
+
     TEST_ASSERT_EQUAL(ESP_OK, hid_host_device_get_params(hid_device_handle, &dev_params));
     TEST_ASSERT_EQUAL_PTR_MESSAGE(&user_arg_value, arg, "User argument has lost");
 
@@ -211,7 +207,8 @@ void hid_host_test_concurrent(hid_host_device_handle_t hid_device_handle,
         TEST_ASSERT_EQUAL(ESP_OK,  hid_host_device_open(hid_device_handle, &dev_config) );
         TEST_ASSERT_EQUAL(ESP_OK,  hid_host_device_start(hid_device_handle) );
 
-        global_hdl = hid_device_handle;
+        s_global_hdl = hid_device_handle;
+        xSemaphoreGive(s_global_hdl_sem);
         break;
     default:
         TEST_FAIL_MESSAGE("HID Driver unhandled event");
@@ -393,8 +390,9 @@ void hid_host_test_polling_task(void *pvParameters)
     vTaskDelete(NULL);
 }
 
-static void test_hid_host_device_touch(hid_host_dev_params_t *dev_params,
-                                       hid_host_test_touch_way_t touch_way)
+// Stress the HID device by getting input report according to its protocol
+// Note: the s_global_hdl must be valid before calling this function
+static void test_hid_host_device_stress(hid_host_dev_params_t *dev_params)
 {
     uint8_t tmp[10] = { 0 };     // for input report
     size_t rep_len = 0;
@@ -403,96 +401,97 @@ static void test_hid_host_device_touch(hid_host_dev_params_t *dev_params,
     if (dev_params->proto == HID_PROTOCOL_NONE) {
         rep_len = sizeof(tmp);
         // For testing with ESP32 we used ReportID = 0x01 (Keyboard ReportID)
-        if (HID_HOST_TEST_TOUCH_WAY_ASSERT == touch_way) {
-            TEST_ASSERT_EQUAL(ESP_OK, hid_class_request_get_report(global_hdl,
-                                                                   HID_REPORT_TYPE_INPUT, 0x01, tmp, &rep_len));
-        } else {
-            hid_class_request_get_report(global_hdl,
-                                         HID_REPORT_TYPE_INPUT, 0x01, tmp, &rep_len);
-        }
-
+        TEST_ASSERT_EQUAL(ESP_OK, hid_class_request_get_report(s_global_hdl, HID_REPORT_TYPE_INPUT, 0x01, tmp, &rep_len));
     } else {
         // Get Protocol
-        TEST_ASSERT_EQUAL(ESP_OK, hid_class_request_get_protocol(global_hdl, &proto));
+        TEST_ASSERT_EQUAL(ESP_OK, hid_class_request_get_protocol(s_global_hdl, &proto));
         // Get Report for Keyboard protocol, ReportID = 0x00 (Boot Keyboard ReportID)
         if (dev_params->proto == HID_PROTOCOL_KEYBOARD) {
             rep_len = sizeof(tmp);
-            if (HID_HOST_TEST_TOUCH_WAY_ASSERT == touch_way) {
-                TEST_ASSERT_EQUAL(ESP_OK, hid_class_request_get_report(global_hdl,
-                                                                       HID_REPORT_TYPE_INPUT, 0x01, tmp, &rep_len));
-            } else {
-                hid_class_request_get_report(global_hdl,
-                                             HID_REPORT_TYPE_INPUT, 0x01, tmp, &rep_len);
-            }
+            TEST_ASSERT_EQUAL(ESP_OK, hid_class_request_get_report(s_global_hdl, HID_REPORT_TYPE_INPUT, 0x01, tmp, &rep_len));
         }
         if (dev_params->proto == HID_PROTOCOL_MOUSE) {
             rep_len = sizeof(tmp);
-            if (HID_HOST_TEST_TOUCH_WAY_ASSERT == touch_way) {
-                TEST_ASSERT_EQUAL(ESP_OK, hid_class_request_get_report(global_hdl,
-                                                                       HID_REPORT_TYPE_INPUT, 0x02, tmp, &rep_len));
-            } else {
-                hid_class_request_get_report(global_hdl,
-                                             HID_REPORT_TYPE_INPUT, 0x02, tmp, &rep_len);
-            }
+            TEST_ASSERT_EQUAL(ESP_OK, hid_class_request_get_report(s_global_hdl, HID_REPORT_TYPE_INPUT, 0x02, tmp, &rep_len));
         }
     }
 }
 
 #define MULTIPLE_TASKS_TASKS_NUM 10
 
+// Note: the s_global_hdl must be valid before this task is started
 void concurrent_task(void *arg)
 {
+    SemaphoreHandle_t worker_done_sem = *(SemaphoreHandle_t *) arg;
     uint8_t *test_buffer = NULL;
     unsigned int test_length = 0;
     hid_host_dev_params_t dev_params;
-    TEST_ASSERT_EQUAL(ESP_OK, hid_host_device_get_params(global_hdl, &dev_params));
+
+    // Here we don't need to serialize the access to the device, because
+    // we expecting serialization in the HID Host driver itself.
+    // We just using the valid s_global_hdl to access the device concurrently from multiple tasks.
+
+    TEST_ASSERT_EQUAL(ESP_OK, hid_host_device_get_params(s_global_hdl, &dev_params));
 
     // Get Report descriptor
-    test_buffer = hid_host_get_report_descriptor(global_hdl, &test_length);
+    test_buffer = hid_host_get_report_descriptor(s_global_hdl, &test_length);
     TEST_ASSERT_NOT_NULL(test_buffer);
-
-    test_hid_host_device_touch(&dev_params, HID_HOST_TEST_TOUCH_WAY_ASSERT);
-    test_num_passed++;
-
+    // Stress the device with getting input report
+    test_hid_host_device_stress(&dev_params);
+    // Notify the main test that this task is done
+    xSemaphoreGive(worker_done_sem);
+    // Delete this task
     vTaskDelete(NULL);
 }
 
+// Note: the s_global_hdl must be valid before this task is started
 void access_task(void *arg)
 {
     uint8_t *test_buffer = NULL;
     unsigned int test_length = 0;
     hid_host_dev_params_t dev_params;
-    TEST_ASSERT_EQUAL(ESP_OK, hid_host_device_get_params(global_hdl, &dev_params));
+
+    // Get device params
+    TEST_ASSERT_EQUAL(ESP_OK, hid_host_device_get_params(s_global_hdl, &dev_params));
 
     // Get Report descriptor
-    test_buffer = hid_host_get_report_descriptor(global_hdl, &test_length);
+    test_buffer = hid_host_get_report_descriptor(s_global_hdl, &test_length);
     TEST_ASSERT_NOT_NULL(test_buffer);
 
+    // Stress the device until time_to_shutdown is set
     while (!time_to_shutdown) {
-        test_hid_host_device_touch(&dev_params, HID_HOST_TEST_TOUCH_WAY_ASSERT/* HID_HOST_TEST_TOUCH_WAY_SUDDEN_DISCONNECT */);
+        test_hid_host_device_stress(&dev_params);
     }
 
+    xSemaphoreGive(s_global_hdl_sem);
     vTaskDelete(NULL);
 }
 
 /**
  * @brief Creates MULTIPLE_TASKS_TASKS_NUM to get report descriptor and get protocol from HID device.
- * After test_num_passed - is a global static variable that increases during every successful task test.
  */
-void test_multiple_tasks_access(void)
+void test_start_multiple_tasks_access(void)
 {
+    // Create a counting semaphore to track worker task completions
+    SemaphoreHandle_t worker_done_sem = NULL;
+    worker_done_sem = xSemaphoreCreateCounting(MULTIPLE_TASKS_TASKS_NUM, 0);
+    TEST_ASSERT_NOT_NULL_MESSAGE(worker_done_sem, "Failed to create counting semaphore");
+
     // Create tasks that will try to access HID dev with global hdl
     for (int i = 0; i < MULTIPLE_TASKS_TASKS_NUM; i++) {
-        TEST_ASSERT_EQUAL(pdTRUE, xTaskCreate(concurrent_task, "HID multi touch", 4096, NULL, i + 3, NULL));
+        TEST_ASSERT_EQUAL(pdTRUE, xTaskCreate(concurrent_task,
+                                              "HID multiple task stress",
+                                              4096,
+                                              (void *) &worker_done_sem,
+                                              i + 3,
+                                              NULL));
     }
-    // Wait until all tasks finish
-    vTaskDelay(pdMS_TO_TICKS(500));
-}
-
-void test_task_access(void)
-{
-    // Create task which will be touching the device with control requests, while device is present
-    TEST_ASSERT_EQUAL(pdTRUE, xTaskCreate(access_task, "HID touch", 4096, NULL, 3, NULL));
+    // Wait all tasks to complete
+    for (int i = 0; i < MULTIPLE_TASKS_TASKS_NUM; i++) {
+        TEST_ASSERT_EQUAL_MESSAGE(pdTRUE, xSemaphoreTake(worker_done_sem, pdMS_TO_TICKS(5000)), "Not all tasks completed in time");
+    }
+    // Clean up
+    vSemaphoreDelete(worker_done_sem);
 }
 
 /**
@@ -629,18 +628,20 @@ TEST_CASE("memory_leakage", "[hid_host]")
 
 TEST_CASE("multiple_task_access", "[hid_host]")
 {
+    // Create semaphore for s_global_hdl, because it will be used in multiple tasks access
+    s_global_hdl_sem = xSemaphoreCreateBinary();
+    TEST_ASSERT_NOT_EQUAL_MESSAGE(NULL, s_global_hdl_sem, "Semaphore creation failed");
     // Install USB and HID driver with 'hid_host_test_concurrent'
     test_hid_setup(hid_host_test_concurrent, HID_TEST_EVENT_HANDLE_IN_DRIVER);
-    // Wait for USB device appearing for 250 msec
-    vTaskDelay(250);
-    // Refresh the num passed test value
-    test_num_passed = 0;
+    // Wait the s_global_hdl to be valid 5sec timeout
+    TEST_ASSERT_EQUAL_MESSAGE(pdTRUE, xSemaphoreTake(s_global_hdl_sem, pdMS_TO_TICKS(5000)), "HID device handle not ready in time");
     // Start multiple task access to USB device with control requests
-    test_multiple_tasks_access();
+    test_start_multiple_tasks_access();
     // Tear down test
     test_hid_teardown();
-    // Verify how much tests was done
-    TEST_ASSERT_EQUAL(MULTIPLE_TASKS_TASKS_NUM, test_num_passed);
+    // Delete the semaphore
+    vSemaphoreDelete(s_global_hdl_sem);
+    s_global_hdl_sem = NULL;
     // Verify the memory leakage during test environment tearDown()
 }
 
@@ -691,19 +692,47 @@ TEST_CASE("class_specific_requests_with_external_polling_without_polling", "[hid
 
 TEST_CASE("sudden_disconnect", "[hid_host]")
 {
+    // Create semaphore for s_global_hdl, because it will be used in access_task
+    s_global_hdl_sem = xSemaphoreCreateBinary();
+    TEST_ASSERT_NOT_EQUAL_MESSAGE(NULL, s_global_hdl_sem, "Semaphore creation failed");
     // Install USB and HID driver with 'hid_host_test_concurrent'
     test_hid_setup(hid_host_test_concurrent, HID_TEST_EVENT_HANDLE_IN_DRIVER);
-    // Wait for USB device appearing for 250 msec
-    vTaskDelay(250);
-    // Start task to access USB device with control requests
-    test_task_access();
-    // Tear down test during thr task_access stress the HID device
+    // Wait for the HID device handle to be ready
+    TEST_ASSERT_EQUAL_MESSAGE(pdTRUE, xSemaphoreTake(s_global_hdl_sem, pdMS_TO_TICKS(5000)), "HID device handle not ready in time");
+    // Start task to that polls the device with control transfers
+    TEST_ASSERT_EQUAL(pdTRUE, xTaskCreate(access_task, "HID ctrl_xfer polling", 4096, NULL, 3, NULL));
+    // Tear down test while access_task stresses the HID device
     test_hid_teardown();
+    // Delete the semaphore
+    vSemaphoreDelete(s_global_hdl_sem);
 }
 
-TEST_CASE("mock_hid_device", "[hid_device][ignore]")
+// TODO: Enable during the fix https://github.com/espressif/esp-usb/pull/320
+TEST_CASE("request Report Descriptor 32K", "[hid_host][ignore]")
 {
-    hid_mock_device(TUSB_IFACE_COUNT_ONE);
+    // Create semaphore for s_global_hdl, because it will be used in multiple tasks access
+    s_global_hdl_sem = xSemaphoreCreateBinary();
+    TEST_ASSERT_NOT_EQUAL_MESSAGE(NULL, s_global_hdl_sem, "Semaphore creation failed");
+    // Install USB and HID driver with 'hid_host_test_concurrent'
+    test_hid_setup(hid_host_test_concurrent, HID_TEST_EVENT_HANDLE_IN_DRIVER);
+    // Wait the s_global_hdl to be valid 5sec timeout
+    TEST_ASSERT_EQUAL_MESSAGE(pdTRUE, xSemaphoreTake(s_global_hdl_sem, pdMS_TO_TICKS(5000)), "HID device handle not ready in time");
+    // Get Report descriptor
+    uint8_t *test_buffer = NULL;
+    unsigned int test_length = 0;
+    test_buffer = hid_host_get_report_descriptor(s_global_hdl, &test_length);
+    // Expected to fail due to extra large Report Descriptor
+    TEST_ASSERT_NULL_MESSAGE(test_buffer, "Report descriptor request should have failed for extra large size");
+    // Tear down test
+    test_hid_teardown();
+    // Delete the semaphore
+    vSemaphoreDelete(s_global_hdl_sem);
+}
+
+TEST_CASE("mock_hid_device_with_one_iface", "[hid_device][ignore]")
+{
+    hid_mock_device_set_mode(TEST_HID_MOCK_DEVICE_WITH_ONE_IFACE);
+    hid_mock_device_run();
     while (1) {
         vTaskDelay(10);
     }
@@ -711,7 +740,26 @@ TEST_CASE("mock_hid_device", "[hid_device][ignore]")
 
 TEST_CASE("mock_hid_device_with_two_ifaces", "[hid_device2][ignore]")
 {
-    hid_mock_device(TUSB_IFACE_COUNT_TWO);
+    hid_mock_device_set_mode(TEST_HID_MOCK_DEVICE_WITH_TWO_IFACES);
+    hid_mock_device_run();
+    while (1) {
+        vTaskDelay(10);
+    }
+}
+
+TEST_CASE("mock_hid_device_with_large_report", "[hid_device_large_report][ignore]")
+{
+    hid_mock_device_set_mode(TEST_HID_MOCK_DEVICE_WITH_REPORT_DESC_1905B);
+    hid_mock_device_run();
+    while (1) {
+        vTaskDelay(10);
+    }
+}
+
+TEST_CASE("mock_hid_device_with_32K_report", "[hid_device_large_report][ignore]")
+{
+    hid_mock_device_set_mode(TEST_HID_MOCK_DEVICE_WITH_REPORT_DESC_32KB);
+    hid_mock_device_run();
     while (1) {
         vTaskDelay(10);
     }
