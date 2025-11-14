@@ -4,9 +4,11 @@
 import pytest
 from pytest_embedded_idf.dut import IdfDut
 
-@pytest.mark.esp32s2
-@pytest.mark.esp32s3
-@pytest.mark.esp32p4
+@pytest.mark.parametrize('target', [
+    'esp32s2',
+    'esp32s3',
+    'esp32p4',
+], indirect=True)
 @pytest.mark.usb_device
 def test_usb_device_runtime_config(dut: IdfDut) -> None:
     peripherals = [
