@@ -701,9 +701,10 @@ TEST_CASE("sudden_disconnect", "[hid_host]")
     test_hid_teardown();
 }
 
-TEST_CASE("mock_hid_device", "[hid_device][ignore]")
+TEST_CASE("mock_hid_device_with_one_iface", "[hid_device][ignore]")
 {
-    hid_mock_device(TUSB_IFACE_COUNT_ONE);
+    hid_mock_device_set_mode(TEST_HID_MOCK_DEVICE_WITH_ONE_IFACE);
+    hid_mock_device_run();
     while (1) {
         vTaskDelay(10);
     }
@@ -711,7 +712,17 @@ TEST_CASE("mock_hid_device", "[hid_device][ignore]")
 
 TEST_CASE("mock_hid_device_with_two_ifaces", "[hid_device2][ignore]")
 {
-    hid_mock_device(TUSB_IFACE_COUNT_TWO);
+    hid_mock_device_set_mode(TEST_HID_MOCK_DEVICE_WITH_TWO_IFACES);
+    hid_mock_device_run();
+    while (1) {
+        vTaskDelay(10);
+    }
+}
+
+TEST_CASE("mock_hid_device_with_large_report", "[hid_device_large_report][ignore]")
+{
+    hid_mock_device_set_mode(TEST_HID_MOCK_DEVICE_WITH_LARGE_REPORT);
+    hid_mock_device_run();
     while (1) {
         vTaskDelay(10);
     }
