@@ -73,15 +73,9 @@ jobs:
           echo "version=$git_ver" >> $GITHUB_OUTPUT
           echo "GIT_VER=$git_ver" >> $GITHUB_ENV
 
-      - name: Set up SSH
-        run: |
-          mkdir -p ~/.ssh
-          echo "${{ secrets.DOCS_PRIVATEKEY }}" > ~/.ssh/id_rsa
-          chmod 600 ~/.ssh/id_rsa
-          ssh-keyscan -H ${{ vars.DOCS_SERVER }} >> ~/.ssh/known_hosts || true
-
       - name: Deploy documentation
         working-directory: docs
+        shell: bash
         env:
           GIT_VER: ${{ steps.git_version.outputs.version }}
           DOCS_BUILD_DIR: ${{ github.workspace }}/docs/_build
@@ -89,7 +83,10 @@ jobs:
           DOCS_DEPLOY_SERVER: ${{ vars.DOCS_SERVER }}
           DOCS_DEPLOY_SERVER_USER: ${{ secrets.DOCS_SERVER_USER }}
           DOCS_DEPLOY_PATH: ${{ vars.DOCS_PATH }}
+          DOCS_DEPLOY_PRIVATEKEY: ${{ secrets.DOCS_PRIVATEKEY }}
           # TYPE is optional - only used for output formatting (shows "deploy" or "preview" in logs)
-          #TYPE: ${{ github.ref_name == 'master' && 'deploy' || 'preview' }}
+          TYPE: ${{ github.ref_name == 'master' && 'deploy' || 'preview' }}
         run: |
+          source $GITHUB_WORKSPACE/docs/utils.sh
+          add_doc_server_ssh_keys "$DOCS_DEPLOY_PRIVATEKEY" "$DOCS_DEPLOY_SERVER" "$DOCS_DEPLOY_SERVER_USER"
           deploy-docs
