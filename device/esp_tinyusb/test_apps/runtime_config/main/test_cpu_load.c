@@ -137,7 +137,7 @@ static void test_cpu_load_measure(void)
  * - uninstall driver
  * - show results
  */
-TEST_CASE("[CPU load] Install & Uninstall, default configuration", "[cpu_load]")
+TEST_CASE("[CPU load] Install & Uninstall, default blocking task", "[cpu_load]")
 {
 #if (!CONFIG_FREERTOS_UNICORE)
     // Allow other core to finish initialization
@@ -165,5 +165,91 @@ TEST_CASE("[CPU load] Install & Uninstall, default configuration", "[cpu_load]")
     printf("TinyUSB Run time: %" PRIu32 " ticks\n", _tinyusb_run_time);
     printf("TinyUSB CPU load: %" PRIu32 " %%\n", _tinyusb_cpu_load);
 }
+
+/**
+ * @brief Test TinyUSB CPU load measurement
+ *
+ * Scenario:
+ * - Install TinyUSB driver with default configuration
+ * - wait for device connection
+ * - measure CPU load
+ * - uninstall driver
+ * - show results
+ */
+TEST_CASE("[CPU load] Install & Uninstall, non-blocking task", "[cpu_load]")
+{
+#if (!CONFIG_FREERTOS_UNICORE)
+    // Allow other core to finish initialization
+    vTaskDelay(pdMS_TO_TICKS(100));
+#endif // (!CONFIG_FREERTOS_UNICORE)
+
+    // Install TinyUSB driver
+    tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG(test_device_event_handler);
+    // Set the task blocking timeout to 0: non-blocking
+    tusb_cfg.task.blocking_timeout_ms = 0;
+
+    TEST_ASSERT_EQUAL(ESP_OK, tinyusb_driver_install(&tusb_cfg));
+
+    // Initialize CPU load measurement
+    test_cpu_load_init();
+
+    // Wait for the device to be mounted and enumerated by the Host
+    test_device_wait();
+    printf("\t -> Device connected\n");
+
+    // Measure CPU load
+    test_cpu_load_measure();
+
+    // Uninstall TinyUSB driver
+    TEST_ASSERT_EQUAL(ESP_OK, tinyusb_driver_uninstall());
+
+    // Show results
+    printf("TinyUSB Run time: %" PRIu32 " ticks\n", _tinyusb_run_time);
+    printf("TinyUSB CPU load: %" PRIu32 " %%\n", _tinyusb_cpu_load);
+}
+
+/**
+ * @brief Test TinyUSB CPU load measurement
+ *
+ * Scenario:
+ * - Install TinyUSB driver with default configuration
+ * - wait for device connection
+ * - measure CPU load
+ * - uninstall driver
+ * - show results
+ */
+TEST_CASE("[CPU load] Install & Uninstall, blocking task indefinitely (legacy mode)", "[cpu_load]")
+{
+#if (!CONFIG_FREERTOS_UNICORE)
+    // Allow other core to finish initialization
+    vTaskDelay(pdMS_TO_TICKS(100));
+#endif // (!CONFIG_FREERTOS_UNICORE)
+
+    // Install TinyUSB driver
+    tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG(test_device_event_handler);
+    // Set the task blocking timeout to UINT32_t_MAX: blocking indefinitely
+    tusb_cfg.task.blocking_timeout_ms = UINT32_MAX;
+
+    TEST_ASSERT_EQUAL(ESP_OK, tinyusb_driver_install(&tusb_cfg));
+
+    // Initialize CPU load measurement
+    test_cpu_load_init();
+
+    // Wait for the device to be mounted and enumerated by the Host
+    test_device_wait();
+    printf("\t -> Device connected\n");
+
+    // Measure CPU load
+    test_cpu_load_measure();
+
+    // Uninstall TinyUSB driver
+    TEST_ASSERT_EQUAL(ESP_OK, tinyusb_driver_uninstall());
+
+    // Show results
+    printf("TinyUSB Run time: %" PRIu32 " ticks\n", _tinyusb_run_time);
+    printf("TinyUSB CPU load: %" PRIu32 " %%\n", _tinyusb_cpu_load);
+}
+
+
 
 #endif // SOC_USB_OTG_SUPPORTED

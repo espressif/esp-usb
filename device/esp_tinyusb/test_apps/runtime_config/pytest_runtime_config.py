@@ -42,4 +42,4 @@ def test_cpu_load_task_stat_print(dut: IdfDut) -> None:
 
     line = dut.expect(r'TinyUSB Run time: (\d+) ticks')
     run_time = int(line.group(1))
-    assert 0 < run_time < 1800, f'Unexpected TinyUSB Run time: {run_time}'
+    assert 0 < run_time < 3000, f'Unexpected TinyUSB Run time: {run_time}'
