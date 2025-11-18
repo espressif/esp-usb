@@ -69,8 +69,9 @@ jobs:
           export EXTRA_CXXFLAGS="${PEDANTIC_FLAGS}"
           export ENV_VAR_USB_COMP_MANAGED=${{ matrix.usb_comp_managed }}
 
-          idf-build-apps find --paths ${{ matrix.path }}
-          idf-build-apps build --paths ${{ matrix.path }}
+          # We should have the --disable-targets linux by default anyway for this workflow, since there is a separate workflow for linux tests.
+          idf-build-apps find --paths ${{ matrix.path }} --disable-targets linux
+          idf-build-apps build --paths ${{ matrix.path }} --disable-targets linux
       - uses: actions/upload-artifact@v4
         with:
           name: usb_${{ matrix.test_app }}_test_app_bin_${{ matrix.idf_ver }}
