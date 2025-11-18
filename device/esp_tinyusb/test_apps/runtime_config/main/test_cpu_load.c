@@ -10,6 +10,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <inttypes.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_log.h"
@@ -20,7 +21,9 @@
 #include "device_handling.h"
 
 // Enable this, if you need to see the stat for all tasks
-#define STAT_CONFIG_ALL_TASKS               0
+#define STAT_CONFIG_ALL_TASKS               1
+// Enable this, if you need precise percentage calculation
+#define STAT_CONFIG_PRECISE_PERCENTAGE      1
 // Increase this if test_cpu_load_init or test_cpu_load_measure fail due to insufficient array size
 #define STAT_CONFIG_ARRAY_SIZE_OFFSET       5
 
@@ -36,6 +39,29 @@ static UBaseType_t start_array_size;
 static UBaseType_t end_array_size;
 static configRUN_TIME_COUNTER_TYPE start_run_time;
 static configRUN_TIME_COUNTER_TYPE end_run_time;
+
+#if (STAT_CONFIG_PRECISE_PERCENTAGE)
+static inline void print_task_precise_percentage(const char *name, uint32_t counter_delta, uint32_t elapsed_delta)
+{
+    const uint32_t cores = CONFIG_FREERTOS_NUMBER_OF_CORES;
+    uint64_t d = (uint64_t)elapsed_delta * (uint64_t)cores;
+    uint64_t s_bp = (uint64_t)counter_delta * 10000ULL; // Scaled basis points
+    uint32_t bp = 0;     // Basis points
+
+    if (d != 0) {
+        bp = (uint32_t)(s_bp / d);
+        if (bp > 10000U) {
+            bp = 10000U;    // Round noise
+        }
+    }
+
+    printf("%-20.20s %10" PRIu32 " %3" PRIu32 ".%02" PRIu32 "%%\n",
+           name,                    // left-aligned, max 20 chars
+           counter_delta,           // right-aligned, width 10
+           bp / 100,                // integer part of percentage
+           bp % 100);               // fractional part of percentage
+}
+#endif // STAT_CONFIG_PRECISE_PERCENTAGE
 
 /**
  * @brief Initialize CPU load measurement
@@ -92,11 +118,18 @@ static void test_cpu_load_measure(void)
         if (k >= 0) {
             uint32_t task_elapsed_time = end_array[k].ulRunTimeCounter - start_array[i].ulRunTimeCounter;
             uint32_t percentage_time = (task_elapsed_time * 100UL) / (total_elapsed_time * CONFIG_FREERTOS_NUMBER_OF_CORES);
+
 #if (STAT_CONFIG_ALL_TASKS)
+#if (STAT_CONFIG_PRECISE_PERCENTAGE)
+            uint32_t task_delta  = (uint32_t)((uint64_t)end_array[k].ulRunTimeCounter - (uint64_t)start_array[i].ulRunTimeCounter);
+            uint32_t total_delta = (uint32_t)((uint64_t)end_run_time - (uint64_t)start_run_time);
+            print_task_precise_percentage(start_array[i].pcTaskName, task_delta, total_delta);
+#else
             printf("%-20.20s %10" PRIu32 " %7" PRIu32 "%%\n",
                    start_array[i].pcTaskName,   // left-aligned, max 20 chars
                    task_elapsed_time,           // right-aligned, width 10
-                   percentage_time);            // right-aligned, width 7 + '%' char
+                   percentage_time);            // right-aligned, width 7
+#endif // STAT_CONFIG_PRECISE_PERCENTAGE
 #endif // STAT_CONFIG_ALL_TASKS
             // Save the TinyUSB task stats for test validation
             if (strcmp(start_array[i].pcTaskName, TINYUSB_TASK_NAME) == 0) {
