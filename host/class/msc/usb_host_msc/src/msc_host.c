@@ -687,7 +687,13 @@ esp_err_t msc_bulk_transfer(msc_device_t *device, uint8_t *data, size_t size, ms
     switch (status) {
     case USB_TRANSFER_STATUS_COMPLETED:
         if (ep == MSC_EP_IN) {
-            memcpy(data, xfer->data_buffer, xfer->actual_num_bytes);
+            // Validate that actual_num_bytes doesn't exceed caller's buffer size
+            size_t copy_size = (xfer->actual_num_bytes <= size) ? xfer->actual_num_bytes : size;
+            if (xfer->actual_num_bytes > size) {
+                ESP_LOGW(TAG, "Received %d bytes but caller buffer only has %d bytes, truncating",
+                         xfer->actual_num_bytes, size);
+            }
+            memcpy(data, xfer->data_buffer, copy_size);
         }
         ret = ESP_OK;
         break;
