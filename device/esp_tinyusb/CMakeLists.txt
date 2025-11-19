@@ -61,3 +61,18 @@ endif()
 # Pass tusb_config.h from this component to TinyUSB
 idf_component_get_property(tusb_lib ${tinyusb_name} COMPONENT_LIB)
 target_include_directories(${tusb_lib} PRIVATE "include")
+
+# Add security hardening compiler flags
+target_compile_options(${COMPONENT_LIB} PRIVATE
+    -fstack-protector-strong  # Stack canaries for buffer overflow protection
+    -Wformat-security         # Format string vulnerability warnings
+    # -D_FORTIFY_SOURCE=2 is typically enabled by ESP-IDF build system already
+)
+
+# Additional warnings for security-critical code
+target_compile_options(${COMPONENT_LIB} PRIVATE
+    -Wall
+    -Wextra
+    -Werror=implicit-function-declaration
+    -Werror=return-type
+)

@@ -172,6 +172,10 @@ static inline int usb_round_up_to_mps(int num_bytes, int mps)
     if (num_bytes <= 0 || mps <= 0) {    //MPS can never be zero
         return 0;
     }
+    // Overflow protection: check if addition would overflow
+    if (num_bytes > (INT_MAX - mps + 1)) {
+        return 0; // Overflow detected, return error value
+    }
     return ((num_bytes + mps - 1) / mps) * mps;
 }
 
