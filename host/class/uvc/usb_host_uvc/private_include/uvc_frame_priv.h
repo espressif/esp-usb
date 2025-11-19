@@ -16,10 +16,13 @@ extern "C" {
 /**
  * @brief Allocate frame buffers for UVC stream
  *
+ * In case fb_size is 0, format negotiation (probe) must be done before calling this function,
+ * because the frame size is taken from the negotiated format.
+ *
  * @param[in] uvc_stream UVC stream handle
  * @param[in] nb_of_fb   Number of frame buffers to allocate
- * @param[in] fb_size    Size of 1 frame buffer in bytes
- * @param[in] fb_caps    Memory capabilities of memory for frame buffers
+ * @param[in] fb_size    Size of 1 frame buffer in bytes, can be 0 for default
+ * @param[in] fb_caps    Memory capabilities of memory for frame buffers, can be 0 for MALLOC_CAP_DEFAULT
  * @return
  *     - ESP_OK: Success
  *     - ESP_ERR_NO_MEM: Not enough memory for frame buffers

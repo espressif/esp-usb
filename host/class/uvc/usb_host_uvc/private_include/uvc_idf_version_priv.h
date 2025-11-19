@@ -11,7 +11,7 @@
 
 // @todo fix the hard-coded number here: Should be taken from HAL FIFO config in future versions of esp-idf
 #if (CONFIG_IDF_TARGET_ESP32P4 || CONFIG_IDF_TARGET_LINUX)
-#define MAX_MPS_IN 4096
+#define MAX_MPS_IN 4096 // Theoretically maximum 3 isochronous transaction per microframe, 3072 bytes
 #else
 // If FIFO is configured for bias IN, we have 608 bytes available.
 // However, configuring MPS > 596 causes USB transfer failures,
