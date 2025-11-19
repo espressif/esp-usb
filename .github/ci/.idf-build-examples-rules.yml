@@ -18,13 +18,9 @@ examples/peripherals/usb/host:
   disable:
     - if: SOC_USB_OTG_SUPPORTED != 1
 
-#TODO: Change back to:
-#    - if: (IDF_VERSION >= "5.5.0")
-#      reason: Run UVC example starts using UVC driver 2.0 only on IDF version 5.5
-# After the release/v5.5 docker is updated
 examples/peripherals/usb/host/uvc:
   enable:
-    - if: (IDF_VERSION >= "6.0.0")
-      reason: Temporarily build only for IDF 6.0
+    - if: (IDF_VERSION >= "5.5.0")
+      reason: Run UVC example starts using UVC driver 2.0 only on IDF version 5.5
   disable:
     - if: SOC_USB_OTG_SUPPORTED != 1
