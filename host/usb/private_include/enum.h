@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2024-2025 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -44,31 +44,9 @@ typedef enum {
 } enum_event_t;
 
 typedef struct {
-    enum_event_t event;                         /**< Enumerator driver event */
-    union {
-        struct {
-            unsigned int uid;                   /**< Device unique ID */
-            usb_device_handle_t parent_dev_hdl; /**< Parent of the enumerating device */
-            uint8_t parent_port_num;            /**< Parent port number of the enumerating device */
-        } started;                              /**< ENUM_EVENT_STARTED specific data */
-
-        struct {
-            usb_device_handle_t parent_dev_hdl; /**< Parent of the enumerating device */
-            uint8_t parent_port_num;            /**< Parent port number of the enumerating device */
-        } reset_req;                            /**< ENUM_EVENT_RESET_REQUIRED specific data */
-
-        struct {
-            usb_device_handle_t parent_dev_hdl; /**< Parent of the enumerating device */
-            uint8_t parent_port_num;            /**< Parent port number of the enumerating device */
-            usb_device_handle_t dev_hdl;        /**< Handle of the enumerating device */
-            uint8_t dev_addr;                   /**< Address of the enumerating device */
-        } complete;                             /**< ENUM_EVENT_COMPLETED specific data */
-
-        struct {
-            usb_device_handle_t parent_dev_hdl; /**< Parent of the enumerating device */
-            uint8_t parent_port_num;            /**< Parent port number of the enumerating device */
-        } canceled;                             /**< ENUM_EVENT_CANCELED specific data */
-    };
+    enum_event_t event;             /**< Enumerator driver event */
+    unsigned int node_uid;          /**< Unique node ID */
+    usb_device_handle_t dev_hdl;    /**< Handle of the enumerating device */
 } enum_event_data_t;
 
 // ---------------------------- Callbacks --------------------------------------
