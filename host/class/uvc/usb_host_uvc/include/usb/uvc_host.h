@@ -182,6 +182,7 @@ typedef struct {
         int number_of_urbs;          /**< Number of URBs for this stream. Triple buffering scheme is recommended */
         size_t urb_size;             /**< Size in bytes of 1 URB, 10kB should be enough for start.
                                           Larger value results in less frequent interrupts at the cost of memory consumption */
+        uint8_t **user_frame_buffers; /**< Optional: Array of pointers to user-provided frame buffers. NULL (default) = driver allocates buffers. */
     } advanced;
 } uvc_host_stream_config_t;
 

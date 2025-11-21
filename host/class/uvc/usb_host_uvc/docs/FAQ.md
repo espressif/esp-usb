@@ -29,6 +29,13 @@ You can limit RAM usage during UVC stream opening by configuring the frame buffe
 
 </details>
 
+<details>
+<summary>Q2: How can I use my own pre-allocated frame buffers instead of driver-managed allocation?</summary>
+
+Since v2.4.0, you can provide your own frame buffers via `uvc_host_stream_config_t.advanced.user_frame_buffers`.
+
+</details>
+
 ## FAQ H265 encoding
 
 <details>

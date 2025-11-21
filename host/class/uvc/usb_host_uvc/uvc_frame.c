@@ -30,27 +30,44 @@ esp_err_t uvc_host_frame_return(uvc_host_stream_hdl_t stream_hdl, uvc_host_frame
     return ESP_OK;
 }
 
-esp_err_t uvc_frame_allocate(uvc_stream_t *uvc_stream, int nb_of_fb, size_t fb_size, uint32_t fb_caps)
+esp_err_t uvc_frame_allocate(uvc_stream_t *uvc_stream, int nb_of_fb, size_t fb_size, uint32_t fb_caps, uint8_t **user_frame_buffers)
 {
     UVC_CHECK(uvc_stream, ESP_ERR_INVALID_ARG);
     esp_err_t ret;
 
+    // Determine if we're using user-provided buffers
+    const bool using_user_buffers = (user_frame_buffers != NULL);
+    uvc_stream->constant.user_provided_fb = using_user_buffers;
+
     // We will be passing the frame buffers by reference
     uvc_stream->constant.empty_fb_queue = xQueueCreate(nb_of_fb, sizeof(uvc_host_frame_t *));
     UVC_CHECK(uvc_stream->constant.empty_fb_queue, ESP_ERR_NO_MEM);
+
     for (int i = 0; i < nb_of_fb; i++) {
         // Allocate the frame buffer
         uvc_host_frame_t *this_fb = malloc(sizeof(uvc_host_frame_t));
-        if (fb_caps == 0) {
-            fb_caps = MALLOC_CAP_DEFAULT; // In case the user did not fill the config, set it to default
-        }
-        uint8_t *this_data = heap_caps_malloc(fb_size, fb_caps);
-        if (this_data == NULL || this_fb == NULL) {
-            free(this_fb);
-            free(this_data);
+        if (this_fb == NULL) {
             ret = ESP_ERR_NO_MEM;
-            ESP_LOGE(TAG, "Not enough memory for frame buffers %zu", fb_size);
+            ESP_LOGE(TAG, "Not enough memory for frame buffer structure");
             goto err;
+        }
+
+        uint8_t *this_data = NULL;
+        if (using_user_buffers) {
+            // Use user-provided buffer (already validated in uvc_host_stream_open)
+            this_data = user_frame_buffers[i];
+        } else {
+            // Allocate driver-managed buffer
+            if (fb_caps == 0) {
+                fb_caps = MALLOC_CAP_DEFAULT; // In case the user did not fill the config, set it to default
+            }
+            this_data = heap_caps_malloc(fb_size, fb_caps);
+            if (this_data == NULL) {
+                free(this_fb);
+                ret = ESP_ERR_NO_MEM;
+                ESP_LOGE(TAG, "Not enough memory for frame buffers %zu", fb_size);
+                goto err;
+            }
         }
 
         // Set members to default
@@ -78,7 +95,10 @@ void uvc_frame_free(uvc_stream_t *uvc_stream)
     // Free all Frame Buffers and the Queue itself
     uvc_host_frame_t *this_fb;
     while (xQueueReceive(uvc_stream->constant.empty_fb_queue, &this_fb, 0) == pdPASS) {
-        free(this_fb->data);
+        // Only free the data buffer if it was allocated by the driver (not user-provided)
+        if (!uvc_stream->constant.user_provided_fb) {
+            free(this_fb->data);
+        }
         free(this_fb);
     }
     vQueueDelete(uvc_stream->constant.empty_fb_queue);

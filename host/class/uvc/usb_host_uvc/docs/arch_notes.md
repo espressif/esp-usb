@@ -33,6 +33,11 @@ This driver utilizes two distinct types of memory buffers, both of which can be 
   - UVC cameras report the maximum frame buffer size during stream format negotiation.
   - These sizes are often overly large, leading to inefficient RAM usage.
   - This driver allows the allocation of smaller FBs to optimize memory usage.
+- **User-Provided Frame Buffers (Optional, since v2.4.0):**
+  - By default, the driver allocates frame buffers using `heap_caps_malloc()`.
+  - Users can optionally provide pre-allocated buffers via `uvc_host_stream_config_t.advanced.user_frame_buffers[]`.
+  - **Usage:** Set `user_frame_buffers` to an array of `number_of_frame_buffers` pointers, each pointing to a buffer of at least `frame_size` bytes. The driver will use these buffers instead of allocating its own.
+  - **Lifecycle:** Users manage buffer allocation and deallocation; the driver only manages buffer ownership during streaming (via frame callback and `uvc_host_frame_return()`).
 
 ### Frame buffer state transitions
 ![Frame buffer state transitions](./uvc_frames_state_transitions.png)

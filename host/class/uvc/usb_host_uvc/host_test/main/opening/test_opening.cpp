@@ -121,6 +121,7 @@ SCENARIO("Test mocked device opening and closing")
                 .frame_heap_caps = 0,
                 .number_of_urbs = 4,
                 .urb_size = 10 * 1024,
+                .user_frame_buffers = NULL,
             },
         };
 
@@ -241,6 +242,7 @@ SCENARIO("Test mocked device format negotiation")
                 .frame_heap_caps = 0,
                 .number_of_urbs = 4,
                 .urb_size = 10 * 1024,
+                .user_frame_buffers = NULL,
             },
         };
 
