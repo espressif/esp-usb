@@ -7,10 +7,8 @@
 name: Build and Run USB Host test
 
 on:
-  workflow_dispatch:
-  # Disabled host_test on latest till the IEC-418 issue is resolved
-  # pull_request:
-    # types: [opened, reopened, synchronize]
+  pull_request:
+    types: [opened, reopened, synchronize]
 
 jobs:
   build:
