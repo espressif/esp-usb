@@ -646,71 +646,71 @@ TEST_CASE("suspend_resume", "[usb_msc]")
     msc_teardown();
 }
 
-#define MSC_TEST_PM_TIMER_INTERVAL_MS    1000
-#define MSC_TEST_PM_TIMER_MARGIN_MS      50
+#define MSC_TEST_SUSPEND_TIMER_INTERVAL_MS    1000
+#define MSC_TEST_SUSPEND_TIMER_MARGIN_MS      50
 /**
- * @brief USB MSC driver with the Power Management timer
+ * @brief USB MSC driver with the automatic suspend timer timer
  *
  * Purpose:
- *     - Test One-Shot and Periodic PM timer for global Suspend of the root port with MSC Driver
+ *     - Test One-Shot and Periodic auto suspend timer for global Suspend of the root port with MSC Driver
  *
  * Procedure:
  *     - Install USB Host lib, Install MSC driver, open a device, register VFS
- *     - Set One-Shot PM timer to 1000ms
+ *     - Set One-Shot auto suspend timer to 1000ms
  *     - Simulate some USB traffic by reading/writing a file multiple times and regularly check that no USB_HOST_LIB event is delivered
  *     - Once all the traffic is idle, verify the MSC_DEVICE_SUSPENDED event is delivered
  *     - Measure time from issuing automatic suspend until the suspend event delivery
-       - Set Periodic PM timer and periodically check for MSC_DEVICE_SUSPENDED event, manually resume the device and verify device functionality
- *     - Disable the Periodic PM timer it and make sure no other event is delivered
+       - Set Periodic auto suspend timer and periodically check for MSC_DEVICE_SUSPENDED event, manually resume the device and verify device functionality
+ *     - Disable the Periodic auto suspend timer and make sure no other event is delivered
  *     - Teardown
  */
 TEST_CASE("auto_suspend_timer", "[usb_msc]")
 {
     msc_setup();
 
-    // Set One-Shot PM suspend timer and start measuring ticks
-    ESP_OK_ASSERT(usb_host_lib_set_auto_pm(USB_HOST_LIB_PM_SUSPEND_ONE_SHOT, MSC_TEST_PM_TIMER_INTERVAL_MS));
-    TickType_t auto_pm_suspend_tick_start = xTaskGetTickCount();
+    // Set One-Shot auto suspend timer and start measuring ticks
+    ESP_OK_ASSERT(usb_host_lib_set_auto_suspend(USB_HOST_LIB_AUTO_SUSPEND_ONE_SHOT, MSC_TEST_SUSPEND_TIMER_INTERVAL_MS));
+    TickType_t auto_suspend_tick_start = xTaskGetTickCount();
     msc_host_event_t peek_event, expected_event;
 
-    // Simulate some traffic, so the root port would not suspend after MSC_TEST_PM_TIMER_INTERVAL_MS from now,
-    // but after MSC_TEST_PM_TIMER_INTERVAL_MS, once there is no traffic
+    // Simulate some traffic, so the root port would not suspend after MSC_TEST_SUSPEND_TIMER_INTERVAL_MS from now,
+    // but after MSC_TEST_SUSPEND_TIMER_INTERVAL_MS, once there is no traffic
     // Regularly check, that there is no item in queue (check that the timer did not expire)
     for (int i = 0; i < 5; i++) {
         write_read_file(FILE_NAME);
         TEST_ASSERT_EQUAL(pdFALSE, xQueuePeek(app_queue, &peek_event, 0));
     }
 
-    // Expect MSC device to be suspended, expect app queue and block for MSC_TEST_PM_TIMER_INTERVAL_MS + some margin
+    // Expect MSC device to be suspended, expect app queue and block for MSC_TEST_SUSPEND_TIMER_INTERVAL_MS + some margin
     expected_event.event = MSC_DEVICE_SUSPENDED;
-    wait_for_app_event(&expected_event, pdMS_TO_TICKS(MSC_TEST_PM_TIMER_INTERVAL_MS + MSC_TEST_PM_TIMER_MARGIN_MS));
+    wait_for_app_event(&expected_event, pdMS_TO_TICKS(MSC_TEST_SUSPEND_TIMER_INTERVAL_MS + MSC_TEST_SUSPEND_TIMER_MARGIN_MS));
 
-    TickType_t auto_pm_suspend_tick_end = xTaskGetTickCount();      // App event received, stop measuring ticks
-    const uint32_t elapsed_ms = (auto_pm_suspend_tick_end - auto_pm_suspend_tick_start) * portTICK_PERIOD_MS;
+    TickType_t auto_suspend_tick_end = xTaskGetTickCount();      // App event received, stop measuring ticks
+    const uint32_t elapsed_ms = (auto_suspend_tick_end - auto_suspend_tick_start) * portTICK_PERIOD_MS;
 
     // Check that, the time elapsed between setting the auto suspend timer and MSC_DEVICE_SUSPENDED event
-    // is more than MSC_TEST_PM_TIMER_INTERVAL_MS + some margin
+    // is more than MSC_TEST_SUSPEND_TIMER_INTERVAL_MS + some margin
     TEST_ASSERT_GREATER_THAN_UINT32_MESSAGE(
-        MSC_TEST_PM_TIMER_INTERVAL_MS + MSC_TEST_PM_TIMER_MARGIN_MS, elapsed_ms,
+        MSC_TEST_SUSPEND_TIMER_INTERVAL_MS + MSC_TEST_SUSPEND_TIMER_MARGIN_MS, elapsed_ms,
         "Auto suspend timer did not expire on time"
     );
 
     // Make sure that no event is delivered, since we set the timer to be One-Shot
-    wait_for_app_event(NULL, pdMS_TO_TICKS(MSC_TEST_PM_TIMER_INTERVAL_MS * 2));
+    wait_for_app_event(NULL, pdMS_TO_TICKS(MSC_TEST_SUSPEND_TIMER_INTERVAL_MS * 2));
 
     // Resume the root port manually and expect the resume event
     ESP_OK_ASSERT(usb_host_lib_root_port_resume());
     expected_event.event = MSC_DEVICE_RESUMED;
     wait_for_app_event(&expected_event, 20);
 
-    // Set Periodic PM suspend timer
-    ESP_OK_ASSERT(usb_host_lib_set_auto_pm(USB_HOST_LIB_PM_SUSPEND_PERIODIC, MSC_TEST_PM_TIMER_INTERVAL_MS));
+    // Set Periodic auto suspend timer
+    ESP_OK_ASSERT(usb_host_lib_set_auto_suspend(USB_HOST_LIB_AUTO_SUSPEND_PERIODIC, MSC_TEST_SUSPEND_TIMER_INTERVAL_MS));
 
     for (int i = 0; i < 3; i++) {
 
         // Expect suspended event from auto suspend timer
         expected_event.event = MSC_DEVICE_SUSPENDED;
-        wait_for_app_event(&expected_event, pdMS_TO_TICKS(MSC_TEST_PM_TIMER_INTERVAL_MS + MSC_TEST_PM_TIMER_MARGIN_MS));
+        wait_for_app_event(&expected_event, pdMS_TO_TICKS(MSC_TEST_SUSPEND_TIMER_INTERVAL_MS + MSC_TEST_SUSPEND_TIMER_MARGIN_MS));
 
         // Resume the root port manually and expect the resume event
         ESP_OK_ASSERT(usb_host_lib_root_port_resume());
@@ -721,10 +721,10 @@ TEST_CASE("auto_suspend_timer", "[usb_msc]")
         write_read_file(FILE_NAME);
     }
 
-    // Disable Periodic PM timer
-    ESP_OK_ASSERT(usb_host_lib_set_auto_pm(USB_HOST_LIB_PM_SUSPEND_PERIODIC, 0));
-    // Test that the Periodic PM timer can be disabled and no other event is delivered
-    TEST_ASSERT_EQUAL(pdFALSE, xQueuePeek(app_queue, &peek_event, pdMS_TO_TICKS(MSC_TEST_PM_TIMER_INTERVAL_MS * 2)));
+    // Disable Periodic auto suspend timer
+    ESP_OK_ASSERT(usb_host_lib_set_auto_suspend(USB_HOST_LIB_AUTO_SUSPEND_PERIODIC, 0));
+    // Test that the Periodic auto suspend timer can be disabled and no other event is delivered
+    TEST_ASSERT_EQUAL(pdFALSE, xQueuePeek(app_queue, &peek_event, pdMS_TO_TICKS(MSC_TEST_SUSPEND_TIMER_INTERVAL_MS * 2)));
     msc_teardown();
 }
 

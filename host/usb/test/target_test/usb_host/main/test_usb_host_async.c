@@ -513,7 +513,7 @@ Purpose:
 
 Procedure:
     - Install USB Host Library, register MSC client, open a device and start handling client events
-    - Set PM periodic timer to 2000ms, start handling usb host lib events
+    - Set auto suspend periodic timer to 2000ms, start handling usb host lib events
     - Expect USB_HOST_LIB_EVENT_FLAGS_AUTO_SUSPEND usb host lib flag
     - Check if the root port is in resumed state, suspend the root port
     - Expect USB_HOST_CLIENT_EVENT_DEV_SUSPENDED client event
@@ -528,8 +528,8 @@ TEST_CASE("Test USB Host auto suspend", "[usb_host][low_speed][full_speed][high_
     // Create mcs client task
     TEST_ASSERT_EQUAL(pdTRUE, xTaskCreate(notif_msc_client, "notif_msc", 4096, NULL, 2, &client_task_hdl));
     TEST_ASSERT_NOT_NULL(client_task_hdl);
-    // Set PM timer to periodic
-    TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_set_auto_pm(USB_HOST_LIB_PM_SUSPEND_PERIODIC, TEST_AUTO_SUSPEND_PERIOD_MS));
+    // Set auto suspend timer to periodic
+    TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_set_auto_suspend(USB_HOST_LIB_AUTO_SUSPEND_PERIODIC, TEST_AUTO_SUSPEND_PERIOD_MS));
 
     int suspend_iter = 0;
     while (1) {
@@ -544,8 +544,8 @@ TEST_CASE("Test USB Host auto suspend", "[usb_host][low_speed][full_speed][high_
             if (++suspend_iter >= TEST_AUTO_SUSPEND_ITERATIONS) {
                 // Stop handling the client events, deregister the client
                 xTaskNotifyGive(client_task_hdl);
-                // Stop the periodic PM timer
-                TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_set_auto_pm(USB_HOST_LIB_PM_SUSPEND_PERIODIC, 0));
+                // Stop the periodic auto suspend timer
+                TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_set_auto_suspend(USB_HOST_LIB_AUTO_SUSPEND_PERIODIC, 0));
                 continue;
             }
 

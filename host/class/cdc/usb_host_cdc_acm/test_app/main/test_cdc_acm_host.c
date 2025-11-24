@@ -906,14 +906,14 @@ TEST_CASE("suspend_resume_multiple_devs", "[cdc_acm]")
     vTaskDelay(20); // Short delay to allow task to be cleaned up
 }
 
-#define TEST_CDC_ACM_PM_TIMER_INTERVAL_MS   1000
-#define TEST_CDC_ACM_PM_TIMER_MARGIN_MS     50
+#define TEST_CDC_ACM_SUSPEND_TIMER_INTERVAL_MS   1000
+#define TEST_CDC_ACM_SUSPEND_TIMER_MARGIN_MS     50
 /**
  * @brief Test: Automatic suspend timer
  *
- * #. open the device, set One-Shot PM timer, expect one USB_HOST_CLIENT_EVENT_DEV_SUSPENDED event
- * #. Set Periodic PM timer, expect multiple USB_HOST_CLIENT_EVENT_DEV_SUSPENDED events
- * #. Disable Periodic PM timer, expect no event
+ * #. open the device, set One-Shot auto suspend timer, expect one USB_HOST_CLIENT_EVENT_DEV_SUSPENDED event
+ * #. Set Periodic auto suspend timer, expect multiple USB_HOST_CLIENT_EVENT_DEV_SUSPENDED events
+ * #. Disable Periodic auto suspend timer, expect no event
  * #. disconnect the device
  * #. cleanup
  */
@@ -932,23 +932,23 @@ TEST_CASE("automatic_suspend_timer", "[cdc_acm]")
     TEST_ASSERT_NOT_NULL(cdc_dev);
     vTaskDelay(10);
 
-    // Set One-Shot PM timer
-    TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_set_auto_pm(USB_HOST_LIB_PM_SUSPEND_ONE_SHOT, TEST_CDC_ACM_PM_TIMER_INTERVAL_MS));
-    wait_for_app_event(CDC_ACM_HOST_DEVICE_SUSPENDED, pdMS_TO_TICKS(TEST_CDC_ACM_PM_TIMER_INTERVAL_MS + TEST_CDC_ACM_PM_TIMER_MARGIN_MS));
+    // Set One-Shot auto suspend timer
+    TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_set_auto_suspend(USB_HOST_LIB_AUTO_SUSPEND_ONE_SHOT, TEST_CDC_ACM_SUSPEND_TIMER_INTERVAL_MS));
+    wait_for_app_event(CDC_ACM_HOST_DEVICE_SUSPENDED, pdMS_TO_TICKS(TEST_CDC_ACM_SUSPEND_TIMER_INTERVAL_MS + TEST_CDC_ACM_SUSPEND_TIMER_MARGIN_MS));
 
     // Manually resume the root port and expect the resumed event
     TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_root_port_resume());
     wait_for_app_event(CDC_ACM_HOST_DEVICE_RESUMED, 20);
 
     // Make sure no event is delivered, since the timer is a One-Shot timer
-    wait_for_no_app_event(pdMS_TO_TICKS(TEST_CDC_ACM_PM_TIMER_INTERVAL_MS * 2));
+    wait_for_no_app_event(pdMS_TO_TICKS(TEST_CDC_ACM_SUSPEND_TIMER_INTERVAL_MS * 2));
 
-    // Set Periodic PM suspend timer
-    TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_set_auto_pm(USB_HOST_LIB_PM_SUSPEND_PERIODIC, TEST_CDC_ACM_PM_TIMER_INTERVAL_MS));
+    // Set Periodic auto suspend timer
+    TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_set_auto_suspend(USB_HOST_LIB_AUTO_SUSPEND_PERIODIC, TEST_CDC_ACM_SUSPEND_TIMER_INTERVAL_MS));
 
     for (int i = 0; i < 3; i++) {
         // Expect suspended event from auto suspend timer
-        wait_for_app_event(CDC_ACM_HOST_DEVICE_SUSPENDED, pdMS_TO_TICKS(TEST_CDC_ACM_PM_TIMER_INTERVAL_MS + TEST_CDC_ACM_PM_TIMER_MARGIN_MS));
+        wait_for_app_event(CDC_ACM_HOST_DEVICE_SUSPENDED, pdMS_TO_TICKS(TEST_CDC_ACM_SUSPEND_TIMER_INTERVAL_MS + TEST_CDC_ACM_SUSPEND_TIMER_MARGIN_MS));
 
         // Resume the root port manually and expect the resume event
         TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_root_port_resume());
@@ -958,10 +958,10 @@ TEST_CASE("automatic_suspend_timer", "[cdc_acm]")
         TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_data_tx_blocking(cdc_dev, tx_buf, sizeof(tx_buf), 1000));
     }
 
-    // Disable the Periodic PM timer
-    TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_set_auto_pm(USB_HOST_LIB_PM_SUSPEND_PERIODIC, 0));
+    // Disable the Periodic auto suspend timer
+    TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_set_auto_suspend(USB_HOST_LIB_AUTO_SUSPEND_PERIODIC, 0));
     // Make sure no event is delivered
-    wait_for_no_app_event(pdMS_TO_TICKS(TEST_CDC_ACM_PM_TIMER_INTERVAL_MS * 2));
+    wait_for_no_app_event(pdMS_TO_TICKS(TEST_CDC_ACM_SUSPEND_TIMER_INTERVAL_MS * 2));
 
     // Clean-up
     TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_close(cdc_dev));

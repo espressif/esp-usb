@@ -159,10 +159,10 @@ typedef struct {
     struct {
         SemaphoreHandle_t event_sem;
         SemaphoreHandle_t mux_lock;
-        TimerHandle_t auto_pm_timer;    // Freertos timer used for automatic power management
-        usb_phy_handle_t phy_handle;    // Will be NULL if host library is installed with skip_phy_setup
-        void *enum_client;              // Pointer to Enum driver (acting as a client). Used to reroute completed USBH control transfers
-        void *hub_client;               // Pointer to External Hub driver (acting as a client). Used to reroute completed USBH control transfers. NULL, when External Hub Driver not available.
+        TimerHandle_t auto_suspend_timer;   // Freertos timer used for automatic suspend of the root port
+        usb_phy_handle_t phy_handle;        // Will be NULL if host library is installed with skip_phy_setup
+        void *enum_client;                  // Pointer to Enum driver (acting as a client). Used to reroute completed USBH control transfers
+        void *hub_client;                   // Pointer to External Hub driver (acting as a client). Used to reroute completed USBH control transfers. NULL, when External Hub Driver not available.
     } constant;
 } host_lib_t;
 
@@ -246,25 +246,25 @@ static inline bool is_internal_client(void *client)
 }
 
 /**
- * @brief Reset the automatic PM timer
+ * @brief Reset the automatic suspend timer
  *
  * The timer resets automatically, whenever usb host lib or usb host client are handling any events
  */
-static inline void reset_pm_timer(void)
+static inline void reset_auto_suspend_timer(void)
 {
-    if (xTimerIsTimerActive(p_host_lib_obj->constant.auto_pm_timer) == pdTRUE) {
-        xTimerReset(p_host_lib_obj->constant.auto_pm_timer, portMAX_DELAY);
+    if (xTimerIsTimerActive(p_host_lib_obj->constant.auto_suspend_timer) == pdTRUE) {
+        xTimerReset(p_host_lib_obj->constant.auto_suspend_timer, portMAX_DELAY);
     }
 }
 
 /**
- * @brief Stop the automatic PM timer
+ * @brief Stop the automatic suspend timer
  *
  * The timer is automatically stopped in case it is running and all the devices have been freed
  */
-static void stop_pm_timer(void)
+static void stop_auto_suspend_timer(void)
 {
-    xTimerStop(p_host_lib_obj->constant.auto_pm_timer, portMAX_DELAY);
+    xTimerStop(p_host_lib_obj->constant.auto_suspend_timer, portMAX_DELAY);
 }
 
 static void send_event_msg_to_clients(const usb_host_client_event_msg_t *event_msg, bool send_to_all, uint8_t opened_dev_addr)
@@ -374,8 +374,8 @@ static void usbh_event_callback(usbh_event_data_t *event_data, void *arg)
         break;
     }
     case USBH_EVENT_ALL_FREE: {
-        // No device connected to the root port, stop the PM timer (if running)
-        stop_pm_timer();
+        // No device connected to the root port, stop the auto suspend timer (if running)
+        stop_auto_suspend_timer();
 
         // Notify the lib handler that all devices are free
         HOST_ENTER_CRITICAL();
@@ -491,17 +491,17 @@ static void get_config_desc_transfer_cb(usb_transfer_t *transfer)
 }
 
 /**
- * @brief Auto power management timer callback
+ * @brief Automatic suspend timer timer callback
  *
  * - The callback is called once the timer expires
- * - The timer is configured using usb_host_lib_set_auto_pm()
+ * - The timer is configured using usb_host_lib_set_auto_suspend()
  * - Callback unblocks the usb_host_lib_handle_events() and delivers suspend USB Host lib event
  * - Event flag is dellivered, only if:
  *      - A device is connected to the the root port
  *      - The root port is not already in suspended state
  * @param[in] xTimer Timer handle
  */
-static void auto_pm_timer_cb(TimerHandle_t xTimer)
+static void auto_suspend_timer_cb(TimerHandle_t xTimer)
 {
     // Check if any device is connected first
     int num_devs;
@@ -538,8 +538,8 @@ esp_err_t usb_host_install(const usb_host_config_t *config)
     host_lib_t *host_lib_obj = heap_caps_calloc(1, sizeof(host_lib_t), MALLOC_CAP_DEFAULT);
     SemaphoreHandle_t event_sem = xSemaphoreCreateBinary();
     SemaphoreHandle_t mux_lock = xSemaphoreCreateMutex();
-    TimerHandle_t auto_pm_timer = xTimerCreate("auto_pm_tmr", pdMS_TO_TICKS(1000), pdFALSE, NULL, auto_pm_timer_cb);
-    if (host_lib_obj == NULL || event_sem == NULL || mux_lock == NULL || auto_pm_timer == NULL) {
+    TimerHandle_t auto_suspend_timer = xTimerCreate("auto_suspend_tmr", pdMS_TO_TICKS(1000), pdFALSE, NULL, auto_suspend_timer_cb);
+    if (host_lib_obj == NULL || event_sem == NULL || mux_lock == NULL || auto_suspend_timer == NULL) {
         ret = ESP_ERR_NO_MEM;
         goto alloc_err;
     }
@@ -547,7 +547,7 @@ esp_err_t usb_host_install(const usb_host_config_t *config)
     TAILQ_INIT(&host_lib_obj->mux_protected.client_tailq);
     host_lib_obj->constant.event_sem = event_sem;
     host_lib_obj->constant.mux_lock = mux_lock;
-    host_lib_obj->constant.auto_pm_timer = auto_pm_timer;
+    host_lib_obj->constant.auto_suspend_timer = auto_suspend_timer;
 
     /*
     Install each layer of the Host stack (listed below) from the lowest layer to the highest
@@ -700,8 +700,8 @@ alloc_err:
     if (event_sem) {
         vSemaphoreDelete(event_sem);
     }
-    if (auto_pm_timer) {
-        xTimerDelete(auto_pm_timer, portMAX_DELAY);
+    if (auto_suspend_timer) {
+        xTimerDelete(auto_suspend_timer, portMAX_DELAY);
     }
     heap_caps_free(host_lib_obj);
     return ret;
@@ -747,7 +747,7 @@ esp_err_t usb_host_uninstall(void)
     // Free memory objects
     vSemaphoreDelete(host_lib_obj->constant.mux_lock);
     vSemaphoreDelete(host_lib_obj->constant.event_sem);
-    xTimerDelete(host_lib_obj->constant.auto_pm_timer, portMAX_DELAY);
+    xTimerDelete(host_lib_obj->constant.auto_suspend_timer, portMAX_DELAY);
     heap_caps_free(host_lib_obj);
     return ESP_OK;
 }
@@ -772,8 +772,8 @@ esp_err_t usb_host_lib_handle_events(TickType_t timeout_ticks, uint32_t *event_f
             break;
         }
 
-        // Reset the automatic power management timer, USB Host lib is handling events
-        reset_pm_timer();
+        // Reset the automatic suspend timer, USB Host lib is handling events
+        reset_auto_suspend_timer();
 
         // Read and clear process pending flags
         HOST_ENTER_CRITICAL();
@@ -926,13 +926,13 @@ exit:
     return ret;
 }
 
-esp_err_t usb_host_lib_set_auto_pm(usb_host_lib_pm_t timer_type, size_t timer_interval_ms)
+esp_err_t usb_host_lib_set_auto_suspend(usb_host_lib_auto_suspend_tmr_t timer_type, size_t timer_interval_ms)
 {
     HOST_ENTER_CRITICAL();
     HOST_CHECK_FROM_CRIT(p_host_lib_obj != NULL, ESP_ERR_INVALID_STATE);
     HOST_EXIT_CRITICAL();
 
-    TimerHandle_t suspend_tmr = p_host_lib_obj->constant.auto_pm_timer;
+    TimerHandle_t suspend_tmr = p_host_lib_obj->constant.auto_suspend_timer;
 
     // Interval is 0, stop the timer
     if (timer_interval_ms == 0) {
@@ -945,10 +945,10 @@ esp_err_t usb_host_lib_set_auto_pm(usb_host_lib_pm_t timer_type, size_t timer_in
 
     // Set timer reload mode: One-Shot or periodic
     switch (timer_type) {
-    case USB_HOST_LIB_PM_SUSPEND_ONE_SHOT:
+    case USB_HOST_LIB_AUTO_SUSPEND_ONE_SHOT:
         vTimerSetReloadMode(suspend_tmr, pdFALSE);
         break;
-    case USB_HOST_LIB_PM_SUSPEND_PERIODIC:
+    case USB_HOST_LIB_AUTO_SUSPEND_PERIODIC:
         vTimerSetReloadMode(suspend_tmr, pdTRUE);
         break;
     default:
@@ -960,7 +960,7 @@ esp_err_t usb_host_lib_set_auto_pm(usb_host_lib_pm_t timer_type, size_t timer_in
                         ESP_FAIL, USB_HOST_TAG, "Timer period could not be changed");
 
     ESP_LOGD(USB_HOST_TAG, "Auto suspend timer set to %d ms, %s mode and started",
-             timer_interval_ms, ((timer_type == USB_HOST_LIB_PM_SUSPEND_ONE_SHOT) ? ("One-Shot") : ("Periodic")));
+             timer_interval_ms, ((timer_type == USB_HOST_LIB_AUTO_SUSPEND_ONE_SHOT) ? ("One-Shot") : ("Periodic")));
 
     return ESP_OK;
 }
@@ -1145,8 +1145,8 @@ esp_err_t usb_host_client_handle_events(usb_host_client_handle_t client_hdl, Tic
             break;
         }
 
-        // Reset the automatic power management timer, USB Host client is handling events
-        reset_pm_timer();
+        // Reset the automatic suspend timer, USB Host client is handling events
+        reset_auto_suspend_timer();
 
         HOST_ENTER_CRITICAL();
         // Handle pending endpoints
