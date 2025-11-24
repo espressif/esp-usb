@@ -2,8 +2,12 @@
 version: "1.3.2"
 description: USB Host UAC driver
 url: https://github.com/espressif/esp-usb/tree/master/host/class/uac/usb_host_uac
+issues: "https://github.com/espressif/esp-usb/issues"
+repository: "https://github.com/espressif/esp-usb.git"
+repository_info:
+  path: "host/class/uac/usb_host_uac"
 dependencies:
-  idf: ">=4.4"
+  idf: ">=5.0"
   cmake_utilities: "0.5.*"
   usb:
     version: "^1.0.0"
