@@ -27,7 +27,7 @@ Implementation of an asynchronous MSC client used for USB Host's root port resum
     - Receive USB_HOST_CLIENT_EVENT_NEW_DEV event message, and open the device
     - Open the device by a client
     - Allocate IN and OUT transfer objects for MSC SCSI transfers
-    - Suspend the root port using the PM timer
+    - Suspend the root port using the automatic suspend timer
         - Receive USB_HOST_CLIENT_EVENT_DEV_SUSPENDED event message
     - Issue MSC reset (while the root port is still suspended) to test root port automatic resume by submitting a control transfer
     - Expect USB_TRANSFER_STATUS_COMPLETED
@@ -245,8 +245,8 @@ void msc_client_async_resume_by_transfer_task(void *arg)
             break;
         }
         case TEST_STAGE_SUSPEND_BY_TIMER: {
-            ESP_LOGD(MSC_CLIENT_TAG, "Suspend by PM timer");
-            TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_set_auto_pm(USB_HOST_LIB_PM_SUSPEND_ONE_SHOT, 200));
+            ESP_LOGD(MSC_CLIENT_TAG, "Suspend by auto suspend timer");
+            TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_set_auto_suspend(USB_HOST_LIB_AUTO_SUSPEND_ONE_SHOT, 200));
             // Next stage is set from msc_client_event_cb
             break;
         }
