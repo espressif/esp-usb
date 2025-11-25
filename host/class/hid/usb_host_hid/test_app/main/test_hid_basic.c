@@ -729,7 +729,7 @@ static void usb_lib_task(void *arg)
             xTaskNotifyGive(arg);
         }
 #ifdef HID_HOST_SUSPEND_RESUME_API_SUPPORTED
-        // Auto-suspend timer
+        // Automatic ssuspend timer
         if (event_flags & USB_HOST_LIB_EVENT_FLAGS_AUTO_SUSPEND) {
             printf("USB Event flags: AUTO_SUSPEND\n");
             TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_root_port_suspend());
@@ -950,18 +950,18 @@ TEST_CASE("suspend_resume_basic", "[hid_host]")
     hid_host_test_event_queue = NULL;
 }
 
-#define TEST_HID_PM_TIMER_INTERVAL_MS   500
-#define TEST_HID_PM_TIMER_MARGIN_MS     50
+#define TEST_HID_SUSPEND_TIMER_INTERVAL_MS   500
+#define TEST_HID_SUSPEND_TIMER_MARGIN_MS     50
 
 /**
- * @brief Auto Suspend timer
+ * @brief Automatic Suspend timer
  *
  * Purpose:
- *     - Test auto suspend timer functionality (One-Shot and Periodic timer settings)
+ *     - Test automatic suspend timer functionality (One-Shot and Periodic timer settings)
  *
  * Procedure:
  *     - Install USB Host lib, Install HID driver, open device and start device
- *     - Set auto-suspend timer, expect the root port to be suspended by expecting interface events
+ *     - Set automatic suspend timer, expect the root port to be suspended by expecting interface events
  *     - Issue a CTRL transfer to the device, expect the root port to be resumed
  *     - Teardown
  */
@@ -983,30 +983,30 @@ TEST_CASE("auto_suspend_timer", "[hid_host]")
 
     // Set one-shot auto suspend timer, and expect suspended event
     printf("Set One-Shot auto suspend timer\n");
-    TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_set_auto_pm(USB_HOST_LIB_PM_SUSPEND_ONE_SHOT, TEST_HID_PM_TIMER_INTERVAL_MS));
+    TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_set_auto_suspend(USB_HOST_LIB_AUTO_SUSPEND_ONE_SHOT, TEST_HID_SUSPEND_TIMER_INTERVAL_MS));
     expected_event.event_group = HID_INTERFACE_EVENT;
     expected_event.interface_evt.event = HID_HOST_INTERFACE_EVENT_SUSPENDED;
-    hid_host_test_expect_event(&expected_event, pdMS_TO_TICKS(TEST_HID_PM_TIMER_INTERVAL_MS + TEST_HID_PM_TIMER_MARGIN_MS));
+    hid_host_test_expect_event(&expected_event, pdMS_TO_TICKS(TEST_HID_SUSPEND_TIMER_INTERVAL_MS + TEST_HID_SUSPEND_TIMER_MARGIN_MS));
 
     // Manually resume the root port and expect the resumed event
     TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_root_port_resume());
     expected_event.interface_evt.event = HID_HOST_INTERFACE_EVENT_RESUMED;
     hid_host_test_expect_event(&expected_event, expect_event_ticks);
 
-    // Make sure no other event is delivered, as the PM timer is a one-shot timer
-    hid_host_test_expect_event(NULL, pdMS_TO_TICKS(TEST_HID_PM_TIMER_INTERVAL_MS * 2));
+    // Make sure no other event is delivered, as the auto suspend timer is a one-shot timer
+    hid_host_test_expect_event(NULL, pdMS_TO_TICKS(TEST_HID_SUSPEND_TIMER_INTERVAL_MS * 2));
 
-    // Set periodic PM suspend timer
-    printf("Set Periodic auto suspend timer\n");
-    TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_set_auto_pm(USB_HOST_LIB_PM_SUSPEND_PERIODIC, TEST_HID_PM_TIMER_INTERVAL_MS));
+    // Set periodic auto suspend timer
+    printf("Set periodic auto suspend timer\n");
+    TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_set_auto_suspend(USB_HOST_LIB_AUTO_SUSPEND_PERIODIC, TEST_HID_SUSPEND_TIMER_INTERVAL_MS));
 
     for (int i = 0; i < 3; i++) {
         // Expect suspend event from the periodic auto suspend timer
         expected_event.interface_evt.event = HID_HOST_INTERFACE_EVENT_SUSPENDED;
-        hid_host_test_expect_event(&expected_event, pdMS_TO_TICKS(TEST_HID_PM_TIMER_INTERVAL_MS + TEST_HID_PM_TIMER_MARGIN_MS));
+        hid_host_test_expect_event(&expected_event, pdMS_TO_TICKS(TEST_HID_SUSPEND_TIMER_INTERVAL_MS + TEST_HID_SUSPEND_TIMER_MARGIN_MS));
 
-        // Even though the Periodic timer is running, don't expect any event because of suspended root port
-        hid_host_test_expect_event(NULL, pdMS_TO_TICKS(TEST_HID_PM_TIMER_INTERVAL_MS * 2));
+        // Even though the periodic timer is running, don't expect any event because of suspended root port
+        hid_host_test_expect_event(NULL, pdMS_TO_TICKS(TEST_HID_SUSPEND_TIMER_INTERVAL_MS * 2));
 
         // Manually resume the root port and expect the resumed event
         TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_root_port_resume());
@@ -1019,11 +1019,11 @@ TEST_CASE("auto_suspend_timer", "[hid_host]")
         test_hid_host_device_touch(&dev_params, HID_HOST_TEST_TOUCH_WAY_ASSERT);
     }
 
-    // Disable the Periodic PM timer
-    printf("Disable Periodic auto suspend timer\n");
-    TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_set_auto_pm(USB_HOST_LIB_PM_SUSPEND_PERIODIC, 0));
+    // Disable the periodic auto suspend timer
+    printf("Disable periodic auto suspend timer\n");
+    TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_set_auto_suspend(USB_HOST_LIB_AUTO_SUSPEND_PERIODIC, 0));
     // Make sure no event is delivered
-    hid_host_test_expect_event(NULL, pdMS_TO_TICKS(TEST_HID_PM_TIMER_INTERVAL_MS * 2));
+    hid_host_test_expect_event(NULL, pdMS_TO_TICKS(TEST_HID_SUSPEND_TIMER_INTERVAL_MS * 2));
 
     // Tear down test
     test_hid_teardown();
