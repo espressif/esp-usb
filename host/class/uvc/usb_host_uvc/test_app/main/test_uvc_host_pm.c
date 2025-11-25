@@ -499,7 +499,7 @@ TEST_CASE("Resume by transfer submit", "[uvc]")
 
     // Create frame processing task
     TaskHandle_t frame_handling_task_hdl = NULL;
-    xTaskCreate(test_fame_handling_task, "frame_handing", 4096, (void *)xTaskGetCurrentTaskHandle(), 4, &frame_handling_task_hdl);
+    TEST_ASSERT_EQUAL(pdPASS, xTaskCreate(test_fame_handling_task, "frame_handing", 4096, (void *)xTaskGetCurrentTaskHandle(), 4, &frame_handling_task_hdl));
     TEST_ASSERT_NOT_NULL(frame_handling_task_hdl);
 
     // Start the stream
@@ -719,8 +719,8 @@ TEST_CASE("Multiple tasks access suspend/disconnect", "[uvc]")
 }
 
 
-#define TEST_UVC_PM_TIMER_INTERVAL_MS   1000
-#define TEST_UVC_PM_TIMER_MARGIN_MS     50
+#define TEST_UVC_SUSPEND_TIMER_INTERVAL_MS   1000
+#define TEST_UVC_SUSPEND_TIMER_MARGIN_MS     50
 
 /**
  * @brief Automatic suspend timer
@@ -742,9 +742,9 @@ TEST_CASE("Automatic suspend timer", "[uvc]")
     TEST_ASSERT_NOT_NULL(stream);
 
     // Set one-shot suspend timer and expect suspend event within the suspend timer interval
-    TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_set_auto_pm(USB_HOST_LIB_PM_SUSPEND_ONE_SHOT, TEST_UVC_PM_TIMER_INTERVAL_MS));
+    TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_set_auto_suspend(USB_HOST_LIB_AUTO_SUSPEND_ONE_SHOT, TEST_UVC_SUSPEND_TIMER_INTERVAL_MS));
     test_uvc_event_t expected_event = {.event_type = UVC_HOST_DEVICE_EVENT, .device_event = UVC_HOST_DEVICE_SUSPENDED};
-    expect_client_event(&expected_event, pdMS_TO_TICKS(TEST_UVC_PM_TIMER_INTERVAL_MS + TEST_UVC_PM_TIMER_MARGIN_MS));
+    expect_client_event(&expected_event, pdMS_TO_TICKS(TEST_UVC_SUSPEND_TIMER_INTERVAL_MS + TEST_UVC_SUSPEND_TIMER_MARGIN_MS));
 
     // Manually resume the root port and wait for the resume event
     TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_root_port_resume());
@@ -753,15 +753,15 @@ TEST_CASE("Automatic suspend timer", "[uvc]")
 
     // Make sure no other event is delivered,
     // since the timer is a One-Shot timer and it shall not automatically suspend the root port again
-    expect_client_event(NULL, pdMS_TO_TICKS(TEST_UVC_PM_TIMER_INTERVAL_MS * 2));
+    expect_client_event(NULL, pdMS_TO_TICKS(TEST_UVC_SUSPEND_TIMER_INTERVAL_MS * 2));
 
-    // Set Periodic PM suspend timer
-    TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_set_auto_pm(USB_HOST_LIB_PM_SUSPEND_PERIODIC, TEST_UVC_PM_TIMER_INTERVAL_MS));
+    // Set Periodic auto suspend timer
+    TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_set_auto_suspend(USB_HOST_LIB_AUTO_SUSPEND_PERIODIC, TEST_UVC_SUSPEND_TIMER_INTERVAL_MS));
 
     for (int i = 0; i < 3; i++) {
         // Expect suspended event from auto suspend timer
         expected_event.device_event = UVC_HOST_DEVICE_SUSPENDED;
-        expect_client_event(&expected_event, pdMS_TO_TICKS(TEST_UVC_PM_TIMER_INTERVAL_MS + TEST_UVC_PM_TIMER_MARGIN_MS));
+        expect_client_event(&expected_event, pdMS_TO_TICKS(TEST_UVC_SUSPEND_TIMER_INTERVAL_MS + TEST_UVC_SUSPEND_TIMER_MARGIN_MS));
 
         // Resume the root port manually and expect the resume event
         TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_root_port_resume());
@@ -779,10 +779,10 @@ TEST_CASE("Automatic suspend timer", "[uvc]")
         TEST_ASSERT_EQUAL(ESP_OK, uvc_host_stream_format_select(stream, &format2));
     }
 
-    // Disable the Periodic PM timer
-    TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_set_auto_pm(USB_HOST_LIB_PM_SUSPEND_PERIODIC, 0));
+    // Disable the Periodic auto suspend timer
+    TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_set_auto_suspend(USB_HOST_LIB_AUTO_SUSPEND_PERIODIC, 0));
     // Make sure no other event is delivered
-    expect_client_event(NULL, pdMS_TO_TICKS(TEST_UVC_PM_TIMER_INTERVAL_MS * 2));
+    expect_client_event(NULL, pdMS_TO_TICKS(TEST_UVC_SUSPEND_TIMER_INTERVAL_MS * 2));
 
     // Close the device, cleanup
     TEST_ASSERT_EQUAL(ESP_OK, uvc_host_stream_close(stream));
