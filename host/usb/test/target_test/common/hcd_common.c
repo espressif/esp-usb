@@ -46,6 +46,7 @@
 #define EVENT_QUEUE_LEN         5
 #define ENUM_ADDR               1   // Device address to use for tests that enumerate the device
 #define ENUM_CONFIG             1   // Device configuration number to use for tests that enumerate the device
+#define TRANSFER_MAX_BYTES      256
 
 typedef struct {
     hcd_port_handle_t port_hdl;
@@ -382,6 +383,8 @@ void test_hcd_free_urb(urb_t *urb)
     heap_caps_free(urb);
 }
 
+// --------------------------------------------------- Enumeration -----------------------------------------------------
+
 uint8_t test_hcd_enum_device(hcd_pipe_handle_t default_pipe)
 {
     // We need to create a URB for the enumeration control transfers
@@ -426,4 +429,26 @@ uint8_t test_hcd_enum_device(hcd_pipe_handle_t default_pipe)
     // Free URB
     test_hcd_free_urb(urb);
     return ENUM_ADDR;
+}
+
+// ---------------------------------------------- Transfer submit ------------------------------------------------------
+
+void test_hcd_ping_device(hcd_pipe_handle_t default_pipe, urb_t *default_urb)
+{
+    default_urb->transfer.num_bytes = sizeof(usb_setup_packet_t) + TRANSFER_MAX_BYTES;
+    USB_SETUP_PACKET_INIT_GET_CONFIG_DESC((usb_setup_packet_t *)default_urb->transfer.data_buffer, 0, TRANSFER_MAX_BYTES);
+    default_urb->transfer.context = URB_CONTEXT_VAL;
+
+    TEST_ASSERT_EQUAL(ESP_OK, hcd_urb_enqueue(default_pipe, default_urb));
+    test_hcd_expect_pipe_event(default_pipe, HCD_PIPE_EVENT_URB_DONE);
+    urb_t *urb = hcd_urb_dequeue(default_pipe);
+    TEST_ASSERT_EQUAL_MESSAGE(default_urb, urb, "URB pointers not equal");
+    TEST_ASSERT_EQUAL_MESSAGE(USB_TRANSFER_STATUS_COMPLETED, urb->transfer.status, "Transfer NOT completed");
+    TEST_ASSERT_EQUAL_MESSAGE(URB_CONTEXT_VAL, urb->transfer.context, "URB context not equal");
+
+    // We must have transmitted at least the setup packet, but device may return less bytes than bytes requested
+    TEST_ASSERT_GREATER_OR_EQUAL(sizeof(usb_setup_packet_t), urb->transfer.actual_num_bytes);
+    TEST_ASSERT_LESS_OR_EQUAL(urb->transfer.num_bytes, urb->transfer.actual_num_bytes);
+    usb_config_desc_t *config_desc = (usb_config_desc_t *)(urb->transfer.data_buffer + sizeof(usb_setup_packet_t));
+    TEST_ASSERT_EQUAL(USB_B_DESCRIPTOR_TYPE_CONFIGURATION, config_desc->bDescriptorType);
 }
