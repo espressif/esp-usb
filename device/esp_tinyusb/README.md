@@ -177,6 +177,30 @@ When the default parameters of the internal task should be changed:
   }
 ```
 
+When your app calls `tinyusb_driver_uninstall()`, the driver cleanly stops the internal TinyUSB task. To make the start/stop points deterministic (so your code knows when the task is fully started or stopped), the driver exposes a blocking timeout for the TinyUSB task loop.
+
+This timeout is the maximum time (ms) the TinyUSB task may block while waiting for or servicing USB events. It is not a polling interval.
+
+> **Note:** Default timeout values may differ per CPU/target to match CPU load observed in legacy (block-forever) mode versus non-blocking mode.
+To re-enable legacy behavior (block indefinitely), set `blocking_timeout_ms` to `UINT32_MAX`.
+
+You can configure the timeout during driver installation:
+
+```c
+  #include "tinyusb_default_config.h"
+
+  void main(void) {
+    tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG();
+    tusb_cfg.task.blocking_timeout_ms = 3000;
+    tinyusb_driver_install(&tusb_cfg);
+
+    // ...
+
+    tinyusb_driver_uninstall(); // will stop deterministically within ~blocking_timeout_ms
+  }
+```
+> **💡 Tip:** If you need very low CPU usage and don’t care about stop latency, use a larger value (hundreds or thousands of ms). If you need quick teardown (e.g., switching roles or remounting), keep this small.
+
 ### USB Descriptors configuration
 
 Configure USB descriptors using the `tinyusb_config_t` structure:

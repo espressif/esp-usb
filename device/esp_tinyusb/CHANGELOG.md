@@ -1,3 +1,7 @@
+## [Unreleased]
+
+- esp_tinyusb: Added possibility to select blocking time for dedicated TinyUSB task
+
 ## 2.0.1~1
 
 - esp_tinyusb: Claim forward compatibility with TinyUSB 0.19
