@@ -281,56 +281,6 @@ static void test_open_suspended_device(void)
     test_event_queue = NULL;
 }
 
-/**
- * @brief Start suspended device
- *
- * Purpose:
- *     - Test HID Host reaction to starting an opened device, which is in suspended state
- *
- * Procedure:
- *     - Install USB Host lib, Install HID driver, wait for device connection, open the device
- *     - Suspend the root port and fail to start a device
- *     - Resume the root port, teardown
- */
-static void test_start_suspended_device(void)
-{
-    ESP_LOGI(TAG, "Start suspended device");
-    test_event_queue = xQueueCreate(4, sizeof(test_event_queue_t));
-    TEST_ASSERT_NOT_NULL(test_event_queue);
-
-    test_hid_setup(test_hid_host_event_callback_open_event, HID_TEST_EVENT_HANDLE_IN_DRIVER);
-
-    // Make sure connect events are delivered from both devices
-    test_event_queue_t queue_item_1, queue_item_2;
-    TEST_ASSERT_EQUAL(pdTRUE, xQueueReceive(test_event_queue, &queue_item_1, pdMS_TO_TICKS(500)));
-    TEST_ASSERT_EQUAL(pdTRUE, xQueueReceive(test_event_queue, &queue_item_2, pdMS_TO_TICKS(500)));
-
-    const hid_host_device_config_t dev_config = {
-        .callback = test_hid_host_interface_event_close,
-        .callback_arg = NULL
-    };
-
-    // Open devices normally
-    TEST_ASSERT_EQUAL(ESP_OK, hid_host_device_open(queue_item_1.hid_device_handle, &dev_config));
-    TEST_ASSERT_EQUAL(ESP_OK, hid_host_device_open(queue_item_2.hid_device_handle, &dev_config));
-
-    printf("Issue suspend\n");
-    TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_root_port_suspend());
-    vTaskDelay(pdMS_TO_TICKS(100));
-
-    // Try to start devices with the root port suspended
-    TEST_ASSERT_EQUAL(ESP_ERR_INVALID_STATE, hid_host_device_start(queue_item_1.hid_device_handle));
-    TEST_ASSERT_EQUAL(ESP_ERR_INVALID_STATE, hid_host_device_start(queue_item_2.hid_device_handle));
-
-    printf("Issue resume\n");
-    TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_root_port_resume());
-    vTaskDelay(pdMS_TO_TICKS(100));
-
-    // Teardown
-    test_hid_teardown();
-    vQueueDelete(test_event_queue);
-    test_event_queue = NULL;
-}
 #endif // HID_HOST_SUSPEND_RESUME_API_SUPPORTED
 
 // ----------------------- Public --------------------------
@@ -351,6 +301,5 @@ TEST_CASE("error_handling", "[hid_host]")
     test_uninstall_hid_driver_while_device_is_present();
 #ifdef HID_HOST_SUSPEND_RESUME_API_SUPPORTED
     test_open_suspended_device();
-    test_start_suspended_device();
 #endif // HID_HOST_SUSPEND_RESUME_API_SUPPORTED
 }

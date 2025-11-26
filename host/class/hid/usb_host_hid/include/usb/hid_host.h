@@ -204,6 +204,7 @@ esp_err_t hid_host_device_get_raw_input_report_data(hid_host_device_handle_t hid
  *
  * Calls a callback when the HID Interface event has occurred.
  *
+ * @note Can be called on device in suspended state, it will effectively resume and start the device
  * @param[in] hid_dev_handle  HID Device handle
  * @return esp_err_t
  */
@@ -212,6 +213,8 @@ esp_err_t hid_host_device_start(hid_host_device_handle_t hid_dev_handle);
 /**
  * @brief HID Host stop device
  *
+ * @note Can be called on device in suspended state, it will effectively prevent the device from starting automatically
+ *       in case the device was started before entering suspended state
  * @param[in] hid_dev_handle  HID Device handle
  *
  * @return esp_err_t

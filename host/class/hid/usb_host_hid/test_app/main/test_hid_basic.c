@@ -23,6 +23,8 @@
 #include "test_hid_basic.h"
 #include "hid_mock_device.h"
 
+#define TEST_EVENT_WAIT_MS          500     // Time to expect driver or device event
+
 // Global variable to verify user arg passing through callbacks
 static uint32_t user_arg_value = 0x8A53E0A4; // Just a constant random number
 
@@ -1030,7 +1032,6 @@ TEST_CASE("auto_suspend_timer", "[hid_host]")
     vQueueDelete(hid_host_test_event_queue);
     hid_host_test_event_queue = NULL;
 }
-
 /**
  * @brief Resume by transfer submit
  *
@@ -1041,6 +1042,8 @@ TEST_CASE("auto_suspend_timer", "[hid_host]")
  *     - Install USB Host lib, Install HID driver, open device and start device
  *     - Manually suspend the root port, expect suspend event
  *     - Issue a CTRL transfer to the device, expect the root port to be resumed, expect resume event
+ *     - Manually suspend the root port, expect suspend event
+ *     - Start the device, expect the root port to be resumed, expect resume event
  *     - Teardown
  */
 TEST_CASE("resume_by_transfer_submit", "[hid_host]")
@@ -1070,6 +1073,17 @@ TEST_CASE("resume_by_transfer_submit", "[hid_host]")
 
     // Auto resume the device by sending a ctrl transfer
     test_hid_host_device_touch(&dev_params, HID_HOST_TEST_TOUCH_WAY_ASSERT);
+    expected_event.interface_evt.event = HID_HOST_INTERFACE_EVENT_RESUMED;
+    hid_host_test_expect_event(&expected_event, expect_event_ticks);
+
+    // Suspend the root port manually
+    TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_root_port_suspend());
+    expected_event.event_group = HID_INTERFACE_EVENT;
+    expected_event.interface_evt.event = HID_HOST_INTERFACE_EVENT_SUSPENDED;
+    hid_host_test_expect_event(&expected_event, expect_event_ticks);
+
+    // Auto resume the device by calling device start
+    TEST_ASSERT_EQUAL(ESP_OK, hid_host_device_start(global_hdl));
     expected_event.interface_evt.event = HID_HOST_INTERFACE_EVENT_RESUMED;
     hid_host_test_expect_event(&expected_event, expect_event_ticks);
 

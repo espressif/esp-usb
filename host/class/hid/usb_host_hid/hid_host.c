@@ -609,6 +609,11 @@ static esp_err_t hid_host_resume_interface(hid_iface_t *iface, bool resume_ep)
                         ESP_ERR_NOT_FOUND,
                         "Interface handle not found");
 
+    if (HID_INTERFACE_STATE_ACTIVE == iface->state) {
+        // Interface already auto-resumed by hid_host_device_start(), return early and continue to resume event delivery
+        return ESP_OK;
+    }
+
     HID_RETURN_ON_FALSE ((HID_INTERFACE_STATE_SUSPENDED == iface->state),
                          ESP_ERR_INVALID_STATE,
                          "Interface wrong state");
@@ -618,14 +623,19 @@ static esp_err_t hid_host_resume_interface(hid_iface_t *iface, bool resume_ep)
         usb_host_endpoint_clear(iface->parent->dev_hdl, iface->ep_in);
     }
 
+    // Use the last device state before the device went to suspended state as the current state
     iface->state = iface->last_state;
 
     if (iface->in_xfer == NULL) {
         return ESP_OK;
     }
 
-    // start data transfer
-    HID_RETURN_ON_ERROR( usb_host_transfer_submit(iface->in_xfer), "Unable to start data transfer");
+    // If the last state before the device went to suspended state was active state, start the data transfer
+    if (iface->last_state == HID_INTERFACE_STATE_ACTIVE) {
+        // start data transfer
+        HID_RETURN_ON_ERROR( usb_host_transfer_submit(iface->in_xfer), "Unable to start data transfer");
+    }
+
     return ESP_OK;
 }
 
@@ -653,8 +663,15 @@ static esp_err_t hid_host_device_suspended(usb_device_handle_t dev_hdl)
         HID_EXIT_CRITICAL();
 
         if (hid_iface_curr->parent && (hid_iface_curr->parent->dev_addr == hid_device->dev_addr)) {
-            hid_host_suspend_interface(hid_iface_curr, false);
-            hid_host_user_interface_callback(hid_iface_curr, HID_HOST_INTERFACE_EVENT_SUSPENDED);
+            esp_err_t ret = hid_host_suspend_interface(hid_iface_curr, false);
+
+            // Make sure the device is connected and the interface is found otherwise don't deliver suspend event
+            if (ret != ESP_ERR_NOT_FOUND) {
+
+                // We will deliver the suspend event, if the hid_host_suspend_interface fails with other errors,
+                // as the usb_host_lib has already suspended the root port anyway
+                hid_host_user_interface_callback(hid_iface_curr, HID_HOST_INTERFACE_EVENT_SUSPENDED);
+            }
         }
         HID_ENTER_CRITICAL();
         hid_iface_curr = hid_iface_next;
@@ -688,8 +705,15 @@ static esp_err_t hid_host_device_resumed(usb_device_handle_t dev_hdl)
         HID_EXIT_CRITICAL();
 
         if (hid_iface_curr->parent && (hid_iface_curr->parent->dev_addr == hid_device->dev_addr)) {
-            hid_host_resume_interface(hid_iface_curr, false);
-            hid_host_user_interface_callback(hid_iface_curr, HID_HOST_INTERFACE_EVENT_RESUMED);
+            esp_err_t ret = hid_host_resume_interface(hid_iface_curr, false);
+
+            // Make sure the device is connected and the interface is found otherwise don't deliver resume event
+            if (ret != ESP_ERR_NOT_FOUND) {
+
+                // We will deliver the resume event, if the hid_host_resume_interface fails with other errors,
+                // as the usb_host_lib has already resumed the root port anyway
+                hid_host_user_interface_callback(hid_iface_curr, HID_HOST_INTERFACE_EVENT_RESUMED);
+            }
         }
         HID_ENTER_CRITICAL();
         hid_iface_curr = hid_iface_next;
@@ -1487,7 +1511,7 @@ esp_err_t hid_host_device_start(hid_host_device_handle_t hid_dev_handle)
                         ESP_ERR_NOT_FOUND,
                         "Interface handle not found");
 
-    HID_RETURN_ON_FALSE ((HID_INTERFACE_STATE_READY == iface->state),
+    HID_RETURN_ON_FALSE ((HID_INTERFACE_STATE_READY == iface->state || HID_INTERFACE_STATE_SUSPENDED == iface->state),
                          ESP_ERR_INVALID_STATE,
                          "Interface wrong state");
 
@@ -1510,6 +1534,15 @@ esp_err_t hid_host_device_stop(hid_host_device_handle_t hid_dev_handle)
     hid_iface_t *iface = get_iface_by_handle(hid_dev_handle);
 
     HID_RETURN_ON_INVALID_ARG(iface);
+
+    HID_RETURN_ON_FALSE(is_interface_in_list(iface), ESP_ERR_NOT_FOUND, "Interface handle not found");
+
+    if (iface->state == HID_INTERFACE_STATE_SUSPENDED) {
+        // If interface is suspended, mark the last state as READY,
+        // as if the interface was stopped before entering suspended state
+        iface->last_state = HID_INTERFACE_STATE_READY;
+        return ESP_OK;
+    }
 
     return hid_host_disable_interface(iface);
 }
