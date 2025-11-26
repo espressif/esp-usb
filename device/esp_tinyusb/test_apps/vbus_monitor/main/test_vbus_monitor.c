@@ -506,7 +506,7 @@ TEST_CASE("Emulated VBUS USB OTG 1.1, verify attach/detach events callback (via 
 /**
  * @brief TinyUSB Attach/Detach events test, when Bvalid value is manipulated via GOTGCTL register
  */
-TEST_CASE("Emulated VBUS USB OTG 2.0, verify attach/detach events callback (via GOTGCTL register)", "[ci][dconn][ignore]")
+TEST_CASE("Emulated VBUS USB OTG 2.0, verify attach/detach events callback (via GOTGCTL register)", "[ci][dconn]")
 {
     tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG(test_dconn_event_handler);
     // Use USB OTG 2.0
@@ -528,7 +528,7 @@ TEST_CASE("Emulated VBUS USB OTG 2.0, verify attach/detach events callback (via 
 
     test_device_wait_event(TINYUSB_EVENT_ATTACHED);
 
-    uint8_t dev_mounted = 0; /* TODO: Expect to fail on run. Enable in VBUS monitor part2 */
+    uint8_t dev_mounted = test_vbus_emulated_via_gotgctl_bvalid(&USB_DWC_HS);
 
     // Cleanup
     TEST_ASSERT_EQUAL_MESSAGE(ESP_OK, tinyusb_driver_uninstall(), "Failed to uninstall TinyUSB driver");
@@ -571,15 +571,18 @@ TEST_CASE("Controlled VBUS USB OTG 2.0, verify attach/detach events callback", "
     // In this test we use VBUS monitoring GPIO, so enable it
     tusb_cfg.phy.self_powered = true;
     tusb_cfg.phy.vbus_monitor_io = VBUS_MONITOR_GPIO_NUM;
-
+    // Install GPIO ISR handler
+    TEST_ASSERT_EQUAL_MESSAGE(ESP_OK, gpio_install_isr_service(ESP_INTR_FLAG_LOWMED), "Failed to install GPIO ISR service");
     // Install TinyUSB driver
     TEST_ASSERT_EQUAL_MESSAGE(ESP_OK, tinyusb_driver_install(&tusb_cfg), "Failed to install TinyUSB driver");
     test_device_wait_event(TINYUSB_EVENT_ATTACHED);
 
-    uint8_t dev_mounted = 0; /* TODO: Expect to fail on run. Enable in VBUS monitor part2 */
+    uint8_t dev_mounted = test_vbus_controlled_by_gpio();
 
     // Cleanup
     TEST_ASSERT_EQUAL_MESSAGE(ESP_OK, tinyusb_driver_uninstall(), "Failed to uninstall TinyUSB driver");
+    // Uninstall GPIO ISR handler
+    gpio_uninstall_isr_service();
     // Verify test results
     TEST_ASSERT_EQUAL_MESSAGE(DEVICE_DETACH_TEST_ROUNDS, dev_mounted, "Mount events count mismatch with rounds number");
 }
@@ -619,15 +622,18 @@ TEST_CASE("Real VBUS USB OTG 2.0, verify attach/detach events callback (requires
     // In this test we use VBUS monitoring GPIO, so enable it
     tusb_cfg.phy.self_powered = true;
     tusb_cfg.phy.vbus_monitor_io = VBUS_MONITOR_GPIO_NUM;
-
+    // Install GPIO ISR handler
+    TEST_ASSERT_EQUAL_MESSAGE(ESP_OK, gpio_install_isr_service(ESP_INTR_FLAG_LOWMED), "Failed to install GPIO ISR service");
     // Install TinyUSB driver
     TEST_ASSERT_EQUAL_MESSAGE(ESP_OK, tinyusb_driver_install(&tusb_cfg), "Failed to install TinyUSB driver");
     test_device_wait_event(TINYUSB_EVENT_ATTACHED);
 
-    uint8_t dev_mounted = 0; /* TODO: Expect to fail on run. Enable in VBUS monitor part2 */
+    uint8_t dev_mounted = test_vbus_manual_attach_detach();
 
     // Cleanup
     TEST_ASSERT_EQUAL_MESSAGE(ESP_OK, tinyusb_driver_uninstall(), "Failed to uninstall TinyUSB driver");
+    // Uninstall GPIO ISR handler
+    gpio_uninstall_isr_service();
     // Verify test results
     TEST_ASSERT_EQUAL_MESSAGE(DEVICE_DETACH_TEST_ROUNDS, dev_mounted, "Mount events count mismatch with rounds number");
 }
