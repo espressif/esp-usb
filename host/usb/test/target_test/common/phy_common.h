@@ -5,7 +5,7 @@
  */
 
 #pragma once
-#include "hal/usb_phy_types.h"
+#include "esp_private/usb_phy.h"
 
 /**
  * @brief Install USB PHY separately from the usb_host_install()

@@ -29,6 +29,7 @@ Warning: The USB Host Library API is still a beta version and may be subject to 
 #include "esp_private/usb_phy.h"
 #include "usb/usb_host.h"
 
+#if SOC_USB_OTG_SUPPORTED
 #include "esp_idf_version.h"
 // For USB PHY Compatibility in IDF 5.x
 #if ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(6, 0, 0)
@@ -36,6 +37,7 @@ Warning: The USB Host Library API is still a beta version and may be subject to 
 #else
 #include "soc/usb_periph.h"
 #endif
+#endif // SOC_USB_OTG_SUPPORTED
 
 DEFINE_CRIT_SECTION_LOCK_STATIC(host_lock);
 #define HOST_ENTER_CRITICAL_ISR()       esp_os_enter_critical_isr(&host_lock)
