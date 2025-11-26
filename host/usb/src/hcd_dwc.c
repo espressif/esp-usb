@@ -563,6 +563,16 @@ static bool _port_check_all_pipes_halted(port_t *port);
 static bool _port_debounce(port_t *port);
 
 /**
+ * @brief Reset all idle pipes
+ *
+ * This function reapplying initial endpoint characteristics for the underlying HAL channels and synchronizes the cache
+ * for the frame list when available.
+ *
+ * @param port Port object
+ */
+static void _port_reset_all_pipes(port_t *port);
+
+/**
  * @brief Convert user-provided FIFO configuration to HAL format
  *
  * This function validates and converts a user-defined FIFO configuration
@@ -1189,6 +1199,15 @@ static bool _port_debounce(port_t *port)
     return is_connected;
 }
 
+static void _port_reset_all_pipes(port_t *port)
+{
+    pipe_t *pipe;
+    TAILQ_FOREACH(pipe, &port->pipes_idle_tailq, tailq_entry) {
+        usb_dwc_hal_chan_set_ep_char(port->hal, pipe->chan_obj, &pipe->ep_char);
+    }
+    CACHE_SYNC_FRAME_LIST(port->frame_list);
+}
+
 static esp_err_t convert_fifo_config_to_hal_config(const hcd_fifo_settings_t *src, usb_dwc_hal_fifo_config_t *dst)
 {
     // Check at least RX and NPTX are non-zero
@@ -1309,13 +1328,7 @@ static esp_err_t _port_cmd_reset(port_t *port)
 
     ret = ESP_OK;
 bailout:
-    // Reinitialize channel registers
-    (void) 0;  // clang doesn't allow variable declarations after labels
-    pipe_t *pipe;
-    TAILQ_FOREACH(pipe, &port->pipes_idle_tailq, tailq_entry) {
-        usb_dwc_hal_chan_set_ep_char(port->hal, pipe->chan_obj, &pipe->ep_char);
-    }
-    CACHE_SYNC_FRAME_LIST(port->frame_list);
+    _port_reset_all_pipes(port);
 exit:
     return ret;
 }
