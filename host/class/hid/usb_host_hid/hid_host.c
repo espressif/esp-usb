@@ -19,6 +19,11 @@
 
 #include "usb/hid_host.h"
 
+// We are allowing realloc ctrl_xfer buffer, so max report desc size is limited by sane value
+// based on very large, exotic devices: can go into the low kilobytes
+#define HID_MIN_REPORT_DESC_LEN     512u
+#define HID_MAX_REPORT_DESC_LEN     2048u
+
 // HID spinlock
 static portMUX_TYPE hid_lock = portMUX_INITIALIZER_UNLOCKED;
 #define HID_ENTER_CRITICAL()    portENTER_CRITICAL(&hid_lock)
@@ -771,33 +776,40 @@ static esp_err_t hid_control_transfer(hid_device_t *hid_device,
  */
 static esp_err_t usb_class_request_get_descriptor(hid_device_t *hid_device, const hid_class_request_t *req)
 {
-    esp_err_t ret;
-    usb_transfer_t *ctrl_xfer = hid_device->ctrl_xfer;
-    const size_t ctrl_size = hid_device->ctrl_xfer->data_buffer_size;
-
     HID_RETURN_ON_INVALID_ARG(hid_device);
     HID_RETURN_ON_INVALID_ARG(hid_device->ctrl_xfer);
     HID_RETURN_ON_INVALID_ARG(req);
     HID_RETURN_ON_INVALID_ARG(req->data);
 
+    if (req->wLength > HID_MAX_REPORT_DESC_LEN) {
+        ESP_LOGE(TAG, "Requested descriptor size exceeds maximum");
+        return ESP_ERR_INVALID_SIZE;
+    }
+
     HID_RETURN_ON_ERROR( hid_device_try_lock(hid_device, DEFAULT_TIMEOUT_MS),
                          "HID Device is busy by other task");
 
-    if (ctrl_size < (USB_SETUP_PACKET_SIZE + req->wLength)) {
-        usb_device_info_t dev_info;
-        ESP_ERROR_CHECK(usb_host_device_info(hid_device->dev_hdl, &dev_info));
-        // reallocate the ctrl xfer buffer for new length
-        ESP_LOGD(TAG, "Change HID ctrl xfer size from %d to %d",
-                 (int) ctrl_size,
-                 (int) (USB_SETUP_PACKET_SIZE + req->wLength));
+    esp_err_t ret;
+    const size_t ctrl_size = hid_device->ctrl_xfer->data_buffer_size;
+    const size_t required_size = USB_SETUP_PACKET_SIZE + req->wLength;
+
+    // Reallocate control transfer buffer if necessary
+    if (ctrl_size < required_size) {
+        ESP_LOGD(TAG, "Change HID ctrl xfer size from %"PRIu32" to %"PRIu32"",
+                 (uint32_t) ctrl_size,
+                 (uint32_t) required_size);
 
         usb_host_transfer_free(hid_device->ctrl_xfer);
-        HID_RETURN_ON_ERROR( usb_host_transfer_alloc(USB_SETUP_PACKET_SIZE + req->wLength,
-                                                     0,
-                                                     &hid_device->ctrl_xfer),
-                             "Unable to allocate transfer buffer for EP0");
+
+        if (usb_host_transfer_alloc(required_size, 0, &hid_device->ctrl_xfer) != ESP_OK) {
+            ESP_LOGE(TAG, "Unable to re-allocate transfer buffer for EP0");
+            hid_device->ctrl_xfer = NULL;
+            hid_device_unlock(hid_device);
+            return ESP_ERR_NO_MEM;
+        }
     }
 
+    usb_transfer_t *ctrl_xfer = hid_device->ctrl_xfer;
     usb_setup_packet_t *setup = (usb_setup_packet_t *)ctrl_xfer->data_buffer;
 
     setup->bmRequestType = USB_BM_REQUEST_TYPE_DIR_IN |
@@ -808,16 +820,20 @@ static esp_err_t usb_class_request_get_descriptor(hid_device_t *hid_device, cons
     setup->wIndex = req->wIndex;
     setup->wLength = req->wLength;
 
-    ret = hid_control_transfer(hid_device,
-                               USB_SETUP_PACKET_SIZE + req->wLength,
-                               DEFAULT_TIMEOUT_MS);
+    ret = hid_control_transfer(hid_device, required_size, DEFAULT_TIMEOUT_MS);
 
-    if (ESP_OK == ret) {
-        ctrl_xfer->actual_num_bytes -= USB_SETUP_PACKET_SIZE;
-        if (ctrl_xfer->actual_num_bytes <= req->wLength) {
-            memcpy(req->data, ctrl_xfer->data_buffer + USB_SETUP_PACKET_SIZE, ctrl_xfer->actual_num_bytes);
-        } else {
+    if (ret == ESP_OK) {
+        if (ctrl_xfer->actual_num_bytes < USB_SETUP_PACKET_SIZE) {
             ret = ESP_ERR_INVALID_SIZE;
+        } else {
+            uint32_t response_len = ctrl_xfer->actual_num_bytes - USB_SETUP_PACKET_SIZE;
+            if (response_len <= req->wLength) {
+                memcpy(req->data,
+                       ctrl_xfer->data_buffer + USB_SETUP_PACKET_SIZE,
+                       response_len);
+            } else {
+                ret = ESP_ERR_INVALID_SIZE;
+            }
         }
     }
 
@@ -999,9 +1015,9 @@ esp_err_t hid_host_install_device(uint8_t dev_addr,
     /*
     * TIP: Usually, we need to allocate 'EP bMaxPacketSize0 + 1' here.
     * To take the size of a report descriptor into a consideration,
-    * we need to allocate more here, e.g. 512 bytes.
+    * we need to allocate more here.
     */
-    HID_GOTO_ON_ERROR(usb_host_transfer_alloc(512, 0, &hid_device->ctrl_xfer),
+    HID_GOTO_ON_ERROR(usb_host_transfer_alloc(HID_MIN_REPORT_DESC_LEN, 0, &hid_device->ctrl_xfer),
                       "Unable to allocate transfer buffer");
 
     HID_ENTER_CRITICAL();

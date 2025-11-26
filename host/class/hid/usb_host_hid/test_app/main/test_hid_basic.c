@@ -707,8 +707,7 @@ TEST_CASE("sudden_disconnect", "[hid_host]")
     vSemaphoreDelete(s_global_hdl_sem);
 }
 
-// TODO: Enable during the fix https://github.com/espressif/esp-usb/pull/320
-TEST_CASE("request Report Descriptor 32K", "[hid_host][ignore]")
+TEST_CASE("request Report Descriptor 32K", "[hid_host_extra_large_report]")
 {
     // Create semaphore for s_global_hdl, because it will be used in multiple tasks access
     s_global_hdl_sem = xSemaphoreCreateBinary();
@@ -756,7 +755,7 @@ TEST_CASE("mock_hid_device_with_large_report", "[hid_device_large_report][ignore
     }
 }
 
-TEST_CASE("mock_hid_device_with_32K_report", "[hid_device_large_report][ignore]")
+TEST_CASE("mock_hid_device_with_32K_report", "[hid_device_extra_large_report][ignore]")
 {
     hid_mock_device_set_mode(TEST_HID_MOCK_DEVICE_WITH_REPORT_DESC_32KB);
     hid_mock_device_run();

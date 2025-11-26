@@ -33,13 +33,18 @@ def test_usb_host_hid(dut: Tuple[IdfDut, IdfDut]) -> None:
 
     host.run_all_single_board_cases(group='hid_host')
 
-    # TODO: Enable during the fix https://github.com/espressif/esp-usb/pull/320
-    # Expected to fail due to the overriding the freed memory during realloc in the HID Host driver
-
     # Tests with mocked HID device with large report descriptor (1905 bytes) for HID tests
-    # device.serial.hard_reset()
-    # device.expect_exact('Press ENTER to see the list of tests.')
-    # device.write('[hid_device_large_report]')
-    # device.expect_exact('HID mock device with large report descriptor has been started')
+    device.serial.hard_reset()
+    device.expect_exact('Press ENTER to see the list of tests.')
+    device.write('[hid_device_large_report]')
+    device.expect_exact('HID mock device with large report descriptor has been started')
 
-    # host.run_all_single_board_cases(group='hid_host')
+    host.run_all_single_board_cases(group='hid_host')
+
+    # Tests with mocked HID device with extra large report descriptor (32KB) for HID tests
+    device.serial.hard_reset()
+    device.expect_exact('Press ENTER to see the list of tests.')
+    device.write('[hid_device_extra_large_report]')
+    device.expect_exact('HID mock device with extra large report descriptor has been started')
+
+    host.run_all_single_board_cases(group='hid_host_extra_large_report')
