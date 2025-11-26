@@ -11,6 +11,7 @@
 #include "esp_err.h"
 #include <freertos/FreeRTOS.h>
 
+#include "usb/usb_host.h"
 #include "hid.h"
 
 #ifdef __cplusplus
@@ -29,6 +30,11 @@ extern "C" {
 */
 #define HID_STR_DESC_MAX_LENGTH           32
 
+// For backward compatibility with IDF versions which do not have suspend/resume api
+#ifdef USB_HOST_LIB_EVENT_FLAGS_AUTO_SUSPEND
+#define HID_HOST_SUSPEND_RESUME_API_SUPPORTED
+#endif
+
 typedef struct hid_interface *hid_host_device_handle_t;    /**< Device Handle. Handle to a particular HID interface */
 
 // ------------------------ USB HID Host events --------------------------------
@@ -46,6 +52,10 @@ typedef enum {
     HID_HOST_INTERFACE_EVENT_INPUT_REPORT = 0x00,     /**< HID Device input report */
     HID_HOST_INTERFACE_EVENT_TRANSFER_ERROR,          /**< HID Device transfer error */
     HID_HOST_INTERFACE_EVENT_DISCONNECTED,            /**< HID Device has been disconnected */
+#ifdef HID_HOST_SUSPEND_RESUME_API_SUPPORTED
+    HID_HOST_INTERFACE_EVENT_SUSPENDED,               /**< HID Device has been suspended */
+    HID_HOST_INTERFACE_EVENT_RESUMED,                 /**< HID Device has been resumed */
+#endif // HID_HOST_SUSPEND_RESUME_API_SUPPORTED
 } hid_host_interface_event_t;
 
 /**
@@ -194,6 +204,7 @@ esp_err_t hid_host_device_get_raw_input_report_data(hid_host_device_handle_t hid
  *
  * Calls a callback when the HID Interface event has occurred.
  *
+ * @note Can be called on device in suspended state, it will effectively resume and start the device
  * @param[in] hid_dev_handle  HID Device handle
  * @return esp_err_t
  */
@@ -202,6 +213,8 @@ esp_err_t hid_host_device_start(hid_host_device_handle_t hid_dev_handle);
 /**
  * @brief HID Host stop device
  *
+ * @note Can be called on device in suspended state, it will effectively prevent the device from starting automatically
+ *       in case the device was started before entering suspended state
  * @param[in] hid_dev_handle  HID Device handle
  *
  * @return esp_err_t
