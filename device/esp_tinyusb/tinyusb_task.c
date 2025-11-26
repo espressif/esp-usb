@@ -156,6 +156,7 @@ esp_err_t tinyusb_task_start(tinyusb_port_t port,
     // VBUS monitor config
     task_ctx->vbus_monitor_cfg.gpio_num = vbus_monitor_cfg->gpio_num;
     task_ctx->vbus_monitor_cfg.debounce_delay_ms = vbus_monitor_cfg->debounce_delay_ms;
+    task_ctx->vbus_monitor_cfg.state_changed_cb = vbus_monitor_cfg->state_changed_cb;
 #endif // CONFIG_IDF_TARGET_ESP32P4
 
     TaskHandle_t task_hdl = NULL;
