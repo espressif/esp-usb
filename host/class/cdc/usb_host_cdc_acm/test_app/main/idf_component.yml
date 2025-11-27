@@ -18,10 +18,9 @@ dependencies:
       - if: "idf_version >=5.4"                 # Use managed component only for 5.4 and above
 
   # Following components are not needed, but this way we at least built them in CI
-  # Temporarily commented out due to esp_modem issues
-  # espressif/esp_modem_usb_dte:
-  #   version: "*"
-  #   override_path: "../../../esp_modem_usb_dte"
+  espressif/esp_modem_usb_dte:
+    version: "*"
+    override_path: "../../../esp_modem_usb_dte"
   espressif/usb_host_vcp:
     version: "*"
     override_path: "../../../usb_host_vcp"

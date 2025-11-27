@@ -1,6 +1,8 @@
 # USB DTE plugin for esp_modem
 
 [![Component Registry](https://components.espressif.com/components/espressif/esp_modem_usb_dte/badge.svg)](https://components.espressif.com/components/espressif/esp_modem_usb_dte)
+![maintenance-status](https://img.shields.io/badge/maintenance-experimental-blue.svg)
+![changelog](https://img.shields.io/badge/Keep_a_Changelog-blue?logo=keepachangelog&logoColor=E05735)
 
 > :warning: **Experimental feature**: USB DTE is under development!
 
@@ -53,3 +55,6 @@ The following modems were tested with this component, their configurations can b
 * Quectel EC20
 * SimCom SIM7600E
 * SimCom A7670E
+* SimCom SIM7070G
+* SimCom SIM7080
+* SimCom SIMA7672E
