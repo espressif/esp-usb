@@ -1,11 +1,12 @@
 /*
- * SPDX-FileCopyrightText: 2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2024-2025 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
 
 #include <stdio.h>
 #include <string.h>
+#include "esp_newlib.h"
 #include "unity.h"
 #include "unity_test_runner.h"
 #include "unity_test_utils_memory.h"
@@ -17,6 +18,7 @@ void setUp(void)
 
 void tearDown(void)
 {
+    esp_reent_cleanup();    //clean up some of the newlib's lazy allocations
     unity_utils_evaluate_leaks();
 }
 
@@ -36,6 +38,6 @@ void app_main(void)
     printf("                 \\/         \\/             \\/     \\/        \r\n");
 
     unity_utils_setup_heap_record(80);
-    unity_utils_set_leak_level(530);
+    unity_utils_set_leak_level(30);
     unity_run_menu();
 }
