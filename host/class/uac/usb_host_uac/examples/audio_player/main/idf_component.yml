@@ -1,0 +1,10 @@
+dependencies:
+  idf: ">=5.0"
+  usb_host_uac:
+    version: "*"
+    override_path: ../../../../usb_host_uac/
+  espressif/usb:
+    version: "*"
+    override_path: "../../../../../../usb"
+    rules:
+      - if: "idf_version >=5.4"                 # Use managed component only for 5.4 and above
