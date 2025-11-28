@@ -1,0 +1,10 @@
+dependencies:
+  idf: ">=5.0"
+  espressif/esp32_s3_lcd_ev_board: "^2.0.0"
+  espressif/button: "~2.5.0"
+  usb_stream:
+    version: "*"
+  espressif/usb_host_uvc:
+    path: ../../host/class/uvc/usb_host_uvc
+  espressif/usb_host_uac:
+    path: ../../host/class/uac/usb_host_uac
