@@ -19,4 +19,5 @@ idf_component_register(SRCS
                        PRIV_INCLUDE_DIRS private_include include/esp_private
                        PRIV_REQUIRES heap
                        REQUIRES ${requires}
+                    EMBED_FILES test.jpg
                        )

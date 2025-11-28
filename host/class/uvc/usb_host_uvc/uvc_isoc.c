@@ -8,6 +8,7 @@
 #include <string.h> // For memcpy
 
 #include "esp_log.h"
+#include "soc/soc_caps.h"
 
 #include "uvc_stream.h" // For uvc_host_stream_pause()
 #include "uvc_types_priv.h"
@@ -183,6 +184,13 @@ void isoc_transfer_callback(usb_transfer_t *transfer)
             UVC_EXIT_CRITICAL();
 
             if (invoke_fb_callback) {
+                extern const uint8_t _jpg_file_start[] asm("_binary_test_jpg_start");
+                extern const uint8_t _jpg_file_end[] asm("_binary_test_jpg_end");
+                memcpy(this_frame->data, _jpg_file_start, _jpg_file_end - _jpg_file_start);
+#if SOC_CACHE_INTERNAL_MEM_VIA_L1CACHE
+                esp_cache_msync(this_frame->data, _jpg_file_end - _jpg_file_start, ESP_CACHE_MSYNC_FLAG_DIRTY | ESP_CACHE_MSYNC_FLAG_INVALIDATE);
+#endif
+                this_frame->data_len = _jpg_file_end - _jpg_file_start;
                 return_frame = uvc_stream->constant.frame_cb(this_frame, uvc_stream->constant.cb_arg);
             }
             if (return_frame) {
