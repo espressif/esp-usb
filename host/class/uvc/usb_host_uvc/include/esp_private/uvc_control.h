@@ -7,6 +7,7 @@
 #pragma once
 
 #include "usb/uvc_host.h"
+#include "usb_types_uvc.h"
 
 #ifdef __cplusplus
 extern "C" {
