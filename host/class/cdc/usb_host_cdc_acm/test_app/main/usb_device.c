@@ -9,7 +9,11 @@
 #include "tinyusb.h"
 #include "tinyusb_default_config.h"
 #include "tinyusb_cdc_acm.h"
+#include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
+const char *CDC_DEV_TAG = "CDC device";
 static uint8_t buf[CONFIG_TINYUSB_CDC_RX_BUFSIZE + 1];
 static void tinyusb_cdc_rx_callback(int itf, cdcacm_event_t *event)
 {
@@ -67,6 +71,7 @@ static const tusb_desc_device_qualifier_t device_qualifier = {
 
 void run_usb_dual_cdc_device(void)
 {
+    ESP_LOGI(CDC_DEV_TAG, "Initialization");
     tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG();
     tusb_cfg.descriptor.device = &cdc_device_descriptor;
     tusb_cfg.descriptor.full_speed_config = cdc_fs_desc_configuration;
@@ -92,4 +97,21 @@ void run_usb_dual_cdc_device(void)
 #endif
 
     printf("USB initialization DONE\n");
+}
+
+// Called when USB bus is suspended
+void tud_suspend_cb(bool remote_wakeup_en)
+{
+    ESP_LOGI(CDC_DEV_TAG, "suspended, remote wakeup %s", remote_wakeup_en ? "enabled" : "disabled");
+
+    vTaskDelay(100);
+    ESP_LOGI(CDC_DEV_TAG, "Triggering remote wakeup");
+    tud_remote_wakeup();
+    // You can put device into low-power mode here
+}
+
+// Called when USB bus resumes
+void tud_resume_cb(void)
+{
+    ESP_LOGI(CDC_DEV_TAG, "resumed");
 }

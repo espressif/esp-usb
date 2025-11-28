@@ -186,6 +186,9 @@ esp_err_t cdc_acm_host_cdc_desc_get(cdc_acm_dev_hdl_t cdc_hdl, cdc_desc_subtype_
  */
 esp_err_t cdc_acm_host_send_custom_request(cdc_acm_dev_hdl_t cdc_hdl, uint8_t bmRequestType, uint8_t bRequest, uint16_t wValue, uint16_t wIndex, uint16_t wLength, uint8_t *data);
 
+esp_err_t cdc_acm_host_remote_wake_check(cdc_acm_dev_hdl_t cdc_hdl, bool *enabled);
+esp_err_t cdc_acm_host_remote_wake_enable(cdc_acm_dev_hdl_t cdc_hdl, bool enable);
+
 #ifdef __cplusplus
 }
 class CdcAcmDevice {

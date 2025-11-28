@@ -1258,7 +1258,6 @@ static esp_err_t _port_cmd_power_on(port_t *port)
     // Port can only be powered on if it's currently unpowered
     if (port->state == HCD_PORT_STATE_NOT_POWERED) {
         port->state = HCD_PORT_STATE_DISCONNECTED;
-        //assert(_internal_clk_gate(port, false));           // Un-gate the phy clock                  TODO: Test this
         usb_dwc_hal_port_init(port->hal);
         usb_dwc_hal_port_toggle_power(port->hal, true);
         ret = ESP_OK;
@@ -1274,12 +1273,12 @@ static esp_err_t _port_cmd_power_off(port_t *port)
     // Port can only be unpowered if already powered
     if (port->state != HCD_PORT_STATE_NOT_POWERED) {
 
+        // Powering-off from suspended state
         if (port->state == HCD_PORT_STATE_SUSPENDED) {
             // un-gate internal clock, to be able to toggle power on the port
             assert(_internal_clk_gate(port, false));            // Un-gate the phy clock
         }
         port->state = HCD_PORT_STATE_NOT_POWERED;
-        //assert(_internal_clk_gate(port, false));            // Gate the phy clock                  TODO: Test this
         usb_dwc_hal_port_deinit(port->hal);
         usb_dwc_hal_port_toggle_power(port->hal, false);
         // If a device is currently connected, this should trigger a disconnect event
@@ -1309,7 +1308,7 @@ static esp_err_t _port_cmd_reset(port_t *port)
     }
     // If resetting from suspended state, we must un-gate the internal clock
     if (port->state == HCD_PORT_STATE_SUSPENDED) {
-        _internal_clk_gate(port, false);
+        assert(_internal_clk_gate(port, false));
     }
     /*
     Proceed to resetting the bus
@@ -1497,6 +1496,11 @@ static esp_err_t _port_cmd_disable(port_t *port)
         ret = ESP_ERR_INVALID_STATE;
         goto exit;
     }
+
+    if (port->state == HCD_PORT_STATE_SUSPENDED) {
+        assert( _internal_clk_gate(port, false));        // un-gate
+    }
+
     // All pipes are guaranteed to be halted or freed at this point. Proceed to disable the port
     port->flags.disable_requested = 1;
     usb_dwc_hal_port_disable(port->hal);
@@ -1682,7 +1686,6 @@ esp_err_t hcd_port_recover(hcd_port_handle_t port_hdl)
                         ESP_ERR_INVALID_STATE);
 
     // We are about to do a soft reset on the peripheral. Disable the peripheral throughout
-    //assert(_internal_clk_gate(port, false));           // Gate the phy clock
     esp_intr_disable(port->isr_hdl);
     usb_dwc_hal_core_soft_reset(port->hal);
     port->state = HCD_PORT_STATE_NOT_POWERED;
@@ -1692,7 +1695,6 @@ esp_err_t hcd_port_recover(hcd_port_handle_t port_hdl)
     // Clear the frame list. We set the frame list register and enable periodic scheduling after a successful reset
     memset(port->frame_list, 0, FRAME_LIST_LEN * sizeof(uint32_t));
     esp_intr_enable(port->isr_hdl);
-    //assert(_internal_clk_gate(port, true));           // Gate the phy clock
     HCD_EXIT_CRITICAL();
     return ESP_OK;
 }
