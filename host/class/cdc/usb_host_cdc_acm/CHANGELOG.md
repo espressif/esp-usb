@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 - Added global suspend/resume support
+- Added support for transmitting data larger than the configured output buffer size
 
 ## [2.1.1] - 2025-09-24
 
