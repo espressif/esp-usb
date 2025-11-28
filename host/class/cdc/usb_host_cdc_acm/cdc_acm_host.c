@@ -1058,6 +1058,36 @@ unblock:
     return ret;
 }
 
+esp_err_t cdc_acm_host_remote_wake_check(cdc_acm_dev_hdl_t cdc_hdl, bool *enabled)
+{
+    CDC_ACM_CHECK(cdc_hdl, ESP_ERR_INVALID_ARG);
+    cdc_dev_t *cdc_dev = (cdc_dev_t *)cdc_hdl;
+    esp_err_t ret;
+
+    ESP_GOTO_ON_ERROR(
+        usb_host_device_remote_wakeup_check(p_cdc_acm_obj->cdc_acm_client_hdl, cdc_dev->dev_hdl, enabled),
+        unblock, TAG, "Remote wake check failed");
+
+    return ESP_OK;
+unblock:
+    return ret;
+}
+
+esp_err_t cdc_acm_host_remote_wake_enable(cdc_acm_dev_hdl_t cdc_hdl, bool enable)
+{
+    CDC_ACM_CHECK(cdc_hdl, ESP_ERR_INVALID_ARG);
+    cdc_dev_t *cdc_dev = (cdc_dev_t *)cdc_hdl;
+    esp_err_t ret;
+
+    ESP_GOTO_ON_ERROR(
+        usb_host_device_remote_wakeup_enable(p_cdc_acm_obj->cdc_acm_client_hdl, cdc_dev->dev_hdl, enable),
+        unblock, TAG, "Remote wake enable failed");
+
+    return ESP_OK;
+unblock:
+    return ret;
+}
+
 esp_err_t cdc_acm_host_protocols_get(cdc_acm_dev_hdl_t cdc_hdl, cdc_comm_protocol_t *comm, cdc_data_protocol_t *data)
 {
     CDC_ACM_CHECK(cdc_hdl, ESP_ERR_INVALID_ARG);

@@ -22,4 +22,10 @@ menu "USB Host Library Test"
             USB Host tests that check string descriptors will check the serial string descriptor
             of the connected device.
 
+    config USB_HOST_TEST_DEVICE_HAS_REMOTE_WAKEUP
+        bool "Connected device has remote wakeup feature"
+        default n
+        help
+            Run the remote wakeup test with a device which has, or which does not have remote wakeup functionality
+
 endmenu
