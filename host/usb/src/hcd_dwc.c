@@ -1254,8 +1254,11 @@ static esp_err_t _port_cmd_reset(port_t *port)
 {
     esp_err_t ret;
 
-    // Port can only a reset when it is in the enabled or disabled (in the case of a new connection)states.
-    if (port->state != HCD_PORT_STATE_ENABLED && port->state != HCD_PORT_STATE_DISABLED) {
+    // Port can only be reset when it is in the enabled or disabled (in the case of a new connection) states, or
+    // in suspended state, to exit suspended state through host initiated reset
+    if (port->state != HCD_PORT_STATE_ENABLED &&
+            port->state != HCD_PORT_STATE_DISABLED &&
+            port->state != HCD_PORT_STATE_SUSPENDED) {
         ret = ESP_ERR_INVALID_STATE;
         goto exit;
     }

@@ -191,10 +191,14 @@ void test_hcd_free_urb(urb_t *urb);
 uint8_t test_hcd_enum_device(hcd_pipe_handle_t default_pipe);
 
 /**
- * @brief Set endpoint descriptor
+ * @brief Ping device to check whether the device is responsive or not
  *
- * Set endpoint descriptor of the mock device with different wMaxPacketSize according to the connected device's speed
+ * Use this function to check whether it is possible to communicate with a device.
+ * For example after resuming a device, to check whether the device has been resumed correctly.
+ * The function sends a get configuration descriptor request to a device, checking both, the IN and OUT transfers
  *
- * @param port_speed Port speed after the device is connected
+ * @note this function sends a control transfer to the device
+ * @param default_pipe The connected device's default pipe
+ * @param default_urb A default_pipe's URB used for get configuration descriptor request
  */
-void test_hcd_set_mock_msc_ep_descriptor(usb_speed_t port_speed);
+void test_hcd_ping_device(hcd_pipe_handle_t default_pipe, urb_t *default_urb);
