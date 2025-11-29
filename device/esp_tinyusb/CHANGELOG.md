@@ -1,3 +1,7 @@
+## [Unreleased]
+
+- esp_tinyusb: Added VBUS monitoring feature for ESP32P4 USB OTG 2.0 (HS)
+
 ## 2.0.1~1
 
 - esp_tinyusb: Claim forward compatibility with TinyUSB 0.19
