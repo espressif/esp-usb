@@ -60,6 +60,19 @@ typedef struct {
     size_t size;                                /*!< USB Device Task size. */
     uint8_t priority;                           /*!< USB Device Task priority. */
     int  xCoreID;                               /*!< USB Device Task core affinity.  */
+    uint32_t blocking_timeout_ms;               /*!< USB Device Task blocking timeout in milliseconds.
+                                                     This feature is used to control the behavior of the tud_task_ext() function called
+                                                     inside the dedicated TinyUSB task. The timeout defines how long the tud_task_ext() function
+                                                     will block waiting for USB events and how frequently the driver will poll for the uninstall notififcation.
+                                                     If tinyusb_driver_uninstall() is not used, the blocking timeout can block indefinitely to reduce CPU usage.
+
+                                                     Values:
+                                                        0 - non-blocking mode.
+                                                        UINT_MAX - blocks indefinetely (legacy mode).
+
+                                                     Default value: 1000 ms.
+                                                     */
+
 } tinyusb_task_config_t;
 
 /**

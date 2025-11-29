@@ -38,15 +38,12 @@ static volatile int nb_of_success = 0;
 
 static void test_task_install(void *arg)
 {
-    (void) arg;
+    tinyusb_config_t *tusb_cfg = (tinyusb_config_t *) arg;
     // Install TinyUSB driver
-    tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG(test_device_event_handler);
-    tusb_cfg.phy.skip_setup = true; // Skip phy setup to allow multiple tasks to install the driver
-
     // Wait to be started by main thread
     ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
 
-    if (tinyusb_driver_install(&tusb_cfg) == ESP_OK) {
+    if (tinyusb_driver_install(tusb_cfg) == ESP_OK) {
         test_device_wait();
         TEST_ASSERT_EQUAL_MESSAGE(ESP_OK, tinyusb_driver_uninstall(), "Unable to uninstall driver after install in worker");
         taskENTER_CRITICAL(&_spinlock);
@@ -101,12 +98,19 @@ static void test_deinit_phy(usb_phy_handle_t phy_hdl)
 // ============================= Tests =========================================
 
 /**
- * @brief TinyUSB Task specific testcase
+ * @brief TinyUSB Multitask access test cases
+ *
+ * Scenario: Trying to install and uninstall the driver from several tasks
  *
  * Scenario: Trying to install driver from several tasks
  * Note: when phy.skip_setup = false, the task access will be determined by the first task install the phy
+ *
+ * Parameter: tusb_cfg.task.blocking_timeout_ms
+ * - default blocking
+ * - non-blocking
+ * - blocking indefinitely (legacy mode)
  */
-TEST_CASE("Multitask: Install", "[runtime_config][default]")
+TEST_CASE("[Multitask] Install, default blocking task", "[runtime_config][default]")
 {
     usb_phy_handle_t phy_hdl = test_init_phy();
 
@@ -117,12 +121,16 @@ TEST_CASE("Multitask: Install", "[runtime_config][default]")
     // No task are running yet
     nb_of_success = 0;
 
+    // Configure TinyUSB default config
+    tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG(test_device_event_handler);
+    tusb_cfg.phy.skip_setup = true; // Skip phy setup to allow multiple tasks to install the driver
+
     // Create tasks that will start the driver
     for (int i = 0; i < MULTIPLE_THREADS_TASKS_NUM; i++) {
         TEST_ASSERT_EQUAL(pdPASS, xTaskCreate(test_task_install,
                                               "InstallTask",
                                               4096,
-                                              NULL,
+                                              (void *) &tusb_cfg,
                                               4 + i,
                                               &test_task_handles[i]));
     }
@@ -144,7 +152,93 @@ TEST_CASE("Multitask: Install", "[runtime_config][default]")
     vSemaphoreDelete(sem_done);
 }
 
-TEST_CASE("Multitask: Uninstall", "[runtime_config][default]")
+TEST_CASE("[Multitask] Install, non-blocking task", "[runtime_config][default]")
+{
+    usb_phy_handle_t phy_hdl = test_init_phy();
+
+    // Create counting semaphore to wait for all tasks to complete
+    sem_done = xSemaphoreCreateCounting(MULTIPLE_THREADS_TASKS_NUM, 0);
+    TEST_ASSERT_NOT_NULL(sem_done);
+
+    // No task are running yet
+    nb_of_success = 0;
+
+    // Configure TinyUSB default config
+    tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG(test_device_event_handler);
+    tusb_cfg.phy.skip_setup = true; // Skip phy setup to allow multiple tasks to install the driver
+    tusb_cfg.task.blocking_timeout_ms = 0; // Non-blocking mode
+
+    // Create tasks that will start the driver
+    for (int i = 0; i < MULTIPLE_THREADS_TASKS_NUM; i++) {
+        TEST_ASSERT_EQUAL(pdPASS, xTaskCreate(test_task_install,
+                                              "InstallTask",
+                                              4096,
+                                              (void *) &tusb_cfg,
+                                              4 + i,
+                                              &test_task_handles[i]));
+    }
+
+    // Start all tasks
+    for (int i = 0; i < MULTIPLE_THREADS_TASKS_NUM; i++) {
+        xTaskNotifyGive(test_task_handles[i]);
+    }
+
+    // Wait for all tasks to complete
+    for (int i = 0; i < MULTIPLE_THREADS_TASKS_NUM; i++) {
+        TEST_ASSERT_EQUAL_MESSAGE(pdTRUE, xSemaphoreTake(sem_done, pdMS_TO_TICKS(5000)), "Not all tasks completed in time");
+    }
+
+    // There should be only one task that was able to install the driver
+    TEST_ASSERT_EQUAL_MESSAGE(1, nb_of_success, "Only one task should be able to install the driver");
+    // Clean-up
+    test_deinit_phy(phy_hdl);
+    vSemaphoreDelete(sem_done);
+}
+
+TEST_CASE("[Multitask] Install, blocking task indefinitely (legacy mode)", "[runtime_config][default]")
+{
+    usb_phy_handle_t phy_hdl = test_init_phy();
+
+    // Create counting semaphore to wait for all tasks to complete
+    sem_done = xSemaphoreCreateCounting(MULTIPLE_THREADS_TASKS_NUM, 0);
+    TEST_ASSERT_NOT_NULL(sem_done);
+
+    // No task are running yet
+    nb_of_success = 0;
+
+    // Configure TinyUSB default config
+    tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG(test_device_event_handler);
+    tusb_cfg.phy.skip_setup = true; // Skip phy setup to allow multiple tasks to install the driver
+    tusb_cfg.task.blocking_timeout_ms = UINT32_MAX; // Blocking indefinitely
+
+    // Create tasks that will start the driver
+    for (int i = 0; i < MULTIPLE_THREADS_TASKS_NUM; i++) {
+        TEST_ASSERT_EQUAL(pdPASS, xTaskCreate(test_task_install,
+                                              "InstallTask",
+                                              4096,
+                                              (void *) &tusb_cfg,
+                                              4 + i,
+                                              &test_task_handles[i]));
+    }
+
+    // Start all tasks
+    for (int i = 0; i < MULTIPLE_THREADS_TASKS_NUM; i++) {
+        xTaskNotifyGive(test_task_handles[i]);
+    }
+
+    // Wait for all tasks to complete
+    for (int i = 0; i < MULTIPLE_THREADS_TASKS_NUM; i++) {
+        TEST_ASSERT_EQUAL_MESSAGE(pdTRUE, xSemaphoreTake(sem_done, pdMS_TO_TICKS(5000)), "Not all tasks completed in time");
+    }
+
+    // There should be only one task that was able to install the driver
+    TEST_ASSERT_EQUAL_MESSAGE(1, nb_of_success, "Only one task should be able to install the driver");
+    // Clean-up
+    test_deinit_phy(phy_hdl);
+    vSemaphoreDelete(sem_done);
+}
+
+TEST_CASE("[Multitask] Uninstall, default blocking task", "[runtime_config][default]")
 {
     usb_phy_handle_t phy_hdl = test_init_phy();
     // Create counting semaphore to wait for all tasks to complete
@@ -158,6 +252,92 @@ TEST_CASE("Multitask: Uninstall", "[runtime_config][default]")
     tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG(test_device_event_handler);
     tusb_cfg.phy.skip_setup = true; // Skip phy setup to allow multiple tasks
     TEST_ASSERT_EQUAL_MESSAGE(ESP_OK, tinyusb_driver_install(&tusb_cfg), "Unable to install TinyUSB driver ");
+    // Create tasks that will uninstall the driver
+    for (int i = 0; i < MULTIPLE_THREADS_TASKS_NUM; i++) {
+        TEST_ASSERT_EQUAL(pdPASS, xTaskCreate(test_task_uninstall,
+                                              "UninstallTask",
+                                              4096,
+                                              NULL,
+                                              4 + i,
+                                              &test_task_handles[i]));
+    }
+
+    // Start all tasks
+    for (int i = 0; i < MULTIPLE_THREADS_TASKS_NUM; i++) {
+        xTaskNotifyGive(test_task_handles[i]);
+    }
+    // Wait for all tasks to complete
+    for (int i = 0; i < MULTIPLE_THREADS_TASKS_NUM; i++) {
+        TEST_ASSERT_EQUAL_MESSAGE(pdTRUE, xSemaphoreTake(sem_done, pdMS_TO_TICKS(5000)), "Not all tasks completed in time");
+    }
+
+    // There should be only one task that was able to uninstall the driver
+    TEST_ASSERT_EQUAL_MESSAGE(1, nb_of_success, "Only one task should be able to uninstall the driver");
+
+    // Clean-up
+    test_deinit_phy(phy_hdl);
+    vSemaphoreDelete(sem_done);
+}
+
+TEST_CASE("[Multitask] Uninstall, non-blocking task", "[runtime_config][default]")
+{
+    usb_phy_handle_t phy_hdl = test_init_phy();
+    // Create counting semaphore to wait for all tasks to complete
+    sem_done = xSemaphoreCreateCounting(MULTIPLE_THREADS_TASKS_NUM, 0);
+    TEST_ASSERT_NOT_NULL(sem_done);
+
+    // No task are running yet
+    nb_of_success = 0;
+
+    // Install the driver once
+    tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG(test_device_event_handler);
+    tusb_cfg.phy.skip_setup = true; // Skip phy setup to allow multiple tasks
+    tusb_cfg.task.blocking_timeout_ms = 0; // Non-blocking mode
+    TEST_ASSERT_EQUAL_MESSAGE(ESP_OK, tinyusb_driver_install(&tusb_cfg), "Unable to install TinyUSB driver ");
+
+    // Create tasks that will uninstall the driver
+    for (int i = 0; i < MULTIPLE_THREADS_TASKS_NUM; i++) {
+        TEST_ASSERT_EQUAL(pdPASS, xTaskCreate(test_task_uninstall,
+                                              "UninstallTask",
+                                              4096,
+                                              NULL,
+                                              4 + i,
+                                              &test_task_handles[i]));
+    }
+
+    // Start all tasks
+    for (int i = 0; i < MULTIPLE_THREADS_TASKS_NUM; i++) {
+        xTaskNotifyGive(test_task_handles[i]);
+    }
+    // Wait for all tasks to complete
+    for (int i = 0; i < MULTIPLE_THREADS_TASKS_NUM; i++) {
+        TEST_ASSERT_EQUAL_MESSAGE(pdTRUE, xSemaphoreTake(sem_done, pdMS_TO_TICKS(5000)), "Not all tasks completed in time");
+    }
+
+    // There should be only one task that was able to uninstall the driver
+    TEST_ASSERT_EQUAL_MESSAGE(1, nb_of_success, "Only one task should be able to uninstall the driver");
+
+    // Clean-up
+    test_deinit_phy(phy_hdl);
+    vSemaphoreDelete(sem_done);
+}
+
+TEST_CASE("[Multitask] Uninstall, blocking task indefinitely (legacy mode)", "[runtime_config][default]")
+{
+    usb_phy_handle_t phy_hdl = test_init_phy();
+    // Create counting semaphore to wait for all tasks to complete
+    sem_done = xSemaphoreCreateCounting(MULTIPLE_THREADS_TASKS_NUM, 0);
+    TEST_ASSERT_NOT_NULL(sem_done);
+
+    // No task are running yet
+    nb_of_success = 0;
+
+    // Install the driver once
+    tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG(test_device_event_handler);
+    tusb_cfg.phy.skip_setup = true; // Skip phy setup to allow multiple tasks
+    tusb_cfg.task.blocking_timeout_ms = UINT32_MAX; // Blocking indefinitely
+    TEST_ASSERT_EQUAL_MESSAGE(ESP_OK, tinyusb_driver_install(&tusb_cfg), "Unable to install TinyUSB driver ");
+
     // Create tasks that will uninstall the driver
     for (int i = 0; i < MULTIPLE_THREADS_TASKS_NUM; i++) {
         TEST_ASSERT_EQUAL(pdPASS, xTaskCreate(test_task_uninstall,
