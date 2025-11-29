@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2024-2025 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -62,6 +62,14 @@ void stream_callback(const uvc_host_stream_event_data_t *event, void *user_ctx)
     case UVC_HOST_FRAME_BUFFER_UNDERFLOW:
         ESP_LOGW(TAG, "Frame buffer underflow");
         break;
+#ifdef UVC_HOST_SUSPEND_RESUME_API_SUPPORTED
+    case UVC_HOST_DEVICE_SUSPENDED:
+        ESP_LOGI(TAG, "Device suspended");
+        break;
+    case UVC_HOST_DEVICE_RESUMED:
+        ESP_LOGI(TAG, "Device resumed");
+        break;
+#endif // UVC_HOST_SUSPEND_RESUME_API_SUPPORTED
     default:
         abort();
         break;
