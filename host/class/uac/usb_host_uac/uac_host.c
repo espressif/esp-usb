@@ -755,8 +755,14 @@ static esp_err_t uac_host_interface_add(uac_device_t *uac_device, uint8_t iface_
                  iface_alt_desc->bInterfaceNumber, iface_alt_desc->bAlternateSetting);
         iface_alt_idx++;
         // Allocate memory for the alternate setting
-        uac_iface->iface_alt = realloc(uac_iface->iface_alt, iface_alt_idx * sizeof(uac_iface_alt_t));
-        UAC_GOTO_ON_FALSE(uac_iface->iface_alt, ESP_ERR_NO_MEM, "Unable to allocate memory");
+        // Fix realloc() vulnerability: save original pointer to avoid memory leak on failure
+        uac_iface_alt_t *new_iface_alt = realloc(uac_iface->iface_alt, iface_alt_idx * sizeof(uac_iface_alt_t));
+        if (new_iface_alt == NULL) {
+            ESP_LOGE(TAG, "Unable to allocate memory for interface alternate setting");
+            // Original uac_iface->iface_alt is still valid and will be freed in cleanup
+            goto _interface_parse_fail;
+        }
+        uac_iface->iface_alt = new_iface_alt;
         uac_iface_alt_t *iface_alt = &uac_iface->iface_alt[iface_alt_idx - 1];
         memset(iface_alt, 0, sizeof(uac_iface_alt_t));
         iface_alt->alt_idx = iface_alt_desc->bAlternateSetting;
