@@ -892,6 +892,21 @@ static esp_err_t hid_class_request_set(hid_device_t *hid_device,
     HID_RETURN_ON_ERROR( hid_device_try_lock(hid_device, DEFAULT_TIMEOUT_MS),
                          "HID Device is busy by other task");
 
+    // Validate and resize ctrl_xfer buffer if needed to prevent buffer overflow
+    size_t ctrl_size = ctrl_xfer->data_buffer_size;
+    if (ctrl_size < (USB_SETUP_PACKET_SIZE + req->wLength)) {
+        ESP_LOGD(TAG, "Change HID ctrl xfer size from %d to %d",
+                 (int) ctrl_size,
+                 (int) (USB_SETUP_PACKET_SIZE + req->wLength));
+
+        usb_host_transfer_free(hid_device->ctrl_xfer);
+        HID_RETURN_ON_ERROR( usb_host_transfer_alloc(USB_SETUP_PACKET_SIZE + req->wLength,
+                                                     0,
+                                                     &hid_device->ctrl_xfer),
+                             "Unable to allocate transfer buffer for EP0");
+        ctrl_xfer = hid_device->ctrl_xfer;
+    }
+
     usb_setup_packet_t *setup = (usb_setup_packet_t *)ctrl_xfer->data_buffer;
     setup->bmRequestType = USB_BM_REQUEST_TYPE_DIR_OUT |
                            USB_BM_REQUEST_TYPE_TYPE_CLASS |
