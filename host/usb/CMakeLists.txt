@@ -69,3 +69,18 @@ idf_component_register(SRCS ${srcs}
 if(CONFIG_COMPILER_STATIC_ANALYZER AND CMAKE_C_COMPILER_ID STREQUAL "GNU") # TODO GCC-366 (segfault)
     set_property(SOURCE usb_host.c PROPERTY COMPILE_FLAGS -fno-analyzer)
 endif()
+
+# Add security hardening compiler flags
+target_compile_options(${COMPONENT_LIB} PRIVATE
+    -fstack-protector-strong  # Stack canaries for buffer overflow protection
+    -Wformat-security         # Format string vulnerability warnings
+    # -D_FORTIFY_SOURCE=2 is typically enabled by ESP-IDF build system already
+)
+
+# Additional warnings for security-critical code
+target_compile_options(${COMPONENT_LIB} PRIVATE
+    -Wall
+    -Wextra
+    -Werror=implicit-function-declaration
+    -Werror=return-type
+)

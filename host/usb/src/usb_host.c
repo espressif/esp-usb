@@ -1431,13 +1431,23 @@ esp_err_t usb_host_get_config_desc(usb_host_client_handle_t client_hdl, usb_devi
 
     // Allocate memory to store the configuration descriptor
     const usb_config_desc_t *config_desc_full = (usb_config_desc_t *)(ctrl_transfer->data_buffer + sizeof(usb_setup_packet_t));
+
+    // Validate that wTotalLength in received descriptor matches what we actually got
+    size_t actual_desc_size = ctrl_transfer->actual_num_bytes - sizeof(usb_setup_packet_t);
+    if (config_desc_full->wTotalLength > actual_desc_size) {
+        ESP_LOGE(USB_HOST_TAG, "Config descriptor wTotalLength (%d) exceeds received data (%d)",
+                 config_desc_full->wTotalLength, actual_desc_size);
+        ret = ESP_ERR_INVALID_RESPONSE;
+        goto exit;
+    }
+
     usb_config_desc_t *config_desc = heap_caps_malloc(config_desc_full->wTotalLength, MALLOC_CAP_DEFAULT);
     if (config_desc == NULL) {
         ret = ESP_ERR_NO_MEM;
         goto exit;
     }
 
-    // Copy the configuration descriptor
+    // Copy the configuration descriptor (now validated to be within bounds)
     memcpy(config_desc, config_desc_full, config_desc_full->wTotalLength);
     *config_desc_ret = config_desc;
     ret = ESP_OK;

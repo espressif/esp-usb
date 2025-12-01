@@ -215,7 +215,14 @@ static uint8_t get_next_free_dev_addr(void)
  */
 static inline uint8_t get_configuration_descriptor_index(uint8_t bConfigurationValue)
 {
-    return (bConfigurationValue == 0) ? bConfigurationValue : (bConfigurationValue - 1);
+    // USB spec allows up to 255 configurations, but practical limit is much lower
+    // Validate to prevent out-of-bounds array access
+#define USB_MAX_CONFIGURATIONS 32  // Reasonable upper limit
+    if (bConfigurationValue == 0 || bConfigurationValue > USB_MAX_CONFIGURATIONS) {
+        ESP_LOGW(ENUM_TAG, "Invalid configuration value: %d (max %d)", bConfigurationValue, USB_MAX_CONFIGURATIONS);
+        return 0;  // Return default/first configuration index
+    }
+    return bConfigurationValue - 1;
 }
 
 /**
@@ -313,8 +320,10 @@ static inline void get_index_langid_for_stage(enum_stage_t stage, uint8_t *index
         *langid = ENUM_LANGID;  // Use the default LANGID
         break;
     default:
-        // Should not occur
-        abort();
+        // Unexpected stage - set safe defaults and log error
+        ESP_LOGE(ENUM_TAG, "Unexpected stage in get_index_langid_for_stage: %d", stage);
+        *index = 0;
+        *langid = 0;
         break;
     }
 }
@@ -368,6 +377,14 @@ static void control_request_general(enum_stage_t stage)
     }
     case ENUM_STAGE_GET_FULL_CONFIG_DESC: {
         // Get the full configuration descriptor at descriptor index, requesting its exact length.
+        // Bounds check with overflow protection
+        uint16_t total_transfer_size = 0;
+        if (__builtin_add_overflow(sizeof(usb_setup_packet_t), wTotalLength, &total_transfer_size) ||
+                total_transfer_size > ENUM_CTRL_TRANSFER_MAX_DATA_LEN) {
+            ESP_LOGE(ENUM_TAG, "Configuration descriptor size overflow (wTotalLength=%u)", wTotalLength);
+            ret = ESP_ERR_INVALID_SIZE;
+            goto exit;
+        }
         USB_SETUP_PACKET_INIT_GET_CONFIG_DESC((usb_setup_packet_t *)transfer->data_buffer, desc_index, wTotalLength);
         transfer->num_bytes = sizeof(usb_setup_packet_t) + usb_round_up_to_mps(wTotalLength, ctrl_ep_mps);
         // IN data stage should return exactly wTotalLength bytes
@@ -381,9 +398,10 @@ static void control_request_general(enum_stage_t stage)
         break;
     }
     default:
-        // Should never occur
+        // Unexpected stage - log error and set safe state
+        ESP_LOGE(ENUM_TAG, "Unexpected stage in control_request_general: %d", stage);
         p_enum_driver->single_thread.expect_num_bytes = 0;
-        abort();
+        transfer->num_bytes = 0;
         break;
     }
 }
@@ -429,9 +447,10 @@ static void control_request_string(enum_stage_t stage)
         break;
     }
     default:
-        // Should never occur
+        // Unexpected stage - log error and set safe state
+        ESP_LOGE(ENUM_TAG, "Unexpected stage in control_request_string: %d", stage);
         p_enum_driver->single_thread.expect_num_bytes = 0;
-        abort();
+        transfer->num_bytes = 0;
         break;
     }
 }
@@ -449,9 +468,11 @@ static esp_err_t parse_short_dev_desc(void)
     usb_transfer_t *ctrl_xfer = &p_enum_driver->constant.urb->transfer;
     const usb_device_desc_t *dev_desc = (usb_device_desc_t *)(ctrl_xfer->data_buffer + sizeof(usb_setup_packet_t));
 
-    // Check if the returned descriptor has correct type
-    if (dev_desc->bDescriptorType != USB_B_DESCRIPTOR_TYPE_DEVICE) {
-        ESP_LOGE(ENUM_TAG, "Short dev desc has wrong bDescriptorType");
+    // Check if the returned descriptor has correct type and length
+    if (dev_desc->bDescriptorType != USB_B_DESCRIPTOR_TYPE_DEVICE ||
+            dev_desc->bLength != sizeof(usb_device_desc_t)) {
+        ESP_LOGE(ENUM_TAG, "Short dev desc invalid (type=%d, len=%d, expected len=%d)",
+                 dev_desc->bDescriptorType, dev_desc->bLength, sizeof(usb_device_desc_t));
         ret = ESP_ERR_INVALID_RESPONSE;
         goto exit;
     }
@@ -497,9 +518,11 @@ static esp_err_t parse_full_dev_desc(void)
     usb_transfer_t *ctrl_xfer = &p_enum_driver->constant.urb->transfer;
     const usb_device_desc_t *dev_desc = (usb_device_desc_t *)(ctrl_xfer->data_buffer + sizeof(usb_setup_packet_t));
 
-    // Check if the returned descriptor has correct type
-    if (dev_desc->bDescriptorType != USB_B_DESCRIPTOR_TYPE_DEVICE) {
-        ESP_LOGE(ENUM_TAG, "Full dev desc has wrong bDescriptorType");
+    // Check if the returned descriptor has correct type and length
+    if (dev_desc->bDescriptorType != USB_B_DESCRIPTOR_TYPE_DEVICE ||
+            dev_desc->bLength != sizeof(usb_device_desc_t)) {
+        ESP_LOGE(ENUM_TAG, "Full dev desc invalid (type=%d, len=%d, expected len=%d)",
+                 dev_desc->bDescriptorType, dev_desc->bLength, sizeof(usb_device_desc_t));
         ret = ESP_ERR_INVALID_RESPONSE;
         goto exit;
     }
@@ -569,8 +592,11 @@ static esp_err_t parse_full_config_desc(void)
     const usb_config_desc_t *config_desc = (usb_config_desc_t *)(ctrl_xfer->data_buffer + sizeof(usb_setup_packet_t));
 
     // Check if the returned descriptor is corrupted
-    if (config_desc->bDescriptorType != USB_B_DESCRIPTOR_TYPE_CONFIGURATION) {
-        ESP_LOGE(ENUM_TAG, "Full config desc has wrong bDescriptorType");
+    // Configuration descriptor should be at least the size of usb_config_desc_t
+    if (config_desc->bDescriptorType != USB_B_DESCRIPTOR_TYPE_CONFIGURATION ||
+            config_desc->bLength < sizeof(usb_config_desc_t)) {
+        ESP_LOGE(ENUM_TAG, "Full config desc invalid (type=%d, len=%d, min len=%d)",
+                 config_desc->bDescriptorType, config_desc->bLength, sizeof(usb_config_desc_t));
         ret = ESP_ERR_INVALID_RESPONSE;
         goto exit;
     }
@@ -631,9 +657,23 @@ static esp_err_t parse_langid_table(void)
     usb_transfer_t *transfer = &p_enum_driver->constant.urb->transfer;
     const usb_str_desc_t *str_desc = (usb_str_desc_t *)(transfer->data_buffer + sizeof(usb_setup_packet_t));
 
+    // Validate bLength to prevent integer underflow
+    if (str_desc->bLength < sizeof(usb_str_desc_t)) {
+        ESP_LOGE(ENUM_TAG, "Invalid LANGID table length: %d", str_desc->bLength);
+        return ESP_ERR_INVALID_RESPONSE;
+    }
+
     //Scan the LANGID table for our target LANGID
     ret = ESP_ERR_NOT_FOUND;
     int langid_table_num_entries = (str_desc->bLength - sizeof(usb_str_desc_t)) / 2;  // Each LANGID is 2 bytes
+
+    // Sanity check on number of entries
+#define MAX_LANGID_ENTRIES 32
+    if (langid_table_num_entries < 0 || langid_table_num_entries > MAX_LANGID_ENTRIES) {
+        ESP_LOGE(ENUM_TAG, "Invalid LANGID entry count: %d", langid_table_num_entries);
+        return ESP_ERR_INVALID_RESPONSE;
+    }
+
     for (int i = 0; i < langid_table_num_entries; i++) {  // Each LANGID is 2 bytes
         if (str_desc->wData[i] == ENUM_LANGID) {
             ret = ESP_OK;
@@ -765,15 +805,21 @@ static esp_err_t control_response_handling(enum_stage_t stage)
         return ret;
     }
 
+    // Create a local, non-volatile copy immediately after DMA completion to prevent TOCTOU
+    volatile int actual_bytes_received = ctrl_xfer->actual_num_bytes;
+    int validated_bytes = actual_bytes_received; // Non-volatile copy for validation
+
     // Transfer completed, verbose data in ESP_LOG_VERBOSE is set
-    ESP_LOG_BUFFER_HEXDUMP(ENUM_TAG, ctrl_xfer->data_buffer, ctrl_xfer->actual_num_bytes, ESP_LOG_VERBOSE);
+    ESP_LOG_BUFFER_HEXDUMP(ENUM_TAG, ctrl_xfer->data_buffer, validated_bytes, ESP_LOG_VERBOSE);
 
     // Check Control IN transfer returned the expected correct number of bytes
-    if (expected_num_bytes != 0 && expected_num_bytes != ctrl_xfer->actual_num_bytes) {
-        ESP_LOGW(ENUM_TAG, "Unexpected (%d) device response length (expected %d)",
-                 ctrl_xfer->actual_num_bytes,
+    if (expected_num_bytes != 0 && expected_num_bytes != validated_bytes) {
+        ESP_LOGW(ENUM_TAG, "[%d:%d] Unexpected (%d) device response length (expected %d)",
+                 p_enum_driver->single_thread.parent_dev_addr,
+                 p_enum_driver->single_thread.parent_port_num,
+                 validated_bytes,
                  expected_num_bytes);
-        if (ctrl_xfer->actual_num_bytes < expected_num_bytes) {
+        if (validated_bytes < expected_num_bytes) {
             // The device returned less bytes than requested. We cannot continue.
             ESP_LOGE(ENUM_TAG, "Device returned less bytes than requested");
             ret = ESP_ERR_INVALID_SIZE;

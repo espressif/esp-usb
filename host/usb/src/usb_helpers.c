@@ -13,7 +13,10 @@
 #include "usb/usb_helpers.h"
 #include "usb/usb_types_ch9.h"
 #include "esp_check.h"
+#include "esp_log.h"
 #include "usb/usb_host.h"
+
+static const char *TAG = "usb_helpers";
 
 // ---------------------------------------- Configuration Descriptor Parsing -------------------------------------------
 
@@ -23,6 +26,14 @@ const usb_standard_desc_t *usb_parse_next_descriptor(const usb_standard_desc_t *
     if (*offset >= wTotalLength) {
         return NULL;    // We have traversed the entire configuration descriptor
     }
+
+    // Validate bLength before using it for pointer arithmetic
+    // Descriptors must be at least 2 bytes and have even length for proper alignment
+    if (cur_desc->bLength < 2 || (cur_desc->bLength & 1)) {
+        ESP_LOGW(TAG, "Invalid descriptor length: %d (must be >=2 and even)", cur_desc->bLength);
+        return NULL;
+    }
+
     if (*offset + cur_desc->bLength >= wTotalLength) {
         return NULL;    // Next descriptor is out of bounds
     }
@@ -113,6 +124,14 @@ const usb_intf_desc_t *usb_parse_interface_descriptor(const usb_config_desc_t *c
 const usb_ep_desc_t *usb_parse_endpoint_descriptor_by_index(const usb_intf_desc_t *intf_desc, int index, uint16_t wTotalLength, int *offset)
 {
     assert(intf_desc != NULL && offset != NULL);
+
+    // Sanity check on bNumEndpoints to prevent excessive iteration or OOB access
+#define USB_MAX_ENDPOINTS_PER_INTERFACE 16  // Reasonable limit per USB spec
+    if (intf_desc->bNumEndpoints > USB_MAX_ENDPOINTS_PER_INTERFACE) {
+        ESP_LOGW(TAG, "Invalid endpoint count: %d (max %d)", intf_desc->bNumEndpoints, USB_MAX_ENDPOINTS_PER_INTERFACE);
+        return NULL;
+    }
+
     if (index >= intf_desc->bNumEndpoints) {
         return NULL;    // Index is out of range
     }
@@ -278,7 +297,17 @@ void usb_print_config_descriptor(const usb_config_desc_t *cfg_desc, print_class_
     uint16_t wTotalLength = cfg_desc->wTotalLength;
     const usb_standard_desc_t *next_desc = (const usb_standard_desc_t *)cfg_desc;
 
+    // Limit maximum iterations to prevent stack overflow from malicious descriptors
+#define MAX_DESCRIPTOR_ITERATIONS 256
+    int iteration_count = 0;
+
     do {
+        // Check iteration limit
+        if (++iteration_count > MAX_DESCRIPTOR_ITERATIONS) {
+            ESP_LOGW(TAG, "Too many descriptors (>%d), aborting parse", MAX_DESCRIPTOR_ITERATIONS);
+            break;
+        }
+
         switch (next_desc->bDescriptorType) {
         case USB_B_DESCRIPTOR_TYPE_CONFIGURATION:
             usbh_print_cfg_desc((const usb_config_desc_t *)next_desc);
@@ -310,7 +339,31 @@ void usb_print_string_descriptor(const usb_str_desc_t *str_desc)
         return;
     }
 
-    for (int i = 0; i < str_desc->bLength / 2; i++) {
+    // Validate bLength and calculate actual character count
+    // String descriptor header is 2 bytes (bLength + bDescriptorType)
+#define USB_STR_DESC_HEADER_SIZE 2
+#define MAX_STRING_CHARS 126  // Max for bLength=255: (255-2)/2 = 126
+#define MAX_PRINT_CHARS 100   // Reasonable limit for printing
+
+    if (str_desc->bLength < USB_STR_DESC_HEADER_SIZE) {
+        ESP_LOGW(TAG, "Invalid string descriptor length: %d", str_desc->bLength);
+        return;
+    }
+
+    int max_chars = (str_desc->bLength - USB_STR_DESC_HEADER_SIZE) / sizeof(uint16_t);
+    if (max_chars < 0 || max_chars > MAX_STRING_CHARS) {
+        ESP_LOGW(TAG, "Invalid string descriptor character count: %d", max_chars);
+        return;
+    }
+
+    // Limit printing to reasonable length
+    int print_limit = (max_chars < MAX_PRINT_CHARS) ? max_chars : MAX_PRINT_CHARS;
+
+    for (int i = 0; i < print_limit; i++) {
+        // Respect null termination
+        if (str_desc->wData[i] == 0) {
+            break;
+        }
         /*
         USB String descriptors of UTF-16.
         Right now We just skip any character larger than 0xFF to stay in BMP Basic Latin and Latin-1 Supplement range.
