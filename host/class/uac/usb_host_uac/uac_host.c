@@ -160,6 +160,7 @@ typedef struct uac_interface {
     usb_transfer_t **free_xfer_list;           /*!< Pointer to free transfer list */
     // variable only change by app operation, protected by mutex
     SemaphoreHandle_t state_mutex;             /*!< UAC device state mutex */
+    SemaphoreHandle_t ringbuf_mutex;           /*!< UAC ringbuffer mutex */
     uac_iface_state_t state;                   /*!< Interface state */
     uint32_t flags;                            /*!< Interface flags */
     uint8_t cur_alt;                           /*!< Current alternate setting (-1) */
@@ -753,6 +754,8 @@ static esp_err_t uac_host_interface_add(uac_device_t *uac_device, uint8_t iface_
     UAC_RETURN_ON_FALSE(uac_iface, ESP_ERR_NO_MEM, "Unable to allocate memory");
     uac_iface->state_mutex = xSemaphoreCreateMutex();
     UAC_GOTO_ON_FALSE(uac_iface->state_mutex, ESP_ERR_NO_MEM, "Unable to create state mutex");
+    uac_iface->ringbuf_mutex = xSemaphoreCreateMutex();
+    UAC_GOTO_ON_FALSE(uac_iface->ringbuf_mutex, ESP_ERR_NO_MEM, "Unable to create ringbuffer mutex");
     const usb_config_desc_t *config_desc = NULL;
     const usb_intf_desc_t *iface_desc = NULL;
     const usb_intf_desc_t *iface_alt_desc = NULL;
@@ -909,6 +912,9 @@ static esp_err_t uac_host_interface_add(uac_device_t *uac_device, uint8_t iface_
     return ESP_OK;
 
 fail:
+    if (uac_iface && uac_iface->ringbuf_mutex) {
+        vSemaphoreDelete(uac_iface->ringbuf_mutex);
+    }
     if (uac_iface && uac_iface->state_mutex) {
         vSemaphoreDelete(uac_iface->state_mutex);
     }
@@ -930,6 +936,7 @@ static esp_err_t uac_host_interface_delete(uac_iface_t *uac_iface)
     UAC_ENTER_CRITICAL();
     STAILQ_REMOVE(&s_uac_driver->uac_ifaces_tailq, uac_iface, uac_interface, tailq_entry);
     UAC_EXIT_CRITICAL();
+    vSemaphoreDelete(uac_iface->ringbuf_mutex);
     vSemaphoreDelete(uac_iface->state_mutex);
     free(uac_iface->iface_alt);
     free(uac_iface);
@@ -1057,13 +1064,13 @@ static esp_err_t uac_host_interface_shutdown(uac_host_device_handle_t uac_dev_ha
 static esp_err_t _uac_host_device_disconnected(usb_device_handle_t dev_hdl)
 {
     uac_device_t *uac_device = get_uac_device_by_handle(dev_hdl);
-    uac_iface_t *uac_iface = NULL;
     // Device should be in the list
     assert(uac_device);
 
     UAC_ENTER_CRITICAL();
-    while (!STAILQ_EMPTY(&s_uac_driver->uac_ifaces_tailq)) {
-        uac_iface = STAILQ_FIRST(&s_uac_driver->uac_ifaces_tailq);
+    uac_iface_t *uac_iface = STAILQ_FIRST(&s_uac_driver->uac_ifaces_tailq);
+    while (uac_iface) {
+        uac_iface_t *next_iface = STAILQ_NEXT(uac_iface, tailq_entry);
         UAC_EXIT_CRITICAL();
         if (uac_iface->parent && (uac_iface->parent->addr == uac_device->addr)) {
             uac_iface->flags |= FLAG_INTERFACE_WAIT_USER_DELETE;
@@ -1071,6 +1078,7 @@ static esp_err_t _uac_host_device_disconnected(usb_device_handle_t dev_hdl)
             UAC_RETURN_ON_ERROR(uac_host_interface_shutdown(uac_iface), "Unable to shutdown interface");
         }
         UAC_ENTER_CRITICAL();
+        uac_iface = next_iface;
     }
     UAC_EXIT_CRITICAL();
 
@@ -1238,12 +1246,18 @@ static void stream_tx_xfer_submit(usb_transfer_t *out_xfer)
     uac_iface_t *iface = out_xfer->context;
     assert(iface);
 
+    // Prevent other threads from manipulating the ring buffer when calling the `uac_host_device_write` function.
+    xSemaphoreTake(iface->ringbuf_mutex, portMAX_DELAY);
     size_t data_len = _ring_buffer_get_len(iface->ringbuf);
     if (data_len >= iface->packet_size * iface->packet_num) {
         data_len = iface->packet_size * iface->packet_num;
         size_t actual_num_bytes = 0;
         _ring_buffer_pop(iface->ringbuf, out_xfer->data_buffer, data_len, &actual_num_bytes, 0);
-        assert(actual_num_bytes == data_len);
+        if (unlikely(actual_num_bytes != data_len)) {
+            ESP_LOGW(TAG, "TX Ringbuffer pop %d bytes, but requested %d bytes", actual_num_bytes, data_len);
+        }
+        xSemaphoreGive(iface->ringbuf_mutex);
+
         // Relaunch transfer, as the pipe state may change
         // the transfer may fail eg. the device is disconnected or the pipe is suspended
         // the data in ringbuffer will be dropped without notify user
@@ -1254,6 +1268,7 @@ static void stream_tx_xfer_submit(usb_transfer_t *out_xfer)
             uac_host_user_interface_callback(iface, UAC_HOST_DEVICE_EVENT_TX_DONE);
         }
     } else {
+        xSemaphoreGive(iface->ringbuf_mutex);
         // add the transfer to free list
         UAC_ENTER_CRITICAL();
         for (int i = 0; i < iface->xfer_num; i++) {
