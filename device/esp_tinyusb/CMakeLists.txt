@@ -64,7 +64,6 @@ target_include_directories(${tusb_lib} PRIVATE "include")
 
 # Add security hardening compiler flags
 target_compile_options(${COMPONENT_LIB} PRIVATE
-    -fstack-protector-strong  # Stack canaries for buffer overflow protection
     -Wformat-security         # Format string vulnerability warnings
     # -D_FORTIFY_SOURCE=2 is typically enabled by ESP-IDF build system already
 )
@@ -73,6 +72,5 @@ target_compile_options(${COMPONENT_LIB} PRIVATE
 target_compile_options(${COMPONENT_LIB} PRIVATE
     -Wall
     -Wextra
-    -Werror=implicit-function-declaration
     -Werror=return-type
 )

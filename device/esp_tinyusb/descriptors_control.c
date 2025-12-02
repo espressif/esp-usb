@@ -102,21 +102,20 @@ uint8_t const *tud_descriptor_other_speed_configuration_cb(uint8_t index)
                                  ? s_desc_cfg.fs_cfg
                                  : s_desc_cfg.hs_cfg;
 
-    // Validate wTotalLength before memcpy to prevent buffer overflow
+    uint16_t buf_len = MAX(((tusb_desc_configuration_t *)s_desc_cfg.fs_cfg)->wTotalLength,
+                           s_desc_cfg.hs_cfg ? ((tusb_desc_configuration_t *)s_desc_cfg.hs_cfg)->wTotalLength : 0);
+
     uint16_t copy_len = ((tusb_desc_configuration_t *)other_speed)->wTotalLength;
-    // Assume reasonable buffer size limit (CONFIG_USB_HOST_CONTROL_TRANSFER_MAX_SIZE is typically 256-512)
-    #define MAX_OTHER_SPEED_DESC_SIZE 512
-    if (copy_len > MAX_OTHER_SPEED_DESC_SIZE) {
-        ESP_LOGE(TAG, "Other speed descriptor too large: %d (max %d)", copy_len, MAX_OTHER_SPEED_DESC_SIZE);
-        copy_len = MAX_OTHER_SPEED_DESC_SIZE;
+    if (copy_len > buf_len) {
+        ESP_LOGE(TAG, "Other speed descriptor too large: %u (max %u)", copy_len, buf_len);
+        copy_len = buf_len;  // or: return NULL to be strict
     }
 
-    memcpy(s_desc_cfg.other_speed,
-           other_speed,
-           copy_len);
-
+    memcpy(s_desc_cfg.other_speed, other_speed, copy_len);
     ((tusb_desc_configuration_t *)s_desc_cfg.other_speed)->bDescriptorType = TUSB_DESC_OTHER_SPEED_CONFIG;
+    ((tusb_desc_configuration_t *)s_desc_cfg.other_speed)->wTotalLength = copy_len;  // keep length consistent
     return s_desc_cfg.other_speed;
+
 }
 #endif // TUD_OPT_HIGH_SPEED
 
@@ -134,13 +133,17 @@ uint16_t const *tud_descriptor_string_cb(uint8_t index, uint16_t langid)
     uint8_t chr_count;
     static uint16_t _desc_str[MAX_DESC_BUF_SIZE];
 
+    if (!s_desc_cfg.str_count || !s_desc_cfg.str[0]) {
+        ESP_LOGW(TAG, "Missing string[0], cannot build LANGID descriptor");
+        return NULL;
+    }
+
     if (index == 0) {
         memcpy(&_desc_str[1], s_desc_cfg.str[0], 2);
         chr_count = 1;
     } else {
-        // Strengthen bounds check: validate against both array size and actual count
-        if (index == 0 || index >= USB_STRING_DESCRIPTOR_ARRAY_SIZE || index >= s_desc_cfg.str_count) {
-            ESP_LOGW(TAG, "String index (%u) is out of bounds (max=%d)", index, s_desc_cfg.str_count);
+        if (index >= USB_STRING_DESCRIPTOR_ARRAY_SIZE) {
+            ESP_LOGW(TAG, "String index (%u) is out of bounds, check your string descriptor", index);
             return NULL;
         }
 
@@ -150,14 +153,7 @@ uint16_t const *tud_descriptor_string_cb(uint8_t index, uint16_t langid)
         }
 
         const char *str = s_desc_cfg.str[index];
-        // Reserve space for header and ensure we don't overflow _desc_str array
-        // _desc_str[0] is header, _desc_str[1..MAX_DESC_BUF_SIZE-1] is data
-        chr_count = strnlen(str, MAX_DESC_BUF_SIZE - 2); // Reserve space for header
-
-        // Ensure chr_count doesn't cause overflow when writing to _desc_str
-        if (chr_count > MAX_DESC_BUF_SIZE - 1) {
-            chr_count = MAX_DESC_BUF_SIZE - 1;
-        }
+        chr_count = strnlen(str, MAX_DESC_BUF_SIZE - 1); // Buffer len - header
 
         // Convert ASCII string into UTF-16
         for (uint8_t i = 0; i < chr_count; i++) {
@@ -193,6 +189,8 @@ esp_err_t tinyusb_descriptors_check(tinyusb_port_t port, const tinyusb_desc_conf
 
 esp_err_t tinyusb_descriptors_set(tinyusb_port_t port, const tinyusb_desc_config_t *config)
 {
+    ESP_RETURN_ON_FALSE(config, ESP_ERR_INVALID_ARG, TAG, "Descriptors config can't be NULL");
+
     esp_err_t ret;
     const char **pstr_desc;
     // Flush descriptors control struct
@@ -266,16 +264,13 @@ esp_err_t tinyusb_descriptors_set(tinyusb_port_t port, const tinyusb_desc_config
         s_desc_cfg.str_count = config->string_count;
     }
 
-    ESP_GOTO_ON_FALSE(s_desc_cfg.str_count <= USB_STRING_DESCRIPTOR_ARRAY_SIZE, ESP_ERR_NOT_SUPPORTED, fail, TAG, "String descriptors exceed limit");
+    ESP_GOTO_ON_FALSE(s_desc_cfg.str_count > 0 &&
+                      s_desc_cfg.str_count <= USB_STRING_DESCRIPTOR_ARRAY_SIZE,
+                      ESP_ERR_INVALID_ARG, fail, TAG, "String descriptors count out of range");
+    ESP_GOTO_ON_FALSE(pstr_desc[0], ESP_ERR_INVALID_ARG, fail, TAG, "string[0] must not be NULL");
 
-    // Additional defensive check before memcpy
-    size_t copy_size = s_desc_cfg.str_count * sizeof(pstr_desc[0]);
-    if (copy_size > sizeof(s_desc_cfg.str)) {
-        ESP_LOGW(TAG, "String descriptor copy size exceeded, clamping");
-        copy_size = sizeof(s_desc_cfg.str);
-        s_desc_cfg.str_count = sizeof(s_desc_cfg.str) / sizeof(pstr_desc[0]);
-    }
-    memcpy(s_desc_cfg.str, pstr_desc, copy_size);
+    memcpy(s_desc_cfg.str, pstr_desc, s_desc_cfg.str_count * sizeof(pstr_desc[0]));
+
 
     ESP_LOGI(TAG, "\n"
              "┌─────────────────────────────────┐\n"
