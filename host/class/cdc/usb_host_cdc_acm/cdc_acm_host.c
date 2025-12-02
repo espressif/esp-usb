@@ -961,39 +961,61 @@ static void usb_event_cb(const usb_host_client_event_msg_t *event_msg, void *arg
 
 esp_err_t cdc_acm_host_data_tx_blocking(cdc_acm_dev_hdl_t cdc_hdl, const uint8_t *data, size_t data_len, uint32_t timeout_ms)
 {
-    esp_err_t ret;
+    esp_err_t ret = ESP_OK;
     CDC_ACM_CHECK(cdc_hdl, ESP_ERR_INVALID_ARG);
     cdc_dev_t *cdc_dev = (cdc_dev_t *)cdc_hdl;
     CDC_ACM_CHECK(data && (data_len > 0), ESP_ERR_INVALID_ARG);
     CDC_ACM_CHECK(cdc_dev->data.out_xfer, ESP_ERR_NOT_SUPPORTED); // Device was opened as read-only.
-    CDC_ACM_CHECK(data_len <= cdc_dev->data.out_xfer->data_buffer_size, ESP_ERR_INVALID_SIZE);
 
-    // Take OUT mutex and fill the OUT transfer
-    BaseType_t taken = xSemaphoreTake(cdc_dev->data.out_mux, pdMS_TO_TICKS(timeout_ms));
+    const size_t buffer_size = cdc_dev->data.out_xfer->data_buffer_size;
+    const uint8_t *data_ptr = data;
+    size_t remaining = data_len;
+
+    // Record start time for timeout tracking
+    TickType_t start_ticks = xTaskGetTickCount();
+    TickType_t timeout_ticks = pdMS_TO_TICKS(timeout_ms);
+    TickType_t elapsed_ticks = 0;
+    int remaining_timeout_ticks = timeout_ticks;
+
+    // Take OUT mutex for the entire transfer operation
+    BaseType_t taken = xSemaphoreTake(cdc_dev->data.out_mux, remaining_timeout_ticks);
     if (taken != pdTRUE) {
         return ESP_ERR_TIMEOUT;
     }
 
-    ESP_LOGD(TAG, "Submitting BULK OUT transfer");
     SemaphoreHandle_t transfer_finished_semaphore = (SemaphoreHandle_t)cdc_dev->data.out_xfer->context;
-    xSemaphoreTake(transfer_finished_semaphore, 0); // Make sure the semaphore is taken before we submit new transfer
 
-    memcpy(cdc_dev->data.out_xfer->data_buffer, data, data_len);
-    cdc_dev->data.out_xfer->num_bytes = data_len;
-    cdc_dev->data.out_xfer->timeout_ms = timeout_ms;
-    ESP_GOTO_ON_ERROR(usb_host_transfer_submit(cdc_dev->data.out_xfer), unblock, TAG,);
+    // Process data in chunks if it's larger than the buffer size
+    while (remaining > 0) {
+        size_t chunk_size = (remaining > buffer_size) ? buffer_size : remaining;
 
-    // Wait for OUT transfer completion
-    taken = xSemaphoreTake(transfer_finished_semaphore, pdMS_TO_TICKS(timeout_ms));
-    if (!taken) {
-        cdc_acm_reset_transfer_endpoint(cdc_dev->dev_hdl, cdc_dev->data.out_xfer); // Resetting the endpoint will cause all in-progress transfers to complete
-        ESP_LOGW(TAG, "TX transfer timeout");
-        ret = ESP_ERR_TIMEOUT;
-        goto unblock;
+        ESP_LOGV(TAG, "Submitting BULK OUT transfer chunk: %zu bytes (remaining: %zu)", chunk_size, remaining);
+        xSemaphoreTake(transfer_finished_semaphore, 0); // Make sure the semaphore is taken before we submit new transfer
+
+        memcpy(cdc_dev->data.out_xfer->data_buffer, data_ptr, chunk_size);
+        cdc_dev->data.out_xfer->num_bytes = chunk_size;
+        // Use remaining timeout for this chunk's transfer timeout
+        cdc_dev->data.out_xfer->timeout_ms = pdTICKS_TO_MS(remaining_timeout_ticks);
+        ESP_GOTO_ON_ERROR(usb_host_transfer_submit(cdc_dev->data.out_xfer), unblock, TAG,);
+
+        // Wait for OUT transfer completion with remaining timeout
+        taken = xSemaphoreTake(transfer_finished_semaphore, remaining_timeout_ticks);
+        elapsed_ticks = xTaskGetTickCount() - start_ticks;
+        remaining_timeout_ticks = timeout_ticks - elapsed_ticks;
+        if (!taken || remaining_timeout_ticks < 0) {
+            cdc_acm_reset_transfer_endpoint(cdc_dev->dev_hdl, cdc_dev->data.out_xfer); // Resetting the endpoint will cause all in-progress transfers to complete
+            ESP_LOGW(TAG, "TX transfer timeout");
+            ret = ESP_ERR_TIMEOUT;
+            goto unblock;
+        }
+
+        ESP_GOTO_ON_FALSE(cdc_dev->data.out_xfer->status == USB_TRANSFER_STATUS_COMPLETED, ESP_ERR_INVALID_RESPONSE, unblock, TAG, "Bulk OUT transfer error");
+        ESP_GOTO_ON_FALSE(cdc_dev->data.out_xfer->actual_num_bytes == chunk_size, ESP_ERR_INVALID_RESPONSE, unblock, TAG, "Incorrect number of bytes transferred");
+
+        remaining -= chunk_size;
+        data_ptr += chunk_size;
     }
 
-    ESP_GOTO_ON_FALSE(cdc_dev->data.out_xfer->status == USB_TRANSFER_STATUS_COMPLETED, ESP_ERR_INVALID_RESPONSE, unblock, TAG, "Bulk OUT transfer error");
-    ESP_GOTO_ON_FALSE(cdc_dev->data.out_xfer->actual_num_bytes == data_len, ESP_ERR_INVALID_RESPONSE, unblock, TAG, "Incorrect number of bytes transferred");
     ret = ESP_OK;
 
 unblock:

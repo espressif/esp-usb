@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2022-2023 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2022-2025 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -162,11 +162,6 @@ private:
         auto *this_terminal = static_cast<UsbTerminal *>(user_ctx);
 
         switch (event->type) {
-        // Notifications like Ring, Rx Carrier indication or Network connection indication are not relevant for USB terminal
-        case CDC_ACM_HOST_NETWORK_CONNECTION:
-        case CDC_ACM_HOST_SERIAL_STATE:
-            ESP_LOGD(TAG, "Ignored USB event %d", event->type);
-            break;
         case CDC_ACM_HOST_DEVICE_DISCONNECTED:
             ESP_LOGW(TAG, "USB terminal disconnected");
             if (this_terminal->on_error) {
@@ -180,8 +175,13 @@ private:
                 this_terminal->on_error(terminal_error::UNEXPECTED_CONTROL_FLOW);
             }
             break;
+        // Notifications like Ring, Rx Carrier indication or Network connection indication are not relevant for USB terminal
+        // Suspend/resume events also ignored
+        case CDC_ACM_HOST_NETWORK_CONNECTION:
+        case CDC_ACM_HOST_SERIAL_STATE:
         default:
-            abort();
+            ESP_LOGD(TAG, "Ignored USB event %d", event->type);
+            break;
         }
     }
     size_t buffer_size;
