@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Fixed a vulnerability with overwrite freed heap memory during `hid_host_get_report_descriptor()`
+- Fixed a vulnerability with overwrite freed heap memory in `hid_host_get_report_descriptor()` and `hid_class_request_set()`
 
 ### Added
 

@@ -768,6 +768,40 @@ static esp_err_t hid_control_transfer(hid_device_t *hid_device,
 }
 
 /**
+ * @brief Reallocate control transfer buffer if needed for larger size
+ *
+ * @param[in] hid_device     Pointer to HID device structure
+ * @param[in] required_size  Required buffer size (must include USB_SETUP_PACKET_SIZE)
+ * @note Device must be locked before calling this function
+ * @return
+     - ESP_OK on success
+     - ESP_ERR_NO_MEM on allocation failure
+     - ESP_ERR_INVALID_SIZE on invalid size
+ */
+static esp_err_t hid_device_realloc_ctrl_xfer(hid_device_t *hid_device, size_t required_size)
+{
+    ESP_RETURN_ON_FALSE(required_size <= HID_MAX_REPORT_DESC_LEN, ESP_ERR_INVALID_SIZE, TAG, "Requested EP0 transfer buffer size exceeds maximum");
+
+    const size_t ctrl_size = hid_device->ctrl_xfer ? hid_device->ctrl_xfer->data_buffer_size : 0;
+
+    if (ctrl_size < required_size) {
+        ESP_LOGD(TAG, "Change HID ctrl xfer size from %"PRIu32" to %"PRIu32"",
+                 (uint32_t) ctrl_size,
+                 (uint32_t) required_size);
+
+        usb_host_transfer_free(hid_device->ctrl_xfer);
+
+        if (usb_host_transfer_alloc(required_size, 0, &hid_device->ctrl_xfer) != ESP_OK) {
+            ESP_LOGE(TAG, "Unable to re-allocate transfer buffer for EP0");
+            hid_device->ctrl_xfer = NULL;
+            return ESP_ERR_NO_MEM;
+        }
+    }
+
+    return ESP_OK;
+}
+
+/**
  * @brief USB class standard request get descriptor
  *
  * @param[in] hid_device  Pointer to HID device structure
@@ -781,32 +815,17 @@ static esp_err_t usb_class_request_get_descriptor(hid_device_t *hid_device, cons
     HID_RETURN_ON_INVALID_ARG(req);
     HID_RETURN_ON_INVALID_ARG(req->data);
 
-    if (req->wLength > HID_MAX_REPORT_DESC_LEN) {
-        ESP_LOGE(TAG, "Requested descriptor size exceeds maximum");
-        return ESP_ERR_INVALID_SIZE;
-    }
-
     HID_RETURN_ON_ERROR( hid_device_try_lock(hid_device, DEFAULT_TIMEOUT_MS),
                          "HID Device is busy by other task");
 
     esp_err_t ret;
-    const size_t ctrl_size = hid_device->ctrl_xfer->data_buffer_size;
     const size_t required_size = USB_SETUP_PACKET_SIZE + req->wLength;
 
     // Reallocate control transfer buffer if necessary
-    if (ctrl_size < required_size) {
-        ESP_LOGD(TAG, "Change HID ctrl xfer size from %"PRIu32" to %"PRIu32"",
-                 (uint32_t) ctrl_size,
-                 (uint32_t) required_size);
-
-        usb_host_transfer_free(hid_device->ctrl_xfer);
-
-        if (usb_host_transfer_alloc(required_size, 0, &hid_device->ctrl_xfer) != ESP_OK) {
-            ESP_LOGE(TAG, "Unable to re-allocate transfer buffer for EP0");
-            hid_device->ctrl_xfer = NULL;
-            hid_device_unlock(hid_device);
-            return ESP_ERR_NO_MEM;
-        }
+    ret = hid_device_realloc_ctrl_xfer(hid_device, required_size);
+    if (ret != ESP_OK) {
+        hid_device_unlock(hid_device);
+        return ret;
     }
 
     usb_transfer_t *ctrl_xfer = hid_device->ctrl_xfer;
@@ -893,19 +912,13 @@ static esp_err_t hid_class_request_set(hid_device_t *hid_device,
                          "HID Device is busy by other task");
 
     // Validate and resize ctrl_xfer buffer if needed to prevent buffer overflow
-    size_t ctrl_size = ctrl_xfer->data_buffer_size;
-    if (ctrl_size < (USB_SETUP_PACKET_SIZE + req->wLength)) {
-        ESP_LOGD(TAG, "Change HID ctrl xfer size from %d to %d",
-                 (int) ctrl_size,
-                 (int) (USB_SETUP_PACKET_SIZE + req->wLength));
-
-        usb_host_transfer_free(hid_device->ctrl_xfer);
-        HID_RETURN_ON_ERROR( usb_host_transfer_alloc(USB_SETUP_PACKET_SIZE + req->wLength,
-                                                     0,
-                                                     &hid_device->ctrl_xfer),
-                             "Unable to allocate transfer buffer for EP0");
-        ctrl_xfer = hid_device->ctrl_xfer;
+    const size_t required_size = USB_SETUP_PACKET_SIZE + req->wLength;
+    ret = hid_device_realloc_ctrl_xfer(hid_device, required_size);
+    if (ret != ESP_OK) {
+        hid_device_unlock(hid_device);
+        return ret;
     }
+    ctrl_xfer = hid_device->ctrl_xfer;
 
     usb_setup_packet_t *setup = (usb_setup_packet_t *)ctrl_xfer->data_buffer;
     setup->bmRequestType = USB_BM_REQUEST_TYPE_DIR_OUT |
