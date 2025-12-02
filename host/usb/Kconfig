@@ -21,22 +21,28 @@ menu "USB-OTG"
             FIFOS: RX (for all IN packets), Non-periodic TX (for Bulk and Control OUT packets), and Periodic TX
             (for Interrupt and Isochronous OUT packets). This configuration option allows biasing the FIFO sizes
             towards a particular use case, which may be necessary for devices that have endpoints with large MPS.
-            The MPS limits for each biasing are listed below:
+
+            The FIFO allocation formulas (where D = otg_dfifo_depth, Total = Total available FIFO size in lines):
 
             Balanced:
-            - IN (all transfer types), 408 bytes
-            - OUT non-periodic (Bulk/Control), 192 bytes (i.e., 3 x 64 byte packets)
-            - OUT periodic (Interrupt/Isochronous), 192 bytes
+            - IN (RX FIFO) = Total - D/4 - D/8
+            - OUT non-periodic (Non-periodic TX FIFO) = D/4
+            - OUT periodic (Periodic TX FIFO) = D/8
 
             Bias IN:
-            - IN (all transfer types), 600 bytes
-            - OUT non-periodic (Bulk/Control), 64 bytes (i.e., 1 x 64 byte packets)
-            - OUT periodic (Interrupt/Isochronous), 128 bytes
+            - IN (RX FIFO) = Total - D/16 - D/8
+            - OUT non-periodic (Non-periodic TX FIFO) = D/16
+            - OUT periodic (Periodic TX FIFO) = D/8
 
             Bias Periodic OUT:
-            - IN (all transfer types), 128 bytes
-            - OUT non-periodic (Bulk/Control), 64 bytes (i.e., 1 x 64 byte packets)
-            - OUT periodic (Interrupt/Isochronous), 600 bytes
+            - IN (RX FIFO) = D/8 + 2 (2 extra lines for status information)
+            - OUT non-periodic (Non-periodic TX FIFO) = D/16
+            - OUT periodic (Periodic TX FIFO) = Total - D/16 - (D/8 + 2)
+
+            Note:
+            - Each line = 4 bytes. To convert FIFO size: bytes = lines × 4
+            - D (otg_dfifo_depth) is typically 256 for FS PHY, 1024 for HS PHY (chip-dependent)
+            - Total is slightly less than D due to controller overhead
 
         config USB_HOST_HW_BUFFER_BIAS_BALANCED
             bool "Balanced"

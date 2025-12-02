@@ -10,6 +10,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - Global suspend/resume (https://github.com/espressif/esp-usb/pull/275)
 
+### Fixed
+
+- Hardware FIFO size biasing Kconfig now shows allocation formulas instead of chip-specific examples
+
 ## [1.0.1] - 2025-10-16
 
 ### Fixed
