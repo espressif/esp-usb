@@ -26,7 +26,7 @@
 urb_t *urb_alloc(size_t data_buffer_size, int num_isoc_packets)
 {
     // Hardware limitation prevents larger transfers
-    if (data_buffer_size >= USB_MAX_BUFFER_SIZE)
+    if (data_buffer_size > USB_MAX_BUFFER_SIZE)
     {
         return NULL;
     } 
