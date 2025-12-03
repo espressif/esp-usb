@@ -17,7 +17,6 @@
 #endif
 
 // ----------------------- Configs -------------------------
-
 #ifdef CONFIG_USB_HOST_DWC_DMA_CAP_MEMORY_IN_PSRAM      // In esp32p4, the USB-DWC internal DMA can access external RAM
 #define DATA_BUFFER_CAPS                     (MALLOC_CAP_DMA | MALLOC_CAP_CACHE_ALIGNED | MALLOC_CAP_SPIRAM)
 #else
@@ -26,6 +25,7 @@
 
 urb_t *urb_alloc(size_t data_buffer_size, int num_isoc_packets)
 {
+    HOST_CHECK(data_buffer_size < (127000 - 1), ESP_ERR_INVALID_ARG); // Hardware limitation prevents larger transfers
     urb_t *urb = heap_caps_calloc(1, sizeof(urb_t) + (sizeof(usb_isoc_packet_desc_t) * num_isoc_packets), MALLOC_CAP_DEFAULT);
 
 #if !CONFIG_IDF_TARGET_LINUX
