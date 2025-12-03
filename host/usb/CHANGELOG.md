@@ -9,7 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Added
 
 - Global suspend/resume (https://github.com/espressif/esp-usb/pull/275)
-- Add software validation for USB DMA hardware limitation ()
+- Add software validation for USB DMA hardware limitation (https://github.com/espressif/esp-usb/pull/347)
 
 ### Fixed
 
