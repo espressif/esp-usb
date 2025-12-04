@@ -565,6 +565,54 @@ err:
     return ret;
 }
 
+#ifdef CDC_HOST_SUSPEND_RESUME_API_SUPPORTED
+
+/**
+ * @brief Enable remote wakeup on device
+ *
+ * @param[in] cdc_dev       Pointer to CDC device
+ * @return
+ *     - ESP_OK:                   Success
+ *     - ESP_ERR_TIMEOUT:          Transfer timed out, or failed to acquire ctr transfer mutex
+ *     - ESP_ERR_INVALID_RESPONSE: Invalid response of the control transfer
+ */
+static esp_err_t cdc_acm_host_set_remote_wakeup(cdc_dev_t *cdc_dev)
+{
+    esp_err_t ret;
+
+    // Take Mutex and fill the CTRL request
+    BaseType_t taken = xSemaphoreTake(cdc_dev->ctrl_mux, pdMS_TO_TICKS(CDC_ACM_CTRL_TIMEOUT_MS));
+    if (!taken) {
+        return ESP_ERR_TIMEOUT;
+    }
+
+    usb_setup_packet_t *req = (usb_setup_packet_t *)(cdc_dev->ctrl_transfer->data_buffer);
+    USB_SETUP_PACKET_INIT_SET_FEATURE(req, DEVICE_REMOTE_WAKEUP);
+    cdc_dev->ctrl_transfer->num_bytes = sizeof(usb_setup_packet_t);
+
+    ESP_GOTO_ON_ERROR(
+        usb_host_transfer_submit_control(p_cdc_acm_obj->cdc_acm_client_hdl, cdc_dev->ctrl_transfer),
+        unblock, TAG, "CTRL transfer failed");
+
+    taken = xSemaphoreTake((SemaphoreHandle_t)cdc_dev->ctrl_transfer->context, pdMS_TO_TICKS(CDC_ACM_CTRL_TIMEOUT_MS));
+    if (!taken) {
+        // Transfer was not finished, error in USB LIB. Reset the endpoint
+        cdc_acm_reset_transfer_endpoint(cdc_dev->dev_hdl, cdc_dev->ctrl_transfer);
+        ret = ESP_ERR_TIMEOUT;
+        goto unblock;
+    }
+
+    ESP_GOTO_ON_FALSE(cdc_dev->ctrl_transfer->status == USB_TRANSFER_STATUS_COMPLETED, ESP_ERR_INVALID_RESPONSE, unblock, TAG, "Control transfer error");
+    ESP_GOTO_ON_FALSE(cdc_dev->ctrl_transfer->actual_num_bytes == cdc_dev->ctrl_transfer->num_bytes, ESP_ERR_INVALID_RESPONSE, unblock, TAG, "Incorrect number of bytes transferred");
+    ESP_LOGI(TAG, "Remote wakeup enabled");
+    ret = ESP_OK;
+
+unblock:
+    xSemaphoreGive(cdc_dev->ctrl_mux);
+    return ret;
+}
+#endif // CDC_HOST_SUSPEND_RESUME_API_SUPPORTED
+
 esp_err_t cdc_acm_host_open(uint16_t vid, uint16_t pid, uint8_t interface_idx, const cdc_acm_host_device_config_t *dev_config, cdc_acm_dev_hdl_t *cdc_hdl_ret)
 {
     esp_err_t ret;
@@ -619,6 +667,18 @@ esp_err_t cdc_acm_host_open(uint16_t vid, uint16_t pid, uint8_t interface_idx, c
         cdc_acm_transfers_allocate(cdc_dev, cdc_info.notif_ep, cdc_info.in_ep, in_buf_size, cdc_info.out_ep, dev_config->out_buffer_size),
         err, TAG,);
     ESP_GOTO_ON_ERROR(cdc_acm_start(cdc_dev, dev_config->event_cb, dev_config->data_cb, dev_config->user_arg), err, TAG,);
+
+#ifdef CDC_HOST_SUSPEND_RESUME_API_SUPPORTED
+    if (dev_config->enable_remote_wakeup) {
+        if (config_desc->bmAttributes & USB_BM_ATTRIBUTES_WAKEUP) {
+            // Set remote wakeup
+            ESP_GOTO_ON_ERROR(cdc_acm_host_set_remote_wakeup(cdc_dev), err, TAG,);
+        } else {
+            ESP_LOGW(TAG, "Device does not support remote wakeup");
+        }
+    }
+#endif // CDC_HOST_SUSPEND_RESUME_API_SUPPORTED
+
     *cdc_hdl_ret = (cdc_acm_dev_hdl_t)cdc_dev;
     xSemaphoreGive(p_cdc_acm_obj->open_close_mutex);
     return ESP_OK;
