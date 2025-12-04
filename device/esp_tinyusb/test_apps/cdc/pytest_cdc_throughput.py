@@ -344,11 +344,15 @@ try:
     # That is why we do not export throughput results from here
     import pytest
     from pytest_embedded_idf.dut import IdfDut
+
     @pytest.mark.esp32s2
     @pytest.mark.esp32s3
     @pytest.mark.esp32p4
     @pytest.mark.usb_device
     def test_tusb_cdc_throughput(dut: IdfDut) -> None:
+        dut.serial.hard_reset()
+        dut.expect_exact('Press ENTER to see the list of tests.')
+        dut.serial.hard_reset()
         dut.expect_exact('Press ENTER to see the list of tests.')
         dut.write('[cdc_throughput]')
         dut.expect_exact('TinyUSB: TinyUSB Driver installed')
