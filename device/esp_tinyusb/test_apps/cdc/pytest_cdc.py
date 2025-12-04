@@ -7,17 +7,15 @@ from time import sleep
 from serial import Serial, SerialException
 from serial.tools.list_ports import comports
 
-
 @pytest.mark.esp32s2
 @pytest.mark.esp32s3
 @pytest.mark.esp32p4
 @pytest.mark.usb_device
-@pytest.mark.flaky(reruns=2, reruns_delay=5)
 def test_usb_device_cdc(dut: IdfDut) -> None:
     '''
     Running the test locally:
     1. Build the test_app for your DUT (ESP32-S2/S3/P4)
-    2. Connect you DUT to your test runner (local machine) with USB port and flashing port
+`    2. Connect you DUT to your test runner (local machine) with USB port and flashing port
     3. Run `pytest --target esp32s3`
 
     Test procedure:
@@ -25,6 +23,9 @@ def test_usb_device_cdc(dut: IdfDut) -> None:
     2. Expect 2 Virtual COM Ports in the system
     3. Open both comports and send some data. Expect echoed data
     '''
+    dut.serial.hard_reset()
+    dut.expect_exact('Press ENTER to see the list of tests.')
+    dut.serial.hard_reset()
     dut.expect_exact('Press ENTER to see the list of tests.')
     dut.write('[cdc]')
     dut.expect_exact('TinyUSB: TinyUSB Driver installed')
