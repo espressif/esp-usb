@@ -71,6 +71,14 @@ static void stream_callback(const uvc_host_stream_event_data_t *event, void *use
     case UVC_HOST_FRAME_BUFFER_UNDERFLOW:
         ESP_LOGW(TAG, "Frame buffer underflow");
         break;
+#ifdef UVC_HOST_SUSPEND_RESUME_API_SUPPORTED
+    case UVC_HOST_DEVICE_SUSPENDED:
+        ESP_LOGI(TAG, "Device suspended");
+        break;
+    case UVC_HOST_DEVICE_RESUMED:
+        ESP_LOGI(TAG, "Device resumed");
+        break;
+#endif // UVC_HOST_SUSPEND_RESUME_API_SUPPORTED
     default:
         abort();
         break;
