@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2024-2025 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -120,9 +120,9 @@ typedef enum {
 #define USB_PORT_STATUS_SIZE            4
 
 /**
- * @brief USB Hub Port Status and Hub Change results
+ * @brief USB Port Status and Change
  *
- * See USB 2.0 spec Table 11-19 and Table 11-20
+ * @see USB 2.0 spec Table 11-21 and Table 11-22
  */
 typedef struct {
     union {
@@ -141,7 +141,7 @@ typedef struct {
             uint8_t     RESERVED_2           : 3;   /**< Reserved field */
         };
         uint16_t val;                               /**< Port status value */
-    }   wPortStatus;
+    }   wPortStatus;                                /**< Port Status Field */
 
     union {
         struct {
@@ -153,7 +153,7 @@ typedef struct {
             uint16_t    RESERVED             : 11;  /**< Reserved field */
         };
         uint16_t val;                               /**< Port change value */
-    }   wPortChange;
+    }   wPortChange;                                /**< Port Change Field */
 } __attribute__((packed)) usb_port_status_t;
 ESP_STATIC_ASSERT(sizeof(usb_port_status_t) == USB_PORT_STATUS_SIZE, "Size of usb_port_status_t incorrect");
 
@@ -163,7 +163,9 @@ ESP_STATIC_ASSERT(sizeof(usb_port_status_t) == USB_PORT_STATUS_SIZE, "Size of us
 #define USB_HUB_STATUS_SIZE             4
 
 /**
- * @brief USB Hub Status
+ * @brief USB Hub Status and Change
+ *
+ * @see USB 2.0 spec Table 11-19 and Table 11-20
  */
 typedef struct {
     union {
@@ -173,7 +175,7 @@ typedef struct {
             uint16_t RESERVED           : 14;   /**< Reserved fields */
         };
         uint16_t val;                           /**< Hub status value */
-    } wHubStatus;
+    } wHubStatus;                               /**< Hub Status Field */
     union {
         struct {
             uint8_t C_HUB_LOCAL_POWER   : 1;    /**< 0 = No change has occurred to Local Power Status. 1 = Local Power Status has changed.*/
@@ -181,7 +183,7 @@ typedef struct {
             uint16_t RESERVED           : 14;   /**< Reserved fields */
         };
         uint16_t val;                           /**< Hub change value */
-    } wHubChange;
+    } wHubChange;                               /**< Hub Change Field */
 } __attribute__((packed)) usb_hub_status_t;
 ESP_STATIC_ASSERT(sizeof(usb_hub_status_t) == USB_HUB_STATUS_SIZE, "Size of usb_hub_status_t incorrect");
 
