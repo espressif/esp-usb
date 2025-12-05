@@ -16,6 +16,9 @@
 #include "sdkconfig.h"
 #include "esp_log.h"
 #include "esp_check.h"
+#if !CONFIG_IDF_TARGET_LINUX
+#include "esp_memory_utils.h"
+#endif
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/semphr.h"
@@ -72,6 +75,20 @@ static portMUX_TYPE uac_lock = portMUX_INITIALIZER_UNLOCKED;
     ((const usb_standard_desc_t *)usb_parse_next_descriptor((const usb_standard_desc_t *)p,       \
                                                             max_len,                               \
                                                             &(offs)))
+
+#if !CONFIG_IDF_TARGET_LINUX
+static inline bool ptr_is_writable(const void *ptr)
+{
+    if (esp_ptr_in_dram(ptr) || esp_ptr_in_diram_dram(ptr)
+#if CONFIG_SPIRAM
+            || esp_ptr_in_psram(ptr)
+#endif
+       ) { // If the pointer is in DRAM or PSRAM, it is writable
+        return true;
+    }
+    return false;
+}
+#endif
 
 static const char *TAG = "uac-host";
 
@@ -143,6 +160,7 @@ typedef struct uac_interface {
     usb_transfer_t **free_xfer_list;           /*!< Pointer to free transfer list */
     // variable only change by app operation, protected by mutex
     SemaphoreHandle_t state_mutex;             /*!< UAC device state mutex */
+    SemaphoreHandle_t ringbuf_mutex;           /*!< UAC ringbuffer mutex */
     uac_iface_state_t state;                   /*!< Interface state */
     uint32_t flags;                            /*!< Interface flags */
     uint8_t cur_alt;                           /*!< Current alternate setting (-1) */
@@ -726,11 +744,18 @@ static uac_ac_feature_unit_desc_t *_uac_host_device_find_feature_unit(const uint
 static esp_err_t uac_host_interface_add(uac_device_t *uac_device, uint8_t iface_num, uac_iface_t **p_uac_iface)
 {
     esp_err_t ret;
+    // Query device speed once to decide whether to force bInterval for Full-Speed
+    usb_device_info_t dev_info_local;
+    ESP_RETURN_ON_ERROR(usb_host_device_info(uac_device->dev_hdl, &dev_info_local), TAG, "Failed to get device info");
+    ESP_RETURN_ON_FALSE(dev_info_local.speed != USB_SPEED_LOW, ESP_ERR_NOT_SUPPORTED, TAG, "Low-Speed device not supported");
+
     *p_uac_iface = NULL;
     uac_iface_t *uac_iface = calloc(1, sizeof(uac_iface_t));
     UAC_RETURN_ON_FALSE(uac_iface, ESP_ERR_NO_MEM, "Unable to allocate memory");
     uac_iface->state_mutex = xSemaphoreCreateMutex();
     UAC_GOTO_ON_FALSE(uac_iface->state_mutex, ESP_ERR_NO_MEM, "Unable to create state mutex");
+    uac_iface->ringbuf_mutex = xSemaphoreCreateMutex();
+    UAC_GOTO_ON_FALSE(uac_iface->ringbuf_mutex, ESP_ERR_NO_MEM, "Unable to create ringbuffer mutex");
     const usb_config_desc_t *config_desc = NULL;
     const usb_intf_desc_t *iface_desc = NULL;
     const usb_intf_desc_t *iface_alt_desc = NULL;
@@ -803,6 +828,19 @@ static esp_err_t uac_host_interface_add(uac_device_t *uac_device, uint8_t iface_
                 iface_alt->ep_addr = ep_desc->bEndpointAddress;
                 iface_alt->ep_mps = ep_desc->wMaxPacketSize;
                 iface_alt->ep_attr = ep_desc->bmAttributes;
+#if !CONFIG_IDF_TARGET_LINUX
+                if (dev_info_local.speed == USB_SPEED_FULL && ep_desc->bInterval != 1) {
+                    // Full-Speed isochronous endpoints must have bInterval = 1
+                    uint8_t *_bInterval = (uint8_t *) & (ep_desc->bInterval);
+                    // Check if we can modify the bInterval value
+                    if (ptr_is_writable(_bInterval)) {
+                        ESP_LOGW(TAG, "UAC Full-Speed device, Endpoint %d, bInterval %d, set to 1", USB_EP_DESC_GET_EP_NUM(ep_desc), ep_desc->bInterval);
+                        *_bInterval = 1;
+                    } else {
+                        ESP_LOGW(TAG, "UAC Full-Speed device, Endpoint %d, bInterval %d, can't set to 1", USB_EP_DESC_GET_EP_NUM(ep_desc), ep_desc->bInterval);
+                    }
+                }
+#endif
                 iface_alt->interval = ep_desc->bInterval;
                 uac_iface->dev_info.type = (ep_desc->bEndpointAddress & UAC_EP_DIR_IN) ? UAC_STREAM_RX : UAC_STREAM_TX;
                 uac_ac_feature_unit_desc_t *feature_unit_desc = _uac_host_device_find_feature_unit((uint8_t *)uac_device->cs_ac_desc,
@@ -823,7 +861,7 @@ static esp_err_t uac_host_interface_add(uac_device_t *uac_device, uint8_t iface_
                     ESP_LOGD(TAG, "UAC %s Feature Unit ID %d, Volume Ch Map %02X, Mute Ch Map %02X", uac_iface->dev_info.type == UAC_STREAM_RX ? "RX" : "TX",
                              feature_unit_desc->bUnitID, iface_alt->vol_ch_map, iface_alt->mute_ch_map);
                 }
-                ESP_LOGD(TAG, "UAC Endpoint 0x%02X, Max Packet Size %d, Attributes 0x%02X, Interval %d", ep_desc->bEndpointAddress, ep_desc->wMaxPacketSize, ep_desc->bmAttributes, ep_desc->bInterval);
+                ESP_LOGD(TAG, "UAC Endpoint 0x%02X, Max Packet Size %d, Attributes 0x%02X, Interval %d", USB_EP_DESC_GET_EP_NUM(ep_desc), ep_desc->wMaxPacketSize, ep_desc->bmAttributes, ep_desc->bInterval);
                 break;
             }
             case UAC_CS_ENDPOINT: {
@@ -874,6 +912,9 @@ static esp_err_t uac_host_interface_add(uac_device_t *uac_device, uint8_t iface_
     return ESP_OK;
 
 fail:
+    if (uac_iface && uac_iface->ringbuf_mutex) {
+        vSemaphoreDelete(uac_iface->ringbuf_mutex);
+    }
     if (uac_iface && uac_iface->state_mutex) {
         vSemaphoreDelete(uac_iface->state_mutex);
     }
@@ -895,6 +936,7 @@ static esp_err_t uac_host_interface_delete(uac_iface_t *uac_iface)
     UAC_ENTER_CRITICAL();
     STAILQ_REMOVE(&s_uac_driver->uac_ifaces_tailq, uac_iface, uac_interface, tailq_entry);
     UAC_EXIT_CRITICAL();
+    vSemaphoreDelete(uac_iface->ringbuf_mutex);
     vSemaphoreDelete(uac_iface->state_mutex);
     free(uac_iface->iface_alt);
     free(uac_iface);
@@ -1022,13 +1064,13 @@ static esp_err_t uac_host_interface_shutdown(uac_host_device_handle_t uac_dev_ha
 static esp_err_t _uac_host_device_disconnected(usb_device_handle_t dev_hdl)
 {
     uac_device_t *uac_device = get_uac_device_by_handle(dev_hdl);
-    uac_iface_t *uac_iface = NULL;
     // Device should be in the list
     assert(uac_device);
 
     UAC_ENTER_CRITICAL();
-    while (!STAILQ_EMPTY(&s_uac_driver->uac_ifaces_tailq)) {
-        uac_iface = STAILQ_FIRST(&s_uac_driver->uac_ifaces_tailq);
+    uac_iface_t *uac_iface = STAILQ_FIRST(&s_uac_driver->uac_ifaces_tailq);
+    while (uac_iface) {
+        uac_iface_t *next_iface = STAILQ_NEXT(uac_iface, tailq_entry);
         UAC_EXIT_CRITICAL();
         if (uac_iface->parent && (uac_iface->parent->addr == uac_device->addr)) {
             uac_iface->flags |= FLAG_INTERFACE_WAIT_USER_DELETE;
@@ -1036,6 +1078,7 @@ static esp_err_t _uac_host_device_disconnected(usb_device_handle_t dev_hdl)
             UAC_RETURN_ON_ERROR(uac_host_interface_shutdown(uac_iface), "Unable to shutdown interface");
         }
         UAC_ENTER_CRITICAL();
+        uac_iface = next_iface;
     }
     UAC_EXIT_CRITICAL();
 
@@ -1203,12 +1246,18 @@ static void stream_tx_xfer_submit(usb_transfer_t *out_xfer)
     uac_iface_t *iface = out_xfer->context;
     assert(iface);
 
+    // Prevent other threads from manipulating the ring buffer when calling the `uac_host_device_write` function.
+    xSemaphoreTake(iface->ringbuf_mutex, portMAX_DELAY);
     size_t data_len = _ring_buffer_get_len(iface->ringbuf);
     if (data_len >= iface->packet_size * iface->packet_num) {
         data_len = iface->packet_size * iface->packet_num;
         size_t actual_num_bytes = 0;
         _ring_buffer_pop(iface->ringbuf, out_xfer->data_buffer, data_len, &actual_num_bytes, 0);
-        assert(actual_num_bytes == data_len);
+        if (unlikely(actual_num_bytes != data_len)) {
+            ESP_LOGW(TAG, "TX Ringbuffer pop %d bytes, but requested %d bytes", actual_num_bytes, data_len);
+        }
+        xSemaphoreGive(iface->ringbuf_mutex);
+
         // Relaunch transfer, as the pipe state may change
         // the transfer may fail eg. the device is disconnected or the pipe is suspended
         // the data in ringbuffer will be dropped without notify user
@@ -1219,6 +1268,7 @@ static void stream_tx_xfer_submit(usb_transfer_t *out_xfer)
             uac_host_user_interface_callback(iface, UAC_HOST_DEVICE_EVENT_TX_DONE);
         }
     } else {
+        xSemaphoreGive(iface->ringbuf_mutex);
         // add the transfer to free list
         UAC_ENTER_CRITICAL();
         for (int i = 0; i < iface->xfer_num; i++) {
@@ -1305,9 +1355,9 @@ static esp_err_t uac_host_interface_suspend(uac_iface_t *iface)
     memcpy(&uac_request, &usb_request, sizeof(usb_setup_packet_t));
     esp_err_t ret = uac_cs_request_set(iface->parent, &uac_request);
     if (ret != ESP_OK) {
-        ESP_LOGW(TAG, "Set Interface %d-%d Failed", iface->dev_info.iface_num, 0);
+        ESP_LOGW(TAG, "Suspend Interface %d-%d Failed", iface->dev_info.iface_num, 0);
     } else {
-        ESP_LOGI(TAG, "Set Interface %d-%d", iface->dev_info.iface_num, 0);
+        ESP_LOGI(TAG, "Suspend Interface %d-%d", iface->dev_info.iface_num, 0);
     }
 
     uint8_t ep_addr = iface->iface_alt[iface->cur_alt].ep_addr;
@@ -1353,16 +1403,16 @@ static esp_err_t uac_host_interface_resume(uac_iface_t *iface)
     uac_cs_request_t uac_request = {0};
     memcpy(&uac_request, &usb_request, sizeof(usb_setup_packet_t));
     UAC_RETURN_ON_ERROR(uac_cs_request_set(iface->parent, &uac_request), "Unable to set Interface alternate");
-    ESP_LOGI(TAG, "Set Interface %d-%d", iface->dev_info.iface_num, iface->cur_alt + 1);
+    ESP_LOGI(TAG, "Resume Interface %d-%d", iface->dev_info.iface_num, iface->cur_alt + 1);
     // Set endpoint frequency control
     if (iface->iface_alt[iface->cur_alt].freq_ctrl_supported) {
-        ESP_LOGI(TAG, "Set EP %02X frequency %"PRIu32, iface->iface_alt[iface->cur_alt].ep_addr, iface->iface_alt[iface->cur_alt].cur_sampling_freq);
+        ESP_LOGI(TAG, "Set EP %d frequency %"PRIu32, iface->iface_alt[iface->cur_alt].ep_addr & USB_B_ENDPOINT_ADDRESS_EP_NUM_MASK, iface->iface_alt[iface->cur_alt].cur_sampling_freq);
         UAC_RETURN_ON_ERROR(uac_cs_request_set_ep_frequency(iface, iface->iface_alt[iface->cur_alt].ep_addr,
                                                             iface->iface_alt[iface->cur_alt].cur_sampling_freq), "Unable to set endpoint frequency");
     }
     // for RX, we just submit all the transfers
     if (iface->dev_info.type == UAC_STREAM_RX) {
-        assert(iface->iface_alt[iface->cur_alt].ep_addr & 0x80);
+        assert(iface->iface_alt[iface->cur_alt].ep_addr & USB_B_ENDPOINT_ADDRESS_EP_DIR_MASK);
         for (int i = 0; i < iface->xfer_num; i++) {
             assert(iface->free_xfer_list[i]);
             iface->free_xfer_list[i]->device_handle = iface->parent->dev_hdl;
@@ -1381,7 +1431,7 @@ static esp_err_t uac_host_interface_resume(uac_iface_t *iface)
             UAC_RETURN_ON_ERROR(usb_host_transfer_submit(iface->xfer_list[i]), "Unable to submit RX transfer");
         }
     } else if (iface->dev_info.type == UAC_STREAM_TX) {
-        assert(!(iface->iface_alt[iface->cur_alt].ep_addr & 0x80));
+        assert(!(iface->iface_alt[iface->cur_alt].ep_addr & USB_B_ENDPOINT_ADDRESS_EP_DIR_MASK));
         // for TX, we submit the first transfer with data 0 to make the speaker quiet
         for (int i = 0; i < iface->xfer_num; i++) {
             assert(iface->free_xfer_list[i]);

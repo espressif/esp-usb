@@ -1,0 +1,8 @@
+menu "Example USB Audio Player"
+    config EXAMPLE_MIC_PLAYBACK
+        bool "Playback audio from microphone"
+        default n
+        help
+            Enable this to playback audio from microphone
+
+endmenu
