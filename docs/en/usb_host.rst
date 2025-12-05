@@ -63,7 +63,7 @@ Currently, the Host Library and the underlying Host Stack has the following limi
 Architecture
 ------------
 
-.. figure:: ../../../_static/usb_host_lib_entities.png
+.. figure:: ../_static/usb_host/usb_host_lib_entities.png
     :align: center
     :alt: Diagram of the Key Entities of USB Host Functionality
     :figclass: align-center
@@ -163,12 +163,12 @@ A bare-bones Daemon Task would resemble something like the following code snippe
 
 .. note::
 
-    See the :example:`peripherals/usb/host/usb_host_lib` example for full implementation of the Daemon Task.
+    See the `usb_host_lib <https://github.com/espressif/esp-idf/tree/master/examples/peripherals/usb/host/usb_host_lib>`__ example for full implementation of the Daemon Task.
 
 Lifecycle
 """""""""
 
-.. figure:: ../../../_static/usb_host_lib_lifecycle.png
+.. figure:: ../_static/usb_host/usb_host_lib_lifecycle.png
     :align: center
     :alt: Graph of Typical USB Host Library Lifecycle
     :figclass: align-center
@@ -496,7 +496,7 @@ Examples
 Host Library Examples
 ^^^^^^^^^^^^^^^^^^^^^
 
-:example:`peripherals/usb/host/usb_host_lib` demonstrates how to use the USB Host Library API to install and register a client, wait for a device connection, print the device's information, handle disconnection, and repeat these steps until a user quits the application.
+`usb_host_lib <https://github.com/espressif/esp-idf/tree/master/examples/peripherals/usb/host/usb_host_lib>`__ demonstrates how to use the USB Host Library API to install and register a client, wait for a device connection, print the device's information, handle disconnection, and repeat these steps until a user quits the application.
 
 Class Driver Examples
 ^^^^^^^^^^^^^^^^^^^^^
@@ -507,27 +507,27 @@ CDC-ACM
 """""""
 
 * A host class driver for the Communication Device Class (Abstract Control Model) is distributed as a managed component via the `ESP Component Registry <https://components.espressif.com/component/espressif/usb_host_cdc_acm>`__.
-* :example:`peripherals/usb/host/cdc/cdc_acm_host` demonstrates how to use the CDC-ACM Host Driver to enable communication between {IDF_TARGET_NAME} and a USB CDC-ACM device.
-* :example:`peripherals/usb/host/cdc/cdc_acm_vcp` demonstrates how to extend the CDC-ACM driver for Virtual Communication Port (VCP) devices like CP210x, FTDI FT23x or CH34x devices, and how to control the device and send data using the CDC-ACM API.
+* `cdc_acm_host <https://github.com/espressif/esp-idf/tree/master/examples/peripherals/usb/host/cdc/cdc_acm_host>`__ demonstrates how to use the CDC-ACM Host Driver to enable communication between {IDF_TARGET_NAME} and a USB CDC-ACM device.
+* `cdc_acm_vcp <https://github.com/espressif/esp-idf/tree/master/examples/peripherals/usb/host/cdc/cdc_acm_vcp>`__ demonstrates how to extend the CDC-ACM driver for Virtual Communication Port (VCP) devices like CP210x, FTDI FT23x or CH34x devices, and how to control the device and send data using the CDC-ACM API.
 * The CDC-ACM driver is also used in `esp_modem examples <https://github.com/espressif/esp-protocols/tree/master/components/esp_modem/examples>`__, where it is used for communication with cellular modems.
 
 MSC
 """
 
 * A host class driver for the Mass Storage Class (Bulk-Only Transport) is deployed to `ESP Component Registry <https://components.espressif.com/component/espressif/usb_host_msc>`__.
-* :example:`peripherals/usb/host/msc` demonstrates how to use USB Mass Storage Class to access, read, write, and perform operations on a USB flash drive, including handling USB reconnections and deinitializing the USB Host Stack.
+* `msc <https://github.com/espressif/esp-idf/tree/master/examples/peripherals/usb/host/msc>`__ demonstrates how to use USB Mass Storage Class to access, read, write, and perform operations on a USB flash drive, including handling USB reconnections and deinitializing the USB Host Stack.
 
 HID
 """
 
 * A host class driver for the HID (Human interface device) is distributed as a managed component via the `ESP Component Registry <https://components.espressif.com/components/espressif/usb_host_hid>`__.
-* :example:`peripherals/usb/host/hid` demonstrates how to implement a basic USB Host HID Class Driver on {IDF_TARGET_NAME}, enabling communication with USB HID devices like keyboards and mice, and continuously scans for their connection, fetching HID reports once connected.
+* `hid <https://github.com/espressif/esp-idf/tree/master/examples/peripherals/usb/host/hid>`__ demonstrates how to implement a basic USB Host HID Class Driver on {IDF_TARGET_NAME}, enabling communication with USB HID devices like keyboards and mice, and continuously scans for their connection, fetching HID reports once connected.
 
 UVC
 """
 
 * A host class driver for the USB Video Device Class is distributed as a managed component via the `ESP Component Registry <https://components.espressif.com/component/espressif/usb_host_uvc>`__.
-* :example:`peripherals/usb/host/uvc` demonstrates how to capture video frames from a USB camera using the UVC driver.
+* `uvc <https://github.com/espressif/esp-idf/tree/master/examples/peripherals/usb/host/uvc>`__ demonstrates how to capture video frames from a USB camera using the UVC driver.
 
 .. ---------------------------------------------- USB Host Menuconfig --------------------------------------------------
 
@@ -539,7 +539,7 @@ UVC
     The {IDF_TARGET_NAME} contains two USB controllers—the USB-OTG and USB-Serial-JTAG. However, both controllers share a **single PHY**, which means only one can operate at a time. To use USB Host functionality while the USB-Serial-JTAG is active (e.g., for debugging or flashing), an **external PHY** is required, since the PHY is used by USB-Serial-JTAG.
 
     .. note::
-        An external PHY is not the only way to enable debugging alongside USB Host or Device functionality. It is also possible to switch the debugging interface from USB-Serial-JTAG to plain JTAG by burning the appropriate eFuses. For details, refer to the `JTAG Debugging <https://docs.espressif.com/projects/esp-idf/en/latest/esp32s3/api-guides/jtag-debugging/index.html>`_ in the ESP-IDF Programming Guide for your target.
+        An external PHY is not the only way to enable debugging alongside USB Host or Device functionality. It is also possible to switch the debugging interface from USB-Serial-JTAG to plain JTAG by burning the appropriate eFuses. For details, refer to the `JTAG Debugging <https://docs.espressif.com/projects/esp-idf/en/stable/{IDF_TARGET_PATH_NAME}/api-guides/jtag-debugging/index.html>`_ in the ESP-IDF Programming Guide for your target.
 
     {IDF_TARGET_NAME} supports connecting external PHY ICs. This allows independent operation of both USB-OTG and USB-Serial-JTAG controllers. Various external PHY ICs may require different hardware configurations. Please refer to the respective IC datasheets for details. A general connection diagram is available in the official ESP documentation: `Use an external PHY <https://docs.espressif.com/projects/esp-iot-solution/en/latest/usb/usb_overview/usb_phy.html#use-an-external-phy>`__.
 
@@ -549,7 +549,7 @@ UVC
     - **TUSB1106** — Directly supported by {IDF_TARGET_NAME}. Works with the external-PHY driver via GPIO mapping. Follow the reference wiring in the TUSB1106 datasheet (power-supply options and recommended series resistors on D+/D–).
     - **STUSB03E** — Requires signal routing using an analog switch. See example below.
 
-    .. figure:: ../../../_static/usb_host/ext_phy_schematic_stusb03e.png
+    .. figure:: ../_static/usb_host/ext_phy_schematic_stusb03e.png
        :align: center
        :alt: External PHY with Analog Switch Schematic (Host mode)
 
@@ -619,7 +619,7 @@ Enumeration Configuration
 
 During the process of enumerating connected USB devices, several delay values ensure the proper functioning of the device.
 
-.. figure:: ../../../_static/usb_host/poweron-timings.png
+.. figure:: ../_static/usb_host/poweron-timings.png
     :align: center
     :alt: USB Root Hub Power-on and Connection Events Timing
 
@@ -700,11 +700,23 @@ API Reference
 
 The API of the USB Host Library is separated into the following header files. However, it is sufficient for applications to only ``#include "usb/usb_host.h"`` and all USB Host Library headers will also be included.
 
-- `usb/include/usb/usb_host.h` contains the functions and types of the USB Host Library.
-- `usb/include/usb/usb_helpers.h` contains various helper functions that are related to the USB protocol such as descriptor parsing.
-- `usb/include/usb/usb_types_stack.h` contains types that are used across multiple layers of the USB Host stack.
-- `usb/include/usb/usb_types_ch9.h` contains types and macros related to Chapter 9 of the USB2.0 specification, i.e., descriptors and standard requests.
-- `usb/include/usb/usb_types_ch11.h` contains types and macros related to Chapter 11 of the USB2.0 specification, i.e., hub specifications.
+- `host/usb/include/usb/usb_host.h <https://github.com/espressif/esp-usb/tree/master/host/usb/include/usb/usb_host.h>`__ contains the functions and types of the USB Host Library.
+- `host/usb/include/usb/usb_helpers.h <https://github.com/espressif/esp-usb/tree/master/host/usb/include/usb/usb_helpers.h>`__ contains various helper functions that are related to the USB protocol such as descriptor parsing.
+- `host/usb/include/usb/usb_types_stack.h <https://github.com/espressif/esp-usb/tree/master/host/usb/include/usb/usb_types_stack.h>`__ contains types that are used across multiple layers of the USB Host stack.
+- `host/usb/include/usb/usb_types_ch9.h <https://github.com/espressif/esp-usb/tree/master/host/usb/include/usb/usb_types_ch9.h>`__ contains types and macros related to Chapter 9 of the USB2.0 specification, i.e., descriptors and standard requests.
+- `host/usb/include/usb/usb_types_ch11.h <https://github.com/espressif/esp-usb/tree/master/host/usb/include/usb/usb_types_ch11.h>`__ contains types and macros related to Chapter 11 of the USB2.0 specification, i.e., hub specifications.
+
+
+.. include-build-file:: inc/usb_host.inc
+
+.. include-build-file:: inc/usb_helpers.inc
+
+.. include-build-file:: inc/usb_types_stack.inc
+
+.. include-build-file:: inc/usb_types_ch9.inc
+
+.. include-build-file:: inc/usb_types_ch11.inc
+
 
 Header File
 ^^^^^^^^^^^
@@ -728,7 +740,7 @@ Maintainers Notes
 
 .. note::
 
-    For more details regarding the internal implementation details of the USB Host stack, please refer to :doc:`/api-reference/peripherals/usb_host/usb_host_notes_index`.
+    For more details regarding the internal implementation details of the USB Host stack, please refer to :doc:`/usb_host/usb_host_notes_index`.
 
 .. toctree::
     :hidden:

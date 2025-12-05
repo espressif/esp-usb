@@ -1,8 +1,6 @@
 USB Host Maintainers Notes (Architecture)
 =========================================
 
-:link_to_translation:`zh_CN:[中文]`
-
 The Host Stack is roughly split into multiple layers of abstraction, with each layer representing different USB concepts and a different level of USB Host operation. For example, a higher layer may present an abstraction of devices and application data transfers, whereas a lower layer may present an abstraction of endpoints and USB transfers.
 
 Layer Descriptions
@@ -22,10 +20,10 @@ The layers of the Host Stack are described in the following table. The layers ar
       - This layer represents the USB Controller Hardware of the {IDF_TARGET_NAME}. The API presented by this layer is the register interface of the controller.
     * - LL
       - ``usbh_ll.h``
-      - The LL (Low Level) layer abstracts the basic register access of the USB controller according to ESP-IDF's :doc:`Hardware Abstraction API Guidelines <../../../api-guides/hardware-abstraction>`. In other words, this layer provides APIs to access the controller's registers and format/parse the controller's DMA descriptors.
+      - The LL (Low Level) layer abstracts the basic register access of the USB controller according to ESP-IDF's `Hardware Abstraction API Guidelines <https://docs.espressif.com/projects/esp-idf/en/stable/{IDF_TARGET_PATH_NAME}/api-guides/hardware-abstraction.html>`__. In other words, this layer provides APIs to access the controller's registers and format/parse the controller's DMA descriptors.
     * - HAL
       - ``usbh_hal.h``, ``usbh_hal.c``
-      - The HAL (Hardware Abstraction Layer) abstracts the operating steps of the USB controller into functions according to ESP-IDF's :doc:`Hardware Abstraction API Guidelines <../../../api-guides/hardware-abstraction>`. This layer also abstracts the controller's host port and host channels, and provides APIs to operate the them.
+      - The HAL (Hardware Abstraction Layer) abstracts the operating steps of the USB controller into functions according to ESP-IDF's `Hardware Abstraction API Guidelines <https://docs.espressif.com/projects/esp-idf/en/stable/{IDF_TARGET_PATH_NAME}/api-guides/hardware-abstraction.html>`__. This layer also abstracts the controller's host port and host channels, and provides APIs to operate the them.
     * - HCD
       - ``hcd.h``, ``hcd.c``
       - The HCD (Host Controller Driver) acts as hardware agnostic API for all USB controllers (i.e., an API that can theoretically be used with any USB controller implementation). This layer also abstracts the root port (i.e., root hub) and USB pipes.
@@ -39,7 +37,7 @@ The layers of the Host Stack are described in the following table. The layers ar
       - ``usb_host.h``, ``usb_host.c``
       - The USB Host Library layer is the lowest public API layer of the Host Stack and presents the concept of USB Host Clients. The abstraction of clients allows for multiple class drivers to coexist simultaneously (where each class roughly maps to a single client) and also acts as a mechanism for division of labor (where each client is responsible for its own processing and event handling).
     * - Host Class Drivers
-      - See the `ESP-USB repository <https://github.com/espressif/esp-usb>`_ or the USB Host examples in ESP-IDF (via :example:`peripherals/usb/host`).
+      - See the `ESP-USB repository <https://github.com/espressif/esp-usb>`_ or the USB Host examples in ESP-IDF.
       - The Host Class Drivers implement the host side of a particular device class (e.g., CDC, MSC, HID). The exposed API is specific to each class driver.
 
 Layer Dependencies

@@ -63,7 +63,7 @@ USB 主机库（以下简称主机库）是 USB 主机栈的最底层，提供�
 架构
 ------------
 
-.. figure:: ../../../_static/usb_host_lib_entities.png
+.. figure:: ../_static/usb_host/usb_host_lib_entities.png
     :align: center
     :alt: USB 主机功能的关键实体
     :figclass: align-center
@@ -163,12 +163,12 @@ USB 主机库（以下简称主机库）是 USB 主机栈的最底层，提供�
 
 .. note::
 
-    了解守护进程任务的完整示例，请前往 :example:`peripherals/usb/host/usb_host_lib`。
+    了解守护进程任务的完整示例，请前往 `usb_host_lib <https://github.com/espressif/esp-idf/tree/master/examples/peripherals/usb/host/usb_host_lib>`__。
 
 生命周期
 """""""""
 
-.. figure:: ../../../_static/usb_host_lib_lifecycle.png
+.. figure:: ../_static/usb_host/usb_host_lib_lifecycle.png
     :align: center
     :alt: USB 主机库典型生命周期
     :figclass: align-center
@@ -496,7 +496,7 @@ USB 主机库事件
 主机库示例
 ^^^^^^^^^^^^^^^^^^^^^
 
-:example:`peripherals/usb/host/usb_host_lib` 演示了如何使用 USB 主机库 API 来安装和注册客户端、等待设备连接、打印设备信息和处理断开连接，并重复这些步骤，直到退出应用程序。
+`usb_host_lib <https://github.com/espressif/esp-idf/tree/master/examples/peripherals/usb/host/usb_host_lib>`__ 演示了如何使用 USB 主机库 API 来安装和注册客户端、等待设备连接、打印设备信息和处理断开连接，并重复这些步骤，直到退出应用程序。
 
 Class 驱动程序示例
 ^^^^^^^^^^^^^^^^^^^^^^^^
@@ -507,27 +507,27 @@ CDC-ACM
 """""""
 
 * 通信设备 Class（抽象控制模型）的主机 Class 驱动程序通过 `乐鑫组件注册表 <https://components.espressif.com/component/espressif/usb_host_cdc_acm>`__ 作为受管理的组件分发。
-* 示例 :example:`peripherals/usb/host/cdc/cdc_acm_host` 演示了使用 CDC-ACM 主机驱动程序组件，实现 {IDF_TARGET_NAME} 与 USB CDC-ACM 设备的通信。
-* 示例 :example:`peripherals/usb/host/cdc/cdc_acm_vcp` 演示了如何扩展 CDC-ACM 的主机驱动程序，以支持 VCP 设备（即虚拟通信端口设备，如 CP210x、FTDI FT23x 或 CH34x），以及如何使用 CDC-ACM API 控制设备并发送数据。
+* 示例 `cdc_acm_host <https://github.com/espressif/esp-idf/tree/master/examples/peripherals/usb/host/cdc/cdc_acm_host>`__ 演示了使用 CDC-ACM 主机驱动程序组件，实现 {IDF_TARGET_NAME} 与 USB CDC-ACM 设备的通信。
+* 示例 `cdc_acm_vcp <https://github.com/espressif/esp-idf/tree/master/examples/peripherals/usb/host/cdc/cdc_acm_vcp>`__ 演示了如何扩展 CDC-ACM 的主机驱动程序，以支持 VCP 设备（即虚拟通信端口设备，如 CP210x、FTDI FT23x 或 CH34x），以及如何使用 CDC-ACM API 控制设备并发送数据。
 * 示例 `esp_modem <https://github.com/espressif/esp-protocols/tree/master/components/esp_modem/examples>`__ 中也使用了 CDC-ACM 驱动程序，该程序在这些示例中与蜂窝模块通信。
 
 MSC
 """
 
 * 大容量存储 Class（仅支持批量传输）的主机 Class 驱动程序已部署到 `乐鑫组件注册表 <https://components.espressif.com/component/espressif/usb_host_msc>`__。
-* 示例 :example:`peripherals/usb/host/msc` 演示了如何使用 USB 大容量存储类来访问、读取、写入和操作 USB 闪存驱动器，包括处理 USB 重新连接和反初始化 USB 主机堆栈。
+* 示例 `msc <https://github.com/espressif/esp-idf/tree/master/examples/peripherals/usb/host/msc>`__ 演示了如何使用 USB 大容量存储类来访问、读取、写入和操作 USB 闪存驱动器，包括处理 USB 重新连接和反初始化 USB 主机堆栈。
 
 HID
 """
 
 * HID（人机接口设备）的主机 class 驱动作为托管组件通过 `乐鑫组件注册表 <https://components.espressif.com/components/espressif/usb_host_hid>`__ 分发。
-* 示例 :example:`peripherals/usb/host/hid` 演示了如何在 {IDF_TARGET_NAME} 上实现基本的 USB 主机 HID 类驱动，以便与 USB HID 设备（如键盘和鼠标）进行通信，并持续扫描设备的连接状态。一旦连接成功，即获取 HID 报告。
+* 示例 `hid <https://github.com/espressif/esp-idf/tree/master/examples/peripherals/usb/host/hid>`__ 演示了如何在 {IDF_TARGET_NAME} 上实现基本的 USB 主机 HID 类驱动，以便与 USB HID 设备（如键盘和鼠标）进行通信，并持续扫描设备的连接状态。一旦连接成功，即获取 HID 报告。
 
 UVC
 """
 
 * USB 视频设备 Class 的主机 Class 驱动程序作为托管组件通过 `乐鑫组件注册表 <https://components.espressif.com/component/espressif/usb_host_uvc>`__ 分发。
-* 示例 :example:`peripherals/usb/host/uvc` 演示了如何使用 UVC 驱动程序从 USB 摄像头捕获视频帧。
+* 示例 `uvc <https://github.com/espressif/esp-idf/tree/master/examples/peripherals/usb/host/uvc>`__ 演示了如何使用 UVC 驱动程序从 USB 摄像头捕获视频帧。
 
 .. ---------------------------------------------- USB Host Menuconfig --------------------------------------------------
 
@@ -539,7 +539,7 @@ UVC
     {IDF_TARGET_NAME} 内部集成了两个 USB 控制器 —— USB-OTG 和 USB-Serial-JTAG。这两个控制器 **共用同一个 PHY**，因此同一时间只能有一个控制器工作。如果在 USB-Serial-JTAG 工作时（如调试或烧录）时仍需使用 USB 主机功能，必须使用 **外部 PHY**，因为此时内部 PHY 已被 USB-Serial-JTAG 占用。
 
     .. note::
-        使用外部 PHY 并不是在 USB 主机或设备功能开启时同时实现调试的唯一办法。也可以通过烧录对应的 eFuse，将调试接口从 USB-Serial-JTAG 切换为传统的 JTAG 接口。具体步骤请参考 ESP-IDF 编程指南中针对你的芯片的 `JTAG 调试 <https://docs.espressif.com/projects/esp-idf/zh_CN/latest/esp32s3/api-guides/jtag-debugging/index.html>`_ 章节。
+        使用外部 PHY 并不是在 USB 主机或设备功能开启时同时实现调试的唯一办法。也可以通过烧录对应的 eFuse，将调试接口从 USB-Serial-JTAG 切换为传统的 JTAG 接口。具体步骤请参考 ESP-IDF 编程指南中针对你的芯片的 `JTAG 调试 <https://docs.espressif.com/projects/esp-idf/zh_CN/stable/{IDF_TARGET_PATH_NAME}/api-guides/jtag-debugging/index.html>`__ 章节。
 
     {IDF_TARGET_NAME} 支持连接外部 PHY 芯片，从而实现 USB-OTG 和 USB-Serial-JTAG 控制器的独立工作。不同的外部 PHY 芯片可能需要不同的硬件配置，具体请参阅各芯片的规格书。乐鑫官方文档提供了通用的连接示意图用于参考：`使用外部 PHY <https://docs.espressif.com/projects/esp-iot-solution/en/latest/usb/usb_overview/usb_phy.html#use-an-external-phy>`__。
 
@@ -549,7 +549,7 @@ UVC
     - **TUSB1106** — {IDF_TARGET_NAME} 原生支持。可通过 GPIO 映射与外部 PHY 驱动配合使用。请遵循 TUSB1106 数据手册中的参考连接（供电方案以及在 D+/D– 上建议的串联电阻）。
     - **STUSB03E** — 需要通过模拟开关进行信号路由。请参考下方示例。
 
-    .. figure:: ../../../_static/usb_host/ext_phy_schematic_stusb03e.png
+    .. figure:: ../_static/usb_host/ext_phy_schematic_stusb03e.png
        :align: center
        :alt: 使用模拟开关的外部 PHY 原理图（主机模式）
 
@@ -619,7 +619,7 @@ USB 设备可能是热插拔的，因此必须配置电源开关和设备连接�
 
 在枚举已连接 USB 设备的过程中，需要给一些事件配置合适的间隔时间以确保设备正常运行。
 
-.. figure:: ../../../_static/usb_host/poweron-timings.png
+.. figure:: ../_static/usb_host/poweron-timings.png
     :align: center
     :alt: USB 根集线器上电和连接事件时序
 
@@ -700,11 +700,23 @@ API 参考
 
 USB 主机库的 API 包含以下头文件，但应用程序调用该 API 时只需 ``#include "usb/usb_host.h"``，就可以包含所有 USB 主机库的头文件。
 
-- `usb/include/usb/usb_host.h` 包含 USB 主机库的函数和类型。
-- `usb/include/usb/usb_helpers.h` 包含与 USB 协议相关的各种辅助函数，如描述符解析等。
-- `usb/include/usb/usb_types_stack.h` 包含在 USB 主机栈的多个层次中使用的类型。
-- `usb/include/usb/usb_types_ch9.h` 包含了与 USB 2.0 规范中第 9 章相关的类型和宏，即描述符和标准请求。
-- `usb/include/usb/usb_types_ch11.h` 包含与 USB2.0 规范第 11 章相关的类型和宏，即集线器规范。
+- `host/usb/include/usb/usb_host.h <https://github.com/espressif/esp-usb/tree/master/host/usb/include/usb/usb_host.h>`__ 包含 USB 主机库的函数和类型。
+- `host/usb/include/usb/usb_helpers.h <https://github.com/espressif/esp-usb/tree/master/host/usb/include/usb/usb_helpers.h>`__ 包含与 USB 协议相关的各种辅助函数，如描述符解析等。
+- `host/usb/include/usb/usb_types_stack.h <https://github.com/espressif/esp-usb/tree/master/host/usb/include/usb/usb_types_stack.h>`__` 包含在 USB 主机栈的多个层次中使用的类型。
+- `host/usb/include/usb/usb_types_ch9.h <https://github.com/espressif/esp-usb/tree/master/host/usb/include/usb/usb_types_ch9.h>`__ 包含了与 USB 2.0 规范中第 9 章相关的类型和宏，即描述符和标准请求。
+- `host/usb/include/usb/usb_types_ch11.h <https://github.com/espressif/esp-usb/tree/master/host/usb/include/usb/usb_types_ch11.h>`__ 包含与 USB2.0 规范第 11 章相关的类型和宏，即集线器规范。
+
+
+.. include-build-file:: inc/usb_host.inc
+
+.. include-build-file:: inc/usb_helpers.inc
+
+.. include-build-file:: inc/usb_types_stack.inc
+
+.. include-build-file:: inc/usb_types_ch9.inc
+
+.. include-build-file:: inc/usb_types_ch11.inc
+
 
 头文件
 ^^^^^^^
@@ -720,18 +732,3 @@ USB 主机库的 API 包含以下头文件，但应用程序调用该 API 时只
 .. code:: bash
 
     idf.py add-dependency usb
-
-.. ------------------------------------------------ Maintainers Notes --------------------------------------------------
-
-维护注意事项
------------------
-
-.. note::
-
-    有关 USB 主机栈内部实现的更多细节，请参阅 :doc:`/api-reference/peripherals/usb_host/usb_host_notes_index`。
-
-.. toctree::
-    :hidden:
-    :maxdepth: 0
-
-    usb_host/usb_host_notes_index

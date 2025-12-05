@@ -42,7 +42,7 @@ USB 设备栈（以下简称设备栈）支持在 {IDF_TARGET_NAME} 上启用 US
 
     {IDF_TARGET_NAME} 将 USB D+ 和 D- 信号路由到其专用管脚。为了实现 USB 设备功能，这些管脚应通过某种方式连接到总线（例如，通过 Micro-B 端口、USB-C 端口或直接连接到标准-A 插头）。
 
-.. figure:: ../../../_static/usb-board-connection.png
+.. figure:: ../_static/usb_device/usb-board-connection.png
     :align: center
     :alt: 将 USB GPIO 直接接连至 USB 标准-A 插头
     :figclass: align-center
@@ -65,11 +65,11 @@ USB 设备栈（以下简称设备栈）支持在 {IDF_TARGET_NAME} 上启用 US
     {IDF_TARGET_NAME} 内部集成了两个 USB 控制器：USB-OTG 与 USB-Serial-JTAG。这两个控制器 **共用同一个 PHY**，因此同一时间只能有一个控制器工作。如果在 USB-Serial-JTAG 工作时（例如调试或烧录）时仍需要使用 USB 设备功能，必须使用 **外部 PHY**，因为此时内部 PHY 已被 USB-Serial-JTAG 占用。
 
     .. note::
-        使用外部 PHY 并不是在 USB 主机或设备功能开启时同时实现调试的唯一办法。也可以通过烧录对应的 eFuse，将调试接口从 USB-Serial-JTAG 切换为传统的 JTAG 接口。具体步骤请参考 ESP-IDF 编程指南中针对你的芯片的 :doc:`JTAG 调试 <../../api-guides/jtag-debugging/index>` 章节。
+        使用外部 PHY 并不是在 USB 主机或设备功能开启时同时实现调试的唯一办法。也可以通过烧录对应的 eFuse，将调试接口从 USB-Serial-JTAG 切换为传统的 JTAG 接口。具体步骤请参考 ESP-IDF 编程指南中针对你的芯片的 `JTAG 调试 <https://docs.espressif.com/projects/esp-idf/zh_CN/stable/{IDF_TARGET_PATH_NAME}/api-guides/jtag-debugging/index.html>`__ 章节。
 
     {IDF_TARGET_NAME} 支持连接外部 PHY 芯片。当需要在使用 USB-Serial-JTAG 控制器的同时提供全速 USB 设备功能时，这一点尤其重要。不同的外部 PHY 芯片可能需要不同的硬件配置，请参考各自芯片的规格书。乐鑫官方文档提供了如下的通用连接示意图供参考。如需了解更多内容，请参阅 `使用外部 PHY <https://docs.espressif.com/projects/esp-iot-solution/zh_CN/latest/usb/usb_overview/usb_phy.html#external-phy>`__。
 
-    .. figure:: ../../../_static/usb_device/usb_fs_phy_sp5301.png
+    .. figure:: ../_static/usb_device/usb_fs_phy_sp5301.png
        :align: center
        :alt: usb_fs_phy_sp5301
 
@@ -81,7 +81,7 @@ USB 设备栈（以下简称设备栈）支持在 {IDF_TARGET_NAME} 上启用 US
     - **TUSB1106** — {IDF_TARGET_NAME} 原生支持。可通过 GPIO 映射与外部 PHY 驱动配合使用。请遵循 TUSB1106 数据手册中的参考连接（供电方案以及在 D+/D– 上建议的串联电阻）。
     - **STUSB03E** — 需要通过模拟开关进行信号切换，详情参考下方示例。
 
-    .. figure:: ../../../_static/usb_device/ext_phy_schematic_stusb03e.png
+    .. figure:: ../_static/usb_device/ext_phy_schematic_stusb03e.png
        :align: center
        :alt: 使用模拟开关的外部 PHY 原理图（设备模式）
 
@@ -255,7 +255,7 @@ USB 规范要求自供电设备监测 USB 的 VBUS 信号的电压水平。与�
 
     在这两种情况下，设备从 USB 主机拔出后 3 毫秒内，传感管脚上的电压必须为逻辑低电平。
 
-.. figure:: ../../../_static/diagrams/usb/usb_vbus_voltage_monitor.png
+.. figure:: ../_static/usb_device/usb_vbus_voltage_monitor.png
     :align: center
     :alt: 用于 VBUS 监测的简易分压器
     :figclass: align-center
@@ -456,15 +456,15 @@ single-buffer 方案通过使用专用 buffer 临时存储接收到的写入数�
 应用示例
 --------------------
 
-如需查看相关示例，请前往目录 :example:`peripherals/usb/device`。
+如需查看相关示例，请前往目录 `peripherals/usb/device <https://github.com/espressif/esp-idf/tree/master/examples/peripherals/usb/device>`__。
 
-- :example:`peripherals/usb/device/tusb_console` 演示了如何使用 TinyUSB 组件配置 {IDF_TARGET_NAME}，以通过串行设备连接获取和输出日志，适用于任何支持 USB-OTG 的乐鑫开发板。
-- :example:`peripherals/usb/device/tusb_serial_device` 演示了如何使用 TinyUSB 组件将 {IDF_TARGET_NAME} 配置为 USB 串行设备，还支持配置为双串行设备。
-- :example:`peripherals/usb/device/tusb_midi` 演示了如何使用 TinyUSB 组件将 {IDF_TARGET_NAME} 配置为 USB MIDI 设备，从而通过本地 USB 端口输出 MIDI 音符序列。
-- :example:`peripherals/usb/device/tusb_hid` 演示了如何使用 TinyUSB 组件实现 USB 键盘和鼠标，在连接到 USB 主机时发送 “按下和释放 key a/A” 事件，并使鼠标沿方形轨迹移动。
-- :example:`peripherals/usb/device/tusb_msc` 演示了如何使用 USB 功能创建一个可以被 USB 主机识别的大容量存储设备，允许访问其内部数据存储，支持 SPI Flash 和 SD MMC 卡存储介质。
-- :example:`peripherals/usb/device/tusb_composite_msc_serialdevice` 演示了如何使用 TinyUSB 组件将 {IDF_TARGET_NAME} 同时配置为 USB 串行设备和 MSC 设备（存储介质为 SPI-Flash）运行。
+- `tusb_console <https://github.com/espressif/esp-idf/tree/master/examples/peripherals/usb/device/tusb_console>`__ 演示了如何使用 TinyUSB 组件配置 {IDF_TARGET_NAME}，以通过串行设备连接获取和输出日志，适用于任何支持 USB-OTG 的乐鑫开发板。
+- `tusb_serial_device <https://github.com/espressif/esp-idf/tree/master/examples/peripherals/usb/device/tusb_serial_device>`__ 演示了如何使用 TinyUSB 组件将 {IDF_TARGET_NAME} 配置为 USB 串行设备，还支持配置为双串行设备。
+- `tusb_midi <https://github.com/espressif/esp-idf/tree/master/examples/peripherals/usb/device/tusb_midi>`__ 演示了如何使用 TinyUSB 组件将 {IDF_TARGET_NAME} 配置为 USB MIDI 设备，从而通过本地 USB 端口输出 MIDI 音符序列。
+- `tusb_hid <https://github.com/espressif/esp-idf/tree/master/examples/peripherals/usb/device/tusb_hid>`__ 演示了如何使用 TinyUSB 组件实现 USB 键盘和鼠标，在连接到 USB 主机时发送 “按下和释放 key a/A” 事件，并使鼠标沿方形轨迹移动。
+- `tusb_msc <https://github.com/espressif/esp-idf/tree/master/examples/peripherals/usb/device/tusb_msc>`__ 演示了如何使用 USB 功能创建一个可以被 USB 主机识别的大容量存储设备，允许访问其内部数据存储，支持 SPI Flash 和 SD MMC 卡存储介质。
+- `tusb_composite_msc_serialdevice <https://github.com/espressif/esp-idf/tree/master/examples/peripherals/usb/device/tusb_composite_msc_serialdevice>`__ 演示了如何使用 TinyUSB 组件将 {IDF_TARGET_NAME} 同时配置为 USB 串行设备和 MSC 设备（存储介质为 SPI-Flash）运行。
 
 .. only:: not esp32p4 and not esp32h4
 
-  - :example:`peripherals/usb/device/tusb_ncm` 演示了使用 TinyUSB 组件，借助网络控制模型 (NCM) 将 Wi-Fi 数据通过 USB 传输到 Linux 或 Windows 主机。NCM 是通信设备类 (CDC) USB 设备的一个子类，专用于 Ethernet-over-USB 应用。
+  - `tusb_ncm <https://github.com/espressif/esp-idf/tree/master/examples/peripherals/usb/device/tusb_ncm>`__ 演示了使用 TinyUSB 组件，借助网络控制模型 (NCM) 将 Wi-Fi 数据通过 USB 传输到 Linux 或 Windows 主机。NCM 是通信设备类 (CDC) USB 设备的一个子类，专用于 Ethernet-over-USB 应用。

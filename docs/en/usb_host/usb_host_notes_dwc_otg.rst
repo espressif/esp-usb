@@ -1,8 +1,6 @@
 USB Host Maintainers Notes (DWC_OTG Controller)
 ===============================================
 
-:link_to_translation:`zh_CN:[中文]`
-
 The {IDF_TARGET_NAME} uses a DesignWare USB 2.0 On-the-Go Controller (henceforth referred to as DWC_OTG in this document) as its underlying hardware controller, where the DWC_OTG operates in Host Mode with Scatter/Gather DMA enabled.
 
 .. note::
@@ -14,7 +12,7 @@ Host Mode Operating Model
 
 A simplified version of the operating model of the DWC_OTG in Host Mode is illustrated in the diagram below. The diagram contains some of the key concepts and terms regarding DWC_OTG Host Mode.
 
-.. figure:: ../../../../_static/usb_host/dwc-otg-operation.png
+.. figure:: ../../_static/usb_host/dwc-otg-operation.png
     :align: center
     :alt: DWC_OTG Host Mode Operating Model
     :figclass: align-center
@@ -67,7 +65,7 @@ DMA Engine
 
 The DMA engine is responsible for copying data between the FIFOs and main memory. In Host Mode Scatter/Gather DMA, a particular channel can carry out multiple transfers automatically without software intervention. The following diagram illustrates the DWC_OTG Host Mode Scatter/Gather DMA Memory Structures.
 
-.. figure:: ../../../../_static/usb_host/dwc-otg-scatter-gather.png
+.. figure:: ../../_static/usb_host/dwc-otg-scatter-gather.png
     :align: center
     :alt: DWC_OTG Host Mode Scatter/Gather DMA Memory Structures
     :figclass: align-center

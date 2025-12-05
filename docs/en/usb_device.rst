@@ -42,7 +42,7 @@ Hardware Connection
 
     The {IDF_TARGET_NAME} routes the USB D+ and D- signals to their dedicated pins. For USB device functionality, these pins should be connected to the bus in some way (e.g., via a Micro-B port, USB-C port, or directly to standard-A plug).
 
-.. figure:: ../../../_static/usb-board-connection.png
+.. figure:: ../_static/usb_device/usb-board-connection.png
     :align: center
     :alt: Connection of an USB GPIOs directly to a USB standard-A plug
     :figclass: align-center
@@ -65,11 +65,11 @@ Hardware Connection
     The {IDF_TARGET_NAME} contains two USB controllers: USB-OTG and USB-Serial-JTAG. However, both controllers share a **single PHY**, which means only one can operate at a time. To use USB Device functionality while the USB-Serial-JTAG is active (e.g., for debugging or flashing), an **external PHY** is required, since the PHY is used by USB-Serial-JTAG.
 
     .. note::
-        An external PHY is not the only way to enable debugging alongside USB Host or Device functionality. It is also possible to switch the debugging interface from USB-Serial-JTAG to plain JTAG by burning the appropriate eFuses. For details, refer to document :doc:`JTAG Debugging <../../api-guides/jtag-debugging/index>` in ESP-IDF Programming Guide for your target.
+        An external PHY is not the only way to enable debugging alongside USB Host or Device functionality. It is also possible to switch the debugging interface from USB-Serial-JTAG to plain JTAG by burning the appropriate eFuses. For details, refer to document `JTAG Debugging <https://docs.espressif.com/projects/esp-idf/en/stable/{IDF_TARGET_PATH_NAME}/api-guides/jtag-debugging/index.html>`__ in ESP-IDF Programming Guide for your target.
 
     {IDF_TARGET_NAME} supports connecting external PHY ICs. This becomes especially relevant when full-speed USB device functionality is needed while the USB-Serial-JTAG controller is also in use. Various external PHY ICs may require different hardware modifications. Please refer to each IC's datasheet for specifics. A general connection diagram below is provided for reference. For more information, please refer to `Use an external PHY <https://docs.espressif.com/projects/esp-iot-solution/en/latest/usb/usb_overview/usb_phy.html#use-an-external-phy>`__.
 
-    .. figure:: ../../../_static/usb_device/usb_fs_phy_sp5301.png
+    .. figure:: ../_static/usb_device/usb_fs_phy_sp5301.png
        :align: center
        :alt: usb_fs_phy_sp5301
 
@@ -81,7 +81,7 @@ Hardware Connection
     - **TUSB1106** — Directly supported by {IDF_TARGET_NAME}. Works with the external-PHY driver via GPIO mapping. Follow the reference wiring in the TUSB1106 datasheet (power-supply options and recommended series resistors on D+/D–).
     - **STUSB03E** — Requires signal routing using an analog switch. See example below.
 
-    .. figure:: ../../../_static/usb_device/ext_phy_schematic_stusb03e.png
+    .. figure:: ../_static/usb_device/ext_phy_schematic_stusb03e.png
        :align: center
        :alt: External PHY with Analog Switch Schematic (Device mode)
 
@@ -255,7 +255,7 @@ On the {IDF_TARGET_NAME}, this will require using a GPIO to act as a voltage sen
 
     In either case, the voltage on the sensing pin must be logic low within 3 ms after the device is unplugged from the USB host.
 
-.. figure:: ../../../_static/diagrams/usb/usb_vbus_voltage_monitor.png
+.. figure:: ../_static/usb_device/usb_vbus_voltage_monitor.png
     :align: center
     :alt: Simple voltage divider for VBUS monitoring
     :figclass: align-center
@@ -456,15 +456,15 @@ Performance Limitations:
 Application Examples
 --------------------
 
-The examples can be found in the directory :example:`peripherals/usb/device`.
+For better visibility, the examples can be found in ESP-IDF's GitHub repository in the directory `peripherals/usb/device <https://github.com/espressif/esp-idf/tree/master/examples/peripherals/usb/device>`__.
 
-- :example:`peripherals/usb/device/tusb_console` demonstrates how to set up {IDF_TARGET_NAME} to get log output via a Serial Device connection using the TinyUSB component, applicable for any Espressif boards that support USB-OTG.
-- :example:`peripherals/usb/device/tusb_serial_device` demonstrates how to set up {IDF_TARGET_NAME} to function as a USB Serial Device using the TinyUSB component, with the ability to be configured as a double serial device.
-- :example:`peripherals/usb/device/tusb_midi` demonstrates how to set up {IDF_TARGET_NAME} to function as a USB MIDI Device, outputting a MIDI note sequence via the native USB port using the TinyUSB component.
-- :example:`peripherals/usb/device/tusb_hid` demonstrates how to implement a USB keyboard and mouse using the TinyUSB component, which sends 'key a/A pressed & released' events and moves the mouse in a square trajectory upon connection to a USB host.
-- :example:`peripherals/usb/device/tusb_msc` demonstrates how to use the USB capabilities to create a Mass Storage Device that can be recognized by USB-hosts, allowing access to its internal data storage, with support for SPI Flash and SD MMC Card storage media.
-- :example:`peripherals/usb/device/tusb_composite_msc_serialdevice` demonstrates how to set up {IDF_TARGET_NAME} to function simultaneously as both a USB Serial Device and an MSC device (SPI-Flash as the storage media) using the TinyUSB component.
+- `tusb_console <https://github.com/espressif/esp-idf/tree/master/examples/peripherals/usb/device/tusb_console>`__ demonstrates how to set up {IDF_TARGET_NAME} to get log output via a Serial Device connection using the TinyUSB component, applicable for any Espressif boards that support USB-OTG.
+- `tusb_serial_device <https://github.com/espressif/esp-idf/tree/master/examples/peripherals/usb/device/tusb_serial_device>`__ demonstrates how to set up {IDF_TARGET_NAME} to function as a USB Serial Device using the TinyUSB component, with the ability to be configured as a double serial device.
+- `tusb_midi <https://github.com/espressif/esp-idf/tree/master/examples/peripherals/usb/device/tusb_midi>`__ demonstrates how to set up {IDF_TARGET_NAME} to function as a USB MIDI Device, outputting a MIDI note sequence via the native USB port using the TinyUSB component.
+- `tusb_hid <https://github.com/espressif/esp-idf/tree/master/examples/peripherals/usb/device/tusb_hid>`__ demonstrates how to implement a USB keyboard and mouse using the TinyUSB component, which sends 'key a/A pressed & released' events and moves the mouse in a square trajectory upon connection to a USB host.
+- `tusb_msc <https://github.com/espressif/esp-idf/tree/master/examples/peripherals/usb/device/tusb_msc>`__ demonstrates how to use the USB capabilities to create a Mass Storage Device that can be recognized by USB-hosts, allowing access to its internal data storage, with support for SPI Flash and SD MMC Card storage media.
+- `tusb_composite_msc_serialdevice <https://github.com/espressif/esp-idf/tree/master/examples/peripherals/usb/device/tusb_composite_msc_serialdevice>`__ demonstrates how to set up {IDF_TARGET_NAME} to function simultaneously as both a USB Serial Device and an MSC device (SPI-Flash as the storage media) using the TinyUSB component.
 
 .. only:: not esp32p4 and not esp32h4
 
-  - :example:`peripherals/usb/device/tusb_ncm` demonstrates how to transmit Wi-Fi data to a Linux or Windows host via USB using the Network Control Model (NCM), a sub-class of Communication Device Class (CDC) USB Device for Ethernet-over-USB applications, with the help of a TinyUSB component.
+  - `tusb_ncm <https://github.com/espressif/esp-idf/tree/master/examples/peripherals/usb/device/tusb_ncm>`__ demonstrates how to transmit Wi-Fi data to a Linux or Windows host via USB using the Network Control Model (NCM), a sub-class of Communication Device Class (CDC) USB Device for Ethernet-over-USB applications, with the help of a TinyUSB component.

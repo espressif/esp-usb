@@ -1,15 +1,13 @@
 USB Host Maintainers Notes (Introduction)
 =========================================
 
-:link_to_translation:`zh_CN:[中文]`
-
 This document contains information regarding the implementation details of the USB Host stack. This document is intended for the maintainers and third-party contributors of the USB Host stack. Users of the USB Host stack should refer to :doc:`../usb_host` instead.
 
 .. warning::
 
-    The implementations details of the USB Host stack is categorized as private API. Thus, all layers (other than the USB Host Library) do not adhere to :ref:`ESP-IDF's versioning scheme <versioning-scheme>` (i.e., breaking changes are permitted).
+    The implementations details of the USB Host stack is categorized as private API. Thus, all layers (other than the USB Host Library) do not adhere to ESP-IDF's versioning scheme (i.e., breaking changes are permitted).
 
-.. figure:: ../../../../_static/usb_host/stack-overview.png
+.. figure:: ../../_static/usb_host/stack-overview.png
     :align: center
     :alt: Diagram of Host Stack Layers
 

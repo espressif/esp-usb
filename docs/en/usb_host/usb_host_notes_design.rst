@@ -1,8 +1,6 @@
 USB Host Maintainers Notes (Design Guidelines)
 ==============================================
 
-:link_to_translation:`zh_CN:[中文]`
-
 Design Considerations
 ---------------------
 

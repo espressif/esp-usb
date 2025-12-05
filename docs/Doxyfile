@@ -1,0 +1,52 @@
+# SPDX-FileCopyrightText: 2025 Espressif Systems (Shanghai) CO LTD
+#
+# SPDX-License-Identifier: Apache-2.0
+
+# Doxygen configuration for ESP-USB API documentation
+
+PROJECT_NAME           = "ESP-USB"
+PROJECT_BRIEF          = "ESP-IDF USB Host and Device Drivers"
+
+## The 'INPUT' statement below is used as input by script 'gen-df-input.py'
+## to automatically generate API reference list files header_file.inc
+## These files are placed in '_inc' directory
+## and used to include in API reference documentation
+INPUT                  = \
+    $(PROJECT_PATH)/host/usb/include/usb/usb_host.h \
+    $(PROJECT_PATH)/host/usb/include/usb/usb_helpers.h \
+    $(PROJECT_PATH)/host/usb/include/usb/usb_types_stack.h \
+    $(PROJECT_PATH)/host/usb/include/usb/usb_types_ch9.h \
+    $(PROJECT_PATH)/host/usb/include/usb/usb_types_ch11.h \
+    $(PROJECT_PATH)/device/esp_tinyusb/include/tinyusb.h
+
+WARN_NO_PARAMDOC = YES
+
+## Enable preprocessing and remove __attribute__(...) expressions from the INPUT files
+##
+ENABLE_PREPROCESSING   = YES
+MACRO_EXPANSION        = YES
+EXPAND_ONLY_PREDEF     = YES
+PREDEFINED             = \
+    $(ENV_DOXYGEN_DEFINES) \
+    __DOXYGEN__=1 \
+    __attribute__(x)= \
+    ESP_STATIC_ASSERT()=
+
+## Do not complain about not having dot
+##
+HAVE_DOT = NO
+
+## Generate XML that is required for Breathe
+##
+GENERATE_XML    = YES
+XML_OUTPUT      = xml
+
+GENERATE_HTML   = NO
+HAVE_DOT        = NO
+GENERATE_LATEX  = NO
+GENERATE_MAN    = YES
+GENERATE_RTF    = NO
+
+## Skip distracting progress messages
+##
+QUIET = YES

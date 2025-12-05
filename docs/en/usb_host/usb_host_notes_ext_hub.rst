@@ -62,4 +62,3 @@ Events & Processing
 The Ext Hub Driver is completely event driven and all event handling is done via the ``ext_hub_process()`` function. The ``ext_hub_config_t.proc_req_cb`` callback provided on the Ext Hub Driver installation will be called when processing is required. Typically, ``ext_hub_process()`` will be called from the Hub Driver ``hub_process()`` processing function.
 
 The Ext Hub Driver does not expose any event callback.
-
