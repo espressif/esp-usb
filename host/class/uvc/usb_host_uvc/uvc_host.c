@@ -31,11 +31,12 @@
 #include "freertos/semphr.h"
 #include "freertos/queue.h"
 #include "freertos/event_groups.h"
+#include "esp_private/critical_section.h"
 
 static const char *TAG = "uvc";
 
 // UVC spinlock
-portMUX_TYPE uvc_lock = portMUX_INITIALIZER_UNLOCKED;
+DEFINE_CRIT_SECTION_LOCK(uvc_lock);
 
 // UVC driver status
 #define UVC_STARTED           BIT0 // UVC driver events handling started
