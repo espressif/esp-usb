@@ -133,6 +133,67 @@ static esp_err_t uvc_host_device_connected(uint8_t addr)
     return is_uvc_device ? ESP_OK : ESP_ERR_NOT_FOUND;
 }
 
+#ifdef UVC_HOST_SUSPEND_RESUME_API_SUPPORTED
+
+/**
+ * @brief Handler for USB device suspend event
+ *
+ * Function pauses the stream and returns all frames
+ *
+ * @param[in] stream_hdl UVC handle obtained from uvc_host_stream_open()
+ * @return
+ *     - ESP_OK: Device was successfully suspended
+ *     - ESP_ERR_NOT_FOUND: Device was disconnected, while processing the client event
+ *     - ESP_ERR_INVALID_STATE: uvc driver not installed, or frames are not returned
+ *     - ESP_ERR_INVALID_ARG: Invalid argument
+ */
+static esp_err_t uvc_host_device_suspended(uvc_host_stream_hdl_t stream_hdl)
+{
+    UVC_CHECK(UVC_ATOMIC_LOAD(p_uvc_host_driver), ESP_ERR_INVALID_STATE);
+    UVC_CHECK(stream_hdl, ESP_ERR_INVALID_ARG);
+
+    esp_err_t ret = ESP_OK;
+    xSemaphoreTake(p_uvc_host_driver->open_close_mutex, portMAX_DELAY);
+
+    // Make sure that the device is in the devices list (that it is not already closed)
+    uvc_stream_t *uvc_stream;
+    bool device_found = false;
+    UVC_ENTER_CRITICAL();
+    SLIST_FOREACH(uvc_stream, &p_uvc_host_driver->uvc_stream_list, list_entry) {
+        if (uvc_stream == (uvc_stream_t *)stream_hdl) {
+            device_found = true;
+            break;
+        }
+    }
+    UVC_EXIT_CRITICAL();
+
+    // Device was not found in the uvc_stream_list; it was already closed,
+    // return not found error and don't deliver suspend event
+    if (!device_found) {
+        ret = ESP_ERR_NOT_FOUND;
+        goto exit;
+    }
+
+    if (UVC_ATOMIC_LOAD(uvc_stream->dynamic.streaming)) {
+        ESP_ERROR_CHECK(uvc_host_stream_pause(stream_hdl)); // This should never fail
+    }
+
+    if (!uvc_frame_are_all_returned(uvc_stream)) {
+        vTaskDelay(pdMS_TO_TICKS(70)); // Wait 70ms so the user can return all frames
+        if (!uvc_frame_are_all_returned(uvc_stream)) {
+            ESP_LOGW(TAG, "Not all frames are returned");
+            ret = ESP_ERR_INVALID_STATE;
+            goto exit;
+        }
+    }
+
+exit:
+    xSemaphoreGive(p_uvc_host_driver->open_close_mutex);
+    return ret;
+}
+
+#endif // UVC_HOST_SUSPEND_RESUME_API_SUPPORTED
+
 /**
  * @brief USB Host Client event callback
  *
@@ -169,6 +230,57 @@ static void usb_event_cb(const usb_host_client_event_msg_t *event_msg, void *arg
         }
         break;
     }
+#ifdef UVC_HOST_SUSPEND_RESUME_API_SUPPORTED
+    case USB_HOST_CLIENT_EVENT_DEV_SUSPENDED: {
+        ESP_LOGD(TAG, "Device suspended");
+        // Find UVC pseudo-devices associated with this USB device and deliver suspend event to the user
+        uvc_stream_t *uvc_stream;
+        uvc_stream_t *t_uvc_stream;
+
+        SLIST_FOREACH_SAFE(uvc_stream, &p_uvc_host_driver->uvc_stream_list, list_entry, t_uvc_stream) {
+            if (uvc_stream->constant.dev_hdl == event_msg->dev_suspend_resume.dev_hdl) {
+                // The suspended device was opened by this driver: suspend the device and inform user about this
+                esp_err_t ret = uvc_host_device_suspended((uvc_host_stream_hdl_t) uvc_stream);
+                // Make sure the device is connected, otherwise don't deliver suspend event
+                if (ret != ESP_ERR_NOT_FOUND) {
+
+                    // We will deliver the suspend event, if the uvc_host_device_suspended fails with other errors,
+                    // as the usb_host_lib has already suspended the root port anyway
+                    if (uvc_stream->constant.stream_cb) {
+                        const uvc_host_stream_event_data_t suspend_event = {
+                            .type = UVC_HOST_DEVICE_SUSPENDED,
+                            .device_suspended_resumed.stream_hdl = (uvc_host_stream_hdl_t) uvc_stream,
+                        };
+                        uvc_stream->constant.stream_cb(&suspend_event, uvc_stream->constant.cb_arg);
+                    }
+                }
+
+            }
+        }
+        break;
+    }
+    case USB_HOST_CLIENT_EVENT_DEV_RESUMED: {
+        ESP_LOGD(TAG, "Device resumed");
+        // Find UVC pseudo-devices associated with this USB device and deliver resume event to the user
+        uvc_stream_t *uvc_stream;
+        uvc_stream_t *t_uvc_stream;
+
+        SLIST_FOREACH_SAFE(uvc_stream, &p_uvc_host_driver->uvc_stream_list, list_entry, t_uvc_stream) {
+            if (uvc_stream->constant.dev_hdl == event_msg->dev_suspend_resume.dev_hdl) {
+                // The resumed device was opened by this driver: just inform user about this,
+                // streaming must be resumed (started) explicitly by the user
+                if (uvc_stream->constant.stream_cb) {
+                    const uvc_host_stream_event_data_t resume_event = {
+                        .type = UVC_HOST_DEVICE_RESUMED,
+                        .device_suspended_resumed.stream_hdl = (uvc_host_stream_hdl_t) uvc_stream,
+                    };
+                    uvc_stream->constant.stream_cb(&resume_event, uvc_stream->constant.cb_arg);
+                }
+            }
+        }
+        break;
+    }
+#endif // UVC_HOST_SUSPEND_RESUME_API_SUPPORTED
     default:
         assert(false);
         break;
