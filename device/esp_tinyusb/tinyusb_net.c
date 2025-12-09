@@ -176,6 +176,16 @@ uint16_t tud_network_xmit_cb(uint8_t *dst, void *ref, uint16_t arg)
     packet_t *packet = ref;
     uint16_t len = arg;
 
+    // Validate packet length doesn't exceed destination buffer size to prevent overflow
+    if (packet->len > len) {
+        ESP_LOGE(TAG, "Packet length (%d) exceeds buffer size (%d), truncating", packet->len, len);
+        memcpy(dst, packet->buffer, len);
+        if (s_net_obj.tx_buff_free_cb) {
+            s_net_obj.tx_buff_free_cb(packet->buff_free_arg, s_net_obj.ctx);
+        }
+        return len;
+    }
+
     memcpy(dst, packet->buffer, packet->len);
     if (s_net_obj.tx_buff_free_cb) {
         s_net_obj.tx_buff_free_cb(packet->buff_free_arg, s_net_obj.ctx);
