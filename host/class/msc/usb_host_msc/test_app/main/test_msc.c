@@ -160,7 +160,8 @@ static void write_read_file(const char *file_path)
     fclose(f);
 
     ESP_LOGI(TAG, "Reading file");
-    TEST_ASSERT(fopen(file_path, "r"));
+    f = fopen(file_path, "r");
+    TEST_ASSERT(f);
     fgets(line, sizeof(line), f);
     fclose(f);
     // strip newline
