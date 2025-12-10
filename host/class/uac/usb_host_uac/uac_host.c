@@ -81,7 +81,7 @@ static inline bool ptr_is_writable(const void *ptr)
 {
     if (esp_ptr_in_dram(ptr) || esp_ptr_in_diram_dram(ptr)
 #if CONFIG_SPIRAM
-            || esp_ptr_in_psram(ptr)
+            || esp_ptr_external_ram(ptr)
 #endif
        ) { // If the pointer is in DRAM or PSRAM, it is writable
         return true;
