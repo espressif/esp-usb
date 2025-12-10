@@ -602,7 +602,7 @@ TEST_CASE("test uac tx writing", "[uac_host][tx]")
         .channels = spk_alt_params.channels,
         .bit_resolution = spk_alt_params.bit_resolution,
         .sample_freq = spk_alt_params.sample_freq[0],
-        .flags = FLAG_STREAM_SUSPEND_AFTER_START,
+        .flags = FLAG_STREAM_PAUSE_AFTER_START,
     };
     TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_start(uac_device_handle, &stream_config));
 
@@ -669,7 +669,7 @@ TEST_CASE("test uac tx writing", "[uac_host][tx]")
     TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_get_volume(uac_device_handle, &actual_volume));
     volume = actual_volume;
     printf("Volume: %d \n", volume);
-    TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_resume(uac_device_handle));
+    TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_unpause(uac_device_handle));
     TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_write(uac_device_handle, (uint8_t *)tx_buffer, tx_size, 0));
 
     uint8_t test_counter = 0;
@@ -779,7 +779,7 @@ TEST_CASE("test uac tx rx loopback", "[uac_host][tx][rx]")
         .channels = mic_alt_params.channels,
         .bit_resolution = mic_alt_params.bit_resolution,
         .sample_freq = mic_alt_params.sample_freq[0],
-        .flags = FLAG_STREAM_SUSPEND_AFTER_START,
+        .flags = FLAG_STREAM_PAUSE_AFTER_START,
     };
 
     uint8_t actual_volume = 0;
@@ -831,8 +831,8 @@ TEST_CASE("test uac tx rx loopback", "[uac_host][tx][rx]")
     uint32_t test_counter = 0;
     event_queue_t evt_queue = {0};
     while (1) {
-        TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_resume(mic_device_handle));
-        TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_resume(spk_device_handle));
+        TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_unpause(mic_device_handle));
+        TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_unpause(spk_device_handle));
         while (1) {
             if (xQueueReceive(s_event_queue, &evt_queue, portMAX_DELAY)) {
                 TEST_ASSERT_EQUAL(UAC_DEVICE_EVENT, evt_queue.event_group);
@@ -885,8 +885,8 @@ restart_rx:
         if (++test_counter >= test_times) {
             goto exit_rx;
         }
-        TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_suspend(mic_device_handle));
-        TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_suspend(spk_device_handle));
+        TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_pause(mic_device_handle));
+        TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_pause(spk_device_handle));
         time_counter = 0;
         vTaskDelay(100);
     }
@@ -938,7 +938,7 @@ TEST_CASE("test uac tx rx loopback with disconnect", "[uac_host][tx][rx][hot-plu
         .channels = mic_alt_params.channels,
         .bit_resolution = mic_alt_params.bit_resolution,
         .sample_freq = mic_alt_params.sample_freq[0],
-        .flags = FLAG_STREAM_SUSPEND_AFTER_START,
+        .flags = FLAG_STREAM_PAUSE_AFTER_START,
     };
     TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_start(mic_device_handle, &stream_config));
     TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_set_mute(mic_device_handle, 0));
@@ -979,8 +979,8 @@ TEST_CASE("test uac tx rx loopback with disconnect", "[uac_host][tx][rx][hot-plu
     uint32_t test_counter = 0;
     event_queue_t evt_queue = {0};
     while (1) {
-        TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_resume(mic_device_handle));
-        TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_resume(spk_device_handle));
+        TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_unpause(mic_device_handle));
+        TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_unpause(spk_device_handle));
         while (1) {
             if (xQueueReceive(s_event_queue, &evt_queue, portMAX_DELAY)) {
                 TEST_ASSERT_EQUAL(UAC_DEVICE_EVENT, evt_queue.event_group);
@@ -1033,8 +1033,8 @@ restart_rx:
         if (++test_counter >= test_times) {
             goto exit_rx;
         }
-        TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_suspend(mic_device_handle));
-        TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_suspend(spk_device_handle));
+        TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_pause(mic_device_handle));
+        TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_pause(spk_device_handle));
         time_counter = 0;
         vTaskDelay(100);
     }
