@@ -9,3 +9,6 @@ CONFIG_USB_HOST_HW_BUFFER_BIAS_PERIODIC_OUT=y
 
 # Disable watchdogs, they'd get triggered during unity interactive menu
 # CONFIG_ESP_TASK_WDT_INIT is not set
+
+# For TaskNotifyTake/GiveIndexed
+CONFIG_FREERTOS_TASK_NOTIFICATION_ARRAY_ENTRIES=4

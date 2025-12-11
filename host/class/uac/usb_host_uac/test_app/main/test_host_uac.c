@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2024-2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2024-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -9,28 +9,22 @@
 #include <stdio.h>
 #include <inttypes.h>
 #include "esp_log.h"
-#include "esp_idf_version.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/event_groups.h"
 #include "freertos/queue.h"
 #include "freertos/semphr.h"
 #include "unity.h"
-#include "esp_private/usb_phy.h"
 #include "usb/usb_host.h"
 #include "usb/uac_host.h"
+#include "test_host_uac_common.h"
 
 const static char *TAG = "UAC_TEST";
 
 // ----------------------- Public -------------------------
-static EventGroupHandle_t s_evt_handle;
-static QueueHandle_t s_event_queue = NULL;
-static EventGroupHandle_t s_evt_handle = NULL;
-
-#define BIT0_USB_HOST_DRIVER_REMOVED      (0x01 << 0)
 
 // Known microphone device parameters
-#define UAC_DEV_PID 0x3307
-#define UAC_DEV_VID 0x349C
+#define UAC_DEV_PID 0x25
+#define UAC_DEV_VID 0x1395
 
 #define UAC_DEV_MIC_IFACE_NUM 3
 #define UAC_DEV_MIC_IFACE_ALT_NUM 1
@@ -60,272 +54,6 @@ static const uint8_t UAC_DEV_SPK_IFACE_BIT_RESOLUTION_ALT[UAC_DEV_SPK_IFACE_ALT_
 static const uint8_t UAC_DEV_SPK_IFACE_SAMPLE_FREQ_TPYE_ALT[UAC_DEV_SPK_IFACE_ALT_NUM] = {UAC_DEV_SPK_IFACE_ALT_1_SAMPLE_FREQ_TYPE};
 static const uint32_t UAC_DEV_SPK_IFACE_SAMPLE_FREQ_ALT[UAC_DEV_SPK_IFACE_ALT_NUM][UAC_DEV_SPK_IFACE_ALT_1_SAMPLE_FREQ_TYPE] = {{UAC_DEV_SPK_IFACE_ALT_1_SAMPLE_FREQ_1}};
 
-
-typedef enum {
-    APP_EVENT = 0,
-    UAC_DRIVER_EVENT,
-    UAC_DEVICE_EVENT,
-} event_group_t;
-
-typedef enum {
-    DRIVER_REMOVE = 1,
-} user_event_t;
-
-typedef struct {
-    event_group_t event_group;
-    union {
-        struct {
-            uac_host_driver_event_t event;
-            uint8_t addr;
-            uint8_t iface_num;
-            void *arg;
-        } driver_evt;
-        struct {
-            uac_host_driver_event_t event;
-            uac_host_device_handle_t handle;
-            void *arg;
-        } device_evt;
-    };
-} event_queue_t;
-
-// usb_host_lib_set_root_port_power is used to force toggle connection, primary developed for esp32p4
-// esp32p4 is supported from IDF 5.3
-#if ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(5, 3, 0)
-static usb_phy_handle_t phy_hdl = NULL;
-
-// Force connection/disconnection using PHY
-static void force_conn_state(bool connected, TickType_t delay_ticks)
-{
-    TEST_ASSERT_NOT_EQUAL(NULL, phy_hdl);
-    if (delay_ticks > 0) {
-        // Delay of 0 ticks causes a yield. So skip if delay_ticks is 0.
-        vTaskDelay(delay_ticks);
-    }
-    ESP_ERROR_CHECK(usb_phy_action(phy_hdl, (connected) ? USB_PHY_ACTION_HOST_ALLOW_CONN : USB_PHY_ACTION_HOST_FORCE_DISCONN));
-}
-
-// Initialize the internal USB PHY to connect to the USB OTG peripheral. We manually install the USB PHY for testing
-static bool install_phy(void)
-{
-    usb_phy_config_t phy_config = {
-        .controller = USB_PHY_CTRL_OTG,
-        .target = USB_PHY_TARGET_INT,
-        .otg_mode = USB_OTG_MODE_HOST,
-        .otg_speed = USB_PHY_SPEED_UNDEFINED,   // In Host mode, the speed is determined by the connected device
-    };
-    TEST_ASSERT_EQUAL(ESP_OK, usb_new_phy(&phy_config, &phy_hdl));
-    // Return true, to skip_phy_setup during the usb_host_install()
-    return true;
-}
-
-static void delete_phy(void)
-{
-    TEST_ASSERT_EQUAL(ESP_OK, usb_del_phy(phy_hdl)); // Tear down USB PHY
-    phy_hdl = NULL;
-}
-#else // ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(5, 3, 0)
-
-// Force connection/disconnection using root port power
-static void force_conn_state(bool connected, TickType_t delay_ticks)
-{
-    if (delay_ticks > 0) {
-        // Delay of 0 ticks causes a yield. So skip if delay_ticks is 0.
-        vTaskDelay(delay_ticks);
-    }
-    ESP_ERROR_CHECK(usb_host_lib_set_root_port_power(connected));
-}
-
-static bool install_phy(void)
-{
-    // Return false, NOT to skip_phy_setup during the usb_host_install()
-    return false;
-}
-
-static void delete_phy(void) {}
-#endif // ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(5, 3, 0)
-
-
-static void uac_device_callback(uac_host_device_handle_t uac_device_handle, const uac_host_device_event_t event, void *arg)
-{
-    if (event == UAC_HOST_DRIVER_EVENT_DISCONNECTED) {
-        ESP_LOGI(TAG, "UAC Device disconnected");
-        TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_close(uac_device_handle));
-        return;
-    }
-    // Send uac device event to the event queue
-    event_queue_t evt_queue = {
-        .event_group = UAC_DEVICE_EVENT,
-        .device_evt.handle = uac_device_handle,
-        .device_evt.event = event,
-        .device_evt.arg = arg
-    };
-    // should not block here
-    xQueueSend(s_event_queue, &evt_queue, 0);
-}
-
-static void uac_host_lib_callback(uint8_t addr, uint8_t iface_num, const uac_host_driver_event_t event, void *arg)
-{
-    // Send uac driver event to the event queue
-    event_queue_t evt_queue = {
-        .event_group = UAC_DRIVER_EVENT,
-        .driver_evt.addr = addr,
-        .driver_evt.iface_num = iface_num,
-        .driver_evt.event = event,
-        .driver_evt.arg = arg
-    };
-    xQueueSend(s_event_queue, &evt_queue, 0);
-}
-
-/**
- * @brief Start USB Host install and handle common USB host library events while app pin not low
- *
- * @param[in] arg  Not used
- */
-static void usb_lib_task(void *arg)
-{
-    const bool skip_phy_setup = install_phy();
-    const usb_host_config_t host_config = {
-        .skip_phy_setup = skip_phy_setup,
-        .intr_flags = ESP_INTR_FLAG_LOWMED,
-    };
-
-    TEST_ASSERT_EQUAL(ESP_OK, usb_host_install(&host_config));
-    ESP_LOGI(TAG, "USB Host installed");
-    xTaskNotifyGive(arg);
-
-    bool all_clients_gone = false;
-    bool all_dev_free = false;
-    while (!all_clients_gone || !all_dev_free) {
-        // Start handling system events
-        uint32_t event_flags;
-        usb_host_lib_handle_events(portMAX_DELAY, &event_flags);
-        if (event_flags & USB_HOST_LIB_EVENT_FLAGS_NO_CLIENTS) {
-            printf("No more clients\n");
-            usb_host_device_free_all();
-            all_clients_gone = true;
-        }
-        if (event_flags & USB_HOST_LIB_EVENT_FLAGS_ALL_FREE) {
-            printf("All devices freed\n");
-            all_dev_free = true;
-        }
-    }
-
-    ESP_LOGI(TAG, "USB Host shutdown");
-    // Clean up USB Host
-    vTaskDelay(10); // Short delay to allow clients clean-up
-    TEST_ASSERT_EQUAL(ESP_OK, usb_host_uninstall());
-    delete_phy(); //Tear down USB PHY
-    // set bit BIT0_USB_HOST_DRIVER_REMOVED to notify driver removed
-    xEventGroupSetBits(s_evt_handle, BIT0_USB_HOST_DRIVER_REMOVED);
-    vTaskDelete(NULL);
-}
-
-/**
- * @brief Setups UAC testing
- *
- * - Create USB lib task
- * - Install UAC Host driver
- */
-void test_uac_setup(void)
-{
-    // create a queue to handle events
-    s_event_queue = xQueueCreate(16, sizeof(event_queue_t));
-    TEST_ASSERT_NOT_NULL(s_event_queue);
-    s_evt_handle = xEventGroupCreate();
-    TEST_ASSERT_NOT_NULL(s_evt_handle);
-    static TaskHandle_t uac_task_handle = NULL;
-    // create USB lib task, pass the current task handle to notify when the task is created
-    TEST_ASSERT_EQUAL(pdTRUE, xTaskCreatePinnedToCore(usb_lib_task,
-                                                      "usb_events",
-                                                      4096,
-                                                      xTaskGetCurrentTaskHandle(),
-                                                      5, &uac_task_handle, 0));
-
-    // install uac host driver
-    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
-    uac_host_driver_config_t uac_config = {
-        .create_background_task = true,
-        .task_priority = 5,
-        .stack_size = 4096,
-        .core_id = 0,
-        .callback = uac_host_lib_callback,
-        .callback_arg = NULL
-    };
-
-    TEST_ASSERT_EQUAL(ESP_OK, uac_host_install(&uac_config));
-    ESP_LOGI(TAG, "UAC Class Driver installed");
-}
-
-void test_uac_queue_reset(void)
-{
-    xQueueReset(s_event_queue);
-}
-
-void test_uac_teardown(bool force)
-{
-    if (force) {
-        force_conn_state(false, pdMS_TO_TICKS(1000));
-    }
-    vTaskDelay(500);
-    // uninstall uac host driver
-    ESP_LOGI(TAG, "UAC Driver uninstall");
-    TEST_ASSERT_EQUAL(ESP_OK, uac_host_uninstall());
-    // Wait for USB lib task to finish
-    xEventGroupWaitBits(s_evt_handle, BIT0_USB_HOST_DRIVER_REMOVED, pdTRUE, pdTRUE, portMAX_DELAY);
-    // delete event queue and event group
-    vQueueDelete(s_event_queue);
-    vEventGroupDelete(s_evt_handle);
-    // delay to allow task to delete
-    vTaskDelay(100);
-}
-
-void test_open_mic_device(uint8_t iface_num, uint32_t buffer_size, uint32_t buffer_threshold, uac_host_device_handle_t *uac_device_handle)
-{
-    // check if device params as expected
-    const uac_host_device_config_t dev_config = {
-        .addr = 1,
-        .iface_num = iface_num,
-        .buffer_size = buffer_size,
-        .buffer_threshold = buffer_threshold,
-        .callback = uac_device_callback,
-        .callback_arg = NULL,
-    };
-    TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_open(&dev_config, uac_device_handle));
-}
-
-void test_open_spk_device(uint8_t iface_num, uint32_t buffer_size, uint32_t buffer_threshold, uac_host_device_handle_t *uac_device_handle)
-{
-    // check if device params as expected
-    const uac_host_device_config_t dev_config = {
-        .addr = 1,
-        .iface_num = iface_num,
-        .buffer_size = buffer_size,
-        .buffer_threshold = buffer_threshold,
-        .callback = uac_device_callback,
-        .callback_arg = NULL,
-    };
-    TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_open(&dev_config, uac_device_handle));
-}
-
-void test_close_device(uac_host_device_handle_t uac_device_handle)
-{
-    TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_close(uac_device_handle));
-}
-
-void test_handle_dev_connection(uint8_t *iface_num, uint8_t *if_rx)
-{
-    event_queue_t evt_queue = {0};
-    // ignore the first connected event
-    TEST_ASSERT_EQUAL(pdTRUE, xQueueReceive(s_event_queue, &evt_queue, portMAX_DELAY));
-    TEST_ASSERT_EQUAL(UAC_DRIVER_EVENT, evt_queue.event_group);
-    TEST_ASSERT_EQUAL(1, evt_queue.driver_evt.addr);
-    if (iface_num) {
-        *iface_num = evt_queue.driver_evt.iface_num;
-    }
-    if (if_rx) {
-        *if_rx = evt_queue.driver_evt.event == UAC_HOST_DRIVER_EVENT_RX_CONNECTED ? 1 : 0;
-    }
-}
 
 /**
  * @brief Test with known UAC device, check if the device's parameters are parsed correctly
@@ -538,7 +266,7 @@ TEST_CASE("test uac rx reading", "[uac_host][rx]")
     event_queue_t evt_queue = {0};
     ESP_LOGI(TAG, "Start reading data from MIC");
     while (1) {
-        if (xQueueReceive(s_event_queue, &evt_queue, portMAX_DELAY)) {
+        if (xQueueReceive(client_event_queue, &evt_queue, portMAX_DELAY)) {
             TEST_ASSERT_EQUAL(UAC_DEVICE_EVENT, evt_queue.event_group);
             uac_host_device_handle_t uac_device_handle = evt_queue.device_evt.handle;
             uac_host_device_event_t event = evt_queue.device_evt.event;
@@ -676,7 +404,7 @@ TEST_CASE("test uac tx writing", "[uac_host][tx]")
     const uint8_t test_counter_max = 15;
     event_queue_t evt_queue = {0};
     while (1) {
-        if (xQueueReceive(s_event_queue, &evt_queue, portMAX_DELAY)) {
+        if (xQueueReceive(client_event_queue, &evt_queue, portMAX_DELAY)) {
             TEST_ASSERT_EQUAL(UAC_DEVICE_EVENT, evt_queue.event_group);
             uac_host_device_handle_t uac_device_handle = evt_queue.device_evt.handle;
             uac_host_device_event_t event = evt_queue.device_evt.event;
@@ -834,7 +562,7 @@ TEST_CASE("test uac tx rx loopback", "[uac_host][tx][rx]")
         TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_unpause(mic_device_handle));
         TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_unpause(spk_device_handle));
         while (1) {
-            if (xQueueReceive(s_event_queue, &evt_queue, portMAX_DELAY)) {
+            if (xQueueReceive(client_event_queue, &evt_queue, portMAX_DELAY)) {
                 TEST_ASSERT_EQUAL(UAC_DEVICE_EVENT, evt_queue.event_group);
                 uac_host_device_event_t event = evt_queue.device_evt.event;
                 esp_err_t ret = ESP_FAIL;
@@ -982,7 +710,7 @@ TEST_CASE("test uac tx rx loopback with disconnect", "[uac_host][tx][rx][hot-plu
         TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_unpause(mic_device_handle));
         TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_unpause(spk_device_handle));
         while (1) {
-            if (xQueueReceive(s_event_queue, &evt_queue, portMAX_DELAY)) {
+            if (xQueueReceive(client_event_queue, &evt_queue, portMAX_DELAY)) {
                 TEST_ASSERT_EQUAL(UAC_DEVICE_EVENT, evt_queue.event_group);
                 uac_host_device_event_t event = evt_queue.device_evt.event;
                 esp_err_t ret = ESP_FAIL;
