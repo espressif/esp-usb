@@ -146,6 +146,7 @@ jobs:
           idf-build-apps build --config-file ${CONFIG_PATH} --manifest-file ${MANIFEST_PATH}
 
       - uses: actions/upload-artifact@v4
+        # Upload build files, pytest files and sdkconfig files
         with:
           name: usb_examples_bin_${{ matrix.idf_ver }}
           path: |
@@ -155,6 +156,8 @@ jobs:
             ${{ env.EXAMPLES_PATH }}/**/build_esp*/*.elf
             ${{ env.EXAMPLES_PATH }}/**/build_esp*/flasher_args.json
             ${{ env.EXAMPLES_PATH }}/**/build_esp*/config/sdkconfig.json
+            ${{ env.EXAMPLES_PATH }}/**/pytest_*.py
+            ${{ env.EXAMPLES_PATH }}/**/sdkconfig.*
           if-no-files-found: error
 
   run-target:
@@ -166,10 +169,10 @@ jobs:
       matrix:
         idf_ver:
           [
-            "release-v5.1",
-            "release-v5.2",
-            "release-v5.3",
-            "release-v5.4",
+            #"release-v5.1",
+            #"release-v5.2",
+            #"release-v5.3",
+            #"release-v5.4",
             "release-v5.5",
             "release-v6.0",
             "latest",
@@ -177,31 +180,36 @@ jobs:
         idf_target: ["esp32s2", "esp32p4"]
         runner_tag: ["usb_host_flash_disk", "usb_device"]
         include:
+          # Assign a folder structure to a target runner
           - runner_tag: usb_host_flash_disk
             example: host
           - runner_tag: usb_device
             example: device
         exclude:
-          # Exclude esp32p4 for releases before IDF 5.3 for all runner tags (esp32p4 support starts in IDF 5.3)
-          - idf_ver: "release-v5.1"
-            idf_target: "esp32p4"
-          - idf_ver: "release-v5.2"
-            idf_target: "esp32p4"
-          # Exclude usb host examples run for IDF 5.1 - No pytest for host examples yet used
-          - idf_ver: "release-v5.1"
-            runner_tag: usb_host_flash_disk
+#          # Exclude esp32p4 for releases before IDF 5.3 for all runner tags (esp32p4 support starts in IDF 5.3)
+#          - idf_ver: "release-v5.1"
+#            idf_target: "esp32p4"
+#          - idf_ver: "release-v5.2"
+#            idf_target: "esp32p4"
+#          # Exclude usb host examples run for IDF 5.1 - No pytest for host examples yet used
+#          - idf_ver: "release-v5.1"
+#            runner_tag: usb_host_flash_disk
           # Temp exclude esp32p4 usb_host_flash_disk run for IDF Latest and 6.0 (ECO4-ECO5 build-runner mismatch)
           - runner_tag: usb_host_flash_disk
             idf_ver: "latest"
+            idf_target: "esp32p4"
           - runner_tag: usb_host_flash_disk
             idf_ver: "release-v6.0"
+            idf_target: "esp32p4"
           - runner_tag: usb_device
             idf_ver: "latest"
+            idf_target: "esp32p4"
           - runner_tag: usb_device
             idf_ver: "release-v6.0"
+            idf_target: "esp32p4"
     runs-on: [self-hosted, linux, docker, "${{ matrix.idf_target }}", "${{ matrix.runner_tag }}"]
     container:
-      image: espressif/idf:${{ matrix.idf_ver }}
+      image: python:3.11-bookworm
       options: --privileged --device-cgroup-rule="c 188:* rmw" --device-cgroup-rule="c 166:* rmw"
     env:
           EXAMPLES_PATH: ${{ github.workspace }}
@@ -211,20 +219,16 @@ jobs:
           apt update
           apt install net-tools
       - name: Setup IDF Examples path
-        run: echo "EXAMPLES_PATH=${IDF_PATH}/examples/peripherals/usb" >> $GITHUB_ENV
+        run: |
+          mkdir idf_examples && cd idf_examples && pwd
+          echo "EXAMPLES_PATH=$(pwd)" >> $GITHUB_ENV
       - name: ⚙️ Install Python packages
         env:
           PIP_EXTRA_INDEX_URL: "https://dl.espressif.com/pypi/"
-        run: |
-          cd ${IDF_PATH}
-          . ./export.sh
-          pip install --no-cache-dir --only-binary cryptography pytest-embedded pytest-embedded-serial-esp pytest-embedded-idf pyserial pyusb netifaces idf-ci pytest_ignore_test_results
+        run: pip install --only-binary cryptography pytest-embedded pytest-embedded-serial-esp pytest-embedded-idf pyserial pyusb netifaces pytest-ignore-test-results idf-ci
       - uses: actions/download-artifact@v4
         with:
           name: usb_examples_bin_${{ matrix.idf_ver }}
           path: ${{ env.EXAMPLES_PATH }}
       - name: Run USB Test App on target
-        run: |
-          cd ${IDF_PATH}
-          . ./export.sh
-          pytest ${{ env.EXAMPLES_PATH }}/${{ matrix.example }} --target ${{ matrix.idf_target }} -m ${{ matrix.runner_tag }} --ignore-result-cases=*ncm_example
+        run: pytest ${{ env.EXAMPLES_PATH }}/${{ matrix.example }} --target ${{ matrix.idf_target }} -m ${{ matrix.runner_tag }} --ignore-result-cases=*ncm_example
