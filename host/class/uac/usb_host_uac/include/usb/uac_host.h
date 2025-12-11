@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2024-2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2024-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -10,6 +10,7 @@
 #include <stdint.h>
 #include "freertos/FreeRTOS.h"
 #include "esp_err.h"
+#include "usb/usb_host.h"
 #include "uac.h"
 
 #ifdef __cplusplus
@@ -36,6 +37,11 @@ extern "C" {
 */
 #define FLAG_STREAM_PAUSE_AFTER_START      (1 << 0)
 
+// For backward compatibility with older idf versions without suspend/resume API
+#ifdef USB_HOST_LIB_EVENT_FLAGS_AUTO_SUSPEND
+#define UAC_HOST_SUSPEND_RESUME_API_SUPPORTED
+#endif
+
 typedef struct uac_interface *uac_host_device_handle_t;    /*!< Logic Device Handle. Handle to a particular UAC interface */
 
 // ------------------------ USB UAC Host events --------------------------------
@@ -55,6 +61,10 @@ typedef enum {
     UAC_HOST_DEVICE_EVENT_TX_DONE,                       /*!< TX Done: the transmit buffer data size falls below the threshold */
     UAC_HOST_DEVICE_EVENT_TRANSFER_ERROR,                /*!< UAC Device transfer error */
     UAC_HOST_DRIVER_EVENT_DISCONNECTED,                  /*!< UAC Device has been disconnected */
+#ifdef UAC_HOST_SUSPEND_RESUME_API_SUPPORTED
+    UAC_HOST_DEVICE_EVENT_SUSPENDED,                     /*!< UAC Device has been suspended */
+    UAC_HOST_DEVICE_EVENT_RESUMED,                       /*!< UAC Device has been resumed */
+#endif // UAC_HOST_SUSPEND_RESUME_API_SUPPORTED
 } uac_host_device_event_t;
 
 // ------------------------ USB UAC Host events callbacks -----------------------------
@@ -389,6 +399,8 @@ esp_err_t uac_host_device_write(uac_host_device_handle_t uac_dev_handle, uint8_t
  * @brief Mute or un-mute the UAC device
  * @param[in] uac_dev_handle  UAC device handle
  * @param[in] mute        True to mute, false to unmute
+ * @note The function can block
+ * @note The function sends a control transfer to the device
  * @return esp_err_t
  * - ESP_OK on success
  * - ESP_ERR_INVALID_STATE if the device is not ready or active
@@ -402,6 +414,8 @@ esp_err_t uac_host_device_set_mute(uac_host_device_handle_t uac_dev_handle, bool
  * @brief Get the mute status of the UAC device
  * @param[in] uac_dev_handle  UAC device handle
  * @param[out] mute       Pointer to store the mute status
+ * @note The function can block
+ * @note The function sends a control transfer to the device
  * @return esp_err_t
  * - ESP_OK on success
  * - ESP_ERR_INVALID_STATE if the device is not ready or active
@@ -415,6 +429,8 @@ esp_err_t uac_host_device_get_mute(uac_host_device_handle_t uac_dev_handle, bool
  * @brief Set the volume of the UAC device
  * @param[in] uac_dev_handle  UAC device handle
  * @param[in] volume      Volume to set, 0-100
+ * @note The function can block
+ * @note The function sends a control transfer to the device
  * @return esp_err_t
  * - ESP_OK on success
  * - ESP_ERR_INVALID_STATE if the device is not ready or active
@@ -428,6 +444,8 @@ esp_err_t uac_host_device_set_volume(uac_host_device_handle_t uac_dev_handle, ui
  * @brief Get the volume of the UAC device
  * @param[in] uac_dev_handle  UAC device handle
  * @param[out] volume     Pointer to store the volume, 0-100
+ * @note The function can block
+ * @note The function sends a control transfer to the device
  * @return esp_err_t
  * - ESP_OK on success
  * - ESP_ERR_INVALID_STATE if the device is not ready or active
@@ -442,6 +460,8 @@ esp_err_t uac_host_device_get_volume(uac_host_device_handle_t uac_dev_handle, ui
  * @param[in] uac_dev_handle  UAC device handle
  * @param[in] volume_db   Volume to set, with resolution of 1/256 dB,
  * eg.  256 (0x0100) is 1 dB. 32767 (0x7FFF) is 127.996 dB. -32767 (0x8001) is -127.996 dB.
+ * @note The function can block
+ * @note The function sends a control transfer to the device
  * @return esp_err_t
  * - ESP_OK on success
  * - ESP_ERR_INVALID_STATE if the device is not ready or active
@@ -456,6 +476,8 @@ esp_err_t uac_host_device_set_volume_db(uac_host_device_handle_t uac_dev_handle,
  * @param[in] uac_dev_handle  UAC device handle
  * @param[out] volume_db  Pointer to store the volume, with resolution of 1/256 dB,
  * eg.  256 (0x0100) is 1 dB. 32767 (0x7FFF) is 127.996 dB. -32767 (0x8001) is -127.996 dB.
+ * @note The function can block
+ * @note The function sends a control transfer to the device
  * @return esp_err_t
  * - ESP_OK on success
  * - ESP_ERR_INVALID_STATE if the device is not ready or active

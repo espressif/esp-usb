@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2024-2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2024-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -23,14 +23,15 @@ const static char *TAG = "UAC_TEST";
 
 // ----------------------- Public -------------------------
 static EventGroupHandle_t s_evt_handle;
-static QueueHandle_t s_event_queue = NULL;
+static QueueHandle_t s_transfer_event_queue = NULL;
+static QueueHandle_t s_client_event_queue = NULL;
 static EventGroupHandle_t s_evt_handle = NULL;
 
 #define BIT0_USB_HOST_DRIVER_REMOVED      (0x01 << 0)
 
 // Known microphone device parameters
-#define UAC_DEV_PID 0x3307
-#define UAC_DEV_VID 0x349C
+#define UAC_DEV_PID 0x25
+#define UAC_DEV_VID 0x1395
 
 #define UAC_DEV_MIC_IFACE_NUM 3
 #define UAC_DEV_MIC_IFACE_ALT_NUM 1
@@ -81,7 +82,7 @@ typedef struct {
             void *arg;
         } driver_evt;
         struct {
-            uac_host_driver_event_t event;
+            uac_host_device_event_t event;
             uac_host_device_handle_t handle;
             void *arg;
         } device_evt;
@@ -147,11 +148,6 @@ static void delete_phy(void) {}
 
 static void uac_device_callback(uac_host_device_handle_t uac_device_handle, const uac_host_device_event_t event, void *arg)
 {
-    if (event == UAC_HOST_DRIVER_EVENT_DISCONNECTED) {
-        ESP_LOGI(TAG, "UAC Device disconnected");
-        TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_close(uac_device_handle));
-        return;
-    }
     // Send uac device event to the event queue
     event_queue_t evt_queue = {
         .event_group = UAC_DEVICE_EVENT,
@@ -159,8 +155,44 @@ static void uac_device_callback(uac_host_device_handle_t uac_device_handle, cons
         .device_evt.event = event,
         .device_evt.arg = arg
     };
-    // should not block here
-    xQueueSend(s_event_queue, &evt_queue, 0);
+
+    bool transfer_evt_queue = false;
+    bool client_evt_queue = false;
+
+    switch (event) {
+    case UAC_HOST_DRIVER_EVENT_DISCONNECTED:
+        ESP_LOGI(TAG, "UAC Device disconnected");
+        TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_close(uac_device_handle));
+        client_evt_queue = true;
+        break;
+#ifdef UAC_HOST_SUSPEND_RESUME_API_SUPPORTED
+    case UAC_HOST_DEVICE_EVENT_SUSPENDED:
+        ESP_LOGI(TAG, "Device suspended");
+        client_evt_queue = true;
+        break;
+    case UAC_HOST_DEVICE_EVENT_RESUMED:
+        ESP_LOGI(TAG, "Device resumed");
+        client_evt_queue = true;
+        break;
+#endif // UAC_HOST_SUSPEND_RESUME_API_SUPPORTED
+    case UAC_HOST_DEVICE_EVENT_TRANSFER_ERROR:
+    case UAC_HOST_DEVICE_EVENT_RX_DONE:
+    case UAC_HOST_DEVICE_EVENT_TX_DONE:
+        transfer_evt_queue = true;
+        break;
+    default:
+        TEST_FAIL_MESSAGE("Unrecognized device event");
+        break;
+    }
+
+    // Sanity check, logical XOR
+    assert(transfer_evt_queue != client_evt_queue);
+
+    if (transfer_evt_queue) {
+        xQueueSend(s_transfer_event_queue, &evt_queue, 0);
+    } else {
+        xQueueSend(s_client_event_queue, &evt_queue, 0);
+    }
 }
 
 static void uac_host_lib_callback(uint8_t addr, uint8_t iface_num, const uac_host_driver_event_t event, void *arg)
@@ -173,8 +205,102 @@ static void uac_host_lib_callback(uint8_t addr, uint8_t iface_num, const uac_hos
         .driver_evt.event = event,
         .driver_evt.arg = arg
     };
-    xQueueSend(s_event_queue, &evt_queue, 0);
+
+    switch (event) {
+    case UAC_HOST_DRIVER_EVENT_RX_CONNECTED:
+        ESP_LOGI(TAG, "RX Device connected");
+        break;
+    case UAC_HOST_DRIVER_EVENT_TX_CONNECTED:
+        ESP_LOGI(TAG, "TX Device connected");
+        break;
+    default:
+        TEST_FAIL_MESSAGE("Unrecognized driver event");
+    }
+
+    xQueueSend(s_client_event_queue, &evt_queue, 0);
 }
+
+#ifdef UAC_HOST_SUSPEND_RESUME_API_SUPPORTED
+/**
+ * @brief Expect USB Host client event
+ *
+ * @param[in] expected_client_event  Expected client event (NULL to not expect any event)
+ * @param[in] ticks  Ticks to wait
+ */
+static void expect_client_event(const event_queue_t *expected_client_event, TickType_t ticks)
+{
+    event_queue_t client_event;
+
+    // Check, that no event is delivered
+    if (expected_client_event == NULL) {
+        if (pdFALSE == xQueueReceive(s_client_event_queue, &client_event, ticks)) {
+            return;
+        } else {
+            TEST_FAIL_MESSAGE("Expecting NO client event, but an event delivered");
+        }
+    }
+
+    // Check that an event is delivered
+    if (pdTRUE == xQueueReceive(s_client_event_queue, &client_event, ticks)) {
+
+        // Check event group
+        TEST_ASSERT_EQUAL_MESSAGE(expected_client_event->event_group, client_event.event_group, "Unexpected event group");
+
+        // Check event type according to event group
+        if (expected_client_event->event_group == UAC_DRIVER_EVENT) {
+            TEST_ASSERT_EQUAL_MESSAGE(expected_client_event->driver_evt.event, client_event.driver_evt.event, "Unexpected driver event");
+        } else if (expected_client_event->event_group == UAC_DEVICE_EVENT) {
+            TEST_ASSERT_EQUAL_MESSAGE(expected_client_event->device_evt.event, client_event.device_evt.event, "Unexpected device event");
+        } else {
+            // Event group not set, fail the test
+            TEST_FAIL_MESSAGE("Client event group not set");
+        }
+    } else {
+        TEST_FAIL_MESSAGE("Client event not generated on time");
+    }
+}
+
+/**
+ * @brief Expect USB Host transfer event
+ *
+ * @param[in] expected_transfer_event  Expected transfer event (data RX/TX) (NULL to not expect any event)
+ * @param[in] ticks  Ticks to wait
+ * @return Count of delivered events
+ */
+static size_t expect_transfer_event(const event_queue_t *expected_transfer_event, TickType_t ticks)
+{
+    event_queue_t transfer_event;
+    size_t events_delivered = 0;
+
+    // Check, that no event is delivered
+    if (expected_transfer_event == NULL) {
+        if (pdFALSE == xQueueReceive(s_transfer_event_queue, &transfer_event, ticks)) {
+            return 0;
+        } else {
+            TEST_FAIL_MESSAGE("Expecting NO transfer event, but an event delivered");
+        }
+    }
+
+    TEST_ASSERT_EQUAL_MESSAGE(expected_transfer_event->event_group, UAC_DEVICE_EVENT, "Only device events are allowed");
+    TimeOut_t queue_timeout;
+    TickType_t remaining_ticks = ticks;
+    vTaskSetTimeOutState(&queue_timeout);
+
+    do {
+        // Check that an event is delivered
+        if (pdTRUE == xQueueReceive(s_transfer_event_queue, &transfer_event, remaining_ticks)) {
+            TEST_ASSERT_EQUAL_MESSAGE(expected_transfer_event->device_evt.event, transfer_event.device_evt.event, "Unexpected transfer event");
+            events_delivered++;
+        } else {
+            // Only fail if no event was delivered
+            TEST_ASSERT_MESSAGE(events_delivered, "Transfer event not generated on time");
+        }
+
+    } while (xTaskCheckForTimeOut(&queue_timeout, &remaining_ticks) == pdFALSE);
+
+    return events_delivered;
+}
+#endif // UAC_HOST_SUSPEND_RESUME_API_SUPPORTED
 
 /**
  * @brief Start USB Host install and handle common USB host library events while app pin not low
@@ -229,8 +355,10 @@ static void usb_lib_task(void *arg)
 void test_uac_setup(void)
 {
     // create a queue to handle events
-    s_event_queue = xQueueCreate(16, sizeof(event_queue_t));
-    TEST_ASSERT_NOT_NULL(s_event_queue);
+    s_client_event_queue = xQueueCreate(8, sizeof(event_queue_t));
+    TEST_ASSERT_NOT_NULL(s_client_event_queue);
+    s_transfer_event_queue = xQueueCreate(16, sizeof(event_queue_t));
+    TEST_ASSERT_NOT_NULL(s_transfer_event_queue);
     s_evt_handle = xEventGroupCreate();
     TEST_ASSERT_NOT_NULL(s_evt_handle);
     static TaskHandle_t uac_task_handle = NULL;
@@ -258,7 +386,8 @@ void test_uac_setup(void)
 
 void test_uac_queue_reset(void)
 {
-    xQueueReset(s_event_queue);
+    xQueueReset(s_client_event_queue);
+    xQueueReset(s_transfer_event_queue);
 }
 
 void test_uac_teardown(bool force)
@@ -273,7 +402,8 @@ void test_uac_teardown(bool force)
     // Wait for USB lib task to finish
     xEventGroupWaitBits(s_evt_handle, BIT0_USB_HOST_DRIVER_REMOVED, pdTRUE, pdTRUE, portMAX_DELAY);
     // delete event queue and event group
-    vQueueDelete(s_event_queue);
+    vQueueDelete(s_client_event_queue);
+    vQueueDelete(s_transfer_event_queue);
     vEventGroupDelete(s_evt_handle);
     // delay to allow task to delete
     vTaskDelay(100);
@@ -316,7 +446,7 @@ void test_handle_dev_connection(uint8_t *iface_num, uint8_t *if_rx)
 {
     event_queue_t evt_queue = {0};
     // ignore the first connected event
-    TEST_ASSERT_EQUAL(pdTRUE, xQueueReceive(s_event_queue, &evt_queue, portMAX_DELAY));
+    TEST_ASSERT_EQUAL(pdTRUE, xQueueReceive(s_client_event_queue, &evt_queue, portMAX_DELAY));
     TEST_ASSERT_EQUAL(UAC_DRIVER_EVENT, evt_queue.event_group);
     TEST_ASSERT_EQUAL(1, evt_queue.driver_evt.addr);
     if (iface_num) {
@@ -538,7 +668,7 @@ TEST_CASE("test uac rx reading", "[uac_host][rx]")
     event_queue_t evt_queue = {0};
     ESP_LOGI(TAG, "Start reading data from MIC");
     while (1) {
-        if (xQueueReceive(s_event_queue, &evt_queue, portMAX_DELAY)) {
+        if (xQueueReceive(s_client_event_queue, &evt_queue, portMAX_DELAY)) {
             TEST_ASSERT_EQUAL(UAC_DEVICE_EVENT, evt_queue.event_group);
             uac_host_device_handle_t uac_device_handle = evt_queue.device_evt.handle;
             uac_host_device_event_t event = evt_queue.device_evt.event;
@@ -676,7 +806,7 @@ TEST_CASE("test uac tx writing", "[uac_host][tx]")
     const uint8_t test_counter_max = 15;
     event_queue_t evt_queue = {0};
     while (1) {
-        if (xQueueReceive(s_event_queue, &evt_queue, portMAX_DELAY)) {
+        if (xQueueReceive(s_client_event_queue, &evt_queue, portMAX_DELAY)) {
             TEST_ASSERT_EQUAL(UAC_DEVICE_EVENT, evt_queue.event_group);
             uac_host_device_handle_t uac_device_handle = evt_queue.device_evt.handle;
             uac_host_device_event_t event = evt_queue.device_evt.event;
@@ -834,7 +964,7 @@ TEST_CASE("test uac tx rx loopback", "[uac_host][tx][rx]")
         TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_unpause(mic_device_handle));
         TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_unpause(spk_device_handle));
         while (1) {
-            if (xQueueReceive(s_event_queue, &evt_queue, portMAX_DELAY)) {
+            if (xQueueReceive(s_client_event_queue, &evt_queue, portMAX_DELAY)) {
                 TEST_ASSERT_EQUAL(UAC_DEVICE_EVENT, evt_queue.event_group);
                 uac_host_device_event_t event = evt_queue.device_evt.event;
                 esp_err_t ret = ESP_FAIL;
@@ -982,7 +1112,7 @@ TEST_CASE("test uac tx rx loopback with disconnect", "[uac_host][tx][rx][hot-plu
         TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_unpause(mic_device_handle));
         TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_unpause(spk_device_handle));
         while (1) {
-            if (xQueueReceive(s_event_queue, &evt_queue, portMAX_DELAY)) {
+            if (xQueueReceive(s_client_event_queue, &evt_queue, portMAX_DELAY)) {
                 TEST_ASSERT_EQUAL(UAC_DEVICE_EVENT, evt_queue.event_group);
                 uac_host_device_event_t event = evt_queue.device_evt.event;
                 esp_err_t ret = ESP_FAIL;
@@ -1048,3 +1178,1113 @@ exit_rx:
         free(rx_buffer_stereo);
     }
 }
+
+#ifdef UAC_HOST_SUSPEND_RESUME_API_SUPPORTED
+
+// Expect suspend event
+static const event_queue_t expect_suspend_evt = {
+    .event_group = UAC_DEVICE_EVENT,
+    .device_evt.event = UAC_HOST_DEVICE_EVENT_SUSPENDED,
+};
+
+// Expect resume event
+static const event_queue_t expect_resume_evt = {
+    .event_group = UAC_DEVICE_EVENT,
+    .device_evt.event = UAC_HOST_DEVICE_EVENT_RESUMED,
+};
+
+// Expect disconnect event
+static const event_queue_t expect_disconn_evt = {
+    .event_group = UAC_DEVICE_EVENT,
+    .device_evt.event = UAC_HOST_DRIVER_EVENT_DISCONNECTED,
+};
+
+// Expect RX done event
+static const event_queue_t expect_rx_done_evt = {
+    .event_group = UAC_DEVICE_EVENT,
+    .device_evt.event = UAC_HOST_DEVICE_EVENT_RX_DONE,
+};
+
+//// Expect TX done event
+//static const event_queue_t expect_tx_done_evt = {
+//    .event_group = UAC_DEVICE_EVENT,
+//    .device_evt.event = UAC_HOST_DEVICE_EVENT_TX_DONE,
+//};
+
+typedef struct {
+    const uint32_t threshold;
+    const uint32_t size;
+} uac_dev_buf_params_t;
+
+static uac_dev_buf_params_t test_buf_params = {
+    .threshold = 4800,
+    .size = 19200,
+};
+
+/**
+ * @brief: Test basic suspend/resume signaling multiple interfaces
+ *
+ * Purpose:
+ *   - Test client suspend/resume event delivery for multiple opened interfaces
+ *
+ * Procedure:
+ *   - Connect and open 2 interfaces
+ *   - Suspend the root port and expect 2 suspend events
+ *   - Resume the root port and expect 2 resume events
+ *   - Close both devices
+ */
+TEST_CASE("Test basic suspend/resume multiple ifaces", "[uac_host][power_management]")
+{
+    uint8_t mic_iface_num = 0;
+    uint8_t spk_iface_num = 0;
+    uint8_t if_rx = false;
+    test_handle_dev_connection(&mic_iface_num, &if_rx);
+    if (!if_rx) {
+        spk_iface_num = mic_iface_num;
+        test_handle_dev_connection(&mic_iface_num, &if_rx);
+        TEST_ASSERT_EQUAL(if_rx, true);
+    } else {
+        test_handle_dev_connection(&spk_iface_num, &if_rx);
+        TEST_ASSERT_EQUAL(if_rx, false);
+    }
+
+    // Open device
+    uac_host_device_handle_t mic_device_handle = NULL, spk_device_handle = NULL;
+    test_open_mic_device(mic_iface_num, test_buf_params.size, test_buf_params.threshold, &mic_device_handle);
+    test_open_spk_device(spk_iface_num, test_buf_params.size, test_buf_params.threshold, &spk_device_handle);
+
+    // Suspend the root port
+    printf("Issue suspend\n");
+    TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_root_port_suspend());
+
+    expect_client_event(&expect_suspend_evt, 100);    // Mic device is opened by client -> expect event
+    expect_client_event(&expect_suspend_evt, 100);    // Spk device is opened by client -> expect event
+
+    // Stay suspended for a while
+    vTaskDelay(100);
+
+    // Resume the root port
+    printf("Issue resume\n");
+    TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_root_port_resume());
+
+    // Expect 2 Resume events -> each for each interface
+    expect_client_event(&expect_resume_evt, 100);    // Mic device is opened by client -> expect event
+    expect_client_event(&expect_resume_evt, 100);    // Spk device is opened by client -> expect event
+
+    // Close both devices
+    TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_close(spk_device_handle));
+    TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_close(mic_device_handle));
+}
+
+/**
+ * @brief: Test basic suspend/resume signaling single interface
+ *
+ * Purpose:
+ *   - Test client suspend/resume event delivery for single opened interface
+ *
+ * Procedure:
+ *   - Connect and open one interface
+ *   - Suspend the root port and expect 1 suspend event
+ *   - Resume the root port and expect 1 resume event
+ *   - Close device
+ */
+TEST_CASE("Test basic suspend/resume single iface", "[uac_host][power_management]")
+{
+    uint8_t mic_iface_num = 0;
+    uint8_t spk_iface_num = 0;
+    uint8_t if_rx = false;
+    test_handle_dev_connection(&mic_iface_num, &if_rx);
+    if (!if_rx) {
+        spk_iface_num = mic_iface_num;
+        test_handle_dev_connection(&mic_iface_num, &if_rx);
+        TEST_ASSERT_EQUAL(if_rx, true);
+    } else {
+        test_handle_dev_connection(&spk_iface_num, &if_rx);
+        TEST_ASSERT_EQUAL(if_rx, false);
+    }
+
+    // Open device
+    uac_host_device_handle_t mic_device_handle = NULL;
+    test_open_mic_device(mic_iface_num, test_buf_params.size, test_buf_params.threshold, &mic_device_handle);
+
+    // Suspend the root port
+    printf("Issue suspend\n");
+    TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_root_port_suspend());
+
+    // Expect 1 Suspend event -> only one iface is opened
+    expect_client_event(&expect_suspend_evt, 100);  // Mic device is opened by client -> expect event
+    expect_client_event(NULL, 100);                 // Spk device not opened by client -> expect NO event
+
+    // Stay suspended for a while
+    vTaskDelay(100);
+
+    // Resume the root port
+    printf("Issue resume\n");
+    TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_root_port_resume());
+
+    // Expect 1 Resume event -> only one iface is opened
+    expect_client_event(&expect_resume_evt, 100);    // Mic device is opened by client -> expect event
+    expect_client_event(NULL, 100);                 // Spk device not opened by client -> expect NO event
+
+    // Close the mic device
+    TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_close(mic_device_handle));
+}
+
+/**
+ * @brief: Test suspend/resume signaling no device opened
+ *
+ * Purpose:
+ *   - Test client suspend/resume event delivery with no device opened
+ *
+ * Procedure:
+ *   - Connect 2 interfaces, don't open them
+ *   - Suspend the root port and expect no events
+ *   - Resume the root port and expect no events
+ */
+TEST_CASE("Test suspend/resume no device opened", "[uac_host][power_management]")
+{
+    uint8_t mic_iface_num = 0;
+    uint8_t spk_iface_num = 0;
+    uint8_t if_rx = false;
+    test_handle_dev_connection(&mic_iface_num, &if_rx);
+    if (!if_rx) {
+        spk_iface_num = mic_iface_num;
+        test_handle_dev_connection(&mic_iface_num, &if_rx);
+        TEST_ASSERT_EQUAL(if_rx, true);
+    } else {
+        test_handle_dev_connection(&spk_iface_num, &if_rx);
+        TEST_ASSERT_EQUAL(if_rx, false);
+    }
+
+    // Suspend the root port
+    printf("Issue suspend\n");
+    TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_root_port_suspend());
+
+    // Expect NO Suspend event -> No interface was opened by the client
+    expect_client_event(NULL, 100);    // No interface opened by client -> expect NO event
+
+    // Resume the root port
+    printf("Issue resume\n");
+    TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_root_port_resume());
+
+    // Expect NO Resume event -> No interface was opened by the client
+    expect_client_event(NULL, 100);    // No interface opened by client -> expect NO event
+}
+
+/**
+ * @brief: Test close device which was previously opened by the client while in suspended state
+ *
+ * Purpose:
+ *   - Test client reaction to closing device while in suspended state
+ *
+ * Procedure:
+ *   - Connect and open one interface
+ *   - Suspend the root port and expect suspend event
+ *   - Close the device
+ */
+TEST_CASE("Test close opened suspended device", "[uac_host][power_management]")
+{
+    uint8_t mic_iface_num = 0;
+    uint8_t spk_iface_num = 0;
+    uint8_t if_rx = false;
+    test_handle_dev_connection(&mic_iface_num, &if_rx);
+    if (!if_rx) {
+        spk_iface_num = mic_iface_num;
+        test_handle_dev_connection(&mic_iface_num, &if_rx);
+        TEST_ASSERT_EQUAL(if_rx, true);
+    } else {
+        test_handle_dev_connection(&spk_iface_num, &if_rx);
+        TEST_ASSERT_EQUAL(if_rx, false);
+    }
+
+    // Open device
+    uac_host_device_handle_t mic_device_handle = NULL;
+    test_open_mic_device(mic_iface_num, test_buf_params.size, test_buf_params.threshold, &mic_device_handle);
+
+    // Suspend the root port
+    printf("Issue suspend\n");
+    TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_root_port_suspend());
+
+    // Expect 1 Suspend event -> only one iface is opened
+    expect_client_event(&expect_suspend_evt, 100);   // Mic device is opened by client -> expect event
+
+    TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_close(mic_device_handle));
+}
+
+/**
+ * @brief: Test close device which was previously opened and started by the client, while in suspended state
+ *
+ * Purpose:
+ *   - Test client reaction to closing device while in suspended state
+ *
+ * Procedure:
+ *   - Connect, open and start one interface
+ *   - Suspend the root port and expect suspend event
+ *   - Close the device
+ */
+TEST_CASE("Test close started suspended device", "[uac_host][power_management]")
+{
+    uint8_t mic_iface_num = 0;
+    uint8_t spk_iface_num = 0;
+    uint8_t if_rx = false;
+    test_handle_dev_connection(&mic_iface_num, &if_rx);
+    if (!if_rx) {
+        spk_iface_num = mic_iface_num;
+        test_handle_dev_connection(&mic_iface_num, &if_rx);
+        TEST_ASSERT_EQUAL(if_rx, true);
+    } else {
+        test_handle_dev_connection(&spk_iface_num, &if_rx);
+        TEST_ASSERT_EQUAL(if_rx, false);
+    }
+
+    // Open device
+    uac_host_device_handle_t mic_device_handle = NULL;
+    test_open_mic_device(mic_iface_num, test_buf_params.size, test_buf_params.threshold, &mic_device_handle);
+
+    // get mic alt interface 1 params, set same params to spk device
+    uac_host_dev_alt_param_t mic_alt_params;
+    TEST_ASSERT_EQUAL(ESP_OK, uac_host_get_device_alt_param(mic_device_handle, 1, &mic_alt_params));
+
+    uac_host_stream_config_t stream_config = {
+        .channels = mic_alt_params.channels,
+        .bit_resolution = mic_alt_params.bit_resolution,
+        .sample_freq = mic_alt_params.sample_freq[0],
+        .flags = FLAG_STREAM_PAUSE_AFTER_START,
+    };
+    TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_start(mic_device_handle, &stream_config));
+
+    // Suspend the root port
+    printf("Issue suspend\n");
+    TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_root_port_suspend());
+
+    // Expect 1 Suspend event -> only one iface is opened
+    expect_client_event(&expect_suspend_evt, 100);   // Mic device is opened by client -> expect event
+
+    TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_close(mic_device_handle));
+}
+
+/**
+ * @brief: Test suspending/resuming device after starting the device
+ *
+ * Purpose:
+ *   - Reaction of the client to suspend/resume event while device is started
+ *
+ * Procedure:
+ *   - Connect, open and start interface
+ *   - Suspend the root port and expect suspend event
+ *   - Resume the root port and expect resume event
+ *   - Stop and close the device
+ */
+TEST_CASE("Test suspend/resume device while device started", "[uac_host][power_management]")
+{
+    uint8_t mic_iface_num = 0;
+    uint8_t spk_iface_num = 0;
+    uint8_t if_rx = false;
+    test_handle_dev_connection(&mic_iface_num, &if_rx);
+    if (!if_rx) {
+        spk_iface_num = mic_iface_num;
+        test_handle_dev_connection(&mic_iface_num, &if_rx);
+        TEST_ASSERT_EQUAL(if_rx, true);
+    } else {
+        test_handle_dev_connection(&spk_iface_num, &if_rx);
+        TEST_ASSERT_EQUAL(if_rx, false);
+    }
+
+    // Open device
+    uac_host_device_handle_t mic_device_handle = NULL;
+    test_open_mic_device(mic_iface_num, test_buf_params.size, test_buf_params.threshold, &mic_device_handle);
+
+    // get mic alt interface 1 params, set same params to spk device
+    uac_host_dev_alt_param_t mic_alt_params;
+    TEST_ASSERT_EQUAL(ESP_OK, uac_host_get_device_alt_param(mic_device_handle, 1, &mic_alt_params));
+
+    uac_host_stream_config_t stream_config = {
+        .channels = mic_alt_params.channels,
+        .bit_resolution = mic_alt_params.bit_resolution,
+        .sample_freq = mic_alt_params.sample_freq[0],
+        .flags = FLAG_STREAM_PAUSE_AFTER_START,
+    };
+    TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_start(mic_device_handle, &stream_config));
+
+    // Keep the device in started state for some time
+    vTaskDelay(10);
+
+    // Suspend the root port
+    printf("Issue suspend\n");
+    TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_root_port_suspend());
+
+    // Expect 1 Suspend event -> only one iface is opened
+    expect_client_event(&expect_suspend_evt, 100);   // Mic device is opened by client -> expect event
+    expect_client_event(NULL, 100);                  // Spk device not opened by client -> expect NO event
+
+    // Stay suspended for a while
+    vTaskDelay(100);
+
+    // Resume the root port
+    printf("Issue resume\n");
+    TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_root_port_resume());
+
+    // Expect 1 Resume event -> only one iface is opened
+    expect_client_event(&expect_resume_evt, 100);    // Mic device is opened by client -> expect event
+    expect_client_event(NULL, 100);                  // Spk device not opened by client -> expect NO event
+
+    // Expect the device to be started (to be in UAC_INTERFACE_STATE_READY), stop the device
+    TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_stop(mic_device_handle));
+    // Close the mic device
+    TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_close(mic_device_handle));
+}
+
+/**
+ * @brief: Test start device while the root port is suspended
+ *
+ * Purpose:
+ *   - Reaction of the client to starting the device in suspended mode
+ *
+ * Procedure:
+ *   - Connect and open interface
+ *   - Suspend the root port and expect suspend event
+ *   - Fail to start the device while in suspended state
+ *   - Resume the root port and expect resume event
+ *   - Start the device normally
+ *   - Suspend the root port and expect suspend event
+ *   - Start previously suspended device while in suspended state
+ *   - Expect resume event
+ *   - Stop and close the device
+ */
+TEST_CASE("Test start (pause after start) suspended device", "[uac_host][power_management]")
+{
+    uint8_t mic_iface_num = 0;
+    uint8_t spk_iface_num = 0;
+    uint8_t if_rx = false;
+    test_handle_dev_connection(&mic_iface_num, &if_rx);
+    if (!if_rx) {
+        spk_iface_num = mic_iface_num;
+        test_handle_dev_connection(&mic_iface_num, &if_rx);
+        TEST_ASSERT_EQUAL(if_rx, true);
+    } else {
+        test_handle_dev_connection(&spk_iface_num, &if_rx);
+        TEST_ASSERT_EQUAL(if_rx, false);
+    }
+
+    // Open device
+    uac_host_device_handle_t mic_device_handle = NULL;
+    test_open_mic_device(mic_iface_num, test_buf_params.size, test_buf_params.threshold, &mic_device_handle);
+
+    // get mic alt interface 1 params, set same params to spk device
+    uac_host_dev_alt_param_t mic_alt_params;
+    TEST_ASSERT_EQUAL(ESP_OK, uac_host_get_device_alt_param(mic_device_handle, 1, &mic_alt_params));
+
+    // Suspend the root port
+    printf("Issue suspend\n");
+    TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_root_port_suspend());
+
+    // Expect 1 Suspend event -> only one iface is opened
+    expect_client_event(&expect_suspend_evt, 100);    // Mic device is opened by client -> expect event
+
+    // Stay suspended for a while
+    vTaskDelay(100);
+
+    uac_host_stream_config_t stream_config = {
+        .channels = mic_alt_params.channels,
+        .bit_resolution = mic_alt_params.bit_resolution,
+        .sample_freq = mic_alt_params.sample_freq[0],
+        .flags = FLAG_STREAM_PAUSE_AFTER_START,
+    };
+
+    // Try to start device from suspended state, when the previous state was IDLE
+    // Expect to fail, since the usb_host_lib must claim device's EPs, for which the device must not be in suspended state
+    TEST_ASSERT_EQUAL(ESP_ERR_INVALID_STATE, uac_host_device_start(mic_device_handle, &stream_config));
+
+    // Resume the root port
+    printf("Issue resume\n");
+    TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_root_port_resume());
+
+    // Expect 1 Resume event -> only one iface is opened
+    expect_client_event(&expect_resume_evt, 100);    // Mic device is opened by client -> expect event
+
+    // Some time for the usb host lib to process the auto resume by transfer
+    vTaskDelay(100);
+
+    // Start the device with the device in resumed state
+    TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_start(mic_device_handle, &stream_config));
+
+    // Suspend the root port
+    printf("Issue suspend\n");
+    TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_root_port_suspend());
+
+    // Expect 1 Suspend event -> only one iface is opened
+    expect_client_event(&expect_suspend_evt, 100);    // Mic device is opened by client -> expect event
+
+    // Start the device with the device in suspended state (after it has been already successfully started)
+    TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_start(mic_device_handle, &stream_config));
+
+    // Expect 1 Resume event -> only one iface is opened
+    expect_client_event(&expect_resume_evt, 100);    // Mic device is opened by client -> expect event
+
+    vTaskDelay(100);
+    // Expect the device to be started (to be in UAC_INTERFACE_STATE_READY), stop the device
+    TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_stop(mic_device_handle));
+    // Close the mic device
+    TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_close(mic_device_handle));
+}
+
+/**
+ * @brief: Test start device while the root port is suspended
+ *
+ * Purpose:
+ *   - Reaction of the client to starting the device in suspended mode
+ *
+ * Procedure:
+ *   - Connect and open interface
+ *   - Suspend the root port and expect suspend event
+ *   - Fail to start the device while in suspended state
+ *   - Resume the root port and expect resume event
+ *   - Start the device normally
+ *   - Suspend the root port and expect suspend event
+ *   - Start previously suspended device while in suspended state
+ *   - Expect resume event
+ *   - Stop and close the device
+ */
+TEST_CASE("Test start (unpause after start) suspended device", "[uac_host][power_management]")
+{
+    uint8_t mic_iface_num = 0;
+    uint8_t spk_iface_num = 0;
+    uint8_t if_rx = false;
+    test_handle_dev_connection(&mic_iface_num, &if_rx);
+    if (!if_rx) {
+        spk_iface_num = mic_iface_num;
+        test_handle_dev_connection(&mic_iface_num, &if_rx);
+        TEST_ASSERT_EQUAL(if_rx, true);
+    } else {
+        test_handle_dev_connection(&spk_iface_num, &if_rx);
+        TEST_ASSERT_EQUAL(if_rx, false);
+    }
+
+    // Open device
+    uac_host_device_handle_t mic_device_handle = NULL;
+    test_open_mic_device(mic_iface_num, test_buf_params.size, test_buf_params.threshold, &mic_device_handle);
+
+    // get mic alt interface 1 params, set same params to spk device
+    uac_host_dev_alt_param_t mic_alt_params;
+    TEST_ASSERT_EQUAL(ESP_OK, uac_host_get_device_alt_param(mic_device_handle, 1, &mic_alt_params));
+
+    // Suspend the root port
+    printf("Issue suspend\n");
+    TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_root_port_suspend());
+
+    // Expect 1 Suspend event -> only one iface is opened
+    expect_client_event(&expect_suspend_evt, 100);    // Mic device is opened by client -> expect event
+
+    // Stay suspended for a while
+    vTaskDelay(100);
+
+    uac_host_stream_config_t stream_config = {
+        .channels = mic_alt_params.channels,
+        .bit_resolution = mic_alt_params.bit_resolution,
+        .sample_freq = mic_alt_params.sample_freq[0],
+    };
+
+    // Try to start device from suspended state, when the previous state was IDLE
+    // Expect to fail, since the usb_host_lib must claim device's EPs, for which the device must not be in suspended state
+    TEST_ASSERT_EQUAL(ESP_ERR_INVALID_STATE, uac_host_device_start(mic_device_handle, &stream_config));
+
+    // Resume the root port
+    printf("Issue resume\n");
+    TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_root_port_resume());
+
+    // Expect 1 Resume event -> only one iface is opened
+    expect_client_event(&expect_resume_evt, 100);    // Mic device is opened by client -> expect event
+
+    // Some time for the usb host lib to process the auto resume by transfer
+    vTaskDelay(100);
+
+    // Start the device with the device in resumed state
+    TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_start(mic_device_handle, &stream_config));
+
+    // Device has been started without FLAG_STREAM_PAUSE_AFTER_START flag, expect transfer events after starting the device
+    TEST_ASSERT(expect_transfer_event(&expect_rx_done_evt, pdMS_TO_TICKS(1000)));
+
+    // Suspend the root port
+    printf("Issue suspend\n");
+    TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_root_port_suspend());
+
+    // Expect 1 Suspend event -> only one iface is opened
+    expect_client_event(&expect_suspend_evt, 100);    // Mic device is opened by client -> expect event
+
+    // Expect no transfer events
+    TEST_ASSERT_FALSE(expect_transfer_event(NULL, pdMS_TO_TICKS(1000)));
+
+    // Start the device with the device in suspended state (after it has been already successfully started)
+    TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_start(mic_device_handle, &stream_config));
+
+    // Expect 1 Resume event -> only one iface is opened
+    expect_client_event(&expect_resume_evt, 100);    // Mic device is opened by client -> expect event
+    TEST_ASSERT(expect_transfer_event(&expect_rx_done_evt, pdMS_TO_TICKS(1000)));
+
+    vTaskDelay(100);
+    // Expect the device to be started (to be in UAC_INTERFACE_STATE_READY), stop the device
+    TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_stop(mic_device_handle));
+    // Close the mic device
+    TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_close(mic_device_handle));
+}
+
+/**
+ * @brief: Test resume the root port by ctrl transfer
+ *
+ * Purpose:
+ *   - Reaction of the client to auto-resume by transfer
+ *
+ * Procedure:
+ *   - Connect, open and start interface
+ *   - Suspend the root port and expect suspend event
+ *   - Send a ctrl transfer to a suspended device, expect resume event
+ *   - Stop and close the device
+ */
+TEST_CASE("Test resume by ctrl transfer", "[uac_host][power_management]")
+{
+    uint8_t mic_iface_num = 0;
+    uint8_t spk_iface_num = 0;
+    uint8_t if_rx = false;
+    test_handle_dev_connection(&mic_iface_num, &if_rx);
+    if (!if_rx) {
+        spk_iface_num = mic_iface_num;
+        test_handle_dev_connection(&mic_iface_num, &if_rx);
+        TEST_ASSERT_EQUAL(if_rx, true);
+    } else {
+        test_handle_dev_connection(&spk_iface_num, &if_rx);
+        TEST_ASSERT_EQUAL(if_rx, false);
+    }
+
+    // Open device
+    uac_host_device_handle_t mic_device_handle = NULL;
+    test_open_mic_device(mic_iface_num, test_buf_params.size, test_buf_params.threshold, &mic_device_handle);
+
+    // get mic alt interface 1 params, set same params to spk device
+    uac_host_dev_alt_param_t mic_alt_params;
+    TEST_ASSERT_EQUAL(ESP_OK, uac_host_get_device_alt_param(mic_device_handle, 1, &mic_alt_params));
+
+    uac_host_stream_config_t stream_config = {
+        .channels = mic_alt_params.channels,
+        .bit_resolution = mic_alt_params.bit_resolution,
+        .sample_freq = mic_alt_params.sample_freq[0],
+        .flags = FLAG_STREAM_PAUSE_AFTER_START,
+    };
+    TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_start(mic_device_handle, &stream_config));
+
+    // Keep the device in started state for some time
+    vTaskDelay(10);
+
+    // Suspend the root port
+    printf("Issue suspend\n");
+    TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_root_port_suspend());
+    expect_client_event(&expect_suspend_evt, 100);    // Mic device is opened by client -> expect event
+
+    // Stay suspended for a while
+    vTaskDelay(100);
+
+    // Send ctrl transfer to auto resume the device
+    TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_set_mute(mic_device_handle, 0));
+
+    // Expect 1 Resume event -> only one iface is opened
+    expect_client_event(&expect_resume_evt, 100);    // Mic device is opened by client -> expect event
+
+    // Some time for the usb host lib to process the auto resume by transfer
+    vTaskDelay(100);
+
+    TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_unpause(mic_device_handle));
+
+    // Expect the device to be started (to be in UAC_INTERFACE_STATE_READY), stop the device
+    TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_stop(mic_device_handle));
+    // Close the mic device
+    TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_close(mic_device_handle));
+}
+
+/**
+ * @brief: Test stopping device from suspended state
+ *
+ * Purpose:
+ *   - Reaction of the client to stopping paused device, while the device in suspended state
+ *   - Reaction of the client to stopping unpaused device, while the device in suspended state
+ *
+ * Procedure:
+ *   - Connect, open and start (pause after start) interface
+ *   - Suspend the root port and expect suspend event
+ *   - Stop the device
+ *   - Resume the root port and expect resume event
+ *   - Start, unpause the device and make sure the data are being transferred
+ *   - Suspend the root port and expect suspend event
+ *   - Stop and close the device
+ */
+TEST_CASE("Test device stop from suspended state", "[uac_host][power_management][rx]")
+{
+    uint8_t mic_iface_num = 0;
+    uint8_t spk_iface_num = 0;
+    uint8_t if_rx = false;
+    test_handle_dev_connection(&mic_iface_num, &if_rx);
+    if (!if_rx) {
+        spk_iface_num = mic_iface_num;
+        test_handle_dev_connection(&mic_iface_num, &if_rx);
+        TEST_ASSERT_EQUAL(if_rx, true);
+    } else {
+        test_handle_dev_connection(&spk_iface_num, &if_rx);
+        TEST_ASSERT_EQUAL(if_rx, false);
+    }
+
+    // Open device
+    uac_host_device_handle_t mic_device_handle = NULL;
+    test_open_mic_device(mic_iface_num, test_buf_params.size, test_buf_params.threshold, &mic_device_handle);
+
+    // get mic alt interface 1 params, set same params to spk device
+    uac_host_dev_alt_param_t mic_alt_params;
+    TEST_ASSERT_EQUAL(ESP_OK, uac_host_get_device_alt_param(mic_device_handle, 1, &mic_alt_params));
+
+    uac_host_stream_config_t stream_config = {
+        .channels = mic_alt_params.channels,
+        .bit_resolution = mic_alt_params.bit_resolution,
+        .sample_freq = mic_alt_params.sample_freq[0],
+        .flags = FLAG_STREAM_PAUSE_AFTER_START,
+    };
+    TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_start(mic_device_handle, &stream_config));
+
+    // Suspend the root port
+    printf("Issue suspend\n");
+    TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_root_port_suspend());
+    expect_client_event(&expect_suspend_evt, 100);    // Mic device is opened by client -> expect suspend event
+
+    vTaskDelay(100);
+    TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_stop(mic_device_handle));
+
+    // Resume the root port
+    printf("Issue resume\n");
+    TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_root_port_resume());
+    expect_client_event(&expect_resume_evt, 100);    // Mic device is opened by client -> expect resume event
+
+    vTaskDelay(100);
+    // Start and unpause the device
+    TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_start(mic_device_handle, &stream_config));
+    TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_unpause(mic_device_handle));
+
+    // Check that data events are being sent
+    TEST_ASSERT(expect_transfer_event(&expect_rx_done_evt, pdMS_TO_TICKS(1000)));
+
+    // Suspend the root port
+    printf("Issue suspend\n");
+    TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_root_port_suspend());
+    expect_client_event(&expect_suspend_evt, 100);    // Mic device is opened by client -> expect suspend event
+
+    vTaskDelay(100);
+    TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_stop(mic_device_handle));
+    TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_close(mic_device_handle));
+}
+
+/**
+ * @brief: Test unpause device in suspended state, which was previously in ready state
+ *
+ * Purpose:
+ *   - Reaction of the client to unpausing ready device, while the device in suspended state
+ *
+ * Procedure:
+ *   - Connect, open and start (pause after start) interface
+ *   - Suspend the root port and expect suspend event
+ *   - Unpause the device
+ *   - Expect resume event, caused by ctrl transfer submit, as the uac_host_device_unpause issues a ctrl transfer
+ *   - Expect data transfer events
+ *   - Pause, stop and close the device
+ */
+TEST_CASE("Test unpause ready device from suspended state", "[uac_host][power_management][rx]")
+{
+    uint8_t mic_iface_num = 0;
+    uint8_t spk_iface_num = 0;
+    uint8_t if_rx = false;
+    test_handle_dev_connection(&mic_iface_num, &if_rx);
+    if (!if_rx) {
+        spk_iface_num = mic_iface_num;
+        test_handle_dev_connection(&mic_iface_num, &if_rx);
+        TEST_ASSERT_EQUAL(if_rx, true);
+    } else {
+        test_handle_dev_connection(&spk_iface_num, &if_rx);
+        TEST_ASSERT_EQUAL(if_rx, false);
+    }
+
+    // Open device
+    uac_host_device_handle_t mic_device_handle = NULL;
+    test_open_mic_device(mic_iface_num, test_buf_params.size, test_buf_params.threshold, &mic_device_handle);
+
+    // get mic alt interface 1 params, set same params to spk device
+    uac_host_dev_alt_param_t mic_alt_params;
+    TEST_ASSERT_EQUAL(ESP_OK, uac_host_get_device_alt_param(mic_device_handle, 1, &mic_alt_params));
+
+    uac_host_stream_config_t stream_config = {
+        .channels = mic_alt_params.channels,
+        .bit_resolution = mic_alt_params.bit_resolution,
+        .sample_freq = mic_alt_params.sample_freq[0],
+        .flags = FLAG_STREAM_PAUSE_AFTER_START,
+    };
+    TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_start(mic_device_handle, &stream_config));
+
+    // Suspend the root port
+    printf("Issue suspend\n");
+    TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_root_port_suspend());
+    expect_client_event(&expect_suspend_evt, 100);    // Mic device is opened by client -> expect suspend event
+
+    vTaskDelay(100);
+    TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_unpause(mic_device_handle));
+
+    // auto resume by transfer submit
+    expect_client_event(&expect_resume_evt, 100);    // Mic device is opened by client -> expect resume event
+
+    // Check that data events are being sent
+    TEST_ASSERT(expect_transfer_event(&expect_rx_done_evt, pdMS_TO_TICKS(1000)));
+
+    // Cleanup
+    TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_pause(mic_device_handle));
+    TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_stop(mic_device_handle));
+    TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_close(mic_device_handle));
+}
+
+/**
+ * @brief: Test unpause device in suspended state, which was previously in active state
+ *
+ * Purpose:
+ *   - Reaction of the client to unpausing active device, while the device in suspended state
+ *
+ * Procedure:
+ *   - Connect, open and start (pause after start) interface
+ *   - Expect data transfer events
+ *   - Suspend the root port and expect suspend event
+ *   - Expect no data transfer events
+ *   - Unpause the device
+ *   - Expect resume event, caused by ctrl transfer submit, as the uac_host_device_unpause issues a ctrl transfer
+ *   - Expect data transfer events
+ *   - Pause, stop and close the device
+ */
+TEST_CASE("Test unpause active device from suspended state", "[uac_host][power_management][rx]")
+{
+    uint8_t mic_iface_num = 0;
+    uint8_t spk_iface_num = 0;
+    uint8_t if_rx = false;
+    test_handle_dev_connection(&mic_iface_num, &if_rx);
+    if (!if_rx) {
+        spk_iface_num = mic_iface_num;
+        test_handle_dev_connection(&mic_iface_num, &if_rx);
+        TEST_ASSERT_EQUAL(if_rx, true);
+    } else {
+        test_handle_dev_connection(&spk_iface_num, &if_rx);
+        TEST_ASSERT_EQUAL(if_rx, false);
+    }
+
+    // Open device
+    uac_host_device_handle_t mic_device_handle = NULL;
+    test_open_mic_device(mic_iface_num, test_buf_params.size, test_buf_params.threshold, &mic_device_handle);
+
+    // get mic alt interface 1 params, set same params to spk device
+    uac_host_dev_alt_param_t mic_alt_params;
+    TEST_ASSERT_EQUAL(ESP_OK, uac_host_get_device_alt_param(mic_device_handle, 1, &mic_alt_params));
+
+    uac_host_stream_config_t stream_config = {
+        .channels = mic_alt_params.channels,
+        .bit_resolution = mic_alt_params.bit_resolution,
+        .sample_freq = mic_alt_params.sample_freq[0],
+        .flags = FLAG_STREAM_PAUSE_AFTER_START,
+    };
+    TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_start(mic_device_handle, &stream_config));
+    TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_unpause(mic_device_handle));
+
+    // Check that data events are being sent
+    TEST_ASSERT(expect_transfer_event(&expect_rx_done_evt, pdMS_TO_TICKS(1000)));
+
+    // Suspend the root port
+    printf("Issue suspend\n");
+    TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_root_port_suspend());
+    expect_client_event(&expect_suspend_evt, 100);    // Mic device is opened by client -> expect suspend event
+
+    // Check that data events are NOT being sent anymore
+    TEST_ASSERT_FALSE(expect_transfer_event(NULL, pdMS_TO_TICKS(1000)));
+
+    TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_unpause(mic_device_handle));
+    // auto resume by transfer submit
+    expect_client_event(&expect_resume_evt, 100);    // Mic device is opened by client -> expect resume event
+
+    // Check that data events are being sent
+    TEST_ASSERT(expect_transfer_event(&expect_rx_done_evt, pdMS_TO_TICKS(1000)));
+
+    // Cleanup
+    printf("Cleanup\n");
+    TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_pause(mic_device_handle));
+    TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_stop(mic_device_handle));
+    TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_close(mic_device_handle));
+}
+
+/**
+ * @brief: Test pause device in suspended state, which was previously in active state
+ *
+ * Purpose:
+ *   - Reaction of the client to pausing active device, while the device in suspended state
+ *
+ * Procedure:
+ *   - Connect, open and start (pause after start) interface
+ *   - Expect data transfer events
+ *   - Suspend the root port and expect suspend event
+ *   - Expect no data transfer events
+ *   - Pause the device
+ *   - Resume the root port and expect resume event
+ *   - Unpause the device and expect data transfer events
+ *   - Pause, stop and close the device
+ */
+TEST_CASE("Test pause active device from suspended state", "[uac_host][power_management][rx]")
+{
+    uint8_t mic_iface_num = 0;
+    uint8_t spk_iface_num = 0;
+    uint8_t if_rx = false;
+    test_handle_dev_connection(&mic_iface_num, &if_rx);
+    if (!if_rx) {
+        spk_iface_num = mic_iface_num;
+        test_handle_dev_connection(&mic_iface_num, &if_rx);
+        TEST_ASSERT_EQUAL(if_rx, true);
+    } else {
+        test_handle_dev_connection(&spk_iface_num, &if_rx);
+        TEST_ASSERT_EQUAL(if_rx, false);
+    }
+
+    // Open device
+    uac_host_device_handle_t mic_device_handle = NULL;
+    test_open_mic_device(mic_iface_num, test_buf_params.size, test_buf_params.threshold, &mic_device_handle);
+
+    // get mic alt interface 1 params, set same params to spk device
+    uac_host_dev_alt_param_t mic_alt_params;
+    TEST_ASSERT_EQUAL(ESP_OK, uac_host_get_device_alt_param(mic_device_handle, 1, &mic_alt_params));
+
+    uac_host_stream_config_t stream_config = {
+        .channels = mic_alt_params.channels,
+        .bit_resolution = mic_alt_params.bit_resolution,
+        .sample_freq = mic_alt_params.sample_freq[0],
+        .flags = FLAG_STREAM_PAUSE_AFTER_START,
+    };
+    TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_start(mic_device_handle, &stream_config));
+    TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_unpause(mic_device_handle));
+
+    // Check that data events are being sent
+    TEST_ASSERT(expect_transfer_event(&expect_rx_done_evt, pdMS_TO_TICKS(1000)));
+
+    // Suspend the root port
+    printf("Issue suspend\n");
+    TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_root_port_suspend());
+    expect_client_event(&expect_suspend_evt, 100);    // expect suspend event
+
+    // Check that data events are NOT being sent anymore
+    TEST_ASSERT_FALSE(expect_transfer_event(NULL, pdMS_TO_TICKS(1000)));
+
+    TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_pause(mic_device_handle));
+
+    printf("Issue resume\n");
+    TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_root_port_resume());
+    expect_client_event(&expect_resume_evt, 100);    // expect resume event
+
+    TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_unpause(mic_device_handle));
+
+    // Check that data events are being sent
+    TEST_ASSERT(expect_transfer_event(&expect_rx_done_evt, pdMS_TO_TICKS(1000)));
+
+    // Cleanup
+    printf("Cleanup\n");
+    TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_pause(mic_device_handle));
+    TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_stop(mic_device_handle));
+    TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_close(mic_device_handle));
+}
+
+/**
+ * @brief Notification events used to control the RX data handling task from the test case
+ */
+enum test_notify_event {
+    TEST_NOTIFY_RX_START,           /**< Start receiving data from device */
+    TEST_NOTIFY_RX_STOP,            /**< Stop receiving data from device */
+    TEST_NOTIFY_DEVICE_SUSPENDED,   /**< Device suspended, stop expecting new data from device */
+    TEST_NOTIFY_FINISH,             /**< Finish the test: close device and task cleanup */
+};
+
+#define TEST_SUPEND_RESUME_HOLD_MS  1000    // Time to keep the device suspended or resumed
+
+/**
+ * @brief RX data handling task
+ *
+ * Open a device and start receiving data from the device's ring buffer
+ * Processing task is controlled from the main task by test_notify_event
+ */
+static void test_rx_data_handling_task(void *args)
+{
+    TaskHandle_t main_task_hdl = (TaskHandle_t)args;
+    uint8_t mic_iface_num = 0;
+    uint8_t spk_iface_num = 0;
+    uint8_t if_rx = false;
+    test_handle_dev_connection(&mic_iface_num, &if_rx);
+    if (!if_rx) {
+        spk_iface_num = mic_iface_num;
+        test_handle_dev_connection(&mic_iface_num, &if_rx);
+        TEST_ASSERT_EQUAL(if_rx, true);
+    } else {
+        test_handle_dev_connection(&spk_iface_num, &if_rx);
+        TEST_ASSERT_EQUAL(if_rx, false);
+    }
+
+    // Open device
+    uac_host_device_handle_t mic_device_handle = NULL;
+    test_open_mic_device(mic_iface_num, test_buf_params.size, test_buf_params.threshold, &mic_device_handle);
+
+    // Get mic alt interface 1 params
+    uac_host_dev_alt_param_t mic_alt_params;
+    TEST_ASSERT_EQUAL(ESP_OK, uac_host_get_device_alt_param(mic_device_handle, 1, &mic_alt_params));
+
+    // Start and pause the device
+    uac_host_stream_config_t stream_config = {
+        .channels = mic_alt_params.channels,
+        .bit_resolution = mic_alt_params.bit_resolution,
+        .sample_freq = mic_alt_params.sample_freq[0],
+        .flags = FLAG_STREAM_PAUSE_AFTER_START,
+    };
+    TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_start(mic_device_handle, &stream_config));
+
+    // Allocate RX buffer
+    uint8_t *rx_buffer = (uint8_t *)calloc(1, test_buf_params.threshold);
+    TEST_ASSERT_NOT_NULL(rx_buffer);
+    uint32_t rx_size = 0;
+
+    // Notify the main task, that the device is connected and initialized
+    xTaskNotifyGive(main_task_hdl);
+
+    // Start RX data handling loop
+    while (!ulTaskNotifyTakeIndexed(TEST_NOTIFY_FINISH, pdTRUE, 0)) {
+
+        // Wait for notification from the main task to start receiving data from the device
+        TEST_ASSERT_EQUAL(pdTRUE, ulTaskNotifyTakeIndexed(TEST_NOTIFY_RX_START, pdTRUE, pdMS_TO_TICKS(2000)));
+        TEST_ASSERT_EQUAL_MESSAGE(ESP_OK, uac_host_device_unpause(mic_device_handle), "Device unpause not successful");
+
+        // Start receiving data, until the main task does not set task notification to stop receiving data
+        while (!ulTaskNotifyTakeIndexed(TEST_NOTIFY_RX_STOP, pdTRUE, 0)) {
+            event_queue_t transfer_event;
+
+            if (xQueueReceive(s_transfer_event_queue, &transfer_event, pdMS_TO_TICKS(1000)) == pdPASS) {
+
+                // Validate data received from the transfer event queue
+                TEST_ASSERT_EQUAL_MESSAGE(transfer_event.event_group, UAC_DEVICE_EVENT, "Incorrect event group");
+                TEST_ASSERT_EQUAL_MESSAGE(transfer_event.device_evt.event, UAC_HOST_DEVICE_EVENT_RX_DONE, "Incorrect event type");
+
+                // Read data from the device's ring buffer
+                TEST_ASSERT_EQUAL(ESP_OK, uac_host_device_read(mic_device_handle, rx_buffer, test_buf_params.threshold, &rx_size, 0));
+                TEST_ASSERT_EQUAL(test_buf_params.threshold, rx_size);
+                ESP_LOGD(TAG, "New RX event");
+
+            } else {
+                if ( pdTRUE == ulTaskNotifyTakeIndexed(TEST_NOTIFY_DEVICE_SUSPENDED, pdTRUE, 0)) {
+                    // Device was suspended while receiving data, exit loop from here
+                    break;
+                } else {
+                    TEST_FAIL_MESSAGE("RX event not received on time");
+                }
+            }
+        }
+    }
+
+    // Cleanup
+    printf("Task cleanup\n");
+    TEST_ASSERT_EQUAL_MESSAGE(ESP_OK, uac_host_device_pause(mic_device_handle), "Device can't be paused");
+    TEST_ASSERT_EQUAL_MESSAGE(ESP_OK, uac_host_device_stop(mic_device_handle), "Device can't be stopped");
+    TEST_ASSERT_EQUAL_MESSAGE(ESP_OK, uac_host_device_close(mic_device_handle), "Device can't be closed");
+    free(rx_buffer);
+    xTaskNotifyGive(main_task_hdl);
+    vTaskDelete(NULL);
+}
+
+TEST_CASE("Test suspend/resume while receiving data", "[uac_host][power_management]")
+{
+    // Create RX data handling task
+    TaskHandle_t data_handling_task_hdl = NULL;
+    TEST_ASSERT_EQUAL(pdPASS, xTaskCreate(test_rx_data_handling_task, "rx_data_handing", 4096, (void *)xTaskGetCurrentTaskHandle(), 4, &data_handling_task_hdl));
+    TEST_ASSERT_NOT_NULL(data_handling_task_hdl);
+
+    // Wait for the device to be connected and initialized by the data handling task
+    TEST_ASSERT_EQUAL_MESSAGE(pdTRUE, ulTaskNotifyTake(true, pdMS_TO_TICKS(2000)), "Device was not initialized on time");
+
+    // Start the RX data handling -> suspend the root port while receiving data -> resume the root port -> Start the RX data handling
+    for (int i = 0; i < 5; i++) {
+
+        // Start the data handling and keep it running for a while
+        xTaskNotifyGiveIndexed(data_handling_task_hdl, TEST_NOTIFY_RX_START);
+        vTaskDelay(pdMS_TO_TICKS(TEST_SUPEND_RESUME_HOLD_MS * 2));
+
+        // Suspend the root port and wait for the suspend event
+        TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_root_port_suspend());
+        expect_client_event(&expect_suspend_evt, 100);    // expect suspend event
+
+        // Notify the data handling task, that the device is suspended, to stop expecting new data
+        xTaskNotifyGiveIndexed(data_handling_task_hdl, TEST_NOTIFY_DEVICE_SUSPENDED);
+
+        // Keep the device suspended for a while
+        vTaskDelay(pdMS_TO_TICKS(TEST_SUPEND_RESUME_HOLD_MS));
+
+        // Resume the root port and wait for the resume event
+        TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_root_port_resume());
+        expect_client_event(&expect_resume_evt, 100);    // expect resume event
+    }
+
+    // Start the data handling again and keep it running for a while
+    xTaskNotifyGiveIndexed(data_handling_task_hdl, TEST_NOTIFY_RX_START);
+    vTaskDelay(pdMS_TO_TICKS(TEST_SUPEND_RESUME_HOLD_MS));
+
+    // Stop and close the data handling
+    xTaskNotifyGiveIndexed(data_handling_task_hdl, TEST_NOTIFY_RX_STOP);
+    xTaskNotifyGiveIndexed(data_handling_task_hdl, TEST_NOTIFY_FINISH);
+
+    // Wait for the cleanup of the data handling task
+    TEST_ASSERT_EQUAL_MESSAGE(pdTRUE, ulTaskNotifyTake(true, pdMS_TO_TICKS(2000)), "RX data handling task was not deleted on time");
+    vTaskDelay(10);
+}
+
+/**
+ * @brief: Test suspend/resume signaling with sudden disconnect
+ *
+ * Purpose:
+ *   - Test client suspend/resume event delivery when disconnecting suspended device
+ *
+ * Procedure:
+ *   - Connect and open 2 interfaces
+ *   - Suspend the root port and expect 2 suspend events
+ *   - Disconnect the root port and expect 2 disconnect events
+ *   - Close both devices
+ */
+TEST_CASE("Test suspend/resume sudden disconnect", "[uac_host][power_management]")
+{
+    uint8_t mic_iface_num = 0;
+    uint8_t spk_iface_num = 0;
+    uint8_t if_rx = false;
+    test_handle_dev_connection(&mic_iface_num, &if_rx);
+    if (!if_rx) {
+        spk_iface_num = mic_iface_num;
+        test_handle_dev_connection(&mic_iface_num, &if_rx);
+        TEST_ASSERT_EQUAL(if_rx, true);
+    } else {
+        test_handle_dev_connection(&spk_iface_num, &if_rx);
+        TEST_ASSERT_EQUAL(if_rx, false);
+    }
+
+    // Open device
+    uac_host_device_handle_t mic_device_handle = NULL, spk_device_handle = NULL;
+    test_open_mic_device(mic_iface_num, test_buf_params.size, test_buf_params.threshold, &mic_device_handle);
+    test_open_spk_device(spk_iface_num, test_buf_params.size, test_buf_params.threshold, &spk_device_handle);
+
+    // Suspend the root port
+    printf("Issue suspend\n");
+    TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_root_port_suspend());
+
+    // Expect 2 Suspend events -> each for each interface
+    expect_client_event(&expect_suspend_evt, 100);    // Mic device is opened by client -> expect event
+    expect_client_event(&expect_suspend_evt, 100);    // Spk device is opened by client -> expect event
+
+    // Sudden disconnect
+    force_conn_state(false, 0);
+
+    // Expect 2 Disconnected events -> each for each interface
+    expect_client_event(&expect_disconn_evt, 100);    // Mic device is opened by client -> expect event
+    expect_client_event(&expect_disconn_evt, 100);    // Spk device is opened by client -> expect event
+}
+
+#endif // UAC_HOST_SUSPEND_RESUME_API_SUPPORTED

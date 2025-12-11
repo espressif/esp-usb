@@ -25,6 +25,8 @@ void app_main(void)
     printf("|______/ /_______  / |______  /  |__|  \\___  >____  > |__|  \r\n");
     printf("                 \\/         \\/             \\/     \\/        \r\n");
 
+    unity_utils_setup_heap_record(80);
+    unity_utils_set_leak_level(530);
     UNITY_BEGIN();
     unity_utils_setup_heap_record(80);
     unity_utils_set_leak_level(530);

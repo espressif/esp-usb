@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2024-2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2024-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -127,6 +127,7 @@ typedef enum {
     UAC_INTERFACE_STATE_READY,                      /*!< UAC Interface has started but stream is paused */
     UAC_INTERFACE_STATE_ACTIVE,                     /*!< UAC Interface is streaming */
     UAC_INTERFACE_STATE_PAUSING,                    /*!< UAC Interface is pausing */
+    UAC_INTERFACE_STATE_SUSPENDED,                  /*!< UAC Interface is suspended, global root port suspend was called*/
 } uac_iface_state_t;
 
 /**
@@ -162,6 +163,7 @@ typedef struct uac_interface {
     SemaphoreHandle_t state_mutex;             /*!< UAC device state mutex */
     SemaphoreHandle_t ringbuf_mutex;           /*!< UAC ringbuffer mutex */
     uac_iface_state_t state;                   /*!< Interface state */
+    uac_iface_state_t last_state;              /*!< Interface last state before suspending */
     uint32_t flags;                            /*!< Interface flags */
     uint8_t cur_alt;                           /*!< Current alternate setting (-1) */
     uint8_t cur_vol;                           /*!< volume % 0-100 */
@@ -218,8 +220,12 @@ static uac_driver_t *s_uac_driver;                              /*!< Internal po
 
 static esp_err_t _uac_host_device_add(uint8_t addr, usb_device_handle_t dev_hdl, const usb_config_desc_t *config_desc, uac_device_t **uac_device_handle);
 static esp_err_t _uac_host_device_delete(uac_device_t *uac_device);
+static inline esp_err_t _uac_host_device_try_lock(uac_device_t *uac_device, uint32_t timeout_ms);
+static inline void _uac_host_device_unlock(uac_device_t *uac_device);
 static esp_err_t uac_cs_request_set(uac_device_t *uac_device, const uac_cs_request_t *req);
 static esp_err_t uac_cs_request_set_ep_frequency(uac_iface_t *iface, uint8_t ep_addr, uint32_t freq);
+static void stream_rx_xfer_done(usb_transfer_t *in_xfer);
+static void stream_tx_xfer_done(usb_transfer_t *out_xfer);
 
 // --------------------------- Utility Functions --------------------------------
 /**
@@ -884,6 +890,7 @@ static esp_err_t uac_host_interface_add(uac_device_t *uac_device, uint8_t iface_
         iface_alt_desc = GET_NEXT_INTERFACE_DESC(iface_alt_desc, total_length, iface_alt_offset);
     }
     uac_iface->state = UAC_INTERFACE_STATE_NOT_INITIALIZED;
+    uac_iface->last_state = UAC_INTERFACE_STATE_NOT_INITIALIZED;
     uac_iface->parent = uac_device;
     uac_iface->dev_info.addr = uac_device->addr;
     uac_iface->dev_info.iface_num = iface_desc->bInterfaceNumber;
@@ -933,6 +940,7 @@ fail:
 static esp_err_t uac_host_interface_delete(uac_iface_t *uac_iface)
 {
     uac_iface->state = UAC_INTERFACE_STATE_NOT_INITIALIZED;
+    uac_iface->last_state = UAC_INTERFACE_STATE_NOT_INITIALIZED;
     UAC_ENTER_CRITICAL();
     STAILQ_REMOVE(&s_uac_driver->uac_ifaces_tailq, uac_iface, uac_interface, tailq_entry);
     UAC_EXIT_CRITICAL();
@@ -1085,6 +1093,217 @@ static esp_err_t _uac_host_device_disconnected(usb_device_handle_t dev_hdl)
     return ESP_OK;
 }
 
+#ifdef UAC_HOST_SUSPEND_RESUME_API_SUPPORTED
+
+/**
+ * @brief Global root port suspend was called, suspend an interface
+ *
+ * @param[in] iface   Pointer to Interface structure,
+ * @return
+ *   - ESP_ERR_INVALID_ARG: Invalid input argument
+ *   - ESP_ERR_NOT_FOUND: Interface not found in the interface list (probably already disconnected)
+ *   - ESP_ERR_INVALID_STATE: Invalid interface state
+ *   - ESP_OK: Interface successfully suspended
+ */
+static esp_err_t _uac_host_interface_suspend(uac_iface_t *iface)
+{
+    UAC_RETURN_ON_INVALID_ARG(iface);
+    UAC_RETURN_ON_INVALID_ARG(iface->parent);
+    UAC_RETURN_ON_FALSE(is_interface_in_list(iface), ESP_ERR_NOT_FOUND, "Interface handle not found");
+    UAC_RETURN_ON_FALSE((UAC_INTERFACE_STATE_SUSPENDED != iface->state), ESP_ERR_INVALID_STATE, "Interface wrong state");
+    UAC_RETURN_ON_ERROR(uac_host_interface_try_lock(iface, DEFAULT_CTRL_XFER_TIMEOUT_MS), "Unable to lock UAC Interface");
+
+    // Suspending from Not initialized or idle state, just change states
+    if (iface->state <= UAC_INTERFACE_STATE_IDLE) {
+        // Change state
+        iface->last_state = iface->state;
+        iface->state = UAC_INTERFACE_STATE_SUSPENDED;
+        uac_host_interface_unlock(iface);
+        return ESP_OK;
+    }
+
+    UAC_RETURN_ON_INVALID_ARG(iface->free_xfer_list);
+    // EPs are already flushed and halted, managed by the usb_host_lib
+
+    _ring_buffer_flush(iface->ringbuf);
+
+    // add all the transfer to free list
+    UAC_ENTER_CRITICAL();
+    for (int i = 0; i < iface->xfer_num; i++) {
+        if (iface->xfer_list[i]) {
+            iface->free_xfer_list[i] = iface->xfer_list[i];
+            iface->xfer_list[i] = NULL;
+        }
+    }
+    UAC_EXIT_CRITICAL();
+    // Change state
+    iface->last_state = iface->state;
+    iface->state = UAC_INTERFACE_STATE_SUSPENDED;
+
+    uac_host_interface_unlock(iface);
+    return ESP_OK;
+}
+
+/**
+ * @brief Global root port resume was called, resume an interface
+ *
+ * @param[in] iface   Pointer to Interface structure,
+ * @return
+ *   - ESP_ERR_INVALID_ARG: Invalid input argument
+ *   - ESP_ERR_NOT_FOUND: Interface not found in the interface list (probably already disconnected)
+ *   - ESP_ERR_INVALID_STATE: Invalid interface state
+ *   - ESP_OK: Interface successfully resumed
+ */
+static esp_err_t _uac_host_interface_resume(uac_iface_t *iface)
+{
+    UAC_RETURN_ON_INVALID_ARG(iface);
+    UAC_RETURN_ON_INVALID_ARG(iface->parent);
+    UAC_RETURN_ON_FALSE(is_interface_in_list(iface), ESP_ERR_NOT_FOUND, "Interface handle not found");
+    UAC_RETURN_ON_FALSE((UAC_INTERFACE_STATE_SUSPENDED == iface->state), ESP_ERR_INVALID_STATE, "Interface wrong state");
+
+    if (ESP_ERR_TIMEOUT == uac_host_interface_try_lock(iface, 0)) {
+        if (ESP_ERR_TIMEOUT == _uac_host_device_try_lock(iface->parent, 0)) {
+            // Auto resume by transfer submit
+            // Return gracefully, interface status will be changed by the calling function
+
+            return ESP_OK;
+        } else {
+            _uac_host_device_unlock(iface->parent);
+        }
+    }
+
+    // Resuming from not initialized or idle state: No action just update the state
+    if (iface->last_state <= UAC_INTERFACE_STATE_IDLE) {
+        iface->state = iface->last_state;
+        uac_host_interface_unlock(iface);
+        return ESP_OK;
+    }
+
+    // In case the device was suspended while streamin (in active state), return back to ready state, so the user
+    // must initiate the active state manually
+    if (iface->last_state == UAC_INTERFACE_STATE_ACTIVE) {
+        iface->state = UAC_INTERFACE_STATE_READY;
+        uac_host_interface_unlock(iface);
+        return ESP_OK;
+    }
+
+    iface->state = iface->last_state;
+
+    uac_host_interface_unlock(iface);
+    return ESP_OK;
+}
+
+static esp_err_t _uac_host_interface_auto_resume(uac_iface_t *iface)
+{
+    UAC_RETURN_ON_INVALID_ARG(iface);
+    UAC_RETURN_ON_INVALID_ARG(iface->parent);
+    UAC_RETURN_ON_FALSE(is_interface_in_list(iface), ESP_ERR_NOT_FOUND, "Interface handle not found");
+    UAC_RETURN_ON_FALSE((UAC_INTERFACE_STATE_SUSPENDED == iface->state), ESP_ERR_INVALID_STATE, "Interface wrong state");
+
+    iface->state = iface->last_state;
+
+    return ESP_OK;
+}
+
+/**
+ * @brief Handler for global (root port) suspend event
+ *
+ * @param[in] dev_hdl   USB device handle
+ * @return esp_err_t
+ */
+static esp_err_t _uac_host_device_suspended(usb_device_handle_t dev_hdl)
+{
+    uac_device_t *uac_device = get_uac_device_by_handle(dev_hdl);
+    assert(uac_device);
+
+    UAC_ENTER_CRITICAL();
+    uac_iface_t *uac_iface_curr = STAILQ_FIRST(&s_uac_driver->uac_ifaces_tailq);
+    uac_iface_t *uac_iface_next = NULL;
+
+    while (uac_iface_curr != NULL) {
+        uac_iface_next = STAILQ_NEXT(uac_iface_curr, tailq_entry);
+        UAC_EXIT_CRITICAL();
+
+        if (uac_iface_curr->parent && (uac_iface_curr->parent->addr == uac_device->addr)) {
+            esp_err_t ret = _uac_host_interface_suspend(uac_iface_curr);
+
+            // Make sure the device is connected and the interface is found otherwise don't deliver suspend event
+            if (ret != ESP_ERR_NOT_FOUND) {
+
+                // We will deliver the suspend event, if the _uac_host_interface_suspend fails with other errors,
+                // as the usb_host_lib has already suspended the root port anyway
+                ESP_LOGD(TAG, "Suspending interface %p in %d state", uac_iface_curr, uac_iface_curr->state);
+                uac_host_user_interface_callback(uac_iface_curr, UAC_HOST_DEVICE_EVENT_SUSPENDED);
+            }
+        }
+        uac_iface_curr = uac_iface_next;
+        UAC_ENTER_CRITICAL();
+    }
+    UAC_EXIT_CRITICAL();
+    return ESP_OK;
+}
+
+/**
+ * @brief Handler for global (root port) resume event
+ *
+ * @param[in] dev_hdl   USB device handle
+ * @return esp_err_t
+ */
+
+static esp_err_t _uac_host_device_resumed(usb_device_handle_t dev_hdl)
+{
+    uac_device_t *uac_device = get_uac_device_by_handle(dev_hdl);
+    assert(uac_device);
+
+    UAC_ENTER_CRITICAL();
+    uac_iface_t *uac_iface_curr = STAILQ_FIRST(&s_uac_driver->uac_ifaces_tailq);
+    uac_iface_t *uac_iface_next = NULL;
+
+    while (uac_iface_curr != NULL) {
+        uac_iface_next = STAILQ_NEXT(uac_iface_curr, tailq_entry);
+        UAC_EXIT_CRITICAL();
+
+        if (uac_iface_curr->parent && (uac_iface_curr->parent->addr == uac_device->addr)) {
+            esp_err_t ret = _uac_host_interface_resume(uac_iface_curr);
+
+            // Make sure the device is connected and the interface is found otherwise don't deliver resume event
+            if (ret != ESP_ERR_NOT_FOUND) {
+
+                // We will deliver the resume event, if the _uac_host_interface_resume fails with other errors,
+                // as the usb_host_lib has already resumed the root port anyway
+                ESP_LOGD(TAG, "Resuming interface %p in %d state", uac_iface_curr, uac_iface_curr->state);
+                uac_host_user_interface_callback(uac_iface_curr, UAC_HOST_DEVICE_EVENT_RESUMED);
+            }
+        }
+        uac_iface_curr = uac_iface_next;
+        UAC_ENTER_CRITICAL();
+    }
+    UAC_EXIT_CRITICAL();
+    return ESP_OK;
+}
+
+static esp_err_t _uac_host_device_auto_resume(uac_device_t *uac_device)
+{
+    UAC_ENTER_CRITICAL();
+    uac_iface_t *uac_iface_curr = STAILQ_FIRST(&s_uac_driver->uac_ifaces_tailq);
+    uac_iface_t *uac_iface_next = NULL;
+
+    while (uac_iface_curr != NULL) {
+        uac_iface_next = STAILQ_NEXT(uac_iface_curr, tailq_entry);
+        UAC_EXIT_CRITICAL();
+
+        if (uac_iface_curr->parent && (uac_iface_curr->parent->addr == uac_device->addr)) {
+            _uac_host_interface_auto_resume(uac_iface_curr);
+        }
+        uac_iface_curr = uac_iface_next;
+        UAC_ENTER_CRITICAL();
+    }
+    UAC_EXIT_CRITICAL();
+    return ESP_OK;
+}
+
+#endif // UAC_HOST_SUSPEND_RESUME_API_SUPPORTED
+
 /**
  * @brief USB Host Client's event callback
  *
@@ -1093,10 +1312,28 @@ static esp_err_t _uac_host_device_disconnected(usb_device_handle_t dev_hdl)
  */
 static void client_event_cb(const usb_host_client_event_msg_t *event, void *arg)
 {
-    if (event->event == USB_HOST_CLIENT_EVENT_NEW_DEV) {
+    switch (event->event) {
+    case USB_HOST_CLIENT_EVENT_NEW_DEV:
+        ESP_LOGD(TAG, "New device connected");
         _uac_host_device_connected(event->new_dev.address);
-    } else if (event->event == USB_HOST_CLIENT_EVENT_DEV_GONE) {
+        break;
+    case USB_HOST_CLIENT_EVENT_DEV_GONE:
+        ESP_LOGD(TAG, "Device suddenly disconnected");
         _uac_host_device_disconnected(event->dev_gone.dev_hdl);
+        break;
+#ifdef UAC_HOST_SUSPEND_RESUME_API_SUPPORTED
+    case USB_HOST_CLIENT_EVENT_DEV_SUSPENDED:
+        ESP_LOGD(TAG, "Device suspended");
+        _uac_host_device_suspended(event->dev_suspend_resume.dev_hdl);
+        break;
+    case USB_HOST_CLIENT_EVENT_DEV_RESUMED:
+        ESP_LOGD(TAG, "Device resumed");
+        _uac_host_device_resumed(event->dev_suspend_resume.dev_hdl);
+        break;
+#endif // UAC_HOST_SUSPEND_RESUME_API_SUPPORTED
+    default:
+        ESP_LOGW(TAG, "Unrecognized USB Host client event");
+        break;
     }
 }
 
@@ -1110,7 +1347,6 @@ static esp_err_t uac_host_interface_release_and_free_transfer(uac_iface_t *iface
 {
     UAC_RETURN_ON_INVALID_ARG(iface);
     UAC_RETURN_ON_INVALID_ARG(iface->parent);
-
     UAC_RETURN_ON_FALSE(is_interface_in_list(iface), ESP_ERR_NOT_FOUND, "Interface handle not found");
     UAC_RETURN_ON_ERROR(usb_host_interface_release(s_uac_driver->client_handle, iface->parent->dev_hdl, iface->dev_info.iface_num), "Unable to release UAC Interface");
 
@@ -1133,7 +1369,11 @@ static esp_err_t uac_host_interface_release_and_free_transfer(uac_iface_t *iface
     }
 
     // Change state
-    iface->state = UAC_INTERFACE_STATE_IDLE;
+    if (iface->state == UAC_INTERFACE_STATE_SUSPENDED) {
+        iface->last_state = UAC_INTERFACE_STATE_IDLE;
+    } else {
+        iface->state = UAC_INTERFACE_STATE_IDLE;
+    }
     return ESP_OK;
 }
 
@@ -1343,7 +1583,18 @@ static esp_err_t uac_host_interface_pause(uac_iface_t *iface)
     UAC_RETURN_ON_INVALID_ARG(iface->parent);
     UAC_RETURN_ON_INVALID_ARG(iface->free_xfer_list);
     UAC_RETURN_ON_FALSE(is_interface_in_list(iface), ESP_ERR_NOT_FOUND, "Interface handle not found");
-    UAC_RETURN_ON_FALSE((UAC_INTERFACE_STATE_ACTIVE == iface->state), ESP_ERR_INVALID_STATE, "Interface wrong state");
+    UAC_RETURN_ON_FALSE((UAC_INTERFACE_STATE_ACTIVE == iface->state) ||
+                        (UAC_INTERFACE_STATE_ACTIVE == iface->last_state && UAC_INTERFACE_STATE_SUSPENDED == iface->state), ESP_ERR_INVALID_STATE, "Interface wrong state");
+
+    if (UAC_INTERFACE_STATE_SUSPENDED == iface->state) {
+        // endpoints are already flushed by usb_host_lib,
+        // ringbuffer is flushed by the suspend routine in uac driver,
+        // transfers are already in the free list by the suspend routine in uac driver,
+        // just updated state
+        iface->last_state = UAC_INTERFACE_STATE_READY;
+        return ESP_OK;
+    }
+
     iface->state = UAC_INTERFACE_STATE_PAUSING;
 
     // Set Interface alternate setting to 0
@@ -1361,10 +1612,10 @@ static esp_err_t uac_host_interface_pause(uac_iface_t *iface)
     }
 
     uint8_t ep_addr = iface->iface_alt[iface->cur_alt].ep_addr;
+    _ring_buffer_flush(iface->ringbuf);
     UAC_RETURN_ON_ERROR(usb_host_endpoint_halt(iface->parent->dev_hdl, ep_addr), "Unable to HALT EP");
     UAC_RETURN_ON_ERROR(usb_host_endpoint_flush(iface->parent->dev_hdl, ep_addr), "Unable to FLUSH EP");
     usb_host_endpoint_clear(iface->parent->dev_hdl, ep_addr);
-    _ring_buffer_flush(iface->ringbuf);
 
     // add all the transfer to free list
     UAC_ENTER_CRITICAL();
@@ -1376,7 +1627,13 @@ static esp_err_t uac_host_interface_pause(uac_iface_t *iface)
     }
     UAC_EXIT_CRITICAL();
     // Change state
-    iface->state = UAC_INTERFACE_STATE_READY;
+
+    // TODO probably don't need this
+    if (iface->state == UAC_INTERFACE_STATE_SUSPENDED) {
+        iface->last_state = UAC_INTERFACE_STATE_READY;
+    } else {
+        iface->state = UAC_INTERFACE_STATE_READY;
+    }
 
     return ESP_OK;
 }
@@ -1393,7 +1650,9 @@ static esp_err_t uac_host_interface_unpause(uac_iface_t *iface)
     UAC_RETURN_ON_INVALID_ARG(iface->parent);
     UAC_RETURN_ON_INVALID_ARG(iface->free_xfer_list);
     UAC_RETURN_ON_FALSE(is_interface_in_list(iface), ESP_ERR_NOT_FOUND, "Interface handle not found");
-    UAC_RETURN_ON_FALSE((UAC_INTERFACE_STATE_READY == iface->state), ESP_ERR_INVALID_STATE, "Interface wrong state");
+    UAC_RETURN_ON_FALSE((UAC_INTERFACE_STATE_READY == iface->state) ||
+                        (UAC_INTERFACE_STATE_SUSPENDED == iface->state && UAC_INTERFACE_STATE_READY == iface->last_state),
+                        ESP_ERR_INVALID_STATE, "Interface wrong state");
 
     // Set Interface alternate setting
     usb_setup_packet_t usb_request;
@@ -2200,11 +2459,13 @@ esp_err_t uac_host_device_close(uac_host_device_handle_t uac_dev_handle)
     ESP_LOGD(TAG, "Close addr %d, iface %d, state %d", uac_iface->dev_info.addr, uac_iface->dev_info.iface_num, uac_iface->state);
 
     UAC_RETURN_ON_ERROR(uac_host_interface_try_lock(uac_iface, DEFAULT_CTRL_XFER_TIMEOUT_MS), "UAC Interface is busy by other task");
-    if (UAC_INTERFACE_STATE_ACTIVE == uac_iface->state) {
+    if (UAC_INTERFACE_STATE_ACTIVE == uac_iface->state ||
+            (UAC_INTERFACE_STATE_ACTIVE == uac_iface->last_state && UAC_INTERFACE_STATE_SUSPENDED == uac_iface->state)) {
         UAC_GOTO_ON_ERROR(uac_host_interface_pause(uac_iface), "Unable to disable UAC Interface");
     }
 
-    if (UAC_INTERFACE_STATE_READY == uac_iface->state) {
+    if (UAC_INTERFACE_STATE_READY == uac_iface->state ||
+            (UAC_INTERFACE_STATE_READY == uac_iface->last_state && UAC_INTERFACE_STATE_SUSPENDED == uac_iface->state)) {
         UAC_GOTO_ON_ERROR(uac_host_interface_release_and_free_transfer(uac_iface), "Unable to release UAC Interface");
     }
 
@@ -2321,13 +2582,41 @@ esp_err_t uac_host_device_start(uac_host_device_handle_t uac_dev_handle, const u
 
     // get the mutex first to change the device/interface state
     UAC_RETURN_ON_ERROR(uac_host_interface_try_lock(iface, DEFAULT_CTRL_XFER_TIMEOUT_MS), "Unable to lock UAC Interface");
+    esp_err_t ret = ESP_OK;
+    bool iface_claimed = false;
+
+    if (UAC_INTERFACE_STATE_SUSPENDED == iface->state && UAC_INTERFACE_STATE_READY == iface->last_state) {
+        // If interface's last state was in READY and the current state is SUSPENDED, resume the root port
+
+        ESP_LOGD(TAG, "Resuming the root port");
+        UAC_GOTO_ON_ERROR(usb_host_lib_root_port_resume(), "Unable to resume the root port");
+        uac_host_interface_unlock(iface);
+        return ESP_OK;
+    }
+
+    if (UAC_INTERFACE_STATE_SUSPENDED == iface->state && UAC_INTERFACE_STATE_ACTIVE == iface->last_state) {
+        // If interface's last state was ACTIVE and the current state is SUSPENDED,
+        // unpause the interface which effectively resumes the root port
+
+        // Change last state to ready, to be able to unpause the iface again
+        iface->last_state = UAC_INTERFACE_STATE_READY;
+        UAC_GOTO_ON_ERROR(uac_host_interface_unpause(iface), "Unable to enable UAC Interface");
+        uac_host_interface_unlock(iface);
+        return ESP_OK;
+    }
+
     if (UAC_INTERFACE_STATE_ACTIVE == iface->state || UAC_INTERFACE_STATE_READY == iface->state) {
         uac_host_interface_unlock(iface);
         return ESP_OK;
     }
 
-    esp_err_t ret = ESP_OK;
-    bool iface_claimed = false;
+    if (UAC_INTERFACE_STATE_SUSPENDED == iface->state && UAC_INTERFACE_STATE_IDLE == iface->last_state) {
+        // We can't continue, since the following usb_host_lib api calls require the root port to be resumed
+        ESP_LOGE(TAG, "Device in suspended state, resume the device first");
+        uac_host_interface_unlock(iface);
+        return ESP_ERR_INVALID_STATE;
+    }
+
     UAC_GOTO_ON_FALSE((UAC_INTERFACE_STATE_IDLE == iface->state), ESP_ERR_INVALID_STATE, "Interface wrong state");
 
     // check if any alt setting meets the channels, sample frequency and bit resolution requirements
@@ -2397,7 +2686,9 @@ esp_err_t uac_host_device_pause(uac_host_device_handle_t uac_dev_handle)
         return ESP_OK;
     }
     esp_err_t ret = ESP_OK;
-    UAC_GOTO_ON_FALSE((UAC_INTERFACE_STATE_ACTIVE == iface->state), ESP_ERR_INVALID_STATE, "device not active");
+    UAC_GOTO_ON_FALSE((UAC_INTERFACE_STATE_ACTIVE == iface->state) ||
+                      (UAC_INTERFACE_STATE_SUSPENDED == iface->state && UAC_INTERFACE_STATE_ACTIVE == iface->last_state)
+                      , ESP_ERR_INVALID_STATE, "device not active");
     UAC_GOTO_ON_ERROR(uac_host_interface_pause(iface), "Unable to disable UAC Interface");
 
     uac_host_interface_unlock(iface);
@@ -2419,8 +2710,16 @@ esp_err_t uac_host_device_unpause(uac_host_device_handle_t uac_dev_handle)
         return ESP_OK;
     }
 
+    // In case user calls this function after the device was suspended from active (unpaused) state
+    // Change the last state to ready, so the interface could be automatically resumed and unpaused
+    if (UAC_INTERFACE_STATE_SUSPENDED == iface->state && UAC_INTERFACE_STATE_ACTIVE == iface->last_state) {
+        iface->last_state = UAC_INTERFACE_STATE_READY;
+    }
+
     esp_err_t ret = ESP_OK;
-    UAC_GOTO_ON_FALSE((UAC_INTERFACE_STATE_READY == iface->state), ESP_ERR_INVALID_STATE, "device not ready");
+    UAC_GOTO_ON_FALSE((UAC_INTERFACE_STATE_READY == iface->state) ||
+                      (UAC_INTERFACE_STATE_SUSPENDED == iface->state && UAC_INTERFACE_STATE_READY == iface->last_state),
+                      ESP_ERR_INVALID_STATE, "device not ready");
     UAC_GOTO_ON_ERROR(uac_host_interface_unpause(iface), "Unable to enable UAC Interface");
 
     uac_host_interface_unlock(iface);
@@ -2438,11 +2737,15 @@ esp_err_t uac_host_device_stop(uac_host_device_handle_t uac_dev_handle)
 
     esp_err_t ret = ESP_OK;
     UAC_RETURN_ON_ERROR(uac_host_interface_try_lock(iface, DEFAULT_CTRL_XFER_TIMEOUT_MS), "Unable to lock UAC Interface");
-    if (UAC_INTERFACE_STATE_ACTIVE == iface->state) {
+    if ((UAC_INTERFACE_STATE_ACTIVE == iface->state) ||
+            (UAC_INTERFACE_STATE_SUSPENDED == iface->state && UAC_INTERFACE_STATE_ACTIVE == iface->last_state)) {
         UAC_GOTO_ON_ERROR(uac_host_interface_pause(iface), "Unable to disable UAC Interface");
     }
 
-    if (UAC_INTERFACE_STATE_READY == iface->state) {
+    //vTaskDelay(10);
+
+    if ((UAC_INTERFACE_STATE_READY == iface->state) ||
+            (UAC_INTERFACE_STATE_SUSPENDED == iface->state && UAC_INTERFACE_STATE_READY == iface->last_state)) {
         UAC_GOTO_ON_ERROR(uac_host_interface_release_and_free_transfer(iface), "Unable to release UAC Interface");
     }
 
@@ -2478,6 +2781,20 @@ esp_err_t uac_host_device_read(uac_host_device_handle_t uac_dev_handle, uint8_t 
     return ESP_OK;
 }
 
+/**
+ * @brief Check for active interface state
+ *
+ * @param[in] iface  UAC interface
+ * @return
+ *   - true if the interface is in correct state
+ *   - false if the interface is not in correct state
+ */
+static inline bool _uac_active_iface_check(const uac_iface_t *iface)
+{
+    return (iface->state == UAC_INTERFACE_STATE_ACTIVE) ||
+           (iface->state == UAC_INTERFACE_STATE_SUSPENDED && iface->last_state == UAC_INTERFACE_STATE_ACTIVE);
+}
+
 esp_err_t uac_host_device_write(uac_host_device_handle_t uac_dev_handle, uint8_t *data, uint32_t size, uint32_t timeout)
 {
     uac_iface_t *iface = get_iface_by_handle(uac_dev_handle);
@@ -2490,7 +2807,8 @@ esp_err_t uac_host_device_write(uac_host_device_handle_t uac_dev_handle, uint8_t
     // 1. the pipe state changed to inactive during or after the ringbuffer write
     // 2. the pipe state changed to inactive during continuous transfer submit
     UAC_RETURN_ON_ERROR(uac_host_interface_try_lock(iface, DEFAULT_CTRL_XFER_TIMEOUT_MS), "Unable to lock UAC Interface");
-    if (UAC_INTERFACE_STATE_ACTIVE != iface->state) {
+    // Interface must be in active state or in suspended state with it's last state being active state
+    if (!_uac_active_iface_check(iface)) {
         uac_host_interface_unlock(iface);
         return ESP_ERR_INVALID_STATE;
     }
@@ -2513,7 +2831,7 @@ esp_err_t uac_host_device_write(uac_host_device_handle_t uac_dev_handle, uint8_t
             }
             // if interface state changed to inactive during blocking write
             // we need to return invalid state to safely exit the write function
-            if (UAC_INTERFACE_STATE_ACTIVE != iface->state) {
+            if (!_uac_active_iface_check(iface)) {
                 ret = ESP_ERR_INVALID_STATE;
                 goto exit_critical;
             }
@@ -2547,11 +2865,21 @@ esp_err_t uac_host_device_set_mute(uac_host_device_handle_t uac_dev_handle, bool
     // Check if the device is active or ready
     esp_err_t ret = ESP_OK;
     UAC_RETURN_ON_ERROR(uac_host_interface_try_lock(iface, DEFAULT_CTRL_XFER_TIMEOUT_MS), "Unable to lock UAC Interface");
-    UAC_GOTO_ON_FALSE(UAC_INTERFACE_STATE_ACTIVE == iface->state || UAC_INTERFACE_STATE_READY == iface->state,
+
+    // Use iface last_state if currently suspended, otherwise use iface state
+    uac_iface_state_t state = (iface->state == UAC_INTERFACE_STATE_SUSPENDED) ? (iface->last_state) : (iface->state);
+    UAC_GOTO_ON_FALSE(UAC_INTERFACE_STATE_ACTIVE == state || UAC_INTERFACE_STATE_READY == state,
                       ESP_ERR_INVALID_STATE, "device not ready or active");
 
     UAC_GOTO_ON_ERROR(uac_cs_request_set_mute(iface, mute), "Unable to set mute");
     ESP_LOGI(TAG, "%s Interface %d-%d", mute ? "Mute" : "Unmute", iface->dev_info.iface_num, iface->cur_alt + 1);
+
+    // This function issues a ctrl transfer, which causes auto-resume of suspended root port
+    if (iface->state == UAC_INTERFACE_STATE_SUSPENDED) {
+        // Update the interface state from here instead of from client event handler, as this function takes interface lock
+        _uac_host_device_auto_resume(iface->parent);
+    }
+
     uac_host_interface_unlock(iface);
     return ESP_OK;
 
@@ -2568,10 +2896,20 @@ esp_err_t uac_host_device_get_mute(uac_host_device_handle_t uac_dev_handle, bool
     // Check if the device is active or ready
     esp_err_t ret = ESP_OK;
     UAC_RETURN_ON_ERROR(uac_host_interface_try_lock(iface, DEFAULT_CTRL_XFER_TIMEOUT_MS), "Unable to lock UAC Interface");
-    UAC_GOTO_ON_FALSE((UAC_INTERFACE_STATE_ACTIVE == iface->state || UAC_INTERFACE_STATE_READY == iface->state),
+
+    // Use iface last_state if currently suspended, otherwise use iface state
+    uac_iface_state_t state = (iface->state == UAC_INTERFACE_STATE_SUSPENDED) ? (iface->last_state) : (iface->state);
+    UAC_GOTO_ON_FALSE(UAC_INTERFACE_STATE_ACTIVE == state || UAC_INTERFACE_STATE_READY == state,
                       ESP_ERR_INVALID_STATE, "device not ready or active");
 
     UAC_GOTO_ON_ERROR(uac_cs_request_get_mute(iface, mute), "Unable to get mute");
+
+    // This function issues a ctrl transfer, which causes auto-resume of suspended root port
+    if (iface->state == UAC_INTERFACE_STATE_SUSPENDED) {
+        // Update the interface state from here instead of from client event handler, as this function takes interface lock
+        _uac_host_device_auto_resume(iface->parent);
+    }
+
     uac_host_interface_unlock(iface);
     return ESP_OK;
 
@@ -2588,7 +2926,10 @@ esp_err_t uac_host_device_set_volume(uac_host_device_handle_t uac_dev_handle, ui
     // Check if the device is active or ready
     esp_err_t ret = ESP_OK;
     UAC_RETURN_ON_ERROR(uac_host_interface_try_lock(iface, DEFAULT_CTRL_XFER_TIMEOUT_MS), "Unable to lock UAC Interface");
-    UAC_GOTO_ON_FALSE((UAC_INTERFACE_STATE_ACTIVE == iface->state || UAC_INTERFACE_STATE_READY == iface->state),
+
+    // Use iface last_state if currently suspended, otherwise use iface state
+    uac_iface_state_t state = (iface->state == UAC_INTERFACE_STATE_SUSPENDED) ? (iface->last_state) : (iface->state);
+    UAC_GOTO_ON_FALSE(UAC_INTERFACE_STATE_ACTIVE == state || UAC_INTERFACE_STATE_READY == state,
                       ESP_ERR_INVALID_STATE, "device not ready or active");
 
     // Calculate target volume in float to avoid the int16_t calculation overflow
@@ -2602,6 +2943,13 @@ esp_err_t uac_host_device_set_volume(uac_host_device_handle_t uac_dev_handle, ui
     // Backup the volume value for the get volume function
     iface->cur_vol = volume;
     ESP_LOGI(TAG, "Set volume %d%%, Interface %d-%d", volume, iface->dev_info.iface_num, iface->cur_alt + 1);
+
+    // This function issues a ctrl transfer, which causes auto-resume of suspended root port
+    if (iface->state == UAC_INTERFACE_STATE_SUSPENDED) {
+        // Update the interface state from here instead of from client event handler, as this function takes interface lock
+        _uac_host_device_auto_resume(iface->parent);
+    }
+
     uac_host_interface_unlock(iface);
     return ESP_OK;
 
@@ -2618,7 +2966,10 @@ esp_err_t uac_host_device_get_volume(uac_host_device_handle_t uac_dev_handle, ui
     // Check if the device is active or ready
     esp_err_t ret = ESP_OK;
     UAC_RETURN_ON_ERROR(uac_host_interface_try_lock(iface, DEFAULT_CTRL_XFER_TIMEOUT_MS), "Unable to lock UAC Interface");
-    UAC_GOTO_ON_FALSE((UAC_INTERFACE_STATE_ACTIVE == iface->state || UAC_INTERFACE_STATE_READY == iface->state),
+
+    // Use iface last_state if currently suspended, otherwise use iface state
+    uac_iface_state_t state = (iface->state == UAC_INTERFACE_STATE_SUSPENDED) ? (iface->last_state) : (iface->state);
+    UAC_GOTO_ON_FALSE(UAC_INTERFACE_STATE_ACTIVE == state || UAC_INTERFACE_STATE_READY == state,
                       ESP_ERR_INVALID_STATE, "device not ready or active");
 
     // Return the backup volume value to avoid the volume reads differently than expected.
@@ -2638,6 +2989,12 @@ esp_err_t uac_host_device_get_volume(uac_host_device_handle_t uac_dev_handle, ui
     // Calculate volume in percentage
     *volume = (uint8_t)roundf((volume_db_f - _volume_db_i16_2_f(iface->vol_min_db)) * 100.0f / (_volume_db_i16_2_f(iface->vol_max_db) - _volume_db_i16_2_f(iface->vol_min_db)));
 
+    // This function issues a ctrl transfer, which causes auto-resume of suspended root port
+    if (iface->state == UAC_INTERFACE_STATE_SUSPENDED) {
+        // Update the interface state from here instead of from client event handler, as this function takes interface lock
+        _uac_host_device_auto_resume(iface->parent);
+    }
+
     uac_host_interface_unlock(iface);
     return ESP_OK;
 
@@ -2653,11 +3010,22 @@ esp_err_t uac_host_device_set_volume_db(uac_host_device_handle_t uac_dev_handle,
     // Check if the device is active or ready
     esp_err_t ret = ESP_OK;
     UAC_RETURN_ON_ERROR(uac_host_interface_try_lock(iface, DEFAULT_CTRL_XFER_TIMEOUT_MS), "Unable to lock UAC Interface");
-    UAC_GOTO_ON_FALSE((UAC_INTERFACE_STATE_ACTIVE == iface->state || UAC_INTERFACE_STATE_READY == iface->state),
+
+    // Use iface last_state if currently suspended, otherwise use iface state
+    uac_iface_state_t state = (iface->state == UAC_INTERFACE_STATE_SUSPENDED) ? (iface->last_state) : (iface->state);
+    UAC_GOTO_ON_FALSE(UAC_INTERFACE_STATE_ACTIVE == state || UAC_INTERFACE_STATE_READY == state,
                       ESP_ERR_INVALID_STATE, "device not ready or active");
+
     // Check if the volume is within the range
     UAC_GOTO_ON_FALSE((volume_db >= iface->vol_min_db && volume_db <= iface->vol_max_db), ESP_ERR_INVALID_ARG, "Invalid volume value");
     UAC_GOTO_ON_ERROR(uac_cs_request_set_volume(iface, volume_db), "Unable to set volume");
+
+    // This function issues a ctrl transfer, which causes auto-resume of suspended root port
+    if (iface->state == UAC_INTERFACE_STATE_SUSPENDED) {
+        // Update the interface state from here instead of from client event handler, as this function takes interface lock
+        _uac_host_device_auto_resume(iface->parent);
+    }
+
     uac_host_interface_unlock(iface);
     return ESP_OK;
 
@@ -2674,10 +3042,19 @@ esp_err_t uac_host_device_get_volume_db(uac_host_device_handle_t uac_dev_handle,
     // Check if the device is active or ready
     esp_err_t ret = ESP_OK;
     UAC_RETURN_ON_ERROR(uac_host_interface_try_lock(iface, DEFAULT_CTRL_XFER_TIMEOUT_MS), "Unable to lock UAC Interface");
-    UAC_GOTO_ON_FALSE((UAC_INTERFACE_STATE_ACTIVE == iface->state || UAC_INTERFACE_STATE_READY == iface->state),
+
+    // Use iface last_state if currently suspended, otherwise use iface state
+    uac_iface_state_t state = (iface->state == UAC_INTERFACE_STATE_SUSPENDED) ? (iface->last_state) : (iface->state);
+    UAC_GOTO_ON_FALSE(UAC_INTERFACE_STATE_ACTIVE == state || UAC_INTERFACE_STATE_READY == state,
                       ESP_ERR_INVALID_STATE, "device not ready or active");
 
     UAC_GOTO_ON_ERROR(uac_cs_request_get_volume(iface, volume_db), "Unable to get volume");
+
+    // This function issues a ctrl transfer, which causes auto-resume of suspended root port
+    // Update the interface state from here instead of from client event handler, as this function takes interface lock
+    if (iface->state == UAC_INTERFACE_STATE_SUSPENDED) {
+        _uac_host_device_auto_resume(iface->parent);
+    }
     uac_host_interface_unlock(iface);
     return ESP_OK;
 
