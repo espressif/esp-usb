@@ -12,7 +12,7 @@
 #include <cstdint>
 
 #include "usb/usb_types_stack.h"
-#include "usb/usb_types_uvc.h"
+#include "usb_types_uvc.h"
 
 extern "C" {
 #include "Mockusb_host.h"
