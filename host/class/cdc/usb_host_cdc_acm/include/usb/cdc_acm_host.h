@@ -130,7 +130,12 @@ esp_err_t cdc_acm_host_close(cdc_acm_dev_hdl_t cdc_hdl);
  * @param[in] data       Data to be sent
  * @param[in] data_len   Data length
  * @param[in] timeout_ms Timeout in [ms]
- * @return esp_err_t
+ * @return
+ *   - ESP_OK: Success - all data sent
+ *   - ESP_ERR_INVALID_ARG: Invalid device or data pointer
+ *   - ESP_ERR_NOT_SUPPORTED: Device was opened as read-only
+ *   - ESP_ERR_TIMEOUT: Data could not be sent within the timeout
+ *   - ESP_ERR_INVALID_RESPONSE: Error during data transmission
  */
 esp_err_t cdc_acm_host_data_tx_blocking(cdc_acm_dev_hdl_t cdc_hdl, const uint8_t *data, size_t data_len, uint32_t timeout_ms);
 

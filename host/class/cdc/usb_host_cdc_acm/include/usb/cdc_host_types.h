@@ -69,8 +69,8 @@ typedef void (*cdc_acm_host_dev_callback_t)(const cdc_acm_host_dev_event_data_t 
  */
 typedef struct {
     uint32_t connection_timeout_ms;       /**< Timeout for USB device connection in [ms] */
-    size_t out_buffer_size;               /**< Maximum size of USB bulk out transfer, set to 0 for read-only devices. If a larger transfer is needed, it will be split into multiple transfers */
-    size_t in_buffer_size;                /**< Maximum size of USB bulk in transfer */
+    size_t out_buffer_size;               /**< Maximum size of USB bulk out transfer, set to 0 for read-only devices. Larger transfers will be split into multiple transfers */
+    size_t in_buffer_size;                /**< Maximum size of USB bulk in transfer. If set to 0, the MPS of the IN endpoint will be used */
     cdc_acm_host_dev_callback_t event_cb; /**< Device's event callback function. Can be NULL */
     cdc_acm_data_callback_t data_cb;      /**< Device's data RX callback function. Can be NULL for write-only devices */
     void *user_arg;                       /**< User's argument that will be passed to the callbacks */
