@@ -10,6 +10,7 @@
 #include <stdint.h>
 #include "freertos/FreeRTOS.h"
 #include "esp_err.h"
+#include "usb/usb_host.h"
 #include "uac.h"
 
 #ifdef __cplusplus
@@ -36,6 +37,11 @@ extern "C" {
 */
 #define FLAG_STREAM_SUSPEND_AFTER_START      (1 << 0)
 
+// For backward compatibility with older idf versions without suspend/resume API
+#ifdef USB_HOST_LIB_EVENT_FLAGS_AUTO_SUSPEND
+#define UAC_HOST_SUSPEND_RESUME_API_SUPPORTED
+#endif
+
 typedef struct uac_interface *uac_host_device_handle_t;    /*!< Logic Device Handle. Handle to a particular UAC interface */
 
 // ------------------------ USB UAC Host events --------------------------------
@@ -55,6 +61,10 @@ typedef enum {
     UAC_HOST_DEVICE_EVENT_TX_DONE,                       /*!< TX Done: the transmit buffer data size falls below the threshold */
     UAC_HOST_DEVICE_EVENT_TRANSFER_ERROR,                /*!< UAC Device transfer error */
     UAC_HOST_DRIVER_EVENT_DISCONNECTED,                  /*!< UAC Device has been disconnected */
+#ifdef UAC_HOST_SUSPEND_RESUME_API_SUPPORTED
+    UAC_HOST_DEVICE_EVENT_SUSPENDED,                     /*!< UAC Device has been suspended */
+    UAC_HOST_DEVICE_EVENT_RESUMED,                       /*!< UAC Device has been resumed */
+#endif // UAC_HOST_SUSPEND_RESUME_API_SUPPORTED
 } uac_host_device_event_t;
 
 // ------------------------ USB UAC Host events callbacks -----------------------------
