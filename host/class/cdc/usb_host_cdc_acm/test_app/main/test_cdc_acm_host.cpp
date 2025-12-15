@@ -720,6 +720,43 @@ TEST_CASE("closing", "[cdc_acm]")
     vTaskDelay(20); // Short delay to allow task to be cleaned up
 }
 
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(6, 0, 0) // This fix is only available in usb managed component now
+/**
+ * @brief Test: Closing from high priority task
+ *
+ * -# Install CDC-ACM driver with low priority (0)
+ * -# Open and close device from higher priority task (app_main has priority 1)
+ */
+TEST_CASE("closing_high_priority", "[cdc_acm]")
+{
+    // Create a task that will handle USB library events
+    TEST_ASSERT_EQUAL(pdTRUE, xTaskCreatePinnedToCore(usb_lib_task, "usb_lib", 4 * 4096, xTaskGetCurrentTaskHandle(), 10, NULL, 0));
+    ulTaskNotifyTake(false, 1000);
+
+    printf("Installing CDC-ACM driver with minimum priority\n");
+    static const cdc_acm_host_driver_config_t cdc_acm_driver_config = {
+        .driver_task_stack_size = 4096,
+        .driver_task_priority = 0, // Minimum priority
+        .xCoreID = 0,
+        .new_dev_cb = NULL,
+    };
+    TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_install(&cdc_acm_driver_config));
+
+    cdc_acm_dev_hdl_t cdc_dev = NULL;
+    const cdc_acm_host_device_config_t dev_config = default_dev_config;
+
+    printf("Opening CDC-ACM device\n");
+    TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_open(0x303A, 0x4002, 0, &dev_config, &cdc_dev)); // 0x303A:0x4002 (TinyUSB Dual CDC device)
+    TEST_ASSERT_NOT_NULL(cdc_dev);
+    vTaskDelay(10);
+
+    // Clean-up
+    TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_close(cdc_dev));
+    TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_uninstall());
+    vTaskDelay(20); // Short delay to allow task to be cleaned up
+}
+#endif // ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(6, 0, 0)
+
 /* Basic test to check CDC driver reaction to TX timeout */
 /* Temporary disabling the test, as it keeps failing in the CI IDF-14863 */
 TEST_CASE("tx_timeout", "[cdc_acm][ignore]")
