@@ -904,10 +904,7 @@ exit_rx:
 
 /**
  * @brief: Test disconnect the device when the stream is running
- * @note: Currently, the P4 PHY can't be controlled to emulate the hot-plug event,
- *  so the test is disabled
  */
-#if !CONFIG_IDF_TARGET_ESP32P4
 TEST_CASE("test uac tx rx loopback with disconnect", "[uac_host][tx][rx][hot-plug]")
 {
     // handle device connection
@@ -1051,4 +1048,3 @@ exit_rx:
         free(rx_buffer_stereo);
     }
 }
-#endif
