@@ -163,8 +163,8 @@ static const uvc_host_stream_config_t stream_mjpeg_config = {
         .uvc_stream_index = 0,
     },
     .vs_format = {
-        .h_res = 720,
-        .v_res = 1280,
+        .h_res = 1280,
+        .v_res = 720,
         .fps = 15,
         .format = UVC_VS_FORMAT_MJPEG,
     },
