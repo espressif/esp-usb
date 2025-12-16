@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Fixed parsing of non-conforming UVC VideoStreaming descriptors where `bNumFormats` is inconsistent with actual `bFormatIndex` values (e.g., `bNumFormats=1` but format descriptors use `bFormatIndex=2`)
+- Fixed potential `ESP_ERR_INVALID_STATE` error when uninstalling UVC driver by always waiting for teardown completion regardless of driver state
 
 ## [2.4.0] - 2025-11-21
 
