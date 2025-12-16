@@ -301,19 +301,19 @@ static esp_err_t cdc_acm_find_and_open_usb_device(uint16_t vid, uint16_t pid, in
         for (int i = 0; i < num_of_devices; i++) {
             usb_device_handle_t current_device;
             // Open USB device
-            if (usb_host_device_open(p_cdc_acm_obj->cdc_acm_client_hdl, dev_addr_list[i], &current_device) != ESP_OK) {
-                continue; // In case we failed to open this device, continue with next one in the list
+            if (usb_host_device_open(p_cdc_acm_obj->cdc_acm_client_hdl, dev_addr_list[i], &current_device) == ESP_OK) {
+                assert(current_device);
+                const usb_device_desc_t *device_desc;
+                ESP_ERROR_CHECK(usb_host_get_device_descriptor(current_device, &device_desc));
+                if ((device_desc->bDeviceClass != USB_CLASS_HUB) &&
+                        (vid == device_desc->idVendor || vid == CDC_HOST_ANY_VID) &&
+                        (pid == device_desc->idProduct || pid == CDC_HOST_ANY_PID)) {
+                    // Return path 2:
+                    (*dev)->dev_hdl = current_device;
+                    return ESP_OK;
+                }
+                usb_host_device_close(p_cdc_acm_obj->cdc_acm_client_hdl, current_device);
             }
-            assert(current_device);
-            const usb_device_desc_t *device_desc;
-            ESP_ERROR_CHECK(usb_host_get_device_descriptor(current_device, &device_desc));
-            if ((vid == device_desc->idVendor || vid == CDC_HOST_ANY_VID) &&
-                    (pid == device_desc->idProduct || pid == CDC_HOST_ANY_PID)) {
-                // Return path 2:
-                (*dev)->dev_hdl = current_device;
-                return ESP_OK;
-            }
-            usb_host_device_close(p_cdc_acm_obj->cdc_acm_client_hdl, current_device);
         }
         vTaskDelay(pdMS_TO_TICKS(50));
     } while (xTaskCheckForTimeOut(&connection_timeout, &timeout_ticks) == pdFALSE);

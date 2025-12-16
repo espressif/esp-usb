@@ -4,17 +4,21 @@ All notable changes to this component will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.1.2] - 2025-12-16
 
 ### Added
 - Added global suspend/resume support
 - Added support for transmitting data larger than the configured output buffer size
+
+### Fixed
+- Fixed opening of CDC devices with any VID/PID when connected through a USB hub
 
 ## [2.1.1] - 2025-09-24
 
 ### Added
 
 - Added support for ESP32-H4
+- Added support for IDF 6.0
 
 ## [2.1.0] - 2025-04-25
 
