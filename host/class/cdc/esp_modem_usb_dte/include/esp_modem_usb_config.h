@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2022-2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2022-2025 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -19,7 +19,7 @@ struct esp_modem_usb_term_config {
     int secondary_interface_idx; /*!< USB Interface index that will be used for secondary terminal: data. Set to -1 for modems with 1 AT port. */
     uint32_t timeout_ms;         /*!< Time for a USB modem to connect to USB host. 0 means wait forever. */
     int xCoreID;                 /*!< Core affinity of created tasks: CDC-ACM driver task and optional USB Host task */
-    bool cdc_compliant;          /*!< Treat the USB device as CDC-compliant. Read CDC-ACM driver documentation for more details */
+    bool cdc_compliant __attribute__((deprecated("Deprecated: CDC compliance is auto-detected")));
     bool install_usb_host;       /*!< Flag whether USB Host driver should be installed */
 };
 

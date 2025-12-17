@@ -47,7 +47,7 @@ static void usb_host_task(void *arg)
 namespace esp_modem {
 class UsbTerminal : public Terminal, private CdcAcmDevice {
 public:
-    explicit UsbTerminal(const esp_modem_dte_config *config, int term_idx): buffer_size(config->dte_buffer_size)
+    explicit UsbTerminal(const esp_modem_dte_config *config, int term_idx)
     {
         const struct esp_modem_usb_term_config *usb_config = (struct esp_modem_usb_term_config *)(config->extension_config);
 
@@ -88,15 +88,9 @@ public:
         // Determine Terminal interface index
         const uint8_t intf_idx = term_idx == 0 ? usb_config->interface_idx : usb_config->secondary_interface_idx;
 
-        if (usb_config->cdc_compliant) {
-            ESP_MODEM_THROW_IF_ERROR(
-                this->CdcAcmDevice::open(usb_config->vid, usb_config->pid, intf_idx, &esp_modem_cdc_acm_device_config),
-                "USB Device open failed");
-        } else {
-            ESP_MODEM_THROW_IF_ERROR(
-                this->CdcAcmDevice::open_vendor_specific(usb_config->vid, usb_config->pid, intf_idx, &esp_modem_cdc_acm_device_config),
-                "USB Device open failed");
-        }
+        ESP_MODEM_THROW_IF_ERROR(
+            this->CdcAcmDevice::open(usb_config->vid, usb_config->pid, intf_idx, &esp_modem_cdc_acm_device_config),
+            "USB Device open failed");
     };
 
     ~UsbTerminal()
@@ -117,15 +111,8 @@ public:
     int write(uint8_t *data, size_t len) override
     {
         ESP_LOG_BUFFER_HEXDUMP(TAG, data, len, ESP_LOG_DEBUG);
-        uint8_t *ptr = data;
-        size_t remain = len;
-        while (remain > 0) {
-            int batch = std::min(buffer_size, remain);
-            if (this->CdcAcmDevice::tx_blocking(ptr, batch) != ESP_OK) {
-                return -1;
-            }
-            remain -= batch;
-            ptr += batch;
+        if (this->CdcAcmDevice::tx_blocking(data, len) != ESP_OK) {
+            return -1;
         }
         return len;
     }
@@ -184,7 +171,6 @@ private:
             break;
         }
     }
-    size_t buffer_size;
 };
 TaskHandle_t UsbTerminal::usb_host_lib_task = nullptr;
 
