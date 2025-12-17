@@ -1,5 +1,5 @@
 ## IDF Component Manager Manifest File
-version: "1.2.1"
+version: "1.3.0"
 description: USB DTE plugin for esp_modem component
 tags:
   - usb
@@ -14,6 +14,6 @@ repository_info:
 
 dependencies:
   usb_host_cdc_acm:
-    version: "2.*"
+    version: "^2.2"
     override_path: "../usb_host_cdc_acm"
   esp_modem: ">=1,<3"

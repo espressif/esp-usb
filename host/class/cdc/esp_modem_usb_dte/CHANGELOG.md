@@ -4,11 +4,19 @@ All notable changes to this component will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.3.0] - 2025-12-19
 
 ### Added
 
 - Added support for esp_modem v2
+
+### Deprecated
+
+- Deprecated esp_modem_usb_term_config->cdc_compliant field. CDC compliance is now auto detected by CDC-ACM USB driver.
+
+### Known issues
+
+- ESP32-P4 cannot receive fragmented AT responses from a modem. Thus, some SimCom modems do not work with this version
 
 ## [1.2.1] - 2024-06-24
 
