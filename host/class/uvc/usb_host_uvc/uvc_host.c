@@ -293,15 +293,18 @@ esp_err_t uvc_host_handle_events(unsigned long timeout)
     UVC_CHECK(uvc_obj, ESP_ERR_INVALID_STATE);
 
     ESP_LOGV(TAG, "USB UVC handling");
-    esp_err_t ret = usb_host_client_handle_events(uvc_obj->usb_client_hdl, timeout);
-
     // Get driver status
-    const EventBits_t events = xEventGroupGetBits(uvc_obj->driver_status);
+    EventBits_t events = xEventGroupGetBits(uvc_obj->driver_status);
 
     // If this is the first call to this function, we need to set the UVC_STARTED bit
     if ((events & UVC_STARTED) == 0) {
         xEventGroupSetBits(uvc_obj->driver_status, UVC_STARTED);
     }
+
+    esp_err_t ret = usb_host_client_handle_events(uvc_obj->usb_client_hdl, timeout);
+
+    // check if the driver is being uninstalled
+    events = xEventGroupGetBits(uvc_obj->driver_status);
 
     // We return ESP_FAIL to signal that the driver is being uninstalled
     // and we should stop handling events
@@ -724,9 +727,10 @@ esp_err_t uvc_host_uninstall()
 
     EventBits_t driver_status = xEventGroupGetBits(uvc_obj->driver_status);
     if (driver_status & UVC_STARTED) {
+        // Wait for the UVC task to finish
         ESP_GOTO_ON_FALSE(
             xEventGroupWaitBits(uvc_obj->driver_status, UVC_TEARDOWN_COMPLETE, pdFALSE, pdFALSE, pdMS_TO_TICKS(100)),
-            ESP_ERR_NOT_FINISHED, unblock, TAG,);
+            ESP_ERR_NOT_FINISHED, unblock, TAG, "Timeout waiting for UVC_TEARDOWN_COMPLETE");
     }
 
     ESP_LOGD(TAG, "Deregistering client");

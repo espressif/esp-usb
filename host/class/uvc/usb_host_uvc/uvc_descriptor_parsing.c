@@ -326,15 +326,14 @@ esp_err_t uvc_desc_get_frame_format_by_index(
 
     const uvc_vs_input_header_desc_t *input_header = uvc_desc_get_streaming_input_header(cfg_desc, bInterfaceNumber);
     UVC_CHECK(input_header, ESP_ERR_NOT_FOUND);
-    UVC_CHECK(input_header->bNumFormats >= bFormatIndex, ESP_ERR_NOT_FOUND);
 
     // Find requested Format and Frame descriptors
     esp_err_t ret = ESP_ERR_NOT_FOUND;
     int format_offset = 0;
     const usb_standard_desc_t *current_desc = (const usb_standard_desc_t *) input_header;
     while ((current_desc = usb_parse_next_descriptor_of_type(current_desc, input_header->wTotalLength, UVC_CS_INTERFACE, &format_offset))) {
-        const uvc_format_desc_t *this_format = (const uvc_format_desc_t *)current_desc;
         if (uvc_desc_is_format_desc(current_desc)) {
+            const uvc_format_desc_t *this_format = (const uvc_format_desc_t *)current_desc;
             if (this_format->bFormatIndex == bFormatIndex) {
                 UVC_CHECK(this_format->bNumFrameDescriptors >= bFrameIndex, ESP_ERR_NOT_FOUND);
                 *format_desc_ret = (const uvc_format_desc_t *)this_format;

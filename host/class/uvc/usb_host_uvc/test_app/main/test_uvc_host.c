@@ -426,4 +426,39 @@ TEST_CASE("Streaming with user-provided frame buffers", "[uvc]")
     vTaskDelay(20);
 }
 
+TEST_CASE("Uninstall uvc driver immediately after install", "[uvc]")
+{
+    printf("Round 1 with uvc background task running\n");
+    test_install_uvc_driver();
+
+    // Immediately uninstall without opening any stream or calling uvc_host_handle_events()
+    // This tests the case where UVC_STARTED flag may not be set yet
+    printf("Uninstalling UVC driver immediately\n");
+    vTaskDelay(20); // Short delay to allow task to be cleaned up
+
+    TEST_ASSERT_EQUAL(ESP_OK, uvc_host_uninstall());
+    printf("UVC driver uninstalled\n");
+    // Wait for the task to be deleted
+    vTaskDelay(100);
+
+    // Round 2 without uvc background task running
+    // Create a task that will handle USB library events
+    printf("Round 2 without uvc background task running\n");
+    TEST_ASSERT_EQUAL(pdTRUE, xTaskCreatePinnedToCore(usb_lib_task, "usb_lib", 4 * 4096, xTaskGetCurrentTaskHandle(), 10, NULL, 0));
+    ulTaskNotifyTake(false, 1000);
+    printf("Installing UVC driver\n");
+    const uvc_host_driver_config_t uvc_driver_config = {
+        .driver_task_stack_size = 4 * 1024,
+        .driver_task_priority = 10,
+        .xCoreID = tskNO_AFFINITY,
+        .create_background_task = false,
+        .event_cb = NULL,
+        .user_ctx = NULL,
+    };
+    TEST_ASSERT_EQUAL(ESP_OK, uvc_host_install(&uvc_driver_config));
+    vTaskDelay(20); // Short delay to allow task to be cleaned up
+    TEST_ASSERT_EQUAL(ESP_OK, uvc_host_uninstall());
+    vTaskDelay(100); // Short delay to allow task to be cleaned up
+}
+
 #endif // SOC_USB_OTG_SUPPORTED
