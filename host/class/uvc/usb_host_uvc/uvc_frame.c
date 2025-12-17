@@ -7,6 +7,7 @@
 #include <string.h> // For memcpy
 #include <inttypes.h>
 
+#include "sdkconfig.h"
 #include "esp_check.h"
 #include "esp_heap_caps.h"
 
@@ -152,4 +153,50 @@ void uvc_frame_format_update(uvc_stream_t *uvc_stream, const uvc_host_stream_for
     // The recursive loop is broken once we run out of empty frame buffers
     uvc_frame_format_update(uvc_stream, vs_format);
     uvc_host_frame_return(uvc_stream, this_frame);
+}
+
+bool uvc_frame_payload_header_validate(const uvc_payload_header_t *hdr, size_t packet_len)
+{
+    // Need at least base header struct (bHeaderLength + bmHeaderInfo)
+    if (packet_len < sizeof(uvc_payload_header_t)) {
+        return false;
+    }
+
+    const uint8_t header_len = hdr->bHeaderLength;
+
+    // Basic structural checks
+    if (header_len < sizeof(uvc_payload_header_t)) {
+        return false;
+    }
+
+    if (packet_len < header_len) {
+        return false;
+    }
+
+#if CONFIG_UVC_CHECK_PAYLOAD_HEADER_EOH
+    // UVC spec: End of Header (EOH) bit must be set
+    if (!hdr->bmHeaderInfo.end_of_header) {
+        return false;
+    }
+#endif // CONFIG_UVC_CHECK_PAYLOAD_HEADER_EOH
+
+    // Optional fields minimal size checks (per UVC spec):
+    // - presentation_time -> +4 bytes
+    // - source_clock_reference -> +6 bytes
+    size_t min_len = sizeof(uvc_payload_header_t);
+    if (hdr->bmHeaderInfo.presentation_time) {
+        min_len += 4;
+    }
+    if (hdr->bmHeaderInfo.source_clock_reference) {
+        min_len += 6;
+    }
+    if (header_len < min_len) {
+        return false;
+    }
+
+    if (header_len > 12) {
+        return false; // UVC spec: bHeaderLength must not exceed 12 bytes
+    }
+
+    return true;
 }

@@ -381,8 +381,8 @@ static esp_err_t uvc_transfers_allocate(uvc_stream_t *uvc_stream, unsigned num_o
     // Make sure that we allocate size integer multiple of MPS buffer: This is required for all IN transfers
     transfer_size = usb_round_up_to_mps(transfer_size, max_packet_size);
 
-    ESP_LOGD(TAG, "Allocating %d USB transfers. Each: %zu bytes, %d ISOC packets, %d MPS",
-             num_of_transfers, transfer_size, num_isoc_packets, max_packet_size);
+    ESP_LOGI(TAG, "Allocating %d USB transfers for %s. Each: %zu bytes, %d ISOC packets, %d MPS",
+             num_of_transfers, is_isoc ? "ISOC" : "BULK", transfer_size, num_isoc_packets, max_packet_size);
 
     // Allocate array of transfers
     uvc_stream->constant.xfers = malloc(num_of_transfers * sizeof(usb_transfer_t *));
@@ -820,11 +820,6 @@ esp_err_t uvc_host_stream_open(const uvc_host_stream_config_t *stream_config, in
         uvc_set_interface(uvc_stream, false);
     }
 
-    // Allocate USB transfers
-    ESP_GOTO_ON_ERROR(
-        uvc_transfers_allocate(uvc_stream, stream_config->advanced.number_of_urbs, stream_config->advanced.urb_size, ep_desc),
-        err, TAG,);
-
     // Note: The maximum frame size (dwMaxVideoFrameSize) is not provided in the device descriptors.
     // Instead, it is retrieved via a negotiation process that involves:
     //   1. Setting the desired video format on the camera.
@@ -840,6 +835,13 @@ esp_err_t uvc_host_stream_open(const uvc_host_stream_config_t *stream_config, in
         uvc_host_stream_control_probe(uvc_stream, &real_format, &vs_result),
         err, TAG, "Failed to negotiate requested Video Stream format");
 
+    // check if the urb_size is smaller than the maximum payload transfer size
+    size_t urb_size = stream_config->advanced.urb_size > vs_result.dwMaxPayloadTransferSize ?
+                      vs_result.dwMaxPayloadTransferSize : stream_config->advanced.urb_size;
+    // Allocate USB transfers
+    ESP_GOTO_ON_ERROR(
+        uvc_transfers_allocate(uvc_stream, stream_config->advanced.number_of_urbs, urb_size, ep_desc),
+        err, TAG,);
     // Allocate Frame buffers
     ESP_GOTO_ON_ERROR(
         uvc_frame_allocate(
