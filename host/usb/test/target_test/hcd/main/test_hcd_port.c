@@ -473,6 +473,7 @@ TEST_CASE("Test HCD port command bailout", "[port][low_speed][full_speed][high_s
     vSemaphoreDelete(sync_sem);
 }
 
+#ifdef REMOTE_WAKE_HAL_SUPPORTED
 /*
 Test HCD port remote wakeup
 
@@ -541,3 +542,5 @@ TEST_CASE("Test HCD port remote wakeup", "[port][low_speed][full_speed][high_spe
     test_hcd_free_urb(set_feature_urb);
     test_hcd_wait_for_disconn(port_hdl, false);
 }
+
+#endif // REMOTE_WAKE_HAL_SUPPORTED

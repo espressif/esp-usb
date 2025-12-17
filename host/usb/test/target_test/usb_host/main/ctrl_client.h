@@ -5,6 +5,7 @@
  */
 
 #include <stdint.h>
+#include "hcd.h"                // For remote waekup HAL support macro
 
 typedef struct {
     int num_ctrl_xfer_to_send;
@@ -12,4 +13,6 @@ typedef struct {
 
 void ctrl_client_async_seq_task(void *arg);
 
+#ifdef REMOTE_WAKE_HAL_SUPPORTED
 void ctrl_client_remote_wake_task(void *arg);
+#endif // REMOTE_WAKE_HAL_SUPPORTED

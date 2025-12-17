@@ -457,6 +457,7 @@ void test_hcd_ping_device(hcd_pipe_handle_t default_pipe, urb_t *default_urb)
     TEST_ASSERT_EQUAL(USB_B_DESCRIPTOR_TYPE_CONFIGURATION, config_desc->bDescriptorType);
 }
 
+#ifdef REMOTE_WAKE_HAL_SUPPORTED
 void test_hcd_remote_wake_enable(hcd_pipe_handle_t *default_pipe, urb_t *feature_urb, bool enable)
 {
     feature_urb->transfer.num_bytes = sizeof(usb_setup_packet_t);
@@ -512,3 +513,4 @@ bool test_hcd_remote_wake_check(hcd_pipe_handle_t *default_pipe, urb_t *get_stat
     printf("Remote wake-up is currently %s\n", ((remote_wake_enabled)) ? ("enabled") : ("disabled") );
     return remote_wake_enabled;
 }
+#endif // REMOTE_WAKE_HAL_SUPPORTED

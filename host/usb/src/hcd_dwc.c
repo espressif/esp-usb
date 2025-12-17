@@ -874,6 +874,7 @@ static hcd_port_event_t _intr_hdlr_hprt(port_t *port, usb_dwc_hal_port_event_t h
         port->flags.conn_dev_ena = 0;
         break;
     }
+#ifdef REMOTE_WAKE_HAL_SUPPORTED
     case USB_DWC_HAL_PORT_EVENT_REMOTE_WAKEUP: {
         ESP_EARLY_LOGD(HCD_DWC_TAG, "Remote wakeup generated from device");
         // Port must have been previously suspended to start processing remote wakeup signaling
@@ -882,6 +883,7 @@ static hcd_port_event_t _intr_hdlr_hprt(port_t *port, usb_dwc_hal_port_event_t h
         }
         break;
     }
+#endif // REMOTE_WAKE_HAL_SUPPORTED
     default: {
         abort();
         break;

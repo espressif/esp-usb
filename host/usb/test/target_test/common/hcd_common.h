@@ -205,6 +205,7 @@ uint8_t test_hcd_enum_device(hcd_pipe_handle_t default_pipe);
  */
 void test_hcd_ping_device(hcd_pipe_handle_t default_pipe, urb_t *default_urb);
 
+#ifdef REMOTE_WAKE_HAL_SUPPORTED
 /**
  * @brief Enable remote wakeup feature on device
  *
@@ -227,3 +228,4 @@ void test_hcd_remote_wake_enable(hcd_pipe_handle_t *default_pipe, urb_t *feature
  *         False if remote wake-up is currently disabled
  */
 bool test_hcd_remote_wake_check(hcd_pipe_handle_t *default_pipe, urb_t *get_status_urb);
+#endif // REMOTE_WAKE_HAL_SUPPORTED

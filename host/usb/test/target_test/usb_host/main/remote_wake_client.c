@@ -14,6 +14,7 @@
 #include "usb/usb_host.h"
 #include "unity.h"
 
+#ifdef REMOTE_WAKE_HAL_SUPPORTED
 /*
 Implementation of remote wakeup client used for USB Host tests
 
@@ -289,3 +290,5 @@ void ctrl_client_remote_wake_task(void *arg)
     ESP_LOGI(REMOTE_WAKE_CLIENT_TAG, "Done");
     vTaskDelete(NULL);
 }
+
+#endif // REMOTE_WAKE_HAL_SUPPORTED
