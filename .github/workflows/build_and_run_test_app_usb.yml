@@ -19,6 +19,10 @@ on:
         description: 'The JSON array of targets for target runners'
         required: true
         type: string
+      changed_files:
+        description: 'Changed files separated by semicolon'
+        required: false
+        type: string
 
 jobs:
   build:
@@ -40,8 +44,6 @@ jobs:
             usb_comp_managed: "yes"
         exclude:
           # Exclude using managed usb component for older releases, only with service releases
-          - test_app: host_managed
-            idf_ver: "release-v5.1"
           - test_app: host_managed
             idf_ver: "release-v5.2"
           - test_app: host_managed
@@ -70,8 +72,13 @@ jobs:
           export ENV_VAR_USB_COMP_MANAGED=${{ matrix.usb_comp_managed }}
 
           # We should have the --disable-targets linux by default anyway for this workflow, since there is a separate workflow for linux tests.
-          idf-build-apps find --paths ${{ matrix.path }} --disable-targets linux
-          idf-build-apps build --paths ${{ matrix.path }} --disable-targets linux
+          MODIFIED_FILES_FLAG=""
+          CHANGED_FILES="${{ inputs.changed_files }}"
+          if [ -n "$CHANGED_FILES" ]; then
+            MODIFIED_FILES_FLAG="--modified-files=$CHANGED_FILES"
+          fi
+          idf-build-apps find --paths ${{ matrix.path }} --disable-targets linux $MODIFIED_FILES_FLAG
+          idf-build-apps build --paths ${{ matrix.path }} --disable-targets linux $MODIFIED_FILES_FLAG
       - uses: actions/upload-artifact@v4
         with:
           name: usb_${{ matrix.test_app }}_test_app_bin_${{ matrix.idf_ver }}
@@ -82,7 +89,6 @@ jobs:
             **/build_esp*/test_app_*.elf
             **/build_esp*/flasher_args.json
             **/build_esp*/config/sdkconfig.json
-          if-no-files-found: error
 
   run:
     name: Run TestApps on target
@@ -108,13 +114,9 @@ jobs:
           - test_app: host_managed
             runner_tag: usb_device
           # Exclude esp32p4 for releases before IDF 5.3 for all runner tags (esp32p4 support starts in IDF 5.3)
-          - idf_ver: "release-v5.1"
-            idf_target: "esp32p4"
           - idf_ver: "release-v5.2"
             idf_target: "esp32p4"
           # Exclude using managed usb component for older releases, only with service releases
-          - test_app: host_managed
-            idf_ver: "release-v5.1"
           - test_app: host_managed
             idf_ver: "release-v5.2"
           - test_app: host_managed
@@ -143,4 +145,4 @@ jobs:
           PIP_EXTRA_INDEX_URL: "https://dl.espressif.com/pypi/"
         run: pip install --only-binary cryptography pytest-embedded pytest-embedded-serial-esp pytest-embedded-idf pyserial pyusb
       - name: Run USB Test App on target
-        run: pytest --target=${{ matrix.idf_target }} -m ${{ matrix.runner_tag }} --build-dir=build_${{ matrix.idf_target }}_default
+        run: pytest --suppress-no-test-exit-code --target=${{ matrix.idf_target }} -m ${{ matrix.runner_tag }} --build-dir=build_${{ matrix.idf_target }}_default
