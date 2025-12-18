@@ -23,6 +23,8 @@
 #define TEST_MSC_SCSI_TAG                   0xDEADBEEF
 #define TEST_CTRL_NUM_TRANSFERS             30
 #define B_CONFIGURATION_VALUE               1
+#define NEW_DEV_EVENT_MS                    1000    // Delay to wait for a device to be connected
+#define DEV_GONE_EVENT_MS                   1000    // Delay to wait for a device to be disconnected
 
 const char *USB_HOST_ASYNC_TAG = "USB Host async";
 
@@ -56,7 +58,7 @@ TEST_CASE("Test USB Host async client (single client)", "[usb_host][full_speed][
         .num_sectors_per_xfer = TEST_MSC_NUM_SECTORS_PER_XFER,
         .msc_scsi_xfer_tag = TEST_MSC_SCSI_TAG,
     };
-    TaskHandle_t task_hdl;
+    TaskHandle_t task_hdl = NULL;
     xTaskCreatePinnedToCore(msc_client_async_seq_task, "async", 4096, (void *)&params, 2, &task_hdl, 0);
     TEST_ASSERT_NOT_NULL_MESSAGE(task_hdl, "Failed to create async task");
     // Start the task
@@ -104,7 +106,7 @@ TEST_CASE("Test USB Host async client (multi client)", "[usb_host][full_speed][h
         .num_sectors_per_xfer = TEST_MSC_NUM_SECTORS_PER_XFER,
         .msc_scsi_xfer_tag = TEST_MSC_SCSI_TAG,
     };
-    TaskHandle_t msc_task_hdl;
+    TaskHandle_t msc_task_hdl = NULL;
     xTaskCreatePinnedToCore(msc_client_async_seq_task, "msc", 4096, (void *)&msc_params, 2, &msc_task_hdl, 0);
     TEST_ASSERT_NOT_NULL_MESSAGE(msc_task_hdl, "Failed to create MSC task");
 
@@ -112,7 +114,7 @@ TEST_CASE("Test USB Host async client (multi client)", "[usb_host][full_speed][h
     ctrl_client_test_param_t ctrl_params = {
         .num_ctrl_xfer_to_send = TEST_CTRL_NUM_TRANSFERS,
     };
-    TaskHandle_t ctrl_task_hdl;
+    TaskHandle_t ctrl_task_hdl = NULL;
     xTaskCreatePinnedToCore(ctrl_client_async_seq_task, "ctrl", 4096, (void *)&ctrl_params, 2, &ctrl_task_hdl, 0);
     TEST_ASSERT_NOT_NULL_MESSAGE(ctrl_task_hdl, "Failed to create CTRL task");
 
@@ -168,6 +170,7 @@ static void test_async_client_cb(const usb_host_client_event_msg_t *event_msg, v
 
     switch (event_msg->event) {
     case USB_HOST_CLIENT_EVENT_NEW_DEV:
+        ESP_LOGI(USB_HOST_ASYNC_TAG, "Client event -> New device");
         if (dev_addr == 0) {
             dev_addr = event_msg->new_dev.address;
         } else {
@@ -176,6 +179,7 @@ static void test_async_client_cb(const usb_host_client_event_msg_t *event_msg, v
         *stage = CLIENT_TEST_STAGE_CONN;
         break;
     case USB_HOST_CLIENT_EVENT_DEV_GONE:
+        ESP_LOGI(USB_HOST_ASYNC_TAG, "Client event -> Device gone");
         *stage = CLIENT_TEST_STAGE_DCONN;
         break;
     default:
@@ -204,16 +208,26 @@ TEST_CASE("Test USB Host async API", "[usb_host][low_speed][full_speed][high_spe
     client_config.async.callback_arg = (void *)&client1_stage;
     TEST_ASSERT_EQUAL(ESP_OK, usb_host_client_register(&client_config, &client1_hdl));
 
+    // New device event timeout
+    TickType_t new_dev_ticks = pdMS_TO_TICKS(NEW_DEV_EVENT_MS);
+    TimeOut_t new_dev_timeout;
+    vTaskSetTimeOutState(&new_dev_timeout);
+
     // Wait until the device connects and the clients receive the event
     while (!(client0_stage == CLIENT_TEST_STAGE_CONN && client1_stage == CLIENT_TEST_STAGE_CONN)) {
         usb_host_lib_handle_events(0, NULL);
         usb_host_client_handle_events(client0_hdl, 0);
         usb_host_client_handle_events(client1_hdl, 0);
         vTaskDelay(pdMS_TO_TICKS(10));
+
+        // Check if the device is enumerated within 1000 ms
+        if (xTaskCheckForTimeOut(&new_dev_timeout, &new_dev_ticks) == pdTRUE) {
+            TEST_FAIL_MESSAGE("New device was not enumerated within specified time");
+        }
     }
 
     // Check that both clients can open the device
-    TEST_ASSERT_NOT_EQUAL(0, dev_addr);
+    TEST_ASSERT_NOT_EQUAL_MESSAGE(0, dev_addr, "Device not enumerated");
     usb_device_handle_t client0_dev_hdl;
     usb_device_handle_t client1_dev_hdl;
     printf("Opening device\n");
@@ -256,12 +270,23 @@ TEST_CASE("Test USB Host async API", "[usb_host][low_speed][full_speed][high_spe
 
     // Trigger a disconnect by powering OFF the root port
     usb_host_lib_set_root_port_power(false);
+
+    // Device gone timeout
+    TickType_t dev_gone_ticks = pdMS_TO_TICKS(DEV_GONE_EVENT_MS);
+    TimeOut_t dev_gone_timeout;
+    vTaskSetTimeOutState(&dev_gone_timeout);
+
     // Wait until the device disconnects and the clients receive the event
     while (!(client0_stage == CLIENT_TEST_STAGE_DCONN && client1_stage == CLIENT_TEST_STAGE_DCONN)) {
         usb_host_lib_handle_events(0, NULL);
         usb_host_client_handle_events(client0_hdl, 0);
         usb_host_client_handle_events(client1_hdl, 0);
         vTaskDelay(10);
+
+        // Check if the device gone within 1000 ms
+        if (xTaskCheckForTimeOut(&dev_gone_timeout, &dev_gone_ticks) == pdTRUE) {
+            TEST_FAIL_MESSAGE("Device was not released within specified time");
+        }
     }
     printf("Closing device\n");
     TEST_ASSERT_EQUAL(ESP_OK, usb_host_device_close(client0_hdl, client0_dev_hdl));
@@ -298,6 +323,10 @@ Procedure:
     - Free all devices
     - Uninstall USB Host Library
 */
+
+#define TEST_CLIENT_DEV_OPEN_MS     2000    // Timeout for the client to open device
+#define TEST_CLIENT_DEV_RELEASE_MS  2000    // Timeout for the client to release the device
+
 static void host_lib_task(void *arg)
 {
     TaskHandle_t pending_task = (TaskHandle_t)arg;
@@ -323,29 +352,38 @@ static void host_lib_task(void *arg)
 TEST_CASE("Test USB Host multiconfig client (single client)", "[usb_host][full_speed][high_speed]")
 {
     SemaphoreHandle_t dev_open_smp = xSemaphoreCreateBinary();
-    TaskHandle_t client_task;
+    TEST_ASSERT_NOT_NULL(dev_open_smp);
 
     multiconf_client_test_param_t multiconf_params = {
         .dev_open_smp = dev_open_smp,
         .bConfigurationValue = B_CONFIGURATION_VALUE,
     };
 
+    TaskHandle_t client_task = NULL;
     xTaskCreatePinnedToCore(multiconf_client_async_task, "async client", 4096, (void *)&multiconf_params, 2, &client_task, 0);
     TEST_ASSERT_NOT_NULL_MESSAGE(client_task, "Failed to create async client task");
     // Start the task
     xTaskNotifyGive(client_task);
 
-    TaskHandle_t host_lib_task_hdl;
+    TaskHandle_t host_lib_task_hdl = NULL;
     // Get Current task handle
     TaskHandle_t pending_task = xTaskGetCurrentTaskHandle();
     xTaskCreatePinnedToCore(host_lib_task, "host lib", 4096, (void *)pending_task, 2, &host_lib_task_hdl, 0);
     TEST_ASSERT_NOT_NULL_MESSAGE(host_lib_task_hdl, "Failed to create host lib task");
 
-    // Wait for the device to be open
-    xSemaphoreTake(dev_open_smp, portMAX_DELAY);
+    // Wait for the client to open the device
+    TEST_ASSERT_EQUAL_MESSAGE(
+        pdTRUE, xSemaphoreTake(dev_open_smp, pdMS_TO_TICKS(TEST_CLIENT_DEV_OPEN_MS)),
+        "Client did not open device on time");
+
+    // Get the configuration descriptor from the device using public api call
     multiconf_client_get_conf_desc();
+
     // Wait for the host library task to finish
-    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+    TEST_ASSERT_EQUAL_MESSAGE(
+        pdTRUE, ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(TEST_CLIENT_DEV_RELEASE_MS)),
+        "Client did not release device on time");
+
     // Cleanup
     vSemaphoreDelete(dev_open_smp);
 }
@@ -374,8 +412,9 @@ TEST_CASE("Test USB Host suspend/resume", "[usb_host][full_speed][high_speed]")
         .msc_scsi_xfer_tag = TEST_MSC_SCSI_TAG,
     };
 
-    TaskHandle_t task_hdl;
+    TaskHandle_t task_hdl = NULL;
     xTaskCreatePinnedToCore(msc_client_async_suspend_resume_task, "msc", 4096, (void *)&params, 2, &task_hdl, 0);
+    TEST_ASSERT_NOT_NULL_MESSAGE(task_hdl, "Failed to create msc client task");
     // Start the task
     xTaskNotifyGive(task_hdl);
 
@@ -422,8 +461,9 @@ TEST_CASE("Test USB Host resume by submit transfer", "[usb_host][full_speed][hig
         .msc_scsi_xfer_tag = TEST_MSC_SCSI_TAG,
     };
 
-    TaskHandle_t task_hdl;
+    TaskHandle_t task_hdl = NULL;
     xTaskCreatePinnedToCore(msc_client_async_resume_by_transfer_task, "msc", 4096, (void *)&params, 2, &task_hdl, 0);
+    TEST_ASSERT_NOT_NULL_MESSAGE(task_hdl, "Failed to create msc client task");
     // Start the task
     xTaskNotifyGive(task_hdl);
 
