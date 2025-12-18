@@ -366,7 +366,17 @@ static inline esp_err_t msc_storage_write_sector_deferred(uint8_t lun, uint32_t 
         ESP_RETURN_ON_FALSE(!__builtin_uadd_overflow(temp, offset, &addr), ESP_ERR_INVALID_SIZE, TAG, "overflow addr %u offset %lu", temp, offset);
     }
 
-    // Copy data to the buffer
+    // Take lock BEFORE buffer modification to prevent race condition
+    MSC_ENTER_CRITICAL();
+
+    // Check if buffer is busy with a pending write
+    if (storage->deffered_writes > 0) {
+        MSC_EXIT_CRITICAL();
+        ESP_LOGE(TAG, "Deferred write buffer busy (pending writes: %d)", storage->deffered_writes);
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    // Copy data to the buffer (protected by critical section)
     memcpy((void *)storage->storage_buffer.data_buffer, src, size);
     storage->storage_buffer.lun = lun;
     storage->storage_buffer.lba = lba;
@@ -374,8 +384,8 @@ static inline esp_err_t msc_storage_write_sector_deferred(uint8_t lun, uint32_t 
     storage->storage_buffer.bufsize = size;
 
     // Increment the deferred writes counter
-    MSC_ENTER_CRITICAL();
     storage->deffered_writes++;
+
     MSC_EXIT_CRITICAL();
 
     // Defer execution of the write to the TinyUSB task
