@@ -1,12 +1,57 @@
 device/esp_tinyusb:
+  depends_filepatterns:
+    - 'device/esp_tinyusb/**'
   enable:
     - if: SOC_USB_OTG_SUPPORTED == 1
 
-host/class:
+host/class/cdc:
+  depends_filepatterns:
+    - 'host/class/cdc/**'
+    - 'host/usb/**'
+    - 'device/esp_tinyusb/**' # For MSC mock device
   enable:
     - if: SOC_USB_OTG_SUPPORTED == 1
+
+host/class/hid:
+  depends_filepatterns:
+    - 'host/class/hid/**'
+    - 'host/usb/**'
+    - 'device/esp_tinyusb/**' # For HID mock device
+  enable:
+    - if: SOC_USB_OTG_SUPPORTED == 1
+
+host/class/msc:
+  depends_filepatterns:
+    - 'host/class/msc/**'
+    - 'host/usb/**'
+    - 'device/esp_tinyusb/**' # For MSC mock device
+  enable:
+    - if: SOC_USB_OTG_SUPPORTED == 1
+
+host/class/uac:
+  depends_filepatterns:
+    - 'host/class/uac/**'
+    - 'host/usb/**'
+  enable:
+    - if: SOC_USB_OTG_SUPPORTED == 1
+
+host/class/uvc:
+  depends_filepatterns:
+    - 'host/class/uvc/**'
+    - 'host/usb/**'
+  enable:
+    - if: SOC_USB_OTG_SUPPORTED == 1
+
+host/class/uvc/usb_host_uvc/examples/camera_display:
+  depends_filepatterns:
+    - 'host/class/uvc/**'
+  enable:
+    - if: (IDF_VERSION >= "5.3.0")
+      reason: This example uses esp_lcd API introduced in v5.3
 
 host/usb:
+  depends_filepatterns:
+    - 'host/usb/**'
   enable:
     - if: SOC_USB_OTG_SUPPORTED == 1 and ENV_VAR_USB_COMP_MANAGED == "yes"
       reason: USB Component tests with native USB component are already running in esp-idf CI
@@ -14,15 +59,10 @@ host/usb:
     - if: IDF_VERSION < "5.4.0"
       reason: We will support component overriding only in service releases
 
-host/class/uvc/usb_host_uvc/examples/camera_display:
-  enable:
-    - if: (IDF_VERSION >= "5.3.0")
-      reason: This example uses esp_lcd API introduced in v5.3
-
 # Host tests
 .host_test_enable_rules: &host_test_enable_rules
   enable:
-    - if: IDF_TARGET in ["linux"] and (IDF_VERSION >= "6.0.0")
+    - if: IDF_TARGET in ["linux"] and (IDF_VERSION >= "6.1.0")
       reason: USB mocks are run only for the latest version of IDF
 
 host/class/cdc/usb_host_cdc_acm/host_test:

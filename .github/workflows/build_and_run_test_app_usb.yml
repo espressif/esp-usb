@@ -19,6 +19,10 @@ on:
         description: 'The JSON array of targets for target runners'
         required: true
         type: string
+      changed_files:
+        description: 'Changed files separated by semicolon'
+        required: false
+        type: string
 
 jobs:
   build:
@@ -67,9 +71,15 @@ jobs:
           export EXTRA_CXXFLAGS="${PEDANTIC_FLAGS}"
           export ENV_VAR_USB_COMP_MANAGED=${{ matrix.usb_comp_managed }}
 
-          # We should have the --disable-targets linux by default anyway for this workflow, since there is a separate workflow for linux tests.
-          idf-build-apps find --paths ${{ matrix.path }} --disable-targets linux
-          idf-build-apps build --paths ${{ matrix.path }} --disable-targets linux
+          MODIFIED_FILES_FLAG=""
+          CHANGED_FILES="${{ inputs.changed_files }}"
+          if [ -n "$CHANGED_FILES" ]; then
+            echo "CHANGED_FILES: $CHANGED_FILES"
+            MODIFIED_FILES_FLAG="--modified-files=$CHANGED_FILES"
+          fi
+
+          idf-build-apps find --paths ${{ matrix.path }} --disable-targets linux $MODIFIED_FILES_FLAG
+          idf-build-apps build --paths ${{ matrix.path }} --disable-targets linux $MODIFIED_FILES_FLAG
       - uses: actions/upload-artifact@v4
         with:
           name: usb_${{ matrix.test_app }}_test_app_bin_${{ matrix.idf_ver }}
@@ -80,8 +90,10 @@ jobs:
             **/build_esp*/test_app_*.elf
             **/build_esp*/flasher_args.json
             **/build_esp*/config/sdkconfig.json
-          if-no-files-found: error
+          if-no-files-found: ignore # Ignore if no builds were run. This is possible since we have conditional builds.
 
+# TODO ideas for target running:
+# - Run all versions (5.2-latest) in one job. So there will be only three jobs per target (device, host_native, host_managed). This could reduce runner time.
   run:
     name: Run TestApps on target
     if: ${{ github.repository_owner == 'espressif' }}
@@ -126,15 +138,31 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
+        continue-on-error: true
+        id: download_artifact
         with:
           name: usb_${{ matrix.test_app }}_test_app_bin_${{ matrix.idf_ver }}
       - name: ⚙️ Install System tools
+        if: success() && steps.download_artifact.outcome == 'success'
         run: |
           apt update
           apt install -y usbutils
       - name: Install Python packages
+        if: success() && steps.download_artifact.outcome == 'success'
         env:
           PIP_EXTRA_INDEX_URL: "https://dl.espressif.com/pypi/"
-        run: pip install --only-binary cryptography pytest-embedded pytest-embedded-serial-esp pytest-embedded-idf pyserial pyusb
+        # We need idf-ci pytest plugin to handle 'no test_app binary found for test' error
+        # We need pytest-ignore-test-results to ignore the error
+        run: pip install --only-binary cryptography pytest-embedded pytest-embedded-serial-esp pytest-embedded-idf idf-ci pytest-ignore-test-results pyserial pyusb
       - name: Run USB Test App on target
-        run: pytest --target=${{ matrix.idf_target }} -m ${{ matrix.runner_tag }} --build-dir=build_${{ matrix.idf_target }}_default
+        if: success() && steps.download_artifact.outcome == 'success'
+        run: |
+          # Set target argument: usb_host tests require 2 DUTs (device and host)
+          if [ "${{ matrix.runner_tag }}" = "usb_host" ]; then
+            TARGET_ARG="--target=${{ matrix.idf_target }},${{ matrix.idf_target }}"
+          else
+            TARGET_ARG="--target=${{ matrix.idf_target }}"
+          fi
+          # Run pytest with the configured target and marker
+          echo "Running pytest with target: $TARGET_ARG and marker: ${{ matrix.runner_tag }}"
+          pytest --ignore-no-tests-collected-error $TARGET_ARG -m "${{ matrix.runner_tag }}" --build-dir=build_${{ matrix.idf_target }}_default
