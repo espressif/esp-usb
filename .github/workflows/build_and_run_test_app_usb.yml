@@ -41,8 +41,6 @@ jobs:
         exclude:
           # Exclude using managed usb component for older releases, only with service releases
           - test_app: host_managed
-            idf_ver: "release-v5.1"
-          - test_app: host_managed
             idf_ver: "release-v5.2"
           - test_app: host_managed
             idf_ver: "release-v5.3"
@@ -108,13 +106,9 @@ jobs:
           - test_app: host_managed
             runner_tag: usb_device
           # Exclude esp32p4 for releases before IDF 5.3 for all runner tags (esp32p4 support starts in IDF 5.3)
-          - idf_ver: "release-v5.1"
-            idf_target: "esp32p4"
           - idf_ver: "release-v5.2"
             idf_target: "esp32p4"
           # Exclude using managed usb component for older releases, only with service releases
-          - test_app: host_managed
-            idf_ver: "release-v5.1"
           - test_app: host_managed
             idf_ver: "release-v5.2"
           - test_app: host_managed
