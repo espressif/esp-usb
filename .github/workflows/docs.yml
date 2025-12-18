@@ -3,10 +3,18 @@ name: Build and Deploy Documentation
 on:
   # Build preview documentation for pull requests
   pull_request:
+    paths:
+      - '.github/workflows/docs.yml'
+      - 'docs/**'
+      - '**/include/**'
   # Build and deploy documentation for master branch
   push:
     branches:
       - master
+    paths:
+      - '.github/workflows/docs.yml'
+      - 'docs/**'
+      - '**/include/**'
 
 jobs:
   build-docs:
