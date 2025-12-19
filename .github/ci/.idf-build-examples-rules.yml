@@ -1,16 +1,10 @@
 # Manifest file for build_idf_examples.yml CI workflow
 
 examples/peripherals/usb/device:
-  enable:
-    - if: (IDF_VERSION >= "6.0.0")
-      reason: Device examples have been updated to use esp_tinyusb 2.x only on esp-idf latest for now, TODO IDF-14282
   disable:
     - if: SOC_USB_OTG_SUPPORTED != 1
 
 examples/peripherals/usb/device/tusb_ncm:
-  enable:
-    - if: (IDF_VERSION >= "6.0.0")
-      reason: Device examples have been updated to use esp_tinyusb 2.x only on esp-idf latest for now, TODO IDF-14282
   disable:
     - if: SOC_USB_OTG_SUPPORTED != 1 or SOC_WIFI_SUPPORTED != 1
 
