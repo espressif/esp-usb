@@ -8,6 +8,7 @@
 
 #include "esp_err.h"
 #include "tinyusb.h"
+#include "tinyusb_vbus_monitor.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -42,7 +43,10 @@ esp_err_t tinyusb_task_check_config(const tinyusb_task_config_t *task_cfg);
  *    - ESP_ERR_NO_MEM if memory allocation failed
  *    - ESP_OK if TinyUSB Task initialized successfully
  */
-esp_err_t tinyusb_task_start(tinyusb_port_t port, const tinyusb_task_config_t *task_cfg, const tinyusb_desc_config_t *desc_cfg);
+esp_err_t tinyusb_task_start(tinyusb_port_t port,
+                             const tinyusb_task_config_t *task_cfg,
+                             const tinyusb_desc_config_t *desc_cfg,
+                             const tinyusb_vbus_monitor_config_t *vbus_monitor_cfg);
 
 /**
  * @brief Stops TinyUSB Task

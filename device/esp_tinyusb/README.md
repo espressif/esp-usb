@@ -81,7 +81,7 @@ The default installation automatically configures the port (High-speed if suppor
 
 Default descriptors are provided for the following USB classes: CDC, MSC, and NCM.
 
-> **⚠️ Important:** For demonstration purposes, all error handling logic has been removed from the code examples. Do not ignore proper error handling in actual development.
+> ⚠️ For demonstration purposes, all error handling logic has been removed from the code examples. Do not ignore proper error handling in actual development.
 
 ```c
   #include "tinyusb_default_config.h"
@@ -208,10 +208,12 @@ Values of default descriptors could be configured via `menuconfig`.
 
 ### USB PHY configuration & Self-Powered Device
 
-For self-powered devices, monitoring the VBUS voltage is required. To do this:
+For self-powered USB devices, the peripheral must be able to detect the VBUS voltage to know when it is connected to, or disconnected from, a USB host.
 
-- Configure a GPIO pin as an input, using an external voltage divider or comparator to detect the VBUS state.
-- Set `self_powered = true` and assign the VBUS monitor GPIO in the `tinyusb_config_t` structure.
+To enable this:
+
+- Connect VBUS to a GPIO input (typically through a voltage divider or external comparator).
+- Set `self_powered = true` and assign the VBUS monitor GPIO in `tinyusb_config_t`.
 
 ```c
   #include "tinyusb_default_config.h"
@@ -226,7 +228,79 @@ For self-powered devices, monitoring the VBUS voltage is required. To do this:
     tinyusb_driver_install(&tusb_cfg);
   }
 ```
-If external PHY is used:
+
+#### ESP32-P4 (USB OTG 2.0, High-Speed)
+
+> **⚠️ Important:**
+>
+> On **USB OTG 1.1** (`TINYUSB_PORT_FULL_SPEED_0`), the VBUS **BVALID** signal is handled in hardware.
+>
+> On **USB OTG 2.0** (`TINYUSB_PORT_HIGH_SPEED_0`), there is no hardware **BVALID** detection – it is implemented in the driver.
+
+For the high-speed port, the driver uses a combination of ISR-driven GPIO state detection plus a software debounce timer on the VBUS monitor GPIO. This filters glitches and cable plug/unplug noise.
+
+- The debounce interval is controlled by `vbus_monitor_debounce_ms` in `tinyusb_config_t`.
+- If not set explicitly, the default debounce time is 250 ms.
+
+> **Note:**
+>
+> The `vbus_monitor_debounce_ms` member also exists in `tinyusb_config_t` when using `TINYUSB_PORT_FULL_SPEED_0`, but it is not used by the driver in that mode because VBUS is already handled in hardware.
+
+You can override the debounce interval in the driver configuration:
+
+```c
+  #include "tinyusb_default_config.h"
+
+  void app_main(void)
+  {
+    tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG();
+
+    tusb_cfg.phy.self_powered     = true;
+    tusb_cfg.phy.vbus_monitor_io  = GPIO_NUM_0;
+    tusb_cfg.phy.vbus_monitor_debounce_ms = 350; // new debounce value
+
+    tinyusb_driver_install(&tusb_cfg);
+  }
+```
+
+> **🔧 GPIO ISR requirement**:
+>
+> When VBUS monitoring is enabled with `TINYUSB_PORT_HIGH_SPEED_0` (ESP32-P4 USB OTG 2.0), the GPIO driver ISR service **must be installed before** calling `tinyusb_driver_install()`.
+
+To install GPIO's driver's ISR service:
+
+```c
+  #include "tinyusb_default_config.h"
+  #include "driver/gpio.h"
+  #include "sdkconfig.h"
+
+  void app_main(void)
+  {
+    tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG();
+
+    tusb_cfg.phy.self_powered     = true;
+    tusb_cfg.phy.vbus_monitor_io  = GPIO_NUM_0;
+
+  #if (CONFIG_IDF_TARGET_ESP32P4)
+    // TINYUSB_PORT_HIGH_SPEED_0 is used by default
+    gpio_install_isr_service(ESP_INTR_FLAG_LOWMED);
+  #endif // CONFIG_IDF_TARGET_ESP32P4
+
+    tinyusb_driver_install(&tusb_cfg);
+
+    // application code
+
+    tinyusb_driver_uninstall();
+
+  #if (CONFIG_IDF_TARGET_ESP32P4)
+    gpio_uninstall_isr_service();
+  #endif // CONFIG_IDF_TARGET_ESP32P4
+  }
+```
+
+The driver can also **skip PHY configuration** if you need to initialize and manage the USB PHY externally (for example, when using a custom or external PHY).
+
+To do this, set `skip_setup = true`:
 
 ```c
   #include "tinyusb_default_config.h"
