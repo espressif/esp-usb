@@ -1627,13 +1627,7 @@ static esp_err_t uac_host_interface_pause(uac_iface_t *iface)
     }
     UAC_EXIT_CRITICAL();
     // Change state
-
-    // TODO probably don't need this
-    if (iface->state == UAC_INTERFACE_STATE_SUSPENDED) {
-        iface->last_state = UAC_INTERFACE_STATE_READY;
-    } else {
-        iface->state = UAC_INTERFACE_STATE_READY;
-    }
+    iface->state = UAC_INTERFACE_STATE_READY;
 
     return ESP_OK;
 }
@@ -2741,8 +2735,6 @@ esp_err_t uac_host_device_stop(uac_host_device_handle_t uac_dev_handle)
             (UAC_INTERFACE_STATE_SUSPENDED == iface->state && UAC_INTERFACE_STATE_ACTIVE == iface->last_state)) {
         UAC_GOTO_ON_ERROR(uac_host_interface_pause(iface), "Unable to disable UAC Interface");
     }
-
-    //vTaskDelay(10);
 
     if ((UAC_INTERFACE_STATE_READY == iface->state) ||
             (UAC_INTERFACE_STATE_SUSPENDED == iface->state && UAC_INTERFACE_STATE_READY == iface->last_state)) {
