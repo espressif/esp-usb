@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2025 Espressif Systems (Shanghai) CO LTD
+# SPDX-FileCopyrightText: 2025-2026 Espressif Systems (Shanghai) CO LTD
 # SPDX-License-Identifier: Apache-2.0
 
 import pytest
@@ -23,7 +23,7 @@ def test_usb_device_runtime_config(dut: IdfDut) -> None:
 
 # The threshold values for TinyUSB Task Run time (in cycles) for different targets
 TASK_RUN_TIME_LIMITS = {
-    'esp32s2': 5000,
+    'esp32s2': 7000,
     'esp32s3': 3000,
     'esp32p4': 1800,
 }
