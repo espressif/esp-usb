@@ -314,7 +314,8 @@ esp_err_t uac_host_handle_events(TickType_t timeout);
  * @brief Start a UAC stream with specific stream configuration (channels, bit resolution, sample frequency)
  *
  * @note set flags FLAG_STREAM_PAUSE_AFTER_START to pause stream after start
- *
+ * @note The function can block
+ * @note The function sends a control transfer to the device
  * @param[in] uac_dev_handle  UAC device handle
  * @param[in] stream_config   Pointer to UAC stream configuration structure
  * @return esp_err_t
@@ -330,6 +331,8 @@ esp_err_t uac_host_device_start(uac_host_device_handle_t uac_dev_handle, const u
 /**
  * @brief Pause a UAC stream
  *
+ * @note The function can block
+ * @note The function sends a control transfer to the device
  * @param[in] uac_dev_handle  UAC device handle
  * @return esp_err_t
  * - ESP_OK on success
@@ -341,6 +344,8 @@ esp_err_t uac_host_device_pause(uac_host_device_handle_t uac_dev_handle);
 /**
  * @brief Unpause a UAC stream with same stream configuration
  *
+ * @note The function can block
+ * @note The function sends a control transfer to the device
  * @param[in] uac_dev_handle  UAC device handle
  * @return esp_err_t
  * - ESP_OK on success
@@ -352,6 +357,8 @@ esp_err_t uac_host_device_unpause(uac_host_device_handle_t uac_dev_handle);
 /**
  * @brief Stop a UAC stream, stream resources will be released
  *
+ * @note The function can block
+ * @note The function sends a control transfer to the device
  * @param[in] uac_dev_handle  UAC device handle
  * @return esp_err_t
  * - ESP_OK on success
@@ -363,6 +370,7 @@ esp_err_t uac_host_device_stop(uac_host_device_handle_t uac_dev_handle);
 /**
  * @brief Read data from UAC stream buffer, only available after stream started
  *
+ * @note The function can block
  * @param[in] uac_dev_handle  UAC device handle
  * @param[out] data           Pointer to the buffer to store the data
  * @param[in] size            Number of bytes to read
@@ -381,7 +389,8 @@ esp_err_t uac_host_device_read(uac_host_device_handle_t uac_dev_handle, uint8_t 
  *
  * @note The data will be sent to internal ringbuffer before function return,
  * the actual data transfer is scheduled by the background task.
- *
+ * @note The function can block
+ * @note The function sends a transfer to the device
  * @param[in] uac_dev_handle  UAC device handle
  * @param[in] data            Pointer to the data buffer
  * @param[in] size            Number of bytes to write
