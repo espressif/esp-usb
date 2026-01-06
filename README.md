@@ -1,13 +1,11 @@
-[![pre-commit](https://img.shields.io/badge/pre--commit-enabled-brightgreen?logo=pre-commit&logoColor=white)](https://github.com/pre-commit/pre-commit)
-[![Build and Run Test Application](https://github.com/espressif/esp-usb/actions/workflows/build_and_run_test_app_usb.yml/badge.svg?branch=master)](https://github.com/espressif/esp-usb/actions/workflows/build_and_run_test_app_usb.yml)
-[![Clang-Tidy](https://github.com/espressif/esp-usb/actions/workflows/clang-tidy.yml/badge.svg?branch=master)](https://github.com/espressif/esp-usb/security/code-scanning?query=is%3Aopen+branch%3Amaster)
+[![pre-commit](https://img.shields.io/badge/pre--commit-enabled-brightgreen?logo=pre-commit&logoColor=white)](https://github.com/pre-commit/pre-commit) [![Build and Run Test Application](https://github.com/espressif/esp-usb/actions/workflows/build_and_run_test_app_usb.yml/badge.svg?branch=master)](https://github.com/espressif/esp-usb/actions/workflows/build_and_run_test_app_usb.yml) [![Clang-Tidy](https://github.com/espressif/esp-usb/actions/workflows/clang-tidy.yml/badge.svg?branch=master)](https://github.com/espressif/esp-usb/security/code-scanning?query=is%3Aopen+branch%3Amaster)
 
 # Espressif ESP-USB
 
-This repository aims to store [ESP-IDF](https://github.com/espressif/esp-idf) USB host and device class drivers
-which have been separated and uploaded into [IDF Component Manager](https://components.espressif.com/).
+This repository aims to store [ESP-IDF](https://github.com/espressif/esp-idf) USB host and device class drivers which have been separated and uploaded into [IDF Component Manager](https://components.espressif.com/).
 
 ## Important note
+
 This repository is used only for Espressif components, it is not mean to store third party components.
 
 ## Resources

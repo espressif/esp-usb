@@ -5,6 +5,7 @@
 The new version has been redesigned for better maintainability and to enable future feature extensions without introducing breaking changes. If you are already using v2.0.0 or later, no migration is needed.
 
 Potential new features include:
+
 - Specific settings to define the behavior of the storage medium (e.g., whether to mount on connection);
 - Support for multiple storage devices (LUNs) on a single device.
 
@@ -27,28 +28,28 @@ The new version simplifies event handling and provides additional features, such
 ### Removed
 
 - Event callbacks for SPI Flash Storage:
-    - `tinyusb_msc_spiflash_config_t::callback_mount_changed`;
-    - `tinyusb_msc_spiflash_config_t::callback_premount_changed`.
+  - `tinyusb_msc_spiflash_config_t::callback_mount_changed`;
+  - `tinyusb_msc_spiflash_config_t::callback_premount_changed`.
 - Event callbacks for SD/MMC Storage:
-    - `tinyusb_msc_sdmmc_config_t::callback_mount_changed`;
-    - `tinyusb_msc_sdmmc_config_t::callback_premount_changed`.
+  - `tinyusb_msc_sdmmc_config_t::callback_mount_changed`;
+  - `tinyusb_msc_sdmmc_config_t::callback_premount_changed`.
 - FAT Filesystem Kconfig format options:
-    - `TINYUSB_FAT_FORMAT_TYPE`;
-    - `TINYUSB_FAT_FORMAT_ANY`;
-    - `TINYUSB_FAT_FORMAT_FAT`;
-    - `TINYUSB_FAT_FORMAT_FAT32`;
-    - `TINYUSB_FAT_FORMAT_EXFAT`;
-    - `TINYUSB_FAT_FORMAT_SFD`.
+  - `TINYUSB_FAT_FORMAT_TYPE`;
+  - `TINYUSB_FAT_FORMAT_ANY`;
+  - `TINYUSB_FAT_FORMAT_FAT`;
+  - `TINYUSB_FAT_FORMAT_FAT32`;
+  - `TINYUSB_FAT_FORMAT_EXFAT`;
+  - `TINYUSB_FAT_FORMAT_SFD`.
 - Configuration structure for SPI Flash storage `tinyusb_msc_spiflash_config_t`.
 - Configuration structure for SD/MMC storage `tinyusb_msc_sdmmc_config_t`.
 
 ### Added
 
 - One callback for Storage events `tinyusb_msc_driver_config_t::callback` with optional argument `tinyusb_msc_driver_config_t::callback_arg`. This callback allows to get the following events:
-    - `TINYUSB_MSC_EVENT_MOUNT_START`;
-    - `TINYUSB_MSC_EVENT_MOUNT_COMPLETE`;
-    - `TINYUSB_MSC_EVENT_MOUNT_FAILED`;
-    - `TINYUSB_MSC_EVENT_FORMAT_REQUIRED`.
+  - `TINYUSB_MSC_EVENT_MOUNT_START`;
+  - `TINYUSB_MSC_EVENT_MOUNT_COMPLETE`;
+  - `TINYUSB_MSC_EVENT_MOUNT_FAILED`;
+  - `TINYUSB_MSC_EVENT_FORMAT_REQUIRED`.
 - Storage handle `tinyusb_msc_storage_handle_t`.
 - Configuration structure for Storage `tinyusb_msc_storage_config_t`.
 - Storage Format `tinyusb_msc_format_storage()`
@@ -64,12 +65,14 @@ warning: #warning "This header file is deprecated since v2.0.0. Callback prototy
 
 **How to fix?**
 
-New header file was introduced.
-Update your code from:
+New header file was introduced. Update your code from:
+
 ```c
 #include "tusb_msc_storage.h"
 ```
+
 to:
+
 ```c
 #include "tinyusb_msc.h"
 ```
@@ -84,8 +87,7 @@ warning: 'mount_changed_data' is deprecated [-Wdeprecated-declarations]
 
 **How to fix?**
 
-Since the callback prototype has changed, the old members are now marked as deprecated.
-To obtain the mount point for the storage, use the new API: `tinyusb_msc_get_storage_mount_point()`.
+Since the callback prototype has changed, the old members are now marked as deprecated. To obtain the mount point for the storage, use the new API: `tinyusb_msc_get_storage_mount_point()`.
 
 Update your code with:
 
@@ -104,8 +106,8 @@ error: initialization of 'void (*)(struct tinyusb_msc_storage_handle_s *, tinyus
 
 **How to fix?**
 
-Callback prototype has changed.
-Update your code from:
+Callback prototype has changed. Update your code from:
+
 ```c
 static void storage_mount_changed_cb(tinyusb_msc_event_t *event)
 {
@@ -122,6 +124,7 @@ void main(void)
     tinyusb_msc_storage_init_spiflash(&config_spi);
 }
 ```
+
 to:
 
 ```c

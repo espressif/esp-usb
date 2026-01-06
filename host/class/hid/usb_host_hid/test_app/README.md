@@ -9,8 +9,7 @@ Basic functionality such as HID device install/uninstall, class specific request
 
 ### Hardware Required
 
-This test requires two ESP32 development board with USB-OTG support. The development boards shall have interconnected USB peripherals,
-one acting as host running HID host driver and another HID device driver (tinyusb).
+This test requires two ESP32 development board with USB-OTG support. The development boards shall have interconnected USB peripherals, one acting as host running HID host driver and another HID device driver (tinyusb).
 
 ## Selecting the USB Component
 

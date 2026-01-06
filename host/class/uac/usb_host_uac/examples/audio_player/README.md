@@ -23,7 +23,7 @@ By default, the example plays siren sounds. To enable MIC playback, you need to 
 
 ### Build and Flash
 
-``` sh
+```sh
 idf.py set-target (YOUR_TARGET)
 idf.py build
 idf.py -p (PORT) flash monitor

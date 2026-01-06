@@ -9,8 +9,7 @@ Target tests for USB Host UVC driver.
 
 ### Hardware Required
 
-A USB camera and USB enabled ESP SoC is needed. Connect the camera to USB host port on ESP.
-Format negotiation results are tested against values from Logitech C270 camera. These constants must be modified if different camera is used.
+A USB camera and USB enabled ESP SoC is needed. Connect the camera to USB host port on ESP. Format negotiation results are tested against values from Logitech C270 camera. These constants must be modified if different camera is used.
 
 ## Selecting the USB Component
 

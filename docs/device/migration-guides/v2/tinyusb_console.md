@@ -20,13 +20,12 @@ The old API is still supported, but it is recommended to update your code, as th
 
 The following function prototypes have been updated:
 
-| Old Function Prototype                              | New Function Prototype                                 |
-|-----------------------------------------------------|--------------------------------------------------------|
-| `esp_err_t esp_tusb_init_console(int cdc_intf)`     | `esp_err_t tinyusb_console_init(int cdc_intf)`         |
-| `esp_err_t esp_tusb_deinit_console(int cdc_intf)`   | `esp_err_t tinyusb_console_deinit(int cdc_intf)`       |
+| Old Function Prototype                            | New Function Prototype                           |
+| ------------------------------------------------- | ------------------------------------------------ |
+| `esp_err_t esp_tusb_init_console(int cdc_intf)`   | `esp_err_t tinyusb_console_init(int cdc_intf)`   |
+| `esp_err_t esp_tusb_deinit_console(int cdc_intf)` | `esp_err_t tinyusb_console_deinit(int cdc_intf)` |
 
 Update your code to use the new function names as shown above.
-
 
 ## 4. Common Migration Errors and Solutions
 
@@ -38,8 +37,8 @@ Update your code to use the new function names as shown above.
 
 **How to fix?**
 
-New header file was introduced.
-Update your code from:
+New header file was introduced. Update your code from:
+
 ```c
 #include "tusb_console.h"
 
@@ -48,7 +47,9 @@ int main(void) {
     esp_tusb_deinit_console(TINYUSB_CDC_ACM_0);
 }
 ```
+
 to:
+
 ```c
 #include "tinyusb_console.h"
 

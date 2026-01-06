@@ -10,6 +10,7 @@ dependencies:
 ```
 
 A test application, or an example can be explicitly built with:
+
 - a managed USB host component from [esp-usb](../../../host/usb/) (this repository)
 - a native USB component included in [esp-idf](https://github.com/espressif/esp-idf/tree/release/v5.5/components/usb)
 
@@ -42,7 +43,7 @@ Note that the managed USB component can only be used with service [ESP-IDF](http
 
 ### Exporting the environmental variable
 
-``` bash
+```bash
 # Linux/macOS (lasts only in the current terminal session)
 export ENV_VAR_USB_COMP_MANAGED=yes
 idf.py set-target esp32s3 build

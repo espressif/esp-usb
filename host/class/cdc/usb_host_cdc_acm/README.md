@@ -1,8 +1,6 @@
 # USB Host CDC-ACM Class Driver
 
-[![Component Registry](https://components.espressif.com/components/espressif/usb_host_cdc_acm/badge.svg)](https://components.espressif.com/components/espressif/usb_host_cdc_acm)
-![maintenance-status](https://img.shields.io/badge/maintenance-passively--maintained-yellowgreen.svg)
-![changelog](https://img.shields.io/badge/Keep_a_Changelog-blue?logo=keepachangelog&logoColor=E05735)
+[![Component Registry](https://components.espressif.com/components/espressif/usb_host_cdc_acm/badge.svg)](https://components.espressif.com/components/espressif/usb_host_cdc_acm) ![maintenance-status](https://img.shields.io/badge/maintenance-passively--maintained-yellowgreen.svg) ![changelog](https://img.shields.io/badge/Keep_a_Changelog-blue?logo=keepachangelog&logoColor=E05735)
 
 This component contains an implementation of a USB CDC-ACM Host Class Driver that is implemented on top of the [USB Host Library](https://docs.espressif.com/projects/esp-idf/en/latest/esp32s2/api-reference/peripherals/usb_host.html).
 
@@ -16,21 +14,22 @@ The CDC-ACM Host driver supports the following types of CDC devices:
 ### CDC-ACM Devices
 
 The CDC-ACM Class driver supports CDC-ACM devices that meet the following requirements:
+
 - The device class code must be set to the CDC class `0x02` or implement Interface Association Descriptor (IAD)
 - The CDC-ACM must contain the following interfaces:
-    - A Communication Class Interface containing a management element (EP0) and may also contain a notification element (an interrupt endpoint). The driver will check this interface for CDC Functional Descriptors.
-    - A Data Class Interface with two BULK endpoints (IN and OUT). Other transfer types are not supported by the driver
+  - A Communication Class Interface containing a management element (EP0) and may also contain a notification element (an interrupt endpoint). The driver will check this interface for CDC Functional Descriptors.
+  - A Data Class Interface with two BULK endpoints (IN and OUT). Other transfer types are not supported by the driver
 
 ### CDC-Like Vendor Specific Devices
 
 The CDC-ACM Class driver supports CDC-like devices that meet the following requirements:
+
 - The device class code must be set to the vendor specific class code `0xFF`
 - The device needs to provide and interface containing the following endpoints:
-    - (Mandatory) Two Bulk endpoints (IN and OUT) for data
-    - (Optional) An interrupt endpoint (IN) for the notification element
+  - (Mandatory) Two Bulk endpoints (IN and OUT) for data
+  - (Optional) An interrupt endpoint (IN) for the notification element
 
 For CDC-like devices, users are responsible for ensuring that they only call APIs (e.g., `cdc_acm_host_send_break()`) that are supported by the target device.
-
 
 ## Usage
 

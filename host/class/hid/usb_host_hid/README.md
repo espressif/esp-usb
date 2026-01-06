@@ -11,31 +11,42 @@ HID driver allows access to HID devices.
 The following steps outline the typical API call pattern of the HID Class Driver:
 
 1. Install the USB Host Library via 'usb_host_install()'
+
 2. Install the HID driver via 'hid_host_install()'
+
 3. The HID Host driver device callback provide the following events (via two callbacks):
-    - HID_HOST_DRIVER_EVENT_CONNECTED
-    - HID_HOST_INTERFACE_EVENT_INPUT_REPORT
-    - HID_HOST_INTERFACE_EVENT_TRANSFER_ERROR
-    - HID_HOST_INTERFACE_EVENT_DISCONNECTED
+
+   - HID_HOST_DRIVER_EVENT_CONNECTED
+   - HID_HOST_INTERFACE_EVENT_INPUT_REPORT
+   - HID_HOST_INTERFACE_EVENT_TRANSFER_ERROR
+   - HID_HOST_INTERFACE_EVENT_DISCONNECTED
 
 4. Specific HID device can be opened or closed with:
-    - 'hid_host_device_open()'
-    - 'hid_host_device_close()'
+
+   - 'hid_host_device_open()'
+   - 'hid_host_device_close()'
+
 5. To enable / disable data receiving in case of event (keyboard key was pressed or mouse device was moved e.t.c) use:
-    - 'hid_host_device_start()'
-    - 'hid_host_device_stop()'
+
+   - 'hid_host_device_start()'
+   - 'hid_host_device_stop()'
+
 6. HID Class specific device requests:
-    - 'hid_host_interface_get_report_descriptor()'
-    - 'hid_class_request_get_report()'
-    - 'hid_class_request_get_idle()'
-    - 'hid_class_request_get_protocol()'
-    - 'hid_class_request_set_report()'
-    - 'hid_class_request_set_idle()'
-    - 'hid_class_request_set_protocol()'
+
+   - 'hid_host_interface_get_report_descriptor()'
+   - 'hid_class_request_get_report()'
+   - 'hid_class_request_get_idle()'
+   - 'hid_class_request_get_protocol()'
+   - 'hid_class_request_set_report()'
+   - 'hid_class_request_set_idle()'
+   - 'hid_class_request_set_protocol()'
+
 7. When HID device event occurs the driver call an interface callback with events:
-    - HID_HOST_INTERFACE_EVENT_INPUT_REPORT
-    - HID_HOST_INTERFACE_EVENT_TRANSFER_ERROR
-    - HID_HOST_INTERFACE_EVENT_DISCONNECTED
+
+   - HID_HOST_INTERFACE_EVENT_INPUT_REPORT
+   - HID_HOST_INTERFACE_EVENT_TRANSFER_ERROR
+   - HID_HOST_INTERFACE_EVENT_DISCONNECTED
+
 8. The HID driver can be uninstalled via 'hid_host_uninstall()'
 
 ## Known issues
