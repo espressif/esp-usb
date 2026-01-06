@@ -3,11 +3,11 @@
 
 import pytest
 from pytest_embedded_idf.dut import IdfDut
+from pytest_embedded_idf.utils import idf_parametrize
 
-@pytest.mark.esp32s2
-@pytest.mark.esp32s3
-@pytest.mark.esp32p4
+
 @pytest.mark.usb_device
+@idf_parametrize('target', ['esp32s2', 'esp32s3', 'esp32p4'], indirect=['target'])
 def test_usb_device_runtime_config(dut: IdfDut) -> None:
     peripherals = [
         'default',
@@ -32,10 +32,8 @@ def _get_run_time_th(target: str) -> int:
     assert target in TASK_RUN_TIME_LIMITS
     return TASK_RUN_TIME_LIMITS.get(target)
 
-@pytest.mark.esp32s2
-@pytest.mark.esp32s3
-@pytest.mark.esp32p4
 @pytest.mark.usb_device
+@idf_parametrize('target', ['esp32s2', 'esp32s3', 'esp32p4'], indirect=['target'])
 def test_cpu_load_task_stat_print(dut: IdfDut) -> None:
     '''
     Test to verify that Run time and CPU load measurement for TinyUSB task is working.

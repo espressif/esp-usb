@@ -1,10 +1,12 @@
-# SPDX-FileCopyrightText: 2024 Espressif Systems (Shanghai) CO LTD
+# SPDX-FileCopyrightText: 2024-2026 Espressif Systems (Shanghai) CO LTD
 # SPDX-License-Identifier: Apache-2.0
 
 import pytest
 from pytest_embedded_idf.dut import IdfDut
 import subprocess
 from time import sleep, time
+from pytest_embedded_idf.utils import idf_parametrize
+
 
 class DeviceNotFoundError(Exception):
     """Custom exception for device not found within the timeout period."""
@@ -53,10 +55,8 @@ def tusb_device_teardown(iterations, timeout):
         print("Device removed.")
     print("Monitoring completed.")
 
-@pytest.mark.esp32s2
-@pytest.mark.esp32s3
-@pytest.mark.esp32p4
 @pytest.mark.usb_device
+@idf_parametrize('target', ['esp32s2', 'esp32s3', 'esp32p4'], indirect=['target'])
 def test_usb_teardown_device(dut: IdfDut) -> None:
     dut.expect_exact('Press ENTER to see the list of tests.')
     dut.write('[teardown]')
