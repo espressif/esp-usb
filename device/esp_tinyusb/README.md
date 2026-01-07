@@ -42,13 +42,14 @@ Configure the Device Stack using `menuconfig`:
 
 This component is distributed via [IDF component manager](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-guides/tools/idf-component-manager.html). Just add `idf_component.yml` file to your main component with the following content:
 
-``` yaml
+```yaml
 ## IDF Component Manager Manifest File
 dependencies:
   esp_tinyusb: "~2.0.0"
 ```
 
 Or simply run:
+
 ```
 idf.py add-dependency esp_tinyusb~2.0.0
 ```
@@ -187,8 +188,7 @@ Configure USB descriptors using the `tinyusb_config_t` structure:
 - `descriptor.high_speed_config`
 - `descriptor.qualifier`
 
-If any descriptor field is set to `NULL`, default descriptor will be assigned during installation.
-Values of default descriptors could be configured via `menuconfig`.
+If any descriptor field is set to `NULL`, default descriptor will be assigned during installation. Values of default descriptors could be configured via `menuconfig`.
 
 ```c
   #include "tinyusb_default_config.h"
@@ -226,6 +226,7 @@ For self-powered devices, monitoring the VBUS voltage is required. To do this:
     tinyusb_driver_install(&tusb_cfg);
   }
 ```
+
 If external PHY is used:
 
 ```c
@@ -369,10 +370,10 @@ void main(void)
 }
 ```
 
-
 **Storage callback**
 
 Storage event callback is called, when one of the following events occurred:
+
 - `TINYUSB_MSC_EVENT_MOUNT_START`: Start mount from APP to USB or from USB to APP
 - `TINYUSB_MSC_EVENT_MOUNT_COMPLETE`: Complete mount from USB to APP or from APP to USB
 - `TINYUSB_MSC_EVENT_FORMAT_REQUIRED`: Filesystem not found, format needed
@@ -437,14 +438,14 @@ void main(void)
 **Performance Table (ESP32-S3):**
 
 | FIFO Size | Read Speed | Write Speed |
-|-----------|------------|-------------|
+| --------- | ---------- | ----------- |
 | 512 B     | 0.566 MB/s | 0.236 MB/s  |
 | 8192 B    | 0.925 MB/s | 0.928 MB/s  |
 
 **Performance Table (ESP32-P4):**
 
 | FIFO Size | Read Speed | Write Speed |
-|-----------|------------|-------------|
+| --------- | ---------- | ----------- |
 | 512 B     | 1.174 MB/s | 0.238 MB/s  |
 | 8192 B    | 4.744 MB/s | 2.157 MB/s  |
 | 32768 B   | 5.998 MB/s | 4.485 MB/s  |
@@ -452,11 +453,12 @@ void main(void)
 **Performance Table (ESP32-S2, SPI Flash):**
 
 | FIFO Size | Write Speed |
-|-----------|-------------|
+| --------- | ----------- |
 | 512 B     | 5.59 KB/s   |
 | 8192 B    | 21.54 KB/s  |
 
 **Note:** Internal SPI flash is for demonstration only; use SD cards or external flash for higher performance.
 
 ## Examples
+
 You can find examples in [ESP-IDF on GitHub](https://github.com/espressif/esp-idf/tree/master/examples/peripherals/usb/device).

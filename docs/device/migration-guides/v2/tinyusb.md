@@ -68,44 +68,48 @@ void main(void)
 
 - Default configuration macros for the TinyUSB Device Stack, which can be called with zero, one, or two arguments:
 
-    - `TINYUSB_DEFAULT_CONFIG()`,
-    - `TINYUSB_DEFAULT_CONFIG(device_event_handler)`,
-    - `TINYUSB_DEFAULT_CONFIG(device_event_handler, device_event_handler_argument)`.
+  - `TINYUSB_DEFAULT_CONFIG()`,
+  - `TINYUSB_DEFAULT_CONFIG(device_event_handler)`,
+  - `TINYUSB_DEFAULT_CONFIG(device_event_handler, device_event_handler_argument)`.
 
 - Port configuration `tinyusb_config_t::port`
+
 - Internal Task size configuration `tinyusb_config_t::task.size`
+
 - Internal Task priority configuration `tinyusb_config_t::task.priority`
+
 - Internal Task CPU Affinity mask `tinyusb_config_t::task.xCoreID`
+
 - USB Device Event callback `tinyusb_config_t::event_cb` and its argument `tinyusb_config_t::event_arg`
 
 ### Removed
 
 - Task configuration from the Kconfig:
-    - `TINYUSB_NO_DEFAULT_TASK`,
-    - `TINYUSB_TASK_PRIORITY`,
-    - `TINYUSB_TASK_STACK_SIZE`,
-    - `TINYUSB_TASK_AFFINITY`,
-    - `TINYUSB_INIT_IN_DEFAULT_TASK`.
+  - `TINYUSB_NO_DEFAULT_TASK`,
+  - `TINYUSB_TASK_PRIORITY`,
+  - `TINYUSB_TASK_STACK_SIZE`,
+  - `TINYUSB_TASK_AFFINITY`,
+  - `TINYUSB_INIT_IN_DEFAULT_TASK`.
 - Choice for the Peripheral port from Kconfig:
-    - `TINYUSB_RHPORT`,
-    - `TINYUSB_RHPORT_HS`,
-    - `TINYUSB_RHPORT_FS`.
+  - `TINYUSB_RHPORT`,
+  - `TINYUSB_RHPORT_HS`,
+  - `TINYUSB_RHPORT_FS`.
 - Configure and run the `tud_task()` in the External Task.
 - Universal `tinyusb_config_t::configuration_descriptor` member for Full- and High-speed Configuration Descriptor.
 
 ### Renamed
 
-| Old name                                        | New name                                        |
-|-------------------------------------------------|-------------------------------------------------|
-| `tinyusb_config_t::device_descriptor`           | `tinyusb_config_t::descriptor.device`           |
-| `tinyusb_config_t::string_descriptor`           | `tinyusb_config_t::descriptor.string`           |
-| `tinyusb_config_t::string_descriptor_count`     | `tinyusb_config_t::descriptor.string_count`     |
-| `tinyusb_config_t::qualifier_descriptor`        | `tinyusb_config_t::descriptor.qualifier`        |
-| `tinyusb_config_t::fs_configuration_descriptor` | `tinyusb_config_t::descriptor.full_speed_config`|
-| `tinyusb_config_t::hs_configuration_descriptor` | `tinyusb_config_t::descriptor.high_speed_config`|
-| `tinyusb_config_t::external_phy`                | `tinyusb_config_t::phy.skip_setup`              |
-| `tinyusb_config_t::self_powered`                | `tinyusb_config_t::phy.self_powered`            |
-| `tinyusb_config_t::vbus_monitor_io`             | `tinyusb_config_t::phy.vbus_monitor_io`         |
+| Old name                                        | New name                                         |
+| ----------------------------------------------- | ------------------------------------------------ |
+| `tinyusb_config_t::device_descriptor`           | `tinyusb_config_t::descriptor.device`            |
+| `tinyusb_config_t::string_descriptor`           | `tinyusb_config_t::descriptor.string`            |
+| `tinyusb_config_t::string_descriptor_count`     | `tinyusb_config_t::descriptor.string_count`      |
+| `tinyusb_config_t::qualifier_descriptor`        | `tinyusb_config_t::descriptor.qualifier`         |
+| `tinyusb_config_t::fs_configuration_descriptor` | `tinyusb_config_t::descriptor.full_speed_config` |
+| `tinyusb_config_t::hs_configuration_descriptor` | `tinyusb_config_t::descriptor.high_speed_config` |
+| `tinyusb_config_t::external_phy`                | `tinyusb_config_t::phy.skip_setup`               |
+| `tinyusb_config_t::self_powered`                | `tinyusb_config_t::phy.self_powered`             |
+| `tinyusb_config_t::vbus_monitor_io`             | `tinyusb_config_t::phy.vbus_monitor_io`          |
 
 ## 4. Common Migration Errors and Solutions
 
@@ -114,7 +118,9 @@ void main(void)
 ```bash
 error: 'tinyusb_config_t' has no member named 'device_descriptor'
 ```
+
 or
+
 ```bash
 error: incompatible types when initializing type 'enum <anonymous>' using type 'void *'
     |         .device_descriptor = NULL,
@@ -123,15 +129,16 @@ error: incompatible types when initializing type 'enum <anonymous>' using type '
 
 **How to fix**
 
-The member `device_descriptor` was renamed to `descriptor.device` in the new version.
-Update your code from:
+The member `device_descriptor` was renamed to `descriptor.device` in the new version. Update your code from:
 
 ```c
 const tinyusb_config_t config = {
     .device_descriptor = ...,
 };
 ```
+
 to:
+
 ```c
 tinyusb_config_t config = TINYUSB_DEFAULT_CONFIG();
 config.descriptor.device = ...;
@@ -142,7 +149,9 @@ config.descriptor.device = ...;
 ```bash
 error: 'tinyusb_config_t' has no member named 'string_descriptor'
 ```
+
 or
+
 ```bash
 error: the address of 'hid_string_descriptor' will always evaluate as 'true' [-Werror=address]
     |         .string_descriptor = hid_string_descriptor,
@@ -151,14 +160,16 @@ error: the address of 'hid_string_descriptor' will always evaluate as 'true' [-W
 
 **How to fix**
 
-The member `string_descriptor` was renamed to `descriptor.string` in the new version.
-Update your code from:
+The member `string_descriptor` was renamed to `descriptor.string` in the new version. Update your code from:
+
 ```c
 const tinyusb_config_t config = {
     .string_descriptor = ...,
 };
 ```
+
 to:
+
 ```c
 tinyusb_config_t config = TINYUSB_DEFAULT_CONFIG();
 config.descriptor.string = ...;
@@ -172,14 +183,16 @@ error: 'tinyusb_config_t' has no member named 'string_descriptor_count'
 
 **How to fix**
 
-The member `string_descriptor_count` was renamed to `descriptor.string_count` in the new version.
-Update your code from:
+The member `string_descriptor_count` was renamed to `descriptor.string_count` in the new version. Update your code from:
+
 ```c
 const tinyusb_config_t config = {
     .string_descriptor_count = ...,
 };
 ```
+
 to:
+
 ```c
 tinyusb_config_t config = TINYUSB_DEFAULT_CONFIG();
 config.descriptor.string_count = ...;
@@ -190,7 +203,9 @@ config.descriptor.string_count = ...;
 ```bash
 error: 'tinyusb_config_t' has no member named 'configuration_descriptor'
 ```
+
 or:
+
 ```bash
 error: initialization of 'void (*)(tinyusb_event_t *, void *)' from incompatible pointer type 'const uint8_t *'
       |         .configuration_descriptor = ...,
@@ -199,14 +214,16 @@ error: initialization of 'void (*)(tinyusb_event_t *, void *)' from incompatible
 
 **How to fix**
 
-The member `fs_configuration_descriptor` was renamed to `descriptor.full_speed_config` in the new version.
-Update your code from:
+The member `fs_configuration_descriptor` was renamed to `descriptor.full_speed_config` in the new version. Update your code from:
+
 ```c
 const tinyusb_config_t config = {
     .fs_configuration_descriptor = ...,
 };
 ```
+
 to:
+
 ```c
 tinyusb_config_t config = TINYUSB_DEFAULT_CONFIG();
 config.descriptor.full_speed_config = ...;
@@ -217,7 +234,9 @@ config.descriptor.full_speed_config = ...;
 ```bash
 error: 'tinyusb_config_t' has no member named 'fs_configuration_descriptor'
 ```
+
 or:
+
 ```bash
 error: initialization of 'void (*)(tinyusb_event_t *, void *)' from incompatible pointer type 'const uint8_t *'
       |         .fs_configuration_descriptor = ...,
@@ -226,14 +245,16 @@ error: initialization of 'void (*)(tinyusb_event_t *, void *)' from incompatible
 
 **How to fix**
 
-The member `fs_configuration_descriptor` was renamed to `descriptor.full_speed_config` in the new version.
-Update your code from:
+The member `fs_configuration_descriptor` was renamed to `descriptor.full_speed_config` in the new version. Update your code from:
+
 ```c
 const tinyusb_config_t config = {
     .fs_configuration_descriptor = ...,
 };
 ```
+
 to:
+
 ```c
 tinyusb_config_t config = TINYUSB_DEFAULT_CONFIG();
 config.descriptor.full_speed_config = ...;
@@ -244,7 +265,9 @@ config.descriptor.full_speed_config = ...;
 ```bash
 error: 'tinyusb_config_t' has no member named 'hs_configuration_descriptor'
 ```
+
 or:
+
 ```bash
 error: initialization of 'void (*)(tinyusb_event_t *, void *)' from incompatible pointer type 'const uint8_t *'
       |         .hs_configuration_descriptor = ...,
@@ -253,14 +276,16 @@ error: initialization of 'void (*)(tinyusb_event_t *, void *)' from incompatible
 
 **How to fix**
 
-The member `hs_configuration_descriptor` was renamed to `descriptor.high_speed_config` in the new version.
-Update your code from:
+The member `hs_configuration_descriptor` was renamed to `descriptor.high_speed_config` in the new version. Update your code from:
+
 ```c
 const tinyusb_config_t config = {
     .hs_configuration_descriptor = ...,
 };
 ```
+
 to:
+
 ```c
 tinyusb_config_t config = TINYUSB_DEFAULT_CONFIG();
 config.descriptor.high_speed_config = ...;
@@ -274,14 +299,16 @@ error: 'tinyusb_config_t' has no member named 'qualifier_descriptor'
 
 **How to fix**
 
-The member `qualifier_descriptor` was renamed to `descriptor.qualifier` in the new version.
-Update your code from:
+The member `qualifier_descriptor` was renamed to `descriptor.qualifier` in the new version. Update your code from:
+
 ```c
 const tinyusb_config_t config = {
     .qualifier_descriptor = ...,
 };
 ```
+
 to:
+
 ```c
 tinyusb_config_t config = TINYUSB_DEFAULT_CONFIG();
 config.descriptor.qualifier = ...;
@@ -297,14 +324,16 @@ error: 'tinyusb_config_t' has no member named 'external_phy'
 
 **How to fix**
 
-The member `external_phy` was renamed to `phy.skip_setup` in the new version.
-Update your code from:
+The member `external_phy` was renamed to `phy.skip_setup` in the new version. Update your code from:
+
 ```c
 const tinyusb_config_t config = {
     .external_phy = true,
 };
 ```
+
 to:
+
 ```c
 tinyusb_config_t config = TINYUSB_DEFAULT_CONFIG();
 config.phy.skip_setup = true;
@@ -317,7 +346,9 @@ error: 'tinyusb_config_t' has no member named 'self_powered'
       |         .self_powered = true,
       |          ^~~~~~~~~~~~
 ```
+
 or:
+
 ```bash
 warning: excess elements in struct initializer
       |         .self_powered = true,
@@ -326,14 +357,16 @@ warning: excess elements in struct initializer
 
 **How to fix**
 
-The member `self_powered` was renamed to `phy.self_powered` in the new version.
-Update your code from:
+The member `self_powered` was renamed to `phy.self_powered` in the new version. Update your code from:
+
 ```c
 const tinyusb_config_t config = {
     .self_powered = true,
 };
 ```
+
 to:
+
 ```c
 tinyusb_config_t config = TINYUSB_DEFAULT_CONFIG();
 config.phy.self_powered = true;
@@ -346,7 +379,9 @@ error: 'tinyusb_config_t' has no member named 'vbus_monitor_io'
   465 |         .vbus_monitor_io = GPIO_NUM_4,
       |          ^~~~~~~~~~~~~~~
 ```
+
 or:
+
 ```bash
 warning: excess elements in struct initializer
       |         .vbus_monitor_io = GPIO_NUM_4,
@@ -354,14 +389,16 @@ warning: excess elements in struct initializer
 
 **How to fix**
 
-The member `vbus_monitor_io` was renamed to `phy.vbus_monitor_io` in the new version.
-Update your code from:
+The member `vbus_monitor_io` was renamed to `phy.vbus_monitor_io` in the new version. Update your code from:
+
 ```c
 const tinyusb_config_t config = {
     .vbus_monitor_io = GPIO_NUM_4,
 };
 ```
+
 to:
+
 ```c
 tinyusb_config_t config = TINYUSB_DEFAULT_CONFIG();
 config.phy.vbus_monitor_io = GPIO_NUM_4;
@@ -377,14 +414,16 @@ error: missing braces around initializer [-Werror=missing-braces]
 
 **How to fix**
 
-The default configuration macros `TINYUSB_DEFAULT_CONFIG()` was introduced.
-Update your code from:
+The default configuration macros `TINYUSB_DEFAULT_CONFIG()` was introduced. Update your code from:
+
 ```c
 const tinyusb_config_t config = {
     ...,
 };
 ```
+
 to:
+
 ```c
 tinyusb_config_t config = TINYUSB_DEFAULT_CONFIG();
 ```
@@ -409,13 +448,12 @@ Add the additional header to your code:
 
 Wrong port after using the `TINYUSB_DEFAULT_CONFIG()` macros.
 
-> **Note:**
-> For example, on the ESP32P4 there are two available USB ports: High-speed and Full-speed.
-> By default, the High-speed port is used if it is available.
+> **Note:** For example, on the ESP32P4 there are two available USB ports: High-speed and Full-speed. By default, the High-speed port is used if it is available.
 
 **How to fix**
 
 Explicitly select the desired port by setting the `tinyusb_config_t::port` member in your code:
+
 ```c
 tinyusb_config_t config = TINYUSB_DEFAULT_CONFIG();
 config.port = TINYUSB_PORT_FULL_SPEED_0;

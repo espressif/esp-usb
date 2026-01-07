@@ -14,12 +14,11 @@ Update the function prototype of the NCM driver initialization.
 
 The following function prototypes have been updated:
 
-| Old Function Prototype                                                                 | New Function Prototype                                      |
-|----------------------------------------------------------------------------------------|-------------------------------------------------------------|
+| Old Function Prototype                                                                  | New Function Prototype                                        |
+| --------------------------------------------------------------------------------------- | ------------------------------------------------------------- |
 | `esp_err_t tinyusb_net_init(tinyusb_usbdev_t usb_dev, const tinyusb_net_config_t *cfg)` | `esp_err_t tinyusb_net_init(const tinyusb_net_config_t *cfg)` |
 
 Update your code to use the new function names as shown above.
-
 
 ## 4. Common Migration Errors and Solutions
 
@@ -31,8 +30,7 @@ error: 'TINYUSB_USBDEV_0' undeclared (first use in this function)
 
 **How to fix?**
 
-`TINYUSB_USBDEV_0` was removed.
-Please, update your code:
+`TINYUSB_USBDEV_0` was removed. Please, update your code:
 
 ```c
     tinyusb_net_init(TINYUSB_USBDEV_0, &net_config);
@@ -52,8 +50,7 @@ error: too many arguments to function 'tinyusb_net_init'; expected 1, have 2
 
 **How to fix?**
 
-TINYUSB_USBDEV_0 was removed.
-Please, update your code:
+TINYUSB_USBDEV_0 was removed. Please, update your code:
 
 ```c
     tinyusb_net_init(TINYUSB_USBDEV_0, &net_config);

@@ -31,19 +31,29 @@ repos:
         exclude: '.*\.uxf'
     -   id: check-yaml
 
-- repo: https://github.com/espressif/esp-idf-kconfig.git
-  rev: v2.5.0
-  hooks:
-    - id: check-kconfig-files
-    - id: check-deprecated-kconfig-options
+-   repo: https://github.com/espressif/esp-idf-kconfig.git
+    rev: v2.5.0
+    hooks:
+    -   id: check-kconfig-files
+    -   id: check-deprecated-kconfig-options
 
-- repo: local
-  hooks:
-      - id: cmake-lint
+-   repo: https://github.com/executablebooks/mdformat
+    rev: 0.7.22
+    hooks:
+    -   id: mdformat
+        exclude: 'CHANGELOG\.md$'
+        args: [--number]
+        additional_dependencies:
+        -   mdformat-gfm  # GitHub Flavored Markdown support
+        -   mdformat-ruff  # Python code block formatting
+
+-   repo: local
+    hooks:
+    -   id: cmake-lint
         name: Check CMake Files Format
         entry: cmakelint --linelength=120 --spaces=4 --filter=-whitespace/indent
         language: python
         additional_dependencies:
-          - cmakelint==1.4.1
+        -   cmakelint==1.4.1
         files: 'CMakeLists.txt$|\.cmake$'
         exclude: '\/third_party\/'

@@ -24,11 +24,11 @@ The old API is still supported, but it is recommended to update your code, as th
 
 The following function prototypes have been renamed to improve consistency. Update your code to use the new names:
 
-| Old Function Prototype                                              | New Function Prototype                                              |
-|---------------------------------------------------------------------|--------------------------------------------------------------------|
-| `esp_err_t tusb_cdc_acm_init(const tinyusb_config_cdcacm_t *cfg)`   | `esp_err_t tinyusb_cdcacm_init(const tinyusb_config_cdcacm_t *cfg)`   |
-| `esp_err_t tusb_cdc_acm_deinit(int itf)`                            | `esp_err_t tinyusb_cdcacm_deinit(int itf)`                            |
-| `bool tusb_cdc_acm_initialized(tinyusb_cdcacm_itf_t itf)`           | `bool tinyusb_cdcacm_initialized(tinyusb_cdcacm_itf_t itf)`           |
+| Old Function Prototype                                            | New Function Prototype                                              |
+| ----------------------------------------------------------------- | ------------------------------------------------------------------- |
+| `esp_err_t tusb_cdc_acm_init(const tinyusb_config_cdcacm_t *cfg)` | `esp_err_t tinyusb_cdcacm_init(const tinyusb_config_cdcacm_t *cfg)` |
+| `esp_err_t tusb_cdc_acm_deinit(int itf)`                          | `esp_err_t tinyusb_cdcacm_deinit(int itf)`                          |
+| `bool tusb_cdc_acm_initialized(tinyusb_cdcacm_itf_t itf)`         | `bool tinyusb_cdcacm_initialized(tinyusb_cdcacm_itf_t itf)`         |
 
 Replace any usage of the old function names with the new ones in your codebase.
 
@@ -42,8 +42,8 @@ Replace any usage of the old function names with the new ones in your codebase.
 
 **How to fix?**
 
-New header file was introduced.
-Update your code from:
+New header file was introduced. Update your code from:
+
 ```c
 #include "tusb_cdc_acm.h"
 
@@ -53,7 +53,9 @@ int main(void) {
     tusb_cdc_acm_deinit(TINYUSB_CDC_ACM_0);
 }
 ```
+
 to:
+
 ```c
 #include "tinyusb_cdc_acm.h"
 

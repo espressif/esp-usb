@@ -1,14 +1,13 @@
 # USB Host UVC Class Driver
 
-[![Component Registry](https://components.espressif.com/components/espressif/usb_host_uvc/badge.svg)](https://components.espressif.com/components/espressif/usb_host_uvc)
-![maintenance-status](https://img.shields.io/badge/maintenance-actively--developed-brightgreen.svg)
-![changelog](https://img.shields.io/badge/Keep_a_Changelog-blue?logo=keepachangelog&logoColor=E05735)
+[![Component Registry](https://components.espressif.com/components/espressif/usb_host_uvc/badge.svg)](https://components.espressif.com/components/espressif/usb_host_uvc) ![maintenance-status](https://img.shields.io/badge/maintenance-actively--developed-brightgreen.svg) ![changelog](https://img.shields.io/badge/Keep_a_Changelog-blue?logo=keepachangelog&logoColor=E05735)
 
 This component contains an implementation of a USB Host UVC Class Driver that is implemented on top of the [USB Host Library](https://docs.espressif.com/projects/esp-idf/en/latest/esp32s2/api-reference/peripherals/usb_host.html).
 
 The UVC driver allows video streaming from USB cameras.
 
 ### Features
+
 - Isochronous and Bulk transfers streaming
 - Multiple video streams
 - Frame buffers in PSRAM
@@ -23,6 +22,7 @@ Following sequence diagram represents public API usage of the UVC driver. New fr
 ![UVC public API](docs/uvc_public_api.png)
 
 ### Additional information
+
 - [Frequently Asked Questions](docs/FAQ.md)
 - [Examples](examples/)
 - [Architectural notes](docs/arch_notes.md)

@@ -88,7 +88,7 @@ menu "TinyUSB Stack"
                 Name of the MSC device.
     endmenu # "Descriptor configuration"
 
-    menu "Massive Storage Class (MSC)"
+    menu "Mass Storage Class (MSC)"
         config TINYUSB_MSC_ENABLED
             bool "Enable TinyUSB MSC feature"
             default n
@@ -111,7 +111,7 @@ menu "TinyUSB Stack"
             default "/data"
             help
                 MSC Mount Path of storage.
-    endmenu # "Massive Storage Class"
+    endmenu # "Mass Storage Class"
 
     menu "Communication Device Class (CDC)"
         config TINYUSB_CDC_ENABLED

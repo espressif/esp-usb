@@ -3,6 +3,7 @@
 This driver utilizes two distinct types of memory buffers, both of which can be configured per UVC stream during stream initialization via the `uvc_host_stream_config_t.advanced` structure. The buffer types are as follows:
 
 ### 1. URB (USB Request Block)
+
 - **Definition:** Provided by the USB Host Library in ESP-IDF.
 - **Ownership:** Managed by the USB Host Library.
 - **Placement:** Determined by ESP-IDF settings (internal or external RAM).
@@ -18,6 +19,7 @@ This driver utilizes two distinct types of memory buffers, both of which can be 
 - **Driver Role:** Processes data from the URB and reconstructs video frames.
 
 ### 2. FB (Frame Buffer)
+
 - **Definition:** Custom buffer type defined within this driver.
 - **Ownership:** Dynamic ownership:
   - Empty FBs are owned by the driver.
@@ -40,4 +42,5 @@ This driver utilizes two distinct types of memory buffers, both of which can be 
   - **Lifecycle:** Users manage buffer allocation and deallocation; the driver only manages buffer ownership during streaming (via frame callback and `uvc_host_frame_return()`).
 
 ### Frame buffer state transitions
+
 ![Frame buffer state transitions](./uvc_frames_state_transitions.png)

@@ -5,8 +5,7 @@
 
 ## Introduction
 
-To verify the process how Enumeration Driver handles different scenarios the artificial approach of emulation USB device with TinyUSB is used.
-This test helps to verify all possible scenarios of detaching device under the enumeration process.
+To verify the process how Enumeration Driver handles different scenarios the artificial approach of emulation USB device with TinyUSB is used. This test helps to verify all possible scenarios of detaching device under the enumeration process.
 
 ## Key Terms
 
@@ -52,6 +51,7 @@ The Mocked Device has a Final State Machine (FSM), which could be configured to 
 FSM is described in the **mock_dev_stage_t** structure and could be found in [mock_dev.h](main/mock_dev.h).
 
 Available stages:
+
 - Request Short Device Descriptor
 - Request Full Device Descriptor
 - Request Short Configuration Descriptor
@@ -67,12 +67,11 @@ Available stages:
 - Set configuration
 
 Not covered stages:
+
 - Device Reset (First and Second)
 - Set Address
 
 These stages are handled internally in TinyUSB and there is no user callbacks available. That means, that without specific changes in the TinyUSB component code, it is impossible to achieve emulation of device detaching during these stages.
-
-
 
 ### Mocked Device - Stages
 
@@ -80,7 +79,7 @@ To specify the descriptor, which should be used on every stage, there is a possi
 
 Example of fully-defined non-detachable Mocked Device configuration:
 
-``` c
+```c
 static const tusb_desc_device_t mock_device_desc = {
     .bLength = sizeof(tusb_desc_device_t),
     .bDescriptorType = TUSB_DESC_DEVICE,
@@ -289,11 +288,10 @@ I (91020) CLASS: Getting Serial Number string descriptor
 123456
 ```
 
-Which means that the Mocked Device is connected to Host and the enumeration process was completed.
-Different scenarios are being tested during the test run, so there could be errors in the log
-That means, that the device emulates the specific behavior, to cause this error.
+Which means that the Mocked Device is connected to Host and the enumeration process was completed. Different scenarios are being tested during the test run, so there could be errors in the log That means, that the device emulates the specific behavior, to cause this error.
 
 Important things are:
+
 - During the test there must be no KERNEL PANIC, CPU reset etc. (not to miss the reset, it is better to configure the Panic handler behaviour to: Print registers and halt)
 - The Host application should be responsive after the test. (In terms of usb_host_lib example, that means handle new device connection and show the descriptors from the connected device).
 

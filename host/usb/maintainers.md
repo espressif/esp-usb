@@ -8,10 +8,10 @@ Note: Some static functions within the stack need to be called within critical s
 
 The host driver is currently split into the following layers, ordered from the lowest (furthest away from the user) to the highest layer (closest to the user).
 
-* USB Host lower layer in `usbh_ll.h`
-* USB HAL in `usbh_hal.h` and `usbh_hal.c`
-* Host Controller Driver in `hcd.c` and `hcd.h`
-* USB Host Driver in `usb_host.h` and `usb_host.c`
+- USB Host lower layer in `usbh_ll.h`
+- USB HAL in `usbh_hal.h` and `usbh_hal.c`
+- Host Controller Driver in `hcd.c` and `hcd.h`
+- USB Host Driver in `usb_host.h` and `usb_host.c`
 
 # DWC_OTG
 
@@ -19,8 +19,7 @@ Details regarding the DWC_OTG peripheral are covered in the data book and progra
 
 ## Implicit interrupt on short packet on INTERRUPT transfer.
 
-- An interrupt channel will trigger an interrupt one of its QTDs is a short packet (event if the QTD did not set the interrupt on complete bit). This implicit interrupt is used to notify the software that it should halt the channel to
-stop the remainder of the interrupt transfer.
+- An interrupt channel will trigger an interrupt one of its QTDs is a short packet (event if the QTD did not set the interrupt on complete bit). This implicit interrupt is used to notify the software that it should halt the channel to stop the remainder of the interrupt transfer.
 
 ## Channel interrupt on port errors
 
@@ -38,10 +37,10 @@ stop the remainder of the interrupt transfer.
 
 # USB Host Lower Layer
 
-* `usbh_ll.h` abstracts away the basic register operation of the DWC_OTG controller
-* The LL provides register operations of the DWC OTG controller operating under Host Mode using scatter/gather internal DMA.
-* For non-host mode specific register operations (i.e. global registers), the functions are prefixed with `usb_ll_...()`
-* For host mode specific register operations, the functions are prefixed with `usbh_ll_...()`
+- `usbh_ll.h` abstracts away the basic register operation of the DWC_OTG controller
+- The LL provides register operations of the DWC OTG controller operating under Host Mode using scatter/gather internal DMA.
+- For non-host mode specific register operations (i.e. global registers), the functions are prefixed with `usb_ll_...()`
+- For host mode specific register operations, the functions are prefixed with `usbh_ll_...()`
 
 # USB Host HAL
 

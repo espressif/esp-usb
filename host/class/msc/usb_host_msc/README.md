@@ -9,25 +9,19 @@ MSC driver allows access to USB flash drivers using the BOT (Bulk-Only Transport
 ## Usage
 
 - First, usb host library has to be initialized by calling `usb_host_install`
-- USB Host Library events have to be handled by invoking `usb_host_lib_handle_events` periodically.
-  In general, an application should spawn a dedicated task handle USB Host Library events.
-  However, in order to save RAM, an already existing task can also be used to call `usb_host_lib_handle_events`.
+- USB Host Library events have to be handled by invoking `usb_host_lib_handle_events` periodically. In general, an application should spawn a dedicated task handle USB Host Library events. However, in order to save RAM, an already existing task can also be used to call `usb_host_lib_handle_events`.
 - Mass Storage Class driver is installed by calling `usb_msc_install` function along side with configuration.
-- Supplied configuration contains user provided callback function invoked whenever MSC device is connected/disconnected
-  and optional parameters for creating background task handling MSC related events.
-  Alternatively, user can call `usb_msc_handle_events` function from already existing task.
-- After receiving `MSC_DEVICE_CONNECTED` event, user has to install device with `usb_msc_install_device` function,
-  obtaining MSC device handle.
-- USB descriptors can be printed out with `usb_msc_print_descriptors` and general information about MSC device retrieved
-  with `from usb_msc_get_device_info` function.
+- Supplied configuration contains user provided callback function invoked whenever MSC device is connected/disconnected and optional parameters for creating background task handling MSC related events. Alternatively, user can call `usb_msc_handle_events` function from already existing task.
+- After receiving `MSC_DEVICE_CONNECTED` event, user has to install device with `usb_msc_install_device` function, obtaining MSC device handle.
+- USB descriptors can be printed out with `usb_msc_print_descriptors` and general information about MSC device retrieved with `from usb_msc_get_device_info` function.
 - Obtained device handle is then used in helper function `usb_msc_vfs_register` mounting USB Disk to Virtual filesystem.
 - At this point, standard C functions for accessing storage (`fopen`, `fwrite`, `fread`, `mkdir` etc.) can be carried out.
 - In order to uninstall the whole USB stack, deinitializing counterparts to functions above has to be called in reverse order.
 
 ## Performance tuning
 
-The following performance tuning options have significant impact on data throughput in USB HighSpeed implementations.
-For original FullSpeed implementations, the effects are negligible.
+The following performance tuning options have significant impact on data throughput in USB HighSpeed implementations. For original FullSpeed implementations, the effects are negligible.
+
 - By default, Newlib (the implementation of C Standard Library) creates cache for each opened file
 - The greater the cache, the better performance for the cost of RAM
 - Size of the cache can be set with C STD library function `setvbuf()`

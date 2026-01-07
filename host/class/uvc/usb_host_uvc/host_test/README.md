@@ -4,9 +4,10 @@
 # Description
 
 This directory contains test code for `USB Host UVC` driver. Namely:
-* Descriptor parsing
-* Frame transfers handling
-* Device opening
+
+- Descriptor parsing
+- Frame transfers handling
+- Device opening
 
 Tests are written using [Catch2](https://github.com/catchorg/Catch2) test framework, use CMock, so you must install Ruby on your machine to run them.
 
