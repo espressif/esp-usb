@@ -16,18 +16,44 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  get-changed-files:
+  check-label:
     runs-on: ubuntu-latest
     outputs:
-      all_changed_files: ${{ steps.changed-files.outputs.all_changed_files }}
+      has_label: ${{ steps.check.outputs.has_label }}
+    steps:
+      - name: Check for BUILD_AND_TEST_ALL_APPS label
+        id: check
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const labels = context.payload.pull_request?.labels?.map(label => label.name) || [];
+            const hasLabel = labels.includes('BUILD_AND_TEST_ALL_APPS');
+            core.setOutput('has_label', hasLabel);
+
+  get-changed-files:
+    needs: check-label
+    runs-on: ubuntu-latest
+    outputs:
+      all_changed_files: ${{ steps.set-output.outputs.all_changed_files }}
     steps:
       - uses: actions/checkout@v4
+        if: needs.check-label.outputs.has_label != 'true'
       - name: Get changed files
+        if: needs.check-label.outputs.has_label != 'true'
         id: changed-files
         uses: tj-actions/changed-files@v47
         with:
           separator: ';' # idf-build-apps expects files separated with semicolon
           safe_output: false # Do not escape special characters
+      - name: Set output
+        id: set-output
+        if: always()
+        run: |
+          if [ "${{ needs.check-label.outputs.has_label }}" = "true" ]; then
+            echo "all_changed_files=" >> $GITHUB_OUTPUT
+          else
+            echo "all_changed_files=${{ steps.changed-files.outputs.all_changed_files }}" >> $GITHUB_OUTPUT
+          fi
 
   build_run:
     needs: get-changed-files
