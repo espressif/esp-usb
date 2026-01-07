@@ -145,15 +145,15 @@ jobs:
       - name: ⚙️ Install System tools
         if: success() && steps.download_artifact.outcome == 'success'
         run: |
-          apt update
-          apt install -y usbutils
+          apt-get update -y
+          apt-get install -y usbutils
       - name: Install Python packages
         if: success() && steps.download_artifact.outcome == 'success'
         env:
           PIP_EXTRA_INDEX_URL: "https://dl.espressif.com/pypi/"
         # We need idf-ci pytest plugin to handle 'no test_app binary found for test' error
         # We need pytest-ignore-test-results to ignore the error
-        run: pip install --only-binary cryptography pytest-embedded pytest-embedded-serial-esp pytest-embedded-idf idf-ci pytest-ignore-test-results pyserial pyusb
+        run: pip install --no-cache-dir --only-binary cryptography pytest-embedded pytest-embedded-serial-esp pytest-embedded-idf idf-ci pytest-ignore-test-results pyserial pyusb
       - name: Run USB Test App on target
         if: success() && steps.download_artifact.outcome == 'success'
         run: |
