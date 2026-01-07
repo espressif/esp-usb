@@ -16,9 +16,9 @@
 #include "usb/uac_host.h"
 #include "test_host_uac_common.h"
 
-const static char *TAG = "UAC_TEST_PM";
-
 #ifdef UAC_HOST_SUSPEND_RESUME_API_SUPPORTED
+
+const static char *TAG = "UAC_TEST_PM";
 
 #define TEST_EVENT_CLIENT_WAIT_MS               500     // Wait for a client event delivery
 #define TEST_EVENT_TRANSFER_WAIT_MS             1000    // Wait for a transfer event delivery
