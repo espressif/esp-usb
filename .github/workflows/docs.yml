@@ -54,6 +54,7 @@ jobs:
   deploy-docs:
     needs: build-docs
     runs-on: ubuntu-latest
+    if: ${{ github.repository_owner == 'espressif' }}
     # Set Deploy environment for master branch, otherwise set Preview environment
     environment: ${{ github.ref_name == 'master' && 'esp-docs deploy' || 'esp-docs preview' }}
     steps:
