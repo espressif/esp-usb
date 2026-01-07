@@ -1,19 +1,18 @@
-# SPDX-FileCopyrightText: 2024-2025 Espressif Systems (Shanghai) CO LTD
+# SPDX-FileCopyrightText: 2024-2026 Espressif Systems (Shanghai) CO LTD
 # SPDX-License-Identifier: Apache-2.0
 
 from typing import Tuple
 
 import pytest
 from pytest_embedded_idf.dut import IdfDut
+from pytest_embedded_idf.utils import idf_parametrize
 
 
-@pytest.mark.esp32s2
-@pytest.mark.esp32s3
-@pytest.mark.esp32p4
 @pytest.mark.usb_host
 @pytest.mark.parametrize('count', [
     2,
 ], indirect=True)
+@idf_parametrize('target', ['esp32s2', 'esp32s3', 'esp32p4'], indirect=['target'])
 def test_usb_host_hid(dut: Tuple[IdfDut, IdfDut]) -> None:
     device = dut[0]
     host = dut[1]

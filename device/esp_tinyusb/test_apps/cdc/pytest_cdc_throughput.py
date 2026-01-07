@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-# SPDX-FileCopyrightText: 2025 Espressif Systems (Shanghai) CO LTD
+# SPDX-FileCopyrightText: 2025-2026 Espressif Systems (Shanghai) CO LTD
 # SPDX-License-Identifier: Apache-2.0
 
 """
@@ -344,10 +344,9 @@ try:
     # That is why we do not export throughput results from here
     import pytest
     from pytest_embedded_idf.dut import IdfDut
-    @pytest.mark.esp32s2
-    @pytest.mark.esp32s3
-    @pytest.mark.esp32p4
+    from pytest_embedded_idf.utils import idf_parametrize
     @pytest.mark.usb_device
+    @idf_parametrize('target', ['esp32s2', 'esp32s3', 'esp32p4'], indirect=['target'])
     def test_tusb_cdc_throughput(dut: IdfDut) -> None:
         dut.expect_exact('Press ENTER to see the list of tests.')
         dut.write('[cdc_throughput]')

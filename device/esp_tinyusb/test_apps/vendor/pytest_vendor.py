@@ -1,8 +1,9 @@
-# SPDX-FileCopyrightText: 2024 Espressif Systems (Shanghai) CO LTD
+# SPDX-FileCopyrightText: 2024-2026 Espressif Systems (Shanghai) CO LTD
 # SPDX-License-Identifier: Apache-2.0
 
 import pytest
 from pytest_embedded_idf.dut import IdfDut
+from pytest_embedded_idf.utils import idf_parametrize
 import usb.core
 import usb.util
 from time import sleep
@@ -64,10 +65,8 @@ def send_data_to_intf(VID, PID, interface_index):
         print("NOT found")
 
 
-@pytest.mark.esp32s2
-@pytest.mark.esp32s3
-@pytest.mark.esp32p4
 #@pytest.mark.usb_device                        Disable in CI, for now, not possible to run this test in Docker container
+@idf_parametrize('target', ['esp32s2', 'esp32s3', 'esp32p4'], indirect=['target'])
 def test_usb_device_vendor(dut: IdfDut) -> None:
     '''
     Running the test locally:
