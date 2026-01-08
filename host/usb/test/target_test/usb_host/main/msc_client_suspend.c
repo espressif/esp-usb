@@ -43,6 +43,7 @@ Implementation of an asynchronous MSC client used for USB Host's root port suspe
 */
 
 #define TEST_DCONN_ITERATIONS   2
+#define NEW_DEV_EVENT_MS        1000            // Delay to wait for a device to be connected
 
 typedef enum {
     TEST_STAGE_WAIT_CONN,                       /**< Wait for device connection */
@@ -188,14 +189,20 @@ void msc_client_async_suspend_resume_task(void *arg)
     usb_transfer_t *xfer_out = NULL;
 
     // Wait to be started by main thread
-    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+    TEST_ASSERT_EQUAL_MESSAGE(pdTRUE, ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(2000)), "MSC client not started from main thread");
     ESP_LOGI(MSC_CLIENT_TAG, "Starting");
 
     // Try to suspend, when no device is yet connected
     TEST_ASSERT_EQUAL(ESP_ERR_NOT_FOUND, usb_host_lib_root_port_suspend());
 
+    // Handle device enumeration separately, wait for 1000ms for the device to be enumerated
+    // Catch an error in case the device is not enumerated correctly
+    esp_err_t enum_ret = usb_host_client_handle_events(msc_obj.client_hdl, pdMS_TO_TICKS(NEW_DEV_EVENT_MS));
+    TEST_ASSERT_EQUAL_MESSAGE(TEST_STAGE_DEV_SUSPEND_RESUME_NO_CLIENT, msc_obj.next_stage, "USB_HOST_CLIENT_EVENT_NEW_DEV not generated on time");
+    TEST_ASSERT_EQUAL_MESSAGE(ESP_OK, enum_ret, "Client handle events timed out");
+
     bool exit_loop = false;
-    bool skip_event_handling = false;
+    bool skip_event_handling = true;    // Skip first event handling (we have handled the new device event separately)
     int dconn_iter = 0;
 
     while (!exit_loop) {
@@ -240,7 +247,7 @@ void msc_client_async_suspend_resume_task(void *arg)
             break;
         }
         case TEST_STAGE_DEV_OPEN: {
-            ESP_LOGD(MSC_CLIENT_TAG, "Open");
+            ESP_LOGI(MSC_CLIENT_TAG, "Open");
             msc_obj.num_sectors_read = 0;
             // Open the device
             TEST_ASSERT_EQUAL(ESP_OK, usb_host_device_open(msc_obj.client_hdl, msc_obj.dev_addr, &msc_obj.dev_hdl));
@@ -350,7 +357,7 @@ void msc_client_async_suspend_resume_task(void *arg)
             break;
         }
         case TEST_STAGE_DEV_CLOSE: {
-            ESP_LOGD(MSC_CLIENT_TAG, "Close");
+            ESP_LOGI(MSC_CLIENT_TAG, "Close");
             TEST_ASSERT_EQUAL(ESP_OK, usb_host_interface_release(msc_obj.client_hdl, msc_obj.dev_hdl, msc_obj.dev_info->bInterfaceNumber));
             TEST_ASSERT_EQUAL(ESP_OK, usb_host_device_close(msc_obj.client_hdl, msc_obj.dev_hdl));
             vTaskDelay(10); // Yield to USB Host task so it can handle the disconnection

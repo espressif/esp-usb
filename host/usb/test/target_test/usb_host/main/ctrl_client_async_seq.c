@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2015-2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2015-2025 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -35,6 +35,7 @@ Implementation of a control transfer client used for USB Host Tests.
 #define CTRL_CLIENT_MAX_EVENT_MSGS      5
 #define NUM_TRANSFER_OBJ                3
 #define MAX_TRANSFER_BYTES              256
+#define NEW_DEV_EVENT_MS                1000    // Delay to wait for a device to be connected
 
 const char *CTRL_CLIENT_TAG = "Ctrl Client";
 
@@ -82,6 +83,7 @@ static void ctrl_client_event_cb(const usb_host_client_event_msg_t *event_msg, v
     ctrl_client_obj_t *ctrl_obj = (ctrl_client_obj_t *)arg;
     switch (event_msg->event) {
     case USB_HOST_CLIENT_EVENT_NEW_DEV:
+        ESP_LOGI(CTRL_CLIENT_TAG, "Client event -> New device");
         TEST_ASSERT_EQUAL(TEST_STAGE_WAIT_CONN, ctrl_obj->cur_stage);
         ctrl_obj->next_stage = TEST_STAGE_DEV_OPEN;
         ctrl_obj->dev_addr = event_msg->new_dev.address;
@@ -119,11 +121,17 @@ void ctrl_client_async_seq_task(void *arg)
     }
 
     // Wait to be started by main thread
-    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
-    ESP_LOGD(CTRL_CLIENT_TAG, "Starting");
+    TEST_ASSERT_EQUAL_MESSAGE(pdTRUE, ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(2000)), "Ctrl client not started from main thread");
+    ESP_LOGI(CTRL_CLIENT_TAG, "Starting");
+
+    // Handle device enumeration separately, wait for 1000ms for the device to be enumerated
+    // Catch an error in case the device is not enumerated correctly
+    esp_err_t enum_ret = usb_host_client_handle_events(ctrl_obj.client_hdl, pdMS_TO_TICKS(NEW_DEV_EVENT_MS));
+    TEST_ASSERT_EQUAL_MESSAGE(TEST_STAGE_DEV_OPEN, ctrl_obj.next_stage, "USB_HOST_CLIENT_EVENT_NEW_DEV not generated on time");
+    TEST_ASSERT_EQUAL_MESSAGE(ESP_OK, enum_ret, "Client handle events timed out");
 
     bool exit_loop = false;
-    bool skip_event_handling = false;
+    bool skip_event_handling = true;    // Skip first event handling (we have handled the new device event separately)
     while (!exit_loop) {
         if (!skip_event_handling) {
             TEST_ASSERT_EQUAL(ESP_OK, usb_host_client_handle_events(ctrl_obj.client_hdl, portMAX_DELAY));
@@ -136,7 +144,7 @@ void ctrl_client_async_seq_task(void *arg)
 
         switch (ctrl_obj.next_stage) {
         case TEST_STAGE_DEV_OPEN: {
-            ESP_LOGD(CTRL_CLIENT_TAG, "Open");
+            ESP_LOGI(CTRL_CLIENT_TAG, "Open");
             // Open the device
             TEST_ASSERT_EQUAL_MESSAGE(ESP_OK, usb_host_device_open(ctrl_obj.client_hdl, ctrl_obj.dev_addr, &ctrl_obj.dev_hdl), "Failed to open the device");
             // Get device info to get device speed
@@ -177,7 +185,7 @@ void ctrl_client_async_seq_task(void *arg)
             break;
         }
         case TEST_STAGE_DEV_CLOSE: {
-            ESP_LOGD(CTRL_CLIENT_TAG, "Close");
+            ESP_LOGI(CTRL_CLIENT_TAG, "Close");
             vTaskDelay(10); // Give USB Host Lib some time to process all transfers
             TEST_ASSERT_EQUAL(ESP_OK, usb_host_device_close(ctrl_obj.client_hdl, ctrl_obj.dev_hdl));
             exit_loop = true;
@@ -193,6 +201,6 @@ void ctrl_client_async_seq_task(void *arg)
         TEST_ASSERT_EQUAL(ESP_OK, usb_host_transfer_free(ctrl_xfer[i]));
     }
     TEST_ASSERT_EQUAL(ESP_OK, usb_host_client_deregister(ctrl_obj.client_hdl));
-    ESP_LOGD(CTRL_CLIENT_TAG, "Done");
+    ESP_LOGI(CTRL_CLIENT_TAG, "Done");
     vTaskDelete(NULL);
 }

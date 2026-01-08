@@ -177,7 +177,7 @@ TEST_CASE("Test USB Host sudden disconnection (single client)", "[usb_host][full
         .num_sectors_per_xfer = TEST_FORCE_DCONN_NUM_TRANSFERS * dev_info->scsi_sector_size,
         .msc_scsi_xfer_tag = TEST_MSC_SCSI_TAG,
     };
-    TaskHandle_t task_hdl;
+    TaskHandle_t task_hdl = NULL;
     xTaskCreatePinnedToCore(msc_client_async_dconn_task, "async", 4096, (void *)&params, 2, &task_hdl, 0);
     // Start the task
     xTaskNotifyGive(task_hdl);
@@ -220,7 +220,7 @@ Procedure:
 TEST_CASE("Test USB Host enumeration", "[usb_host][full_speed][high_speed]")
 {
     // Create task to run client that checks the enumeration of the device
-    TaskHandle_t task_hdl;
+    TaskHandle_t task_hdl = NULL;
     xTaskCreatePinnedToCore(msc_client_async_enum_task, "async", 6144, NULL, 2, &task_hdl, 0);
     // Start the task
     xTaskNotifyGive(task_hdl);

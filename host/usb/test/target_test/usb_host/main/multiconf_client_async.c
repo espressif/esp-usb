@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2024-2025 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -35,6 +35,7 @@ Implementation of a multi-configuration client used for USB Host Tests.
 const char *MULTICONF_CLIENT_TAG = "Multi config Client";
 
 #define CLIENT_NUM_EVENT_MSG        5
+#define NEW_DEV_EVENT_MS            1000    // Delay to wait for a device to be connected
 
 typedef enum {
     TEST_STAGE_WAIT_CONN,
@@ -66,6 +67,7 @@ static void multiconf_client_event_cb(const usb_host_client_event_msg_t *event_m
     multiconf_client_obj_t *multiconf_obj = (multiconf_client_obj_t *)arg;
     switch (event_msg->event) {
     case USB_HOST_CLIENT_EVENT_NEW_DEV:
+        ESP_LOGI(MSC_CLIENT_TAG, "Client event -> New device");
         TEST_ASSERT_EQUAL(TEST_STAGE_WAIT_CONN, multiconf_obj->cur_stage);
         multiconf_obj->next_stage = TEST_STAGE_DEV_OPEN;
         multiconf_obj->dev_addr = event_msg->new_dev.address;
@@ -102,11 +104,17 @@ void multiconf_client_async_task(void *arg)
     s_multiconf_obj = &multiconf_obj;
 
     // Wait to be started by main thread
-    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
-    ESP_LOGD(MULTICONF_CLIENT_TAG, "Starting");
+    TEST_ASSERT_EQUAL_MESSAGE(pdTRUE, ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(2000)), "MSC client not started from main thread");
+    ESP_LOGI(MSC_CLIENT_TAG, "Starting");
+
+    // Handle device enumeration separately, wait for 1000ms for the device to be enumerated
+    // Catch an error in case the device is not enumerated correctly
+    esp_err_t enum_ret = usb_host_client_handle_events(multiconf_obj.client_hdl, pdMS_TO_TICKS(NEW_DEV_EVENT_MS));
+    TEST_ASSERT_EQUAL_MESSAGE(TEST_STAGE_DEV_OPEN, multiconf_obj.next_stage, "USB_HOST_CLIENT_EVENT_NEW_DEV not generated on time");
+    TEST_ASSERT_EQUAL_MESSAGE(ESP_OK, enum_ret, "Client handle events timed out");
 
     bool exit_loop = false;
-    bool skip_event_handling = false;
+    bool skip_event_handling = true;    // Skip first event handling (we have handled the new device event separately)
     while (!exit_loop) {
         if (!skip_event_handling) {
             TEST_ASSERT_EQUAL(ESP_OK, usb_host_client_handle_events(multiconf_obj.client_hdl, portMAX_DELAY));
@@ -119,7 +127,7 @@ void multiconf_client_async_task(void *arg)
 
         switch (multiconf_obj.next_stage) {
         case TEST_STAGE_DEV_OPEN: {
-            ESP_LOGD(MULTICONF_CLIENT_TAG, "Open");
+            ESP_LOGI(MULTICONF_CLIENT_TAG, "Open");
             // Open the device
             TEST_ASSERT_EQUAL_MESSAGE(ESP_OK, usb_host_device_open(multiconf_obj.client_hdl, multiconf_obj.dev_addr, &multiconf_obj.dev_hdl), "Failed to open the device");
 
@@ -151,7 +159,7 @@ void multiconf_client_async_task(void *arg)
             break;
         }
         case TEST_STAGE_DEV_CLOSE: {
-            ESP_LOGD(MULTICONF_CLIENT_TAG, "Close");
+            ESP_LOGI(MULTICONF_CLIENT_TAG, "Close");
             vTaskDelay(10); // Give USB Host Lib some time to process all transfers
             TEST_ASSERT_EQUAL(ESP_OK, usb_host_device_close(multiconf_obj.client_hdl, multiconf_obj.dev_hdl));
             exit_loop = true;
@@ -163,7 +171,7 @@ void multiconf_client_async_task(void *arg)
         }
     }
     TEST_ASSERT_EQUAL(ESP_OK, usb_host_client_deregister(multiconf_obj.client_hdl));
-    ESP_LOGD(MULTICONF_CLIENT_TAG, "Done");
+    ESP_LOGI(MULTICONF_CLIENT_TAG, "Done");
     vTaskDelete(NULL);
 }
 
