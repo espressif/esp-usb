@@ -21,6 +21,7 @@
 #include "usb/usb_host.h"
 #include "usb/cdc_acm_host.h"
 #include "esp_intr_alloc.h"
+#include "cdc_acm_mock_device.h"
 
 static uint8_t tx_buf[] = "HELLO";
 static uint8_t tx_buf2[] = "WORLD";
@@ -1154,7 +1155,7 @@ TEST_CASE("resume_by_transfer_submit", "[cdc_acm]")
     vTaskDelay(20); // Short delay to allow task to be cleaned up
 }
 
-TEST_CASE("remote_wake", "[remote_wake]")
+TEST_CASE("remote_wake", "[remote_wake_basic]")
 {
     nb_of_responses = 0;
     TEST_ASSERT_NOT_NULL(app_queue = xQueueCreate(5, sizeof(cdc_acm_host_dev_event_data_t)));
@@ -1162,14 +1163,8 @@ TEST_CASE("remote_wake", "[remote_wake]")
     test_install_cdc_driver();
 
     cdc_acm_dev_hdl_t cdc_dev = NULL;
-    cdc_acm_host_device_config_t dev_config = {
-        .connection_timeout_ms = 500,
-        .out_buffer_size = 64,
-        .event_cb = notif_cb,
-        .data_cb = handle_rx,
-        .user_arg = tx_buf,
-        .enable_remote_wakeup = true,
-    };
+    cdc_acm_host_device_config_t dev_config = default_dev_config;
+    dev_config.enable_remote_wakeup = true;
 
     printf("Opening CDC-ACM device\n");
     TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_open(0x303A, 0x4002, 0, &dev_config, &cdc_dev)); // 0x303A:0x4002 (TinyUSB Dual CDC device)
@@ -1198,7 +1193,7 @@ TEST_CASE("remote_wake", "[remote_wake]")
     vTaskDelay(20); // Short delay to allow task to be cleaned up
 }
 
-TEST_CASE("remote_wake_sudden_disconnect", "[remote_wake]")
+TEST_CASE("remote_wake_sudden_disconnect", "[remote_wake_sudden_disconnect]")
 {
     nb_of_responses = 0;
     TEST_ASSERT_NOT_NULL(app_queue = xQueueCreate(5, sizeof(cdc_acm_host_dev_event_data_t)));
@@ -1206,14 +1201,8 @@ TEST_CASE("remote_wake_sudden_disconnect", "[remote_wake]")
     test_install_cdc_driver();
 
     cdc_acm_dev_hdl_t cdc_dev = NULL;
-    cdc_acm_host_device_config_t dev_config = {
-        .connection_timeout_ms = 500,
-        .out_buffer_size = 64,
-        .event_cb = notif_cb,
-        .data_cb = handle_rx,
-        .user_arg = tx_buf,
-        .enable_remote_wakeup = true,
-    };
+    cdc_acm_host_device_config_t dev_config = default_dev_config;
+    dev_config.enable_remote_wakeup = true;
 
     printf("Opening CDC-ACM device\n");
     TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_open(0x303A, 0x4002, 0, &dev_config, &cdc_dev)); // 0x303A:0x4002 (TinyUSB Dual CDC device)
@@ -1294,12 +1283,30 @@ TEST_CASE("large_tx", "[cdc_acm]")
 }
 
 /* Following test case implements dual CDC-ACM USB device that can be used as mock device for CDC-ACM Host tests */
-extern "C" {
-    void run_usb_dual_cdc_device(void);
-}
-TEST_CASE("mock_device_app", "[cdc_acm_device][ignore]")
+
+TEST_CASE("mock_device_app_dual_iface", "[cdc_acm_device_dual_iface][ignore]")
 {
-    run_usb_dual_cdc_device();
+    printf("mock_device_app_dual_iface\n\n\n");
+    cdc_acm_mock_device_set_mode(TEST_CDC_ACM_MOCK_DEVICE_WITH_TWO_IFACES);
+    cdc_acm_mock_device_run();
+    while (1) {
+        vTaskDelay(10);
+    }
+}
+
+TEST_CASE("mock_device_app_remote_wake_basic", "[cdc_acm_device_remote_wake_basic][ignore]")
+{
+    cdc_acm_mock_device_set_mode(TEST_CDC_ACM_MOCK_DEVICE_REMOTE_WAKE_BASIC);
+    cdc_acm_mock_device_run();
+    while (1) {
+        vTaskDelay(10);
+    }
+}
+
+TEST_CASE("mock_device_app_remote_wake_sudden_disconnect", "[cdc_acm_device_remote_wake_sudden_disconnect][ignore]")
+{
+    cdc_acm_mock_device_set_mode(TEST_CDC_ACM_MOCK_DEVICE_REMOTE_WAKE_SUDDEN_DISCONNECT);
+    cdc_acm_mock_device_run();
     while (1) {
         vTaskDelay(10);
     }

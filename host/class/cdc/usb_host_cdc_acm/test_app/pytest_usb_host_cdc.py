@@ -19,8 +19,27 @@ def test_usb_host_cdc(dut: Tuple[IdfDut, IdfDut]) -> None:
 
     # 1 Prepare USB device for CDC test
     device.expect_exact('Press ENTER to see the list of tests.')
-    device.write('[cdc_acm_device]')
+    device.write('[cdc_acm_device_dual_iface]')
     device.expect_exact('USB initialization DONE')
 
     ## 2 Run CDC test
     host.run_all_single_board_cases(group='cdc_acm')
+    device.serial.hard_reset()
+
+    # 1 Prepare USB device for CDC test
+    device.expect_exact('Press ENTER to see the list of tests.')
+    device.write('[cdc_acm_device_remote_wake_basic]')
+    device.expect_exact('USB initialization DONE')
+
+    ## 2 Run CDC test
+    host.run_all_single_board_cases(group='remote_wake_basic')
+    device.serial.hard_reset()
+
+    # 1 Prepare USB device for CDC test
+    device.expect_exact('Press ENTER to see the list of tests.')
+    device.write('[cdc_acm_device_remote_wake_sudden_disconnect]')
+    device.expect_exact('USB initialization DONE')
+
+    ## 2 Run CDC test
+    host.run_all_single_board_cases(group='remote_wake_sudden_disconnect')
+    device.serial.hard_reset()
