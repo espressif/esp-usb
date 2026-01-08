@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2022-2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2022-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -133,10 +133,12 @@ typedef struct {
     void *user_arg;                                             /**< User application callback args */
     bool event_handling_started;                                /**< Events handler started flag */
     SemaphoreHandle_t all_events_handled;                       /**< Events handler semaphore */
+    SemaphoreHandle_t open_close_mutex;                         /**< Mutex to prevent race conditions during device open/close */
     volatile bool end_client_event_handling;                    /**< Client event handling flag */
 } hid_driver_t;
 
 static hid_driver_t *s_hid_driver;                              /**< Internal pointer to HID driver */
+static StaticSemaphore_t s_open_close_mutex_buffer;
 
 
 // ----------------------- Private Prototypes ----------------------------------
@@ -1308,6 +1310,8 @@ esp_err_t hid_host_install(const hid_host_driver_config_t *config)
                       ESP_ERR_NO_MEM,
                       "Unable to create semaphore");
 
+    driver->open_close_mutex = xSemaphoreCreateMutexStatic(&s_open_close_mutex_buffer);
+
     HID_GOTO_ON_ERROR( usb_host_client_register(&client_config,
                                                 &driver->client_handle),
                        "Unable to register USB Host client");
@@ -1349,18 +1353,25 @@ fail:
 
 esp_err_t hid_host_uninstall(void)
 {
+    esp_err_t ret = ESP_OK;
+
     // Make sure hid driver is installed,
     HID_RETURN_ON_FALSE(s_hid_driver,
                         ESP_OK,
                         "HID Host driver was not installed");
 
+    // Wait for all open/close calls to finish
+    SemaphoreHandle_t open_close_mutex = s_hid_driver->open_close_mutex;
+    xSemaphoreTake(open_close_mutex, portMAX_DELAY);
+    HID_GOTO_ON_FALSE(s_hid_driver, ESP_OK, "HID Driver is not installed"); // Check again after acquiring mutex - driver may have been uninstalled
+
     // Make sure that hid driver
     // not being uninstalled from other task
     // and no hid device is registered
     HID_ENTER_CRITICAL();
-    HID_RETURN_ON_FALSE_CRITICAL( !s_hid_driver->end_client_event_handling, ESP_ERR_INVALID_STATE );
-    HID_RETURN_ON_FALSE_CRITICAL( STAILQ_EMPTY(&s_hid_driver->hid_devices_tailq), ESP_ERR_INVALID_STATE );
-    HID_RETURN_ON_FALSE_CRITICAL( STAILQ_EMPTY(&s_hid_driver->hid_ifaces_tailq), ESP_ERR_INVALID_STATE );
+    HID_GOTO_ON_FALSE_CRITICAL(!s_hid_driver->end_client_event_handling, ESP_ERR_INVALID_STATE);
+    HID_GOTO_ON_FALSE_CRITICAL(STAILQ_EMPTY(&s_hid_driver->hid_devices_tailq), ESP_ERR_INVALID_STATE);
+    HID_GOTO_ON_FALSE_CRITICAL(STAILQ_EMPTY(&s_hid_driver->hid_ifaces_tailq), ESP_ERR_INVALID_STATE);
     s_hid_driver->end_client_event_handling = true;
     HID_EXIT_CRITICAL();
 
@@ -1369,49 +1380,75 @@ esp_err_t hid_host_uninstall(void)
         // In case the event handling started, we must wait until it finishes
         xSemaphoreTake(s_hid_driver->all_events_handled, portMAX_DELAY);
     }
-    vSemaphoreDelete(s_hid_driver->all_events_handled);
     ESP_ERROR_CHECK( usb_host_client_deregister(s_hid_driver->client_handle) );
+
+    // Delete semaphores and free driver
+    vSemaphoreDelete(s_hid_driver->all_events_handled);
     free(s_hid_driver);
     s_hid_driver = NULL;
+    xSemaphoreGive(open_close_mutex); // Unblock any waiting tasks
     return ESP_OK;
+
+fail:
+    xSemaphoreGive(open_close_mutex);
+    return ret;
 }
 
 esp_err_t hid_host_device_open(hid_host_device_handle_t hid_dev_handle,
                                const hid_host_device_config_t *config)
 {
-    HID_RETURN_ON_FALSE(s_hid_driver,
-                        ESP_ERR_INVALID_STATE,
-                        "HID Driver is not installed");
+    esp_err_t ret;
+    HID_RETURN_ON_FALSE(s_hid_driver, ESP_ERR_INVALID_STATE, "HID Driver is not installed");
+    SemaphoreHandle_t open_close_mutex = s_hid_driver->open_close_mutex;
+
+    if (xSemaphoreTake(open_close_mutex, pdMS_TO_TICKS(DEFAULT_TIMEOUT_MS)) != pdTRUE) {
+        ESP_LOGW(TAG, "Timeout waiting for open/close mutex");
+        return ESP_ERR_TIMEOUT;
+    }
+    HID_GOTO_ON_FALSE(s_hid_driver, ESP_ERR_INVALID_STATE, "HID Driver is not installed"); // Check again after acquiring mutex - driver may have been uninstalled
 
     hid_iface_t *hid_iface = get_iface_by_handle(hid_dev_handle);
 
-    HID_RETURN_ON_INVALID_ARG(hid_iface);
+    HID_GOTO_ON_FALSE(hid_iface, ESP_ERR_INVALID_ARG, "Invalid HID device handle");
 
-    HID_RETURN_ON_FALSE((hid_iface->dev_params.proto >= HID_PROTOCOL_NONE)
-                        && (hid_iface->dev_params.proto < HID_PROTOCOL_MAX),
-                        ESP_ERR_INVALID_ARG,
-                        "HID device protocol not supported");
+    HID_GOTO_ON_FALSE((hid_iface->dev_params.proto >= HID_PROTOCOL_NONE)
+                      && (hid_iface->dev_params.proto < HID_PROTOCOL_MAX),
+                      ESP_ERR_INVALID_ARG,
+                      "HID device protocol not supported");
 
-    HID_RETURN_ON_FALSE((HID_INTERFACE_STATE_IDLE == hid_iface->state),
-                        ESP_ERR_INVALID_STATE,
-                        "Interface wrong state");
+    HID_GOTO_ON_FALSE(HID_INTERFACE_STATE_IDLE == hid_iface->state,
+                      ESP_ERR_INVALID_STATE,
+                      "Interface wrong state");
 
     // Claim interface, allocate xfer and save report callback
-    HID_RETURN_ON_ERROR( hid_host_interface_claim_and_prepare_transfer(hid_iface),
-                         "Unable to claim interface");
+    HID_GOTO_ON_ERROR(hid_host_interface_claim_and_prepare_transfer(hid_iface),
+                      "Unable to claim interface");
 
     // Save HID Interface callback
     hid_iface->user_cb = config->callback;
     hid_iface->user_cb_arg = config->callback_arg;
 
+    xSemaphoreGive(open_close_mutex);
     return ESP_OK;
+
+fail:
+    xSemaphoreGive(open_close_mutex);
+    return ret;
 }
 
 esp_err_t hid_host_device_close(hid_host_device_handle_t hid_dev_handle)
 {
-    hid_iface_t *hid_iface = get_iface_by_handle(hid_dev_handle);
+    esp_err_t ret = ESP_OK;
+    HID_RETURN_ON_FALSE(s_hid_driver, ESP_ERR_INVALID_STATE, "HID Driver is not installed");
+    SemaphoreHandle_t open_close_mutex = s_hid_driver->open_close_mutex;
 
-    HID_RETURN_ON_INVALID_ARG(hid_iface);
+    if (xSemaphoreTake(open_close_mutex, pdMS_TO_TICKS(DEFAULT_TIMEOUT_MS)) != pdTRUE) {
+        return ESP_ERR_TIMEOUT;
+    }
+    HID_GOTO_ON_FALSE(s_hid_driver, ESP_ERR_INVALID_STATE, "HID Driver is not installed"); // Check again after acquiring mutex - driver may have been uninstalled
+
+    hid_iface_t *hid_iface = get_iface_by_handle(hid_dev_handle);
+    HID_GOTO_ON_FALSE(hid_iface, ESP_ERR_INVALID_ARG, "Invalid HID device handle");
 
     ESP_LOGD(TAG, "Close addr %d, iface %d, state %d",
              hid_iface->dev_params.addr,
@@ -1420,13 +1457,13 @@ esp_err_t hid_host_device_close(hid_host_device_handle_t hid_dev_handle)
 
     if (HID_INTERFACE_STATE_ACTIVE == hid_iface->state ||
             HID_INTERFACE_STATE_SUSPENDED == hid_iface->state) {
-        HID_RETURN_ON_ERROR( hid_host_disable_interface(hid_iface),
-                             "Unable to disable HID Interface");
+        HID_GOTO_ON_ERROR(hid_host_disable_interface(hid_iface),
+                          "Unable to disable HID Interface");
     }
 
     if (HID_INTERFACE_STATE_READY == hid_iface->state) {
-        HID_RETURN_ON_ERROR( hid_host_interface_release_and_free_transfer(hid_iface),
-                             "Unable to release HID Interface");
+        HID_GOTO_ON_ERROR(hid_host_interface_release_and_free_transfer(hid_iface),
+                          "Unable to release HID Interface");
         // If the device is closing by user before device detached we need to flush user callback here
         free(hid_iface->report_desc);
         hid_iface->report_desc = NULL;
@@ -1435,6 +1472,7 @@ esp_err_t hid_host_device_close(hid_host_device_handle_t hid_dev_handle)
     if (hid_iface->user_cb && hid_iface->state != HID_INTERFACE_STATE_WAIT_USER_DELETION) {
         // Let user handle the remove process and wait for next hid_host_device_close() call
         hid_iface->state = HID_INTERFACE_STATE_WAIT_USER_DELETION;
+        xSemaphoreGive(open_close_mutex); // Give mutex before calling user callback
         hid_host_user_interface_callback(hid_iface, HID_HOST_INTERFACE_EVENT_DISCONNECTED);
     } else {
         // Second call
@@ -1448,9 +1486,14 @@ esp_err_t hid_host_device_close(hid_host_device_handle_t hid_dev_handle)
         HID_ENTER_CRITICAL();
         _hid_host_remove_interface(hid_iface);
         HID_EXIT_CRITICAL();
+        xSemaphoreGive(open_close_mutex);
     }
 
     return ESP_OK;
+
+fail:
+    xSemaphoreGive(open_close_mutex);
+    return ret;
 }
 
 esp_err_t hid_host_handle_events(uint32_t timeout)

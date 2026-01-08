@@ -63,6 +63,7 @@ SCENARIO("HID Host install")
     // HID Host driver config set to config from HID Host example
     GIVEN("Full HID Host config, driver not already installed") {
         int mtx;
+        int open_close_mtx;
 
         // Install error: failed to create semaphore
         SECTION("Install error: unable to create semaphore") {
@@ -81,6 +82,7 @@ SCENARIO("HID Host install")
             // Because of missing Freertos Mocks
             // Create a semaphore, return the semaphore handle (Queue Handle in this scenario), so the semaphore is created successfully
             xQueueGenericCreate_ExpectAnyArgsAndReturn(reinterpret_cast<QueueHandle_t>(&mtx));
+            xQueueCreateMutexStatic_ExpectAnyArgsAndReturn(reinterpret_cast<SemaphoreHandle_t>(&open_close_mtx)); // Static calls should always succeed, no need to mock failure
             // Register a client, return ESP_ERR_INVALID_STATE, so the client is not registered successfully
             usb_host_client_register_ExpectAnyArgsAndReturn(ESP_ERR_INVALID_STATE);
 
@@ -96,6 +98,7 @@ SCENARIO("HID Host install")
 
             // Create a semaphore, return the semaphore handle (Queue Handle in this scenario), so the semaphore is created successfully
             xQueueGenericCreate_ExpectAnyArgsAndReturn(reinterpret_cast<QueueHandle_t>(&mtx));
+            xQueueCreateMutexStatic_ExpectAnyArgsAndReturn(reinterpret_cast<SemaphoreHandle_t>(&open_close_mtx)); // Static calls should always succeed, no need to mock failure
             // Register a client, return ESP_OK, so the client is registered successfully
             usb_host_client_register_ExpectAnyArgsAndReturn(ESP_OK);
             // Fill the pointer to the client_handle, which is used in goto fail, to deregister the client
@@ -120,6 +123,7 @@ SCENARIO("HID Host install")
         SECTION("Client register successful: hid_host_install successful") {
             // Create semaphore, return semaphore handle (Queue Handle in this scenario), so the semaphore is created successfully
             xQueueGenericCreate_ExpectAnyArgsAndReturn(reinterpret_cast<QueueHandle_t>(&mtx));
+            xQueueCreateMutexStatic_ExpectAnyArgsAndReturn(reinterpret_cast<SemaphoreHandle_t>(&open_close_mtx));
             // return ESP_OK, so the client is registered successfully
             usb_host_client_register_ExpectAnyArgsAndReturn(ESP_OK);
 
