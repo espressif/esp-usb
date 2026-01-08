@@ -1701,6 +1701,14 @@ esp_err_t usb_host_interface_release(usb_host_client_handle_t client_hdl, usb_de
     // Take mux lock. This protects the client being released or other clients from claiming interfaces
     xSemaphoreTake(p_host_lib_obj->constant.mux_lock, portMAX_DELAY);
     esp_err_t ret = interface_release(client_obj, dev_hdl, bInterfaceNumber);
+
+    // In case the underlying pipe was halted while having an URB in-flight,
+    // usb_host_client_handle_events() may not have had a chance to process the URB yet.
+    // We wait 10 FreeRTOS ticks to give the class driver task change to run
+    if (ret == ESP_ERR_INVALID_STATE) {
+        vTaskDelay(10);
+        ret = interface_release(client_obj, dev_hdl, bInterfaceNumber);
+    }
     xSemaphoreGive(p_host_lib_obj->constant.mux_lock);
 
     HOST_ENTER_CRITICAL();
