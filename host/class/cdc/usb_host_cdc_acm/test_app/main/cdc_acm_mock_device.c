@@ -6,10 +6,18 @@
 
 #include <stdint.h>
 #include "sdkconfig.h"
+#include "unity.h"
 #include "tinyusb.h"
 #include "tinyusb_default_config.h"
 #include "tinyusb_cdc_acm.h"
+#include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "cdc_acm_mock_device.h"
 
+static enum test_cdc_acm_mock_device _test_cdc_acm_mock_device_mode = TEST_CDC_ACM_MOCK_DEVICE_MAX;
+
+const char *CDC_DEV_TAG = "CDC device";
 static uint8_t buf[CONFIG_TINYUSB_CDC_RX_BUFSIZE + 1];
 static void tinyusb_cdc_rx_callback(int itf, cdcacm_event_t *event)
 {
@@ -65,8 +73,14 @@ static const tusb_desc_device_qualifier_t device_qualifier = {
 
 #endif // TUD_OPT_HIGH_SPEED
 
-void run_usb_dual_cdc_device(void)
+void cdc_acm_mock_device_set_mode(const enum test_cdc_acm_mock_device mode)
 {
+    _test_cdc_acm_mock_device_mode = mode;
+}
+
+void cdc_acm_mock_device_run(void)
+{
+    ESP_LOGI(CDC_DEV_TAG, "Initialization");
     tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG();
     tusb_cfg.descriptor.device = &cdc_device_descriptor;
     tusb_cfg.descriptor.full_speed_config = cdc_fs_desc_configuration;
@@ -92,4 +106,49 @@ void run_usb_dual_cdc_device(void)
 #endif
 
     printf("USB initialization DONE\n");
+}
+
+static void device_suspend_cb_remote_wake_basic(bool remote_wake_enabled)
+{
+    ESP_LOGI(CDC_DEV_TAG, "suspended, remote wakeup %s", remote_wake_enabled ? "enabled" : "disabled");
+
+    vTaskDelay(100);
+    ESP_LOGI(CDC_DEV_TAG, "Triggering remote wakeup");
+    tud_remote_wakeup();
+}
+
+static void device_suspend_cb_remote_wake_sudden_disconnect(bool remote_wake_enabled)
+{
+    ESP_LOGI(CDC_DEV_TAG, "suspended, remote wakeup %s", remote_wake_enabled ? "enabled" : "disabled");
+
+    vTaskDelay(100);
+    ESP_LOGI(CDC_DEV_TAG, "Triggering remote wakeup and disconnect");
+    tud_remote_wakeup();
+    tud_disconnect();
+    //tud_connect();
+}
+
+
+// Called when USB bus is suspended
+void tud_suspend_cb(bool remote_wakeup_en)
+{
+    switch (_test_cdc_acm_mock_device_mode) {
+    case TEST_CDC_ACM_MOCK_DEVICE_WITH_TWO_IFACES:
+        // No action
+        break;
+    case TEST_CDC_ACM_MOCK_DEVICE_REMOTE_WAKE_BASIC:
+        device_suspend_cb_remote_wake_basic(remote_wakeup_en);
+        break;
+    case TEST_CDC_ACM_MOCK_DEVICE_REMOTE_WAKE_SUDDEN_DISCONNECT:
+        device_suspend_cb_remote_wake_sudden_disconnect(remote_wakeup_en);
+        break;
+    default:
+        TEST_FAIL_MESSAGE("Invalid mock device mode");
+    }
+}
+
+// Called when USB bus resumes
+void tud_resume_cb(void)
+{
+    ESP_LOGI(CDC_DEV_TAG, "resumed");
 }
