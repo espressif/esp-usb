@@ -127,7 +127,7 @@ void test_hcd_expect_port_event(hcd_port_handle_t port_hdl, hcd_port_event_t exp
     TEST_ASSERT_EQUAL_MESSAGE(pdPASS, ret, "Port event not generated on time");
     // Check the contents of that event message
     TEST_ASSERT_EQUAL(port_hdl, msg.port_hdl);
-    TEST_ASSERT_EQUAL_MESSAGE(expected_event, msg.port_event, "Unexpected event");
+    TEST_ASSERT_EQUAL_MESSAGE(expected_event, msg.port_event, "Unexpected port event");
     printf("\t-> Port event\n");
 }
 
@@ -142,7 +142,7 @@ void test_hcd_expect_pipe_event(hcd_pipe_handle_t pipe_hdl, hcd_pipe_event_t exp
     TEST_ASSERT_EQUAL_MESSAGE(pdPASS, ret, "Pipe event not generated on time");
     // Check the contents of that event message
     TEST_ASSERT_EQUAL(pipe_hdl, msg.pipe_hdl);
-    TEST_ASSERT_EQUAL_MESSAGE(expected_event, msg.pipe_event, "Unexpected event");
+    TEST_ASSERT_EQUAL_MESSAGE(expected_event, msg.pipe_event, "Unexpected pipe event");
 }
 
 void test_hcd_expect_no_pipe_event(hcd_pipe_handle_t pipe_hdl)
@@ -435,13 +435,17 @@ uint8_t test_hcd_enum_device(hcd_pipe_handle_t default_pipe)
 
 void test_hcd_ping_device(hcd_pipe_handle_t default_pipe, urb_t *default_urb)
 {
+    // Initialize the default URB with get config request
     default_urb->transfer.num_bytes = sizeof(usb_setup_packet_t) + TRANSFER_MAX_BYTES;
     USB_SETUP_PACKET_INIT_GET_CONFIG_DESC((usb_setup_packet_t *)default_urb->transfer.data_buffer, 0, TRANSFER_MAX_BYTES);
     default_urb->transfer.context = URB_CONTEXT_VAL;
 
+    // Enqueue urb, wait for the URB_DONE event and dequeue urb
     TEST_ASSERT_EQUAL(ESP_OK, hcd_urb_enqueue(default_pipe, default_urb));
     test_hcd_expect_pipe_event(default_pipe, HCD_PIPE_EVENT_URB_DONE);
     urb_t *urb = hcd_urb_dequeue(default_pipe);
+
+    // Check the dequeued URB
     TEST_ASSERT_EQUAL_MESSAGE(default_urb, urb, "URB pointers not equal");
     TEST_ASSERT_EQUAL_MESSAGE(USB_TRANSFER_STATUS_COMPLETED, urb->transfer.status, "Transfer NOT completed");
     TEST_ASSERT_EQUAL_MESSAGE(URB_CONTEXT_VAL, urb->transfer.context, "URB context not equal");
@@ -452,3 +456,61 @@ void test_hcd_ping_device(hcd_pipe_handle_t default_pipe, urb_t *default_urb)
     usb_config_desc_t *config_desc = (usb_config_desc_t *)(urb->transfer.data_buffer + sizeof(usb_setup_packet_t));
     TEST_ASSERT_EQUAL(USB_B_DESCRIPTOR_TYPE_CONFIGURATION, config_desc->bDescriptorType);
 }
+
+#ifdef REMOTE_WAKE_HAL_SUPPORTED
+void test_hcd_remote_wake_enable(hcd_pipe_handle_t default_pipe, urb_t *feature_urb, bool enable)
+{
+    feature_urb->transfer.num_bytes = sizeof(usb_setup_packet_t);
+    feature_urb->transfer.context = URB_CONTEXT_VAL;
+
+    if (enable) {
+        printf("Enabling device remote wake-up\n");
+        // Initialize feature_urb with the set feature request to enable remote wakeup
+        USB_SETUP_PACKET_INIT_SET_FEATURE((usb_setup_packet_t *)feature_urb->transfer.data_buffer, DEVICE_REMOTE_WAKEUP);
+    } else {
+        printf("Disabling device remote wake-up\n");
+        // Initialize feature_urb with the clear feature request to disable remote wakeup
+        USB_SETUP_PACKET_INIT_CLEAR_FEATURE((usb_setup_packet_t *)feature_urb->transfer.data_buffer, DEVICE_REMOTE_WAKEUP);
+    }
+
+    // Enqueue urb, wait for the URB_DONE event and dequeue urb
+    TEST_ASSERT_EQUAL(ESP_OK, hcd_urb_enqueue(default_pipe, feature_urb));
+    test_hcd_expect_pipe_event(default_pipe, HCD_PIPE_EVENT_URB_DONE);
+    urb_t *urb = hcd_urb_dequeue(default_pipe);
+
+    // Check the dequeued URB
+    TEST_ASSERT_EQUAL_MESSAGE(feature_urb, urb, "URB pointers not equal");
+    TEST_ASSERT_EQUAL_MESSAGE(USB_TRANSFER_STATUS_COMPLETED, urb->transfer.status, "Transfer NOT completed");
+    TEST_ASSERT_EQUAL_MESSAGE(URB_CONTEXT_VAL, urb->transfer.context, "URB context not equal");
+
+    TEST_ASSERT_EQUAL(sizeof(usb_setup_packet_t), urb->transfer.actual_num_bytes);
+    TEST_ASSERT_EQUAL(urb->transfer.num_bytes, urb->transfer.actual_num_bytes);
+}
+
+bool test_hcd_remote_wake_check(hcd_pipe_handle_t default_pipe, urb_t *get_status_urb)
+{
+    // Initialize get_status_urb with a Get status request USB_SETUP_PACKET_INIT_GET_STATUS
+    get_status_urb->transfer.num_bytes = sizeof(usb_setup_packet_t) + sizeof(usb_device_status_t);
+    USB_SETUP_PACKET_INIT_GET_STATUS((usb_setup_packet_t *)get_status_urb->transfer.data_buffer);
+    get_status_urb->transfer.context = URB_CONTEXT_VAL;
+
+    // Enqueue urb, wait for the URB_DONE event and dequeue urb
+    TEST_ASSERT_EQUAL(ESP_OK, hcd_urb_enqueue(default_pipe, get_status_urb));
+    test_hcd_expect_pipe_event(default_pipe, HCD_PIPE_EVENT_URB_DONE);
+    urb_t *urb = hcd_urb_dequeue(default_pipe);
+
+    // Check the dequeued URB
+    TEST_ASSERT_EQUAL_MESSAGE(get_status_urb, urb, "URB pointers not equal");
+    TEST_ASSERT_EQUAL_MESSAGE(USB_TRANSFER_STATUS_COMPLETED, urb->transfer.status, "Transfer NOT completed");
+    TEST_ASSERT_EQUAL_MESSAGE(URB_CONTEXT_VAL, urb->transfer.context, "URB context not equal");
+
+    TEST_ASSERT_EQUAL(sizeof(usb_setup_packet_t) + sizeof(usb_device_status_t), urb->transfer.actual_num_bytes);
+    TEST_ASSERT_EQUAL(urb->transfer.num_bytes, urb->transfer.actual_num_bytes);
+
+    // Get the device status out of the data buffer
+    usb_device_status_t *device_status = (usb_device_status_t *)(urb->transfer.data_buffer + sizeof(usb_setup_packet_t));
+    const bool remote_wake_enabled = device_status->remote_wakeup;
+    printf("Remote wake-up is currently %s\n", ((remote_wake_enabled)) ? ("enabled") : ("disabled") );
+    return remote_wake_enabled;
+}
+#endif // REMOTE_WAKE_HAL_SUPPORTED
