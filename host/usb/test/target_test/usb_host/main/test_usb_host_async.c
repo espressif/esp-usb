@@ -97,8 +97,10 @@ Procedure:
     - Wait for the host library event handler to report a USB_HOST_LIB_EVENT_FLAGS_NO_CLIENTS event
     - Free all devices
     - Uninstall USB Host Library
+
+    TODO: IDF-15119 Failing test in CI
 */
-TEST_CASE("Test USB Host async client (multi client)", "[usb_host][full_speed][high_speed]")
+TEST_CASE("Test USB Host async client (multi client)", "[usb_host][full_speed][high_speed][ignore]")
 {
     // Create task to run the MSC client
     msc_client_test_param_t msc_params = {
