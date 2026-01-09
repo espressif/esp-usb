@@ -1434,6 +1434,13 @@ esp_err_t usbh_dev_set_config_desc(usb_device_handle_t dev_hdl, const usb_config
     device_t *dev_obj = (device_t *)dev_hdl;
     usb_config_desc_t *new_desc, *old_desc;
 
+    // Validate descriptor size is reasonable before allocation
+    if (config_desc_full->wTotalLength < sizeof(usb_config_desc_t) ||
+            config_desc_full->wTotalLength > 4096) {  // Max reasonable config descriptor size
+        ESP_LOGE(USBH_TAG, "Invalid config descriptor wTotalLength: %d", config_desc_full->wTotalLength);
+        return ESP_ERR_INVALID_SIZE;
+    }
+
     // Allocate and copy new config descriptor
     new_desc = heap_caps_malloc(config_desc_full->wTotalLength, MALLOC_CAP_DEFAULT);
     if (new_desc == NULL) {
@@ -1475,6 +1482,12 @@ esp_err_t usbh_dev_set_str_desc(usb_device_handle_t dev_hdl, const usb_str_desc_
     esp_err_t ret;
     device_t *dev_obj = (device_t *)dev_hdl;
     usb_str_desc_t *new_desc, *old_desc;
+
+    // Validate descriptor size is reasonable before allocation
+    if (str_desc->bLength < 2 || str_desc->bLength > 255) {  // USB string descriptor limits
+        ESP_LOGE(USBH_TAG, "Invalid string descriptor bLength: %d", str_desc->bLength);
+        return ESP_ERR_INVALID_SIZE;
+    }
 
     // Allocate and copy new string descriptor
     new_desc = heap_caps_malloc(str_desc->bLength, MALLOC_CAP_DEFAULT);
