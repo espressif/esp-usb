@@ -79,10 +79,21 @@ jobs:
           fi
 
           idf-build-apps find --paths ${{ matrix.path }} --disable-targets linux $MODIFIED_FILES_FLAG
-          idf-build-apps build --paths ${{ matrix.path }} --disable-targets linux $MODIFIED_FILES_FLAG
+          idf-build-apps build --paths ${{ matrix.path }} --disable-targets linux $MODIFIED_FILES_FLAG --collect-app-info="app_info_${{ github.run_id }}.txt"
+      - name: Check if build artifacts exist
+        id: check_build_artifacts
+        shell: bash
+        run: |
+          if find . -path "*/build_esp*/*" -type f -print -quit | grep -q .; then
+            echo "build_artifacts_exist=true" >> $GITHUB_OUTPUT
+          else
+            echo "build_artifacts_exist=false" >> $GITHUB_OUTPUT
+          fi
       - uses: actions/upload-artifact@v4
+        if: steps.check_build_artifacts.outputs.build_artifacts_exist == 'true'
         with:
           name: usb_${{ matrix.test_app }}_test_app_bin_${{ matrix.idf_ver }}
+          if-no-files-found: error
           path: |
             **/build_esp*/bootloader/bootloader.bin
             **/build_esp*/partition_table/partition-table.bin
@@ -90,7 +101,7 @@ jobs:
             **/build_esp*/test_app_*.elf
             **/build_esp*/flasher_args.json
             **/build_esp*/config/sdkconfig.json
-          if-no-files-found: ignore # Ignore if no builds were run. This is possible since we have conditional builds.
+            app_info*.txt
 
 # TODO ideas for target running:
 # - Run all versions (5.2-latest) in one job. So there will be only three jobs per target (device, host_native, host_managed). This could reduce runner time.
@@ -151,8 +162,6 @@ jobs:
         if: success() && steps.download_artifact.outcome == 'success'
         env:
           PIP_EXTRA_INDEX_URL: "https://dl.espressif.com/pypi/"
-        # We need idf-ci pytest plugin to handle 'no test_app binary found for test' error
-        # We need pytest-ignore-test-results to ignore the error
         run: pip install --no-cache-dir --only-binary cryptography pytest-embedded pytest-embedded-serial-esp pytest-embedded-idf idf-ci pytest-ignore-test-results pyserial pyusb
       - name: Run USB Test App on target
         if: success() && steps.download_artifact.outcome == 'success'

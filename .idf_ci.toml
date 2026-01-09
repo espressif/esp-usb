@@ -1,0 +1,21 @@
+component_mapping_regexes = [
+    "/host/class/msc/(.+)/",
+    "/host/class/cdc/(.+)/",
+    "/host/class/uac/(.+)/",
+    "/host/class/uvc/(.+)/",
+    "/host/class/hid/(.+)/",
+    "/device/(.+)/",
+    "/host/(usb)/",
+]
+
+component_ignored_file_extensions = [
+    ".md",
+    ".rst",
+    ".yaml",
+    ".yml",
+    ".py",
+]
+
+built_app_list_filepatterns = [
+    "app_info*.txt",   # collect_app_info_filename
+]
