@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Fixed a vulnerability with overwrite freed heap memory during `hid_host_get_report_descriptor()`
+- Fixed race condition in `hid_host_device_close()` that could lead to double-free and list corruption under concurrent close/disconnect
 
 ### Added
 
