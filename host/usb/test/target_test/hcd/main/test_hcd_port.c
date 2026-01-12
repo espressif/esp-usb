@@ -213,7 +213,6 @@ Procedure:
     - Ping a device (send get configuration descriptor transfer)
     - Halt the default pipe after a short delay
     - Suspend the port
-    - Cleanup default pipe
     - Power off the port and recover the port
     - Try to Suspend and Resume the port with no devices connected
     - Trigger connection and disconnection again (to make sure the port works post recovery)
@@ -473,3 +472,75 @@ TEST_CASE("Test HCD port command bailout", "[port][low_speed][full_speed][high_s
     vTaskDelete(task_handle);
     vSemaphoreDelete(sync_sem);
 }
+
+#ifdef REMOTE_WAKE_HAL_SUPPORTED
+/*
+Test HCD port remote wakeup
+
+Purpose:
+    - Test that the HCD_PORT_EVENT_REMOTE_WAKEUP is triggered as the device starts remote wakeup signaling
+    - Test that usb host can enable and disable and read current status of remote wakeup feature on a device
+
+Procedure:
+    - Setup HCD, a default pipe, and multiple URBs
+    - Check current status of the remote wakeup feature, enable it and check again
+    - Halt the default pipe, suspend the root port and expect port event
+    - Manually generate remote wakeup from connected device (button press on keyboard or mouse, or other remote wakeup capable device)
+    - Expect HCD_PORT_EVENT_REMOTE_WAKEUP event
+    - Take over the resume signaling, by resuming the root port
+    - Check current status of the remote wakeup feature, disable it and check again
+    - Teardown
+*/
+TEST_CASE("Test HCD port remote wakeup", "[port][low_speed][full_speed][high_speed][ignore]")
+{
+    usb_speed_t port_speed = test_hcd_wait_for_conn(port_hdl);  // Trigger a connection
+    vTaskDelay(pdMS_TO_TICKS(100)); // Short delay send of SOF (for FS) or EOPs (for LS)
+
+    hcd_pipe_handle_t default_pipe = test_hcd_pipe_alloc(port_hdl, NULL, 0, port_speed); // Create a default pipe (using a NULL EP descriptor)
+    urb_t *get_status_urb = test_hcd_alloc_urb(0, URB_DATA_BUFF_SIZE);
+    urb_t *set_feature_urb = test_hcd_alloc_urb(0, URB_DATA_BUFF_SIZE);
+
+    // Enable and check remote wake-up feature
+    TEST_ASSERT_EQUAL_MESSAGE(false, test_hcd_remote_wake_check(default_pipe, get_status_urb), "Remote wake-up is enabled, but expected to be disabled");
+    test_hcd_remote_wake_enable(default_pipe, set_feature_urb, true);
+    TEST_ASSERT_EQUAL_MESSAGE(true, test_hcd_remote_wake_check(default_pipe, get_status_urb), "Remote wake-up is disabled, but expected to be enabled");
+
+    // Halt the default pipe before suspending
+    TEST_ASSERT_EQUAL(HCD_PIPE_STATE_ACTIVE, hcd_pipe_get_state(default_pipe));
+    TEST_ASSERT_EQUAL(ESP_OK, hcd_pipe_command(default_pipe, HCD_PIPE_CMD_HALT));
+    TEST_ASSERT_EQUAL(HCD_PIPE_STATE_HALTED, hcd_pipe_get_state(default_pipe));
+
+    // Suspend the port
+    TEST_ASSERT_EQUAL(ESP_OK, hcd_port_command(port_hdl, HCD_PORT_CMD_SUSPEND));
+    TEST_ASSERT_EQUAL(HCD_PORT_STATE_SUSPENDED, hcd_port_get_state(port_hdl));
+    printf("Root port suspended\n");
+    printf("Do the remote wakeup on the connected USB device (Keyboard button press)\n");
+
+    // Expect remote wakeup event from the device
+    test_hcd_expect_port_event(port_hdl, HCD_PORT_EVENT_REMOTE_WAKEUP);
+    TEST_ASSERT_EQUAL(HCD_PORT_EVENT_REMOTE_WAKEUP, hcd_port_handle_event(port_hdl));
+    printf("Remote wake-up detected\n");
+
+    // Resume the port
+    TEST_ASSERT_EQUAL(ESP_OK, hcd_port_command(port_hdl, HCD_PORT_CMD_RESUME));
+    TEST_ASSERT_EQUAL(HCD_PORT_STATE_ENABLED, hcd_port_get_state(port_hdl));
+    printf("Resumed\n");
+
+    // Clear the pipe after the port has been resumed
+    TEST_ASSERT_EQUAL(HCD_PIPE_STATE_HALTED, hcd_pipe_get_state(default_pipe));
+    TEST_ASSERT_EQUAL(ESP_OK, hcd_pipe_command(default_pipe, HCD_PIPE_CMD_CLEAR));
+    TEST_ASSERT_EQUAL(HCD_PIPE_STATE_ACTIVE, hcd_pipe_get_state(default_pipe));
+
+    // Check the current wake-up status, (issue transfer to ping the device)
+    TEST_ASSERT_EQUAL_MESSAGE(true, test_hcd_remote_wake_check(default_pipe, get_status_urb), "Remote wake-up is disabled, but expected to be enabled");
+    test_hcd_remote_wake_enable(default_pipe, set_feature_urb, false);
+    TEST_ASSERT_EQUAL_MESSAGE(false, test_hcd_remote_wake_check(default_pipe, get_status_urb), "Remote wake-up is enabled, but expected to be disabled");
+
+    // Cleanup
+    test_hcd_pipe_free(default_pipe);
+    test_hcd_free_urb(get_status_urb);
+    test_hcd_free_urb(set_feature_urb);
+    test_hcd_wait_for_disconn(port_hdl, false);
+}
+
+#endif // REMOTE_WAKE_HAL_SUPPORTED

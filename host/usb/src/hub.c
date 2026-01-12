@@ -455,6 +455,12 @@ reset_err:
 
         break;
     }
+#ifdef REMOTE_WAKE_HAL_SUPPORTED
+    case HCD_PORT_EVENT_REMOTE_WAKEUP:
+        // Mark root port as ready to be resumed
+        hub_root_mark_resume();
+        break;
+#endif // REMOTE_WAKE_HAL_SUPPORTED
     default:
         abort();    // Should never occur
         break;

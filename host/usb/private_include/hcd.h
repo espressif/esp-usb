@@ -14,10 +14,24 @@ extern "C" {
 #include <stdbool.h>
 #include <sys/queue.h>
 #include "esp_err.h"
+#include "esp_idf_version.h"
 #include "usb_private.h"
 #include "usb/usb_types_ch9.h"
 
 // ------------------------------------------------- Macros & Types ----------------------------------------------------
+
+// --------------------- IDF Versioning compatibility -------------------------
+
+// Remote wakeup HAL changes are present
+// On IDF 5.4.x from IDF 5.4.4
+// On IDF 5.5.x from IDF 5.5.3
+// On IDF 6.0.x from IDF 6.0.0
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 4, 4) && ESP_IDF_VERSION <  ESP_IDF_VERSION_VAL(5, 5, 0)
+#define REMOTE_WAKE_HAL_SUPPORTED
+#elif ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 5, 3)
+#define REMOTE_WAKE_HAL_SUPPORTED
+#endif
+
 
 // ----------------------- States --------------------------
 
@@ -69,6 +83,9 @@ typedef enum {
     HCD_PORT_EVENT_DISCONNECTION,   /**< A device disconnection has been detected */
     HCD_PORT_EVENT_ERROR,           /**< A port error has been detected. Port is now HCD_PORT_STATE_RECOVERY  */
     HCD_PORT_EVENT_OVERCURRENT,     /**< Overcurrent detected on the port. Port is now HCD_PORT_STATE_RECOVERY */
+#ifdef REMOTE_WAKE_HAL_SUPPORTED
+    HCD_PORT_EVENT_REMOTE_WAKEUP,   /**< A remote-wakeup event from device has been detected */
+#endif // REMOTE_WAKE_HAL_SUPPORTED
 } hcd_port_event_t;
 
 /**
