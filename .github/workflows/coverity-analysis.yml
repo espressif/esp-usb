@@ -1,0 +1,107 @@
+name: Coverity scan for esp-usb
+
+
+# Scheduled run
+on:
+  schedule:
+    - cron: '00 1 * * *'  # Run at 1:00 am once per day, Coverity's limit for open source projects
+
+jobs:
+  check_date:
+    runs-on: ubuntu-latest
+    name: Check date of latest commit
+    outputs:
+      run_analysis: ${{ steps.run_analysis.outputs.run_analysis }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Print latest commit
+        run: echo ${{ github.sha }}
+
+      - id: run_analysis
+        name: Check if latest commit is older than a day
+        if: ${{ github.event_name == 'schedule' }}  # Run only on cron scheduled jobs
+        continue-on-error: true
+        run: |
+          if test -z "$(git rev-list  --after="24 hours"  ${{ github.sha }})"; then
+            echo "run_analysis=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  scan:
+    name: Coverity analysis
+    needs: check_date
+    if: ${{ needs.check_date.outputs.run_analysis != 'false' }}
+    runs-on: ubuntu-latest
+    container: espressif/idf:latest
+    steps:
+
+      - name: ⚙️ Install System tools
+        run: |
+          apt-get update -y
+          apt-get install -y --no-install-recommends file wget curl
+      - name: Checkout esp-usb
+        uses: actions/checkout@v4
+
+      - name: Download Coverity
+        env:
+          COVERITY_PROJECT: "espressif/esp-usb"
+          COVERITY_TOKEN: ${{ secrets.COVERITY_SCAN_TOKEN }}
+        run: |
+          wget -q https://scan.coverity.com/download/cxx/linux64 \
+            --post-data "token=${COVERITY_TOKEN}&project=${COVERITY_PROJECT}" \
+            -O coverity_tool.tgz
+          mkdir cov-scan
+          tar ax -f coverity_tool.tgz --strip-components=1 -C cov-scan
+
+      - name: Setup environment
+        run: |
+          echo "$(pwd)/cov-scan/bin" >> $GITHUB_PATH    # Make executables in the cov-scan/bin dir globally available
+
+      - name: Run coverity build/scan
+        run: |
+          . $IDF_PATH/export.sh
+          mkdir -p coverity-build && cd coverity-build
+          cov-build --dir cov-int idf.py -C ../static_analysis set-target esp32s3 reconfigure build
+
+      - name: Check coverity output
+        env:
+          BUILD_LOG: coverity-build/cov-int/build-log.txt   # Output build log file
+        run: |
+
+          # Make sure the output log file exists
+          if [ ! -f "$BUILD_LOG" ]; then
+              echo "ERROR: Coverity build log not found: $BUILD_LOG"
+              exit 1
+          fi
+
+          # Check whether the analysis completed successfully
+          if grep -q "The cov-build utility completed successfully." "$BUILD_LOG"; then
+              echo "Coverity build succeeded"
+          else
+              echo "Coverity build failed"
+              exit 1
+          fi
+
+      - name: Submit results
+        env:
+          COVERITY_PROJECT: "espressif/esp-usb"
+          COVERITY_TOKEN: ${{ secrets.COVERITY_SCAN_TOKEN }}
+          COVERITY_EMAIL: ${{ secrets.COVERITY_SCAN_EMAIL }}
+        run: |
+          git config --global safe.directory $(pwd)
+          cd coverity-build
+          tar zcf cov-scan.tgz cov-int
+
+          CURL_RESPONSE=$( \
+          curl --fail --show-error \
+               --form token="$COVERITY_TOKEN" \
+               --form email="$COVERITY_EMAIL" \
+               --form file=@cov-scan.tgz \
+               --form version="$(git rev-parse HEAD)" \
+               --form description="Automatic esp-usb scan" \
+               "https://scan.coverity.com/builds?project=${COVERITY_PROJECT}")
+
+          # Coverity should respond with "Build successfully submitted."
+          if ! echo "$CURL_RESPONSE" | grep -q "Build successfully submitted."; then
+              echo "Coverity submission failed!"
+              exit 1
+          fi

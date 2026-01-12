@@ -1,5 +1,5 @@
 exclude = [
-    "clang_tidy",
+    "static_analysis",
     "device/esp_tinyusb/test_apps/usb_cv",
 ]
 recursive = true

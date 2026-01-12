@@ -15,6 +15,7 @@ set(EXTRA_COMPONENT_DIRS
     ../host/class/hid/usb_host_hid
     ../host/class/msc/usb_host_msc
     ../host/class/uvc/usb_host_uvc
+    ../host/class/uac/usb_host_uac
 )
 
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)

@@ -32,7 +32,7 @@ jobs:
         env:
           IDF_TOOLCHAIN: clang
           IDF_TARGET: esp32s3
-        working-directory: clang_tidy
+        working-directory: static_analysis
         run: |
           . ${IDF_PATH}/export.sh
           idf.py reconfigure
