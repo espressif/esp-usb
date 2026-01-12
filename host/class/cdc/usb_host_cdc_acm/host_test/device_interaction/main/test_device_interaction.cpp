@@ -98,6 +98,7 @@ SCENARIO("Interact with mocked USB devices")
             .event_cb = nullptr,
             .data_cb = nullptr,
             .user_arg = nullptr,
+            enable_remote_wakeup = false,
         };
 
         SECTION("Interact with device: ASIX Electronics Corp. AX88772A Fast Ethernet") {
