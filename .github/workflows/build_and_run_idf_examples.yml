@@ -219,4 +219,4 @@ jobs:
           name: usb_examples_bin_${{ matrix.idf_ver }}
           path: ${{ env.EXAMPLES_PATH }}
       - name: Run USB Test App on target
-        run: pytest ${{ env.EXAMPLES_PATH }}/${{ matrix.example }} --target ${{ matrix.idf_target }} -m ${{ matrix.runner_tag }} --ignore-result-cases="*ncm_example*"
+        run: pytest ${{ env.EXAMPLES_PATH }}/${{ matrix.example }} --target ${{ matrix.idf_target }} -m ${{ matrix.runner_tag }} --ignore-result-cases="*ncm_example*" --ignore-no-tests-collected-error
