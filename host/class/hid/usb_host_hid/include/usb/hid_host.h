@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2023-2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2023-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -110,7 +110,7 @@ typedef void (*hid_host_interface_event_cb_t)(hid_host_device_handle_t hid_devic
 typedef struct {
     bool create_background_task;            /**< When set to true, background task handling USB events is created.
                                          Otherwise user has to periodically call hid_host_handle_events function */
-    size_t task_priority;                   /**< Task priority of created background task */
+    size_t task_priority;                   /**< Task priority of created background task. Should be higher than priority of application task using this driver */
     size_t stack_size;                      /**< Stack size of created background task */
     BaseType_t core_id;                     /**< Select core on which background task will run or tskNO_AFFINITY  */
     hid_host_driver_event_cb_t callback;    /**< Callback invoked when HID driver event occurs. Must not be NULL. */

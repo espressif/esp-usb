@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2015-2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2015-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -42,7 +42,7 @@ typedef void (*cdc_acm_new_dev_callback_t)(usb_device_handle_t usb_dev);
  */
 typedef struct {
     size_t driver_task_stack_size;         /**< Stack size of the driver's task */
-    unsigned driver_task_priority;         /**< Priority of the driver's task */
+    unsigned driver_task_priority;         /**< Priority of the driver's task. Should be higher than priority of application task using this driver */
     int  xCoreID;                          /**< Core affinity of the driver's task */
     cdc_acm_new_dev_callback_t new_dev_cb; /**< New USB device connected callback. Can be NULL. */
 } cdc_acm_host_driver_config_t;

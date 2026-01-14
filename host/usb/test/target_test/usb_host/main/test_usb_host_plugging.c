@@ -215,8 +215,6 @@ Procedure:
 - Wait for USB_HOST_LIB_EVENT_FLAGS_NO_CLIENTS and USB_HOST_LIB_EVENT_FLAGS_ALL_FREE before uninstalling
 */
 
-#define TEST_ENUM_ITERATIONS    3
-
 TEST_CASE("Test USB Host enumeration", "[usb_host][full_speed][high_speed]")
 {
     // Create task to run client that checks the enumeration of the device

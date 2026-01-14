@@ -18,8 +18,11 @@ if(${target} STREQUAL "esp32p4")
 endif()
 
 if(${IDF_VERSION_MAJOR} LESS 6)
-    # usb_phy driver is present in USB component only in IDF 5.x
-    list(APPEND priv_requires esp_driver_gpio)      # usb_phy driver relies on gpio driver API
+    # usb_phy driver is present in USB component only in IDF 5.x, it relies on gpio driver API
+    list(APPEND priv_requires esp_driver_gpio)
+else()
+    # For IDF 6.x and later, usb_phy driver is moved to esp_hw_support and HAL driver is moved to esp_hal_usb
+    list(APPEND priv_requires esp_hal_usb esp_hw_support)
 endif()
 
 if(CONFIG_SOC_USB_OTG_SUPPORTED)
