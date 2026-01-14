@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2024-2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2024-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -145,7 +145,7 @@ typedef struct {
 typedef struct {
     bool create_background_task;            /*!< When set to true, background task handling USB events is created.
                                              Otherwise user has to periodically call uac_host_handle_events function */
-    size_t task_priority;                   /*!< Task priority of created background task */
+    size_t task_priority;                   /*!< Task priority of created background task. Should be higher than priority of application task using this driver */
     size_t stack_size;                      /*!< Stack size of created background task */
     BaseType_t core_id;                     /*!< Select core on which background task will run or tskNO_AFFINITY  */
     uac_host_driver_event_cb_t callback;    /*!< Callback invoked when UAC driver event occurs. Must not be NULL. */

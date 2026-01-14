@@ -1708,7 +1708,7 @@ esp_err_t usb_host_interface_release(usb_host_client_handle_t client_hdl, usb_de
     const bool pending_ep = !TAILQ_EMPTY(&client_obj->dynamic.pending_ep_tailq);
     HOST_EXIT_CRITICAL();
     if (pending_ep) {
-        // We wait 10 FreeRTOS ticks to give the class driver task change to run and process the URB.
+        // We wait 10 FreeRTOS ticks to give the class driver task chance to run and process the URB.
         vTaskDelay(10);
     }
 

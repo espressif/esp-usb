@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2024-2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2024-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -85,7 +85,7 @@ typedef void (*uvc_host_driver_event_callback_t)(const uvc_host_driver_event_dat
  */
 typedef struct {
     size_t driver_task_stack_size; /**< Stack size of the driver's task */
-    unsigned driver_task_priority; /**< Priority of the driver's task */
+    unsigned driver_task_priority; /**< Priority of the driver's task. Should be higher than priority of application task using this driver */
     int xCoreID;                   /**< Core affinity of the driver's task */
     bool create_background_task;   /**< When set to true, background task handling usb events is created.
                                         Otherwise user has to periodically call uvc_host_handle_events function */
