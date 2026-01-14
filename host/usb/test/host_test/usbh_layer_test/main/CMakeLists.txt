@@ -7,6 +7,6 @@ idf_component_register(SRCS  ${srcs}
                         REQUIRES cmock usb
                         WHOLE_ARCHIVE)
 
-# The following line would be needed to provide the 'main' function if this test used mocked FreeRTOS.
-# As this test uses the real FreeRTOS implementation, we don't need Catch2 to provide 'main'.
-#target_link_libraries(${COMPONENT_LIB} PRIVATE Catch2WithMain)
+# We do not use main() from esp-idf as it discards argc and argv arguments
+# We wrap main so argc and argv are correctly passed to Catch2
+target_link_libraries(${COMPONENT_LIB} INTERFACE "-Wl,--wrap=main")
