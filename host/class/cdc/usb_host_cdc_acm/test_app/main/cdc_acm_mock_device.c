@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2015-2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2015-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -16,6 +16,7 @@
 #include "cdc_acm_mock_device.h"
 
 static enum test_cdc_acm_mock_device _test_cdc_acm_mock_device_mode = TEST_CDC_ACM_MOCK_DEVICE_MAX;
+static TaskHandle_t main_task_hdl = NULL;
 
 const char *CDC_DEV_TAG = "CDC device";
 static uint8_t buf[CONFIG_TINYUSB_CDC_RX_BUFSIZE + 1];
@@ -73,6 +74,32 @@ static const tusb_desc_device_qualifier_t device_qualifier = {
 
 #endif // TUD_OPT_HIGH_SPEED
 
+static void device_cb_handler(void)
+{
+    if (pdTRUE == ulTaskNotifyTake(pdTRUE, portMAX_DELAY)) {
+        switch (_test_cdc_acm_mock_device_mode) {
+        case TEST_CDC_ACM_MOCK_DEVICE_REMOTE_WAKE_BASIC:
+            vTaskDelay(pdMS_TO_TICKS(1000));
+            ESP_LOGI(CDC_DEV_TAG, "Triggering remote wakeup");
+            tud_remote_wakeup();
+            break;
+        case TEST_CDC_ACM_MOCK_DEVICE_REMOTE_WAKE_SUDDEN_DISCONNECT:
+            vTaskDelay(pdMS_TO_TICKS(1000));
+            ESP_LOGI(CDC_DEV_TAG, "Triggering remote wakeup and disconnect");
+            tud_remote_wakeup();
+            tud_disconnect();
+
+            vTaskDelay(pdMS_TO_TICKS(1000));
+            ESP_LOGI(CDC_DEV_TAG, "Triggering connect");
+            tud_connect();
+            break;
+        default:
+            // No action
+            break;
+        }
+    }
+}
+
 void cdc_acm_mock_device_set_mode(const enum test_cdc_acm_mock_device mode)
 {
     _test_cdc_acm_mock_device_mode = mode;
@@ -105,29 +132,13 @@ void cdc_acm_mock_device_run(void)
     ESP_ERROR_CHECK(tinyusb_cdcacm_init(&amc_cfg));
 #endif
 
+    main_task_hdl = xTaskGetCurrentTaskHandle();
     printf("USB initialization DONE\n");
+
+    while (1) {
+        device_cb_handler();
+    }
 }
-
-static void device_suspend_cb_remote_wake_basic(bool remote_wake_enabled)
-{
-    ESP_LOGI(CDC_DEV_TAG, "suspended, remote wakeup %s", remote_wake_enabled ? "enabled" : "disabled");
-
-    vTaskDelay(100);
-    ESP_LOGI(CDC_DEV_TAG, "Triggering remote wakeup");
-    tud_remote_wakeup();
-}
-
-static void device_suspend_cb_remote_wake_sudden_disconnect(bool remote_wake_enabled)
-{
-    ESP_LOGI(CDC_DEV_TAG, "suspended, remote wakeup %s", remote_wake_enabled ? "enabled" : "disabled");
-
-    vTaskDelay(100);
-    ESP_LOGI(CDC_DEV_TAG, "Triggering remote wakeup and disconnect");
-    tud_remote_wakeup();
-    tud_disconnect();
-    //tud_connect();
-}
-
 
 // Called when USB bus is suspended
 void tud_suspend_cb(bool remote_wakeup_en)
@@ -137,10 +148,9 @@ void tud_suspend_cb(bool remote_wakeup_en)
         // No action
         break;
     case TEST_CDC_ACM_MOCK_DEVICE_REMOTE_WAKE_BASIC:
-        device_suspend_cb_remote_wake_basic(remote_wakeup_en);
-        break;
     case TEST_CDC_ACM_MOCK_DEVICE_REMOTE_WAKE_SUDDEN_DISCONNECT:
-        device_suspend_cb_remote_wake_sudden_disconnect(remote_wakeup_en);
+        TEST_ASSERT_NOT_NULL_MESSAGE(main_task_hdl, "Main task handle is NULL");
+        xTaskNotifyGive(main_task_hdl);
         break;
     default:
         TEST_FAIL_MESSAGE("Invalid mock device mode");
