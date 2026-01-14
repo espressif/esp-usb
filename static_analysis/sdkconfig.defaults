@@ -1,0 +1,9 @@
+CONFIG_COMPILER_CXX_EXCEPTIONS=y
+
+# Enable all tinyusb classes, to include all the src files from the esp_tinyusb component to the analysis
+CONFIG_TINYUSB_CDC_ENABLED=y
+CONFIG_TINYUSB_MSC_ENABLED=y
+CONFIG_TINYUSB_NET_MODE_NCM=y
+
+# Enable external hubs
+CONFIG_USB_HOST_HUBS_SUPPORTED=y
