@@ -1241,7 +1241,57 @@ TEST_CASE("resume_by_transfer_submit", "[cdc_acm]")
     vTaskDelay(20); // Short delay to allow task to be cleaned up
 }
 
-TEST_CASE("remote_wake", "[remote_wake_basic]")
+TEST_CASE("device_early_remote_wakeup", "[early_remote_wake]")
+{
+    nb_of_responses = 0;
+    TEST_ASSERT_NOT_NULL(app_queue = xQueueCreate(5, sizeof(cdc_acm_host_dev_event_data_t)));
+
+    test_install_cdc_driver(NULL);
+
+    cdc_acm_dev_hdl_t cdc_dev = NULL;
+    cdc_acm_host_device_config_t dev_config = default_dev_config;
+    dev_config.enable_remote_wakeup = true;
+
+    printf("Opening CDC-ACM device\n");
+    TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_open(0x303A, 0x4002, 0, &dev_config, &cdc_dev)); // 0x303A:0x4002 (TinyUSB Dual CDC device)
+    TEST_ASSERT_NOT_NULL(cdc_dev);
+
+    printf("Suspending\n");
+    TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_root_port_suspend());
+
+    // Reject remote wakeup sequence (too early) and still expect suspend event
+
+    wait_for_app_event(&suspend_event, 2000);
+    printf("Suspend event pass\n");
+
+    wait_for_app_event(&resume_event, 2000);
+
+    vTaskDelay(1000);
+    // Check functionality
+    for (int i = 0; i < NUM_ITERATIONS; i++) {
+        TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_data_tx_blocking(cdc_dev, tx_buf, sizeof(tx_buf), 1000));
+    }
+    vTaskDelay(10); // Wait until responses are processed
+
+    TEST_ASSERT_EQUAL(NUM_ITERATIONS, nb_of_responses);
+    // Clean-up
+    TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_close(cdc_dev));
+    TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_uninstall());
+    vQueueDelete(app_queue);
+    app_queue = NULL;
+    vTaskDelay(20); // Short delay to allow task to be cleaned up
+}
+
+/**
+ * @brief Test: device remote wakeup
+ *
+ * #. open the device and test it's functionality
+ * #. suspend the root port, expect the suspend event
+ * #. device registers the suspend event and starts remote wakeup sequence
+ * #. host registers the remote wakeup sequence and expect resume event
+ * #. cleanup
+ */
+TEST_CASE("device_remote_wakeup", "[remote_wake]")
 {
     nb_of_responses = 0;
     TEST_ASSERT_NOT_NULL(app_queue = xQueueCreate(5, sizeof(cdc_acm_host_dev_event_data_t)));
@@ -1279,7 +1329,18 @@ TEST_CASE("remote_wake", "[remote_wake_basic]")
     vTaskDelay(20); // Short delay to allow task to be cleaned up
 }
 
-TEST_CASE("remote_wake_sudden_disconnect", "[remote_wake_sudden_disconnect]")
+/**
+ * @brief Test: device remote wakeup with sudden disconnect
+ *
+ * #. open the device and test it's functionality
+ * #. suspend the root port, expect the suspend event
+ * #. device registers the suspend event and starts remote wakeup sequence followed by port disconnection
+ * #. host expects only disconnection event
+ * #. device connect the root port back
+ * #. host expects new device event, opens the device and test it's functionality
+ * #. cleanup
+ */
+TEST_CASE("device_remote_wakeup_sudden_disconnect", "[remote_wake_dconn]")
 {
     nb_of_responses = 0;
     TEST_ASSERT_NOT_NULL(app_queue = xQueueCreate(5, sizeof(cdc_acm_host_dev_event_data_t)));
@@ -1381,24 +1442,38 @@ TEST_CASE("large_tx", "[cdc_acm]")
     vTaskDelay(20); // Short delay to allow task to be cleaned up
 }
 
-/* Following test case implements dual CDC-ACM USB device that can be used as mock device for CDC-ACM Host tests */
+/* Following test cases implement dual CDC-ACM USB device that can be used as mock device for CDC-ACM Host tests */
 
-TEST_CASE("mock_device_app_dual_iface", "[cdc_acm_device_dual_iface][ignore]")
+/**
+ * @brief Run CDC-ACM Device with 2 interfaces in a loopback mode
+ */
+TEST_CASE("mock_dev_app_dual_iface", "[cdc_acm_mock_dev][dual_iface][ignore]")
 {
-    cdc_acm_mock_device_set_mode(TEST_CDC_ACM_MOCK_DEVICE_WITH_TWO_IFACES);
-    cdc_acm_mock_device_run();
+    cdc_acm_mock_device_run(MOCK_DEV_DUAL_IFACE);
 }
 
-TEST_CASE("mock_device_app_remote_wake_basic", "[cdc_acm_device_remote_wake_basic][ignore]")
+/**
+ * @brief Run CDC-ACM Device with 2 interfaces in a loopback mode with remote wakeup signalling
+ */
+TEST_CASE("mock_dev_app_early_remote_wake", "[cdc_acm_mock_dev][early_remote_wake][ignore]")
 {
-    cdc_acm_mock_device_set_mode(TEST_CDC_ACM_MOCK_DEVICE_REMOTE_WAKE_BASIC);
-    cdc_acm_mock_device_run();
+    cdc_acm_mock_device_run(MOCK_DEV_EARLY_REMOTE_WAKE);
 }
 
-TEST_CASE("mock_device_app_remote_wake_sudden_disconnect", "[cdc_acm_device_remote_wake_sudden_disconnect][ignore]")
+/**
+ * @brief Run CDC-ACM Device with 2 interfaces in a loopback mode with remote wakeup signalling
+ */
+TEST_CASE("mock_dev_app_remote_wake", "[cdc_acm_mock_dev][remote_wake][ignore]")
 {
-    cdc_acm_mock_device_set_mode(TEST_CDC_ACM_MOCK_DEVICE_REMOTE_WAKE_SUDDEN_DISCONNECT);
-    cdc_acm_mock_device_run();
+    cdc_acm_mock_device_run(MOCK_DEV_REMOTE_WAKE);
+}
+
+/**
+ * @brief Run CDC-ACM Device with 2 interfaces in a loopback mode with remote wakeup signalling and port disconnection
+ */
+TEST_CASE("mock_dev_app_remote_wake_dconn", "[cdc_acm_mock_dev][remote_wake_dconn][ignore]")
+{
+    cdc_acm_mock_device_run(MOCK_DEV_REMOTE_WAKE_DISCONNECT);
 }
 
 #endif // SOC_USB_OTG_SUPPORTED

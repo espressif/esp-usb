@@ -516,11 +516,11 @@ static void root_port_req(hcd_port_handle_t root_port_hdl)
         if (port_cmd_err == ESP_OK) {
             suspend_finished = true;             // Root port suspended correctly
         } else if (port_cmd_err == ESP_ERR_INVALID_RESPONSE) {
-            // Root port state changed during suspend command execution (port disconnect during CONFIG_USB_HOST_SUSPEND_HOLD_MS)
+            // Root port's state machine changed it's state during suspend command execution (port disconnect during CONFIG_USB_HOST_SUSPEND_HOLD_MS)
             // The root port is already in recovery state and which was set by dconn event interrupt
             suspend_finished = false;
         } else {
-            abort();        // Fatal error
+            ESP_ERROR_CHECK(port_cmd_err);  // Fatal error
         }
 
         if (suspend_finished) {
@@ -556,7 +556,7 @@ static void root_port_req(hcd_port_handle_t root_port_hdl)
             // The root port is already in recovery state and which was set by dconn event interrupt
             resume_finished = false;
         } else {
-            abort();        // Fatal error
+            ESP_ERROR_CHECK(port_cmd_err);  // Fatal error, error_check for backtrace
         }
 
         if (resume_finished) {

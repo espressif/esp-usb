@@ -15,7 +15,10 @@
 #include "freertos/task.h"
 #include "cdc_acm_mock_device.h"
 
-static enum test_cdc_acm_mock_device _test_cdc_acm_mock_device_mode = TEST_CDC_ACM_MOCK_DEVICE_MAX;
+#define DEV_CB_EVT_SUSPEND_REMOTE_WAKE_DIS  (1U << 0)   /**< Device suspend callback with remote wakeup disabled */
+#define DEV_CB_EVT_SUSPEND_REMOTE_WAKE_EN   (1U << 1)   /**< Device suspend callback with remote wakeup enabled */
+#define DEV_CB_EVT_RESUME                   (1U << 2)   /**< Device resume callback */
+
 static TaskHandle_t main_task_hdl = NULL;
 
 const char *CDC_DEV_TAG = "CDC device";
@@ -74,38 +77,107 @@ static const tusb_desc_device_qualifier_t device_qualifier = {
 
 #endif // TUD_OPT_HIGH_SPEED
 
-static void device_cb_handler(void)
+/**
+ * @brief Device callback handler
+ *
+ * Executes test actions based on the current device test mode and type of device callback
+ */
+static void device_cb_handler(const enum cdc_acm_mock_dev_mode test_dev_mode)
 {
-    if (pdTRUE == ulTaskNotifyTake(pdTRUE, portMAX_DELAY)) {
-        switch (_test_cdc_acm_mock_device_mode) {
-        case TEST_CDC_ACM_MOCK_DEVICE_REMOTE_WAKE_BASIC:
-            vTaskDelay(pdMS_TO_TICKS(1000));
-            ESP_LOGI(CDC_DEV_TAG, "Triggering remote wakeup");
-            tud_remote_wakeup();
+    uint32_t notify_bits;
+    if (pdTRUE == xTaskNotifyWait(pdFALSE, UINT32_MAX, &notify_bits, portMAX_DELAY)) {
+        switch (test_dev_mode) {
+        case MOCK_DEV_DUAL_IFACE:
+            // No action for this device mode
             break;
-        case TEST_CDC_ACM_MOCK_DEVICE_REMOTE_WAKE_SUDDEN_DISCONNECT:
-            vTaskDelay(pdMS_TO_TICKS(1000));
-            ESP_LOGI(CDC_DEV_TAG, "Triggering remote wakeup and disconnect");
-            tud_remote_wakeup();
-            tud_disconnect();
 
-            vTaskDelay(pdMS_TO_TICKS(1000));
-            ESP_LOGI(CDC_DEV_TAG, "Triggering connect");
-            tud_connect();
+        case MOCK_DEV_EARLY_REMOTE_WAKE: {
+
+            if (notify_bits & DEV_CB_EVT_RESUME) {
+                TEST_FAIL_MESSAGE("We are not expecting the device to deliver resume callback in this test mode");
+            }
+
+            if (notify_bits & DEV_CB_EVT_SUSPEND_REMOTE_WAKE_DIS) {
+                TEST_FAIL_MESSAGE("Device does not have remote wakeup feature enabled");
+            }
+
+            if (notify_bits & DEV_CB_EVT_SUSPEND_REMOTE_WAKE_EN) {
+                // Device is now in suspended state with remote wakeup enabled
+                // Start remote wakeup signaling immediately after delivering the suspend callback
+                // The host should reject the remote wakeup within 5ms from issuing the suspend sequence
+                esp_rom_delay_us(1000 * 5);
+                tud_remote_wakeup();
+                ESP_LOGI(CDC_DEV_TAG, "Triggering early remote wakeup");
+
+                //esp_rom_delay_us(1000 * 100 * 5);
+                //tud_remote_wakeup();
+                //ESP_LOGI(CDC_DEV_TAG, "Triggering remote wakeup");
+                break;
+            }
+
+            // Should not happen
             break;
+        }
+
+        case MOCK_DEV_REMOTE_WAKE:
+
+            if (notify_bits & DEV_CB_EVT_RESUME) {
+                // The host resumed the device, no action
+                break;
+            }
+
+            if (notify_bits & DEV_CB_EVT_SUSPEND_REMOTE_WAKE_DIS) {
+                TEST_FAIL_MESSAGE("Device does not have remote wakeup feature enabled");
+            }
+
+            if (notify_bits & DEV_CB_EVT_SUSPEND_REMOTE_WAKE_EN) {
+                // Device is now in suspended state with remote wakeup enabled
+                // Start remote wakeup signaling
+                vTaskDelay(pdMS_TO_TICKS(1000));
+                ESP_LOGI(CDC_DEV_TAG, "Triggering remote wakeup");
+                tud_remote_wakeup();
+                break;
+            }
+
+            // Should not happen
+            break;
+
+        case MOCK_DEV_REMOTE_WAKE_DISCONNECT:
+
+            if (notify_bits & DEV_CB_EVT_RESUME) {
+                TEST_FAIL_MESSAGE("We are not expecting the device to deliver resume callback in this test mode");
+            }
+
+            if (notify_bits & DEV_CB_EVT_SUSPEND_REMOTE_WAKE_DIS) {
+                TEST_FAIL_MESSAGE("Device does not have remote wakeup feature enabled");
+            }
+
+            if (notify_bits & DEV_CB_EVT_SUSPEND_REMOTE_WAKE_EN) {
+                // Device is now in suspended state with remote wakeup enabled
+                // Start remote wakeup signaling followed by sudden disconnect
+                vTaskDelay(pdMS_TO_TICKS(1000));
+                ESP_LOGI(CDC_DEV_TAG, "Triggering remote wakeup and sudden disconnect");
+                tud_remote_wakeup();
+                tud_disconnect();
+
+                // Stay disconnected for a while and trigger reconnect
+                vTaskDelay(pdMS_TO_TICKS(1000));
+                ESP_LOGI(CDC_DEV_TAG, "Triggering connect");
+                tud_connect();
+                break;
+            }
+
+            // Should not happen
+            break;
+
         default:
-            // No action
+            TEST_FAIL_MESSAGE("Unsupported test device mode");
             break;
         }
     }
 }
 
-void cdc_acm_mock_device_set_mode(const enum test_cdc_acm_mock_device mode)
-{
-    _test_cdc_acm_mock_device_mode = mode;
-}
-
-void cdc_acm_mock_device_run(void)
+void cdc_acm_mock_device_run(const enum cdc_acm_mock_dev_mode test_dev_mode)
 {
     ESP_LOGI(CDC_DEV_TAG, "Initialization");
     tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG();
@@ -136,29 +208,33 @@ void cdc_acm_mock_device_run(void)
     printf("USB initialization DONE\n");
 
     while (1) {
-        device_cb_handler();
+        device_cb_handler(test_dev_mode);
     }
 }
 
 // Called when USB bus is suspended
 void tud_suspend_cb(bool remote_wakeup_en)
 {
-    switch (_test_cdc_acm_mock_device_mode) {
-    case TEST_CDC_ACM_MOCK_DEVICE_WITH_TWO_IFACES:
-        // No action
-        break;
-    case TEST_CDC_ACM_MOCK_DEVICE_REMOTE_WAKE_BASIC:
-    case TEST_CDC_ACM_MOCK_DEVICE_REMOTE_WAKE_SUDDEN_DISCONNECT:
-        TEST_ASSERT_NOT_NULL_MESSAGE(main_task_hdl, "Main task handle is NULL");
-        xTaskNotifyGive(main_task_hdl);
-        break;
-    default:
-        TEST_FAIL_MESSAGE("Invalid mock device mode");
+    // Give notification to the main task, that the device callback has fired
+    if (! main_task_hdl) {
+        return;
     }
+
+    const uint32_t notify_bits = (remote_wakeup_en) ?
+                                 (DEV_CB_EVT_SUSPEND_REMOTE_WAKE_EN) :
+                                 (DEV_CB_EVT_SUSPEND_REMOTE_WAKE_DIS);
+
+    xTaskNotify(main_task_hdl, notify_bits, eSetBits);
+    ESP_LOGI(CDC_DEV_TAG, "Suspended with remote wakeup %s", ( (remote_wakeup_en) ? ("enabled") : ("disabled") ));
 }
 
 // Called when USB bus resumes
 void tud_resume_cb(void)
 {
+    if (! main_task_hdl) {
+        return;
+    }
+
+    xTaskNotify(main_task_hdl, DEV_CB_EVT_RESUME, eSetBits);
     ESP_LOGI(CDC_DEV_TAG, "resumed");
 }
