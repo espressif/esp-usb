@@ -60,6 +60,7 @@ SCENARIO("Test mocked device opening and closing")
             .event_cb = nullptr,
             .data_cb = nullptr,
             .user_arg = nullptr,
+            .enable_remote_wakeup = false,
         };
 
         // Define input parameters for cdc_acm_host_open

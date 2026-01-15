@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2015-2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2015-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -252,7 +252,8 @@ struct port_obj {
             uint32_t disable_requested: 1;
             uint32_t conn_dev_ena: 1;               // Used to indicate the port is connected to a device that has been reset
             uint32_t periodic_scheduling_enabled: 1;
-            uint32_t reserved26: 26;
+            uint32_t remote_wake_pending: 1;        // Remote wakeup interrupt has been generated
+            uint32_t reserved25: 25;
         };
         uint32_t val;
     } flags;
@@ -876,10 +877,12 @@ static hcd_port_event_t _intr_hdlr_hprt(port_t *port, usb_dwc_hal_port_event_t h
     }
 #ifdef REMOTE_WAKE_HAL_SUPPORTED
     case USB_DWC_HAL_PORT_EVENT_REMOTE_WAKEUP: {
-        ESP_EARLY_LOGD(HCD_DWC_TAG, "Remote wakeup generated from device");
+        ESP_EARLY_LOGI(HCD_DWC_TAG, "Remote wakeup generated from device %d", port->state);
         // Port must have been previously suspended to start processing remote wakeup signaling
         if (port->state == HCD_PORT_STATE_SUSPENDED) {
             port_event = HCD_PORT_EVENT_REMOTE_WAKEUP;
+        } else if (port->state == HCD_PORT_STATE_SUSPENDING || port->state == HCD_PORT_STATE_RESUMING) {
+            port->flags.remote_wake_pending = true;
         }
         break;
     }
@@ -1427,6 +1430,15 @@ exit:
     return ret;
 }
 
+//static void _port_re_suspend(port_t *port)
+//{
+//    usb_dwc_hal_port_suspend(port->hal);
+//
+//    HCD_EXIT_CRITICAL();
+//    vTaskDelay(pdMS_TO_TICKS(20));
+//    HCD_ENTER_CRITICAL();
+//}
+
 static esp_err_t _port_cmd_bus_suspend(port_t *port)
 {
     esp_err_t ret;
@@ -1494,6 +1506,7 @@ static esp_err_t _port_cmd_bus_resume(port_t *port)
     HCD_EXIT_CRITICAL();
     vTaskDelay(pdMS_TO_TICKS(RESUME_HOLD_MS));
     HCD_ENTER_CRITICAL();
+
     // Return and hold the bus to the J state (as port of the LS EOP)
     usb_dwc_hal_port_toggle_resume(port->hal, false);
     if (port->state != HCD_PORT_STATE_RESUMING || !port->flags.conn_dev_ena) {
@@ -1504,6 +1517,7 @@ static esp_err_t _port_cmd_bus_resume(port_t *port)
     HCD_EXIT_CRITICAL();
     vTaskDelay(pdMS_TO_TICKS(RESUME_RECOVERY_MS));
     HCD_ENTER_CRITICAL();
+
     if (port->state != HCD_PORT_STATE_RESUMING || !port->flags.conn_dev_ena) {
         // Port state unexpectedly changed
         ret = ESP_ERR_INVALID_RESPONSE;

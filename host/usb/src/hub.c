@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2015-2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2015-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -482,7 +482,7 @@ static void root_port_req(hcd_port_handle_t root_port_hdl)
         hcd_port_command(p_hub_driver_obj->constant.root_port_hdl, HCD_PORT_CMD_DISABLE);
     }
     if (port_reqs & PORT_REQ_RECOVER) {
-        ESP_LOGD(HUB_DRIVER_TAG, "Recovering root port");
+        ESP_LOGI(HUB_DRIVER_TAG, "Recovering root port");
         ESP_ERROR_CHECK(hcd_port_recover(p_hub_driver_obj->constant.root_port_hdl));
 
         // In case the port's power was turned off with usb_host_lib_set_root_port_power(false)
@@ -511,15 +511,28 @@ static void root_port_req(hcd_port_handle_t root_port_hdl)
             return;
         }
 
-        ESP_ERROR_CHECK(hcd_port_command(p_hub_driver_obj->constant.root_port_hdl, HCD_PORT_CMD_SUSPEND));
+        bool suspend_finished = false;
+        const esp_err_t port_cmd_err = hcd_port_command(p_hub_driver_obj->constant.root_port_hdl, HCD_PORT_CMD_SUSPEND);
+        if (port_cmd_err == ESP_OK) {
+            suspend_finished = true;             // Root port suspended correctly
+        } else if (port_cmd_err == ESP_ERR_INVALID_RESPONSE) {
+            // Root port's state machine changed it's state during suspend command execution (port disconnect during CONFIG_USB_HOST_SUSPEND_HOLD_MS)
+            // The root port is already in recovery state and which was set by dconn event interrupt
+            suspend_finished = false;
+        } else {
+            ESP_ERROR_CHECK(port_cmd_err);  // Fatal error
+        }
 
-        HUB_DRIVER_ENTER_CRITICAL();
-        p_hub_driver_obj->dynamic.root_port_state = ROOT_PORT_STATE_SUSPENDED;
-        HUB_DRIVER_EXIT_CRITICAL();
+        if (suspend_finished) {
+            // Suspend command executed successfully, finish the suspend procedure
+            HUB_DRIVER_ENTER_CRITICAL();
+            p_hub_driver_obj->dynamic.root_port_state = ROOT_PORT_STATE_SUSPENDED;
+            HUB_DRIVER_EXIT_CRITICAL();
 
-        // Root port, including all the connected devices were suspended (global suspend)
-        // Propagate the suspended event to clients
-        usbh_devs_set_pm_actions_all(USBH_DEV_SUSPEND_EVT);
+            // Root port, including all the connected devices were suspended (global suspend)
+            // Propagate the suspended event to clients
+            usbh_devs_set_pm_actions_all(USBH_DEV_SUSPEND_EVT);
+        }
     }
     if (port_reqs & PORT_REQ_RESUME) {
         ESP_LOGD(HUB_DRIVER_TAG, "Resuming the root port");
@@ -534,16 +547,30 @@ static void root_port_req(hcd_port_handle_t root_port_hdl)
             return;
         }
 
-        ESP_ERROR_CHECK(hcd_port_command(p_hub_driver_obj->constant.root_port_hdl, HCD_PORT_CMD_RESUME));
+        bool resume_finished = false;
+        const esp_err_t port_cmd_err = hcd_port_command(p_hub_driver_obj->constant.root_port_hdl, HCD_PORT_CMD_RESUME);
+        if (port_cmd_err == ESP_OK) {
+            resume_finished = true;             // Root port resumed correctly
+        } else if (port_cmd_err == ESP_ERR_INVALID_RESPONSE) {
+            // Root port state changed during resume command execution (port disconnect during CONFIG_USB_HOST_RESUME_HOLD_MS)
+            // The root port is already in recovery state and which was set by dconn event interrupt
+            resume_finished = false;
+        } else {
+            ESP_ERROR_CHECK(port_cmd_err);  // Fatal error, error_check for backtrace
+        }
 
-        HUB_DRIVER_ENTER_CRITICAL();
-        p_hub_driver_obj->dynamic.root_port_state = ROOT_PORT_STATE_ENABLED;
-        HUB_DRIVER_EXIT_CRITICAL();
+        if (resume_finished) {
+            // Resume command executed successfully, finish the resume procedure
+            HUB_DRIVER_ENTER_CRITICAL();
+            p_hub_driver_obj->dynamic.root_port_state = ROOT_PORT_STATE_ENABLED;
+            HUB_DRIVER_EXIT_CRITICAL();
 
-        // Root port, including all the connected devices were resumed (global resume)
-        // Clear all EPs and propagate the resumed event to clients
-        usbh_devs_set_pm_actions_all(USBH_DEV_RESUME | USBH_DEV_RESUME_EVT);    // NOLINT(clang-analyzer-optin.core.EnumCastOutOfRange)
+            // Root port, including all the connected devices were resumed (global resume)
+            // Clear all EPs and propagate the resumed event to clients
+            usbh_devs_set_pm_actions_all(USBH_DEV_RESUME | USBH_DEV_RESUME_EVT);    // NOLINT(clang-analyzer-optin.core.EnumCastOutOfRange)
+        }
     }
+
 }
 
 static esp_err_t root_port_recycle(void)
