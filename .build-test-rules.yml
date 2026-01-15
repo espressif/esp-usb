@@ -28,6 +28,12 @@ host/class/msc:
   enable:
     - if: SOC_USB_OTG_SUPPORTED == 1
 
+type_c:
+  depends_filepatterns:
+    - 'type_c/**'
+  disable:
+    - if: IDF_TARGET in ["linux"]
+
 host/class/uac:
   depends_filepatterns:
     - 'host/class/uac/**'
