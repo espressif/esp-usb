@@ -24,9 +24,9 @@ The following steps outline the typical API call pattern of the UAC Class Driver
 06. To enable/disable data streaming with specific audio format use:
     - `uac_host_device_start()`
     - `uac_host_device_stop()`
-07. To suspend/resume data streaming use:
-    - `uac_host_device_suspend()`
-    - `uac_host_device_resume()`
+07. To pause/unpause data streaming use:
+    - `uac_host_device_pause()`
+    - `uac_host_device_unpause()`
 08. To control the volume/mute use:
     - `uac_host_device_set_mute()`
 09. To control the volume use:
