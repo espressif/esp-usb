@@ -247,10 +247,10 @@ esp_err_t hub_node_active(unsigned int node_uid);
  * @param[in] node_uid  Device's node unique ID
  *
  * @return
- *    - ESP_OK:                  Port has been disabled without error
- *    - ESP_ERR_INVALID_STATE:   Port can't be disabled in current state
- *    - ESP_ERR_NOT_SUPPORTED:   This function is not supported by the selected port
- *    - ESP_ERR_NOT_FOUND:       Device's node is not found
+ *    - ESP_ERR_INVALID_STATE: If Hub driver is not installed
+ *    - ESP_ERR_NOT_SUPPORTED: If the function is not support by the selected port
+ *    - ESP_ERR_NOT_FOUND: If device's tree node is not found by uid
+ *    - ESP_OK: If Port has been disabled without error
  */
 esp_err_t hub_node_disable(unsigned int node_uid);
 
