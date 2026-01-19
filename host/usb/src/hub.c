@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2015-2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2015-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -7,7 +7,6 @@
 #include "sdkconfig.h"
 #include <stdlib.h>
 #include <stdbool.h>
-#include <string.h>
 #include <sys/queue.h>
 #include "esp_err.h"
 #include "esp_heap_caps.h"
@@ -17,10 +16,12 @@
 #include "usb_private.h"
 #include "hcd.h"
 #include "hub.h"
-#include "usb/usb_helpers.h"
 
 #if ENABLE_USB_HUBS
 #include "ext_hub.h"
+#else
+// Forward declaration when hubs are disabled
+typedef struct ext_hub_s *ext_hub_handle_t;
 #endif // ENABLE_USB_HUBS
 
 /*
@@ -73,7 +74,7 @@ typedef enum {
 struct dev_tree_node_s {
     TAILQ_ENTRY(dev_tree_node_s) tailq_entry;   /**< Entry for the device tree node object tailq */
     unsigned int uid;                           /**< Device's unique ID */
-    void *parent;                               /**< Device's parent context */
+    ext_hub_handle_t parent;                    /**< Device's parent context (NULL for root hub ports, ext_hub_handle_t for external hub ports) */
     uint8_t port_num;                           /**< Device's parent port number */
 };
 
@@ -167,7 +168,7 @@ static dev_tree_node_t *dev_tree_node_get_by_uid(unsigned int node_uid)
  *
  * @return esp_err_t
  */
-static esp_err_t dev_tree_node_new(void *parent, uint8_t port_num, usb_speed_t speed)
+static esp_err_t dev_tree_node_new(ext_hub_handle_t parent, uint8_t port_num, usb_speed_t speed)
 {
     esp_err_t ret;
     // Allocate memory for a new device tree node
@@ -223,7 +224,7 @@ fail:
     return ret;
 }
 
-static esp_err_t dev_tree_node_reset_completed(void *parent, uint8_t port_num)
+static esp_err_t dev_tree_node_reset_completed(ext_hub_handle_t parent, uint8_t port_num)
 {
     dev_tree_node_t *dev_tree_node = NULL;
     dev_tree_node_t *dev_tree_iter;
@@ -251,7 +252,7 @@ static esp_err_t dev_tree_node_reset_completed(void *parent, uint8_t port_num)
     return ESP_OK;
 }
 
-static esp_err_t dev_tree_node_dev_gone(void *parent, uint8_t port_num)
+static esp_err_t dev_tree_node_dev_gone(ext_hub_handle_t parent, uint8_t port_num)
 {
     dev_tree_node_t *dev_tree_node = NULL;
     dev_tree_node_t *dev_tree_iter;
@@ -287,7 +288,7 @@ static esp_err_t dev_tree_node_dev_gone(void *parent, uint8_t port_num)
  *
  * @return esp_err_t
  */
-static esp_err_t dev_tree_node_remove_by_parent(void *parent, uint8_t port_num)
+static esp_err_t dev_tree_node_remove_by_parent(ext_hub_handle_t parent, uint8_t port_num)
 {
     dev_tree_node_t *dev_tree_node = NULL;
     dev_tree_node_t *dev_tree_iter;
@@ -839,7 +840,7 @@ esp_err_t hub_node_recycle(unsigned int node_uid)
         ret = root_port_recycle();
     } else {
 #if ENABLE_USB_HUBS
-        ret = ext_hub_port_recycle((ext_hub_handle_t) dev_tree_node->parent, dev_tree_node->port_num);
+        ret = ext_hub_port_recycle(dev_tree_node->parent, dev_tree_node->port_num);
         if (ret != ESP_OK) {
             ESP_LOGE(HUB_DRIVER_TAG, "Ext hub port recycle error: %s", esp_err_to_name(ret));
         }
@@ -875,7 +876,7 @@ esp_err_t hub_node_reset(unsigned int node_uid)
         }
     } else {
 #if ENABLE_USB_HUBS
-        ret = ext_hub_port_reset((ext_hub_handle_t) dev_tree_node->parent, dev_tree_node->port_num);
+        ret = ext_hub_port_reset(dev_tree_node->parent, dev_tree_node->port_num);
         if (ret != ESP_OK) {
             ESP_LOGE(HUB_DRIVER_TAG, "Ext hub port reset error: %s", esp_err_to_name(ret));
         }
@@ -903,7 +904,7 @@ esp_err_t hub_node_active(unsigned int node_uid)
     } else {
 #if ENABLE_USB_HUBS
         // External Hub port
-        ret = ext_hub_port_active((ext_hub_handle_t) dev_tree_node->parent, dev_tree_node->port_num);
+        ret = ext_hub_port_active(dev_tree_node->parent, dev_tree_node->port_num);
         if (ret != ESP_OK) {
             ESP_LOGE(HUB_DRIVER_TAG, "Ext hub port activation error: %s", esp_err_to_name(ret));
         }
@@ -930,7 +931,7 @@ esp_err_t hub_node_disable(unsigned int node_uid)
     } else {
 #if ENABLE_USB_HUBS
         // External Hub port
-        ret = ext_hub_port_disable((ext_hub_handle_t) dev_tree_node->parent, dev_tree_node->port_num);
+        ret = ext_hub_port_disable(dev_tree_node->parent, dev_tree_node->port_num);
 #else
         ESP_LOGW(HUB_DRIVER_TAG, "Disabling External Port is not available (External Hub support disabled)");
         ret = ESP_ERR_NOT_SUPPORTED;
