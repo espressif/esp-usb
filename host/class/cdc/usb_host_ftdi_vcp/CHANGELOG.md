@@ -6,3 +6,6 @@
 
 ## 2.0.0
 - Update to [CDC-ACM driver](https://components.espressif.com/components/espressif/usb_host_cdc_acm) to v2
+
+## Unreleased
+- Fix FTDI VCP SerialState parsing (correct 1-bit flags, avoid short-packet reads)
