@@ -361,7 +361,7 @@ static void ext_port_event_callback(ext_port_hdl_t port_hdl, ext_port_event_data
         if (parent_speed == USB_SPEED_HIGH) {
             if (port_speed != parent_speed) {
                 ESP_LOGE(HUB_DRIVER_TAG, "Connected device is %s, transaction translator (TT) is not supported",
-                (char *[]) {
+                (const char *[]) {
                     "LS", "FS", "HS"
                 }[port_speed]);
                 goto new_ds_dev_err;
