@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2015-2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2015-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -1721,6 +1721,9 @@ esp_err_t hcd_port_recover(hcd_port_handle_t port_hdl)
                         && port->flags.val == 0 && port->task_waiting_port_notif == NULL,
                         ESP_ERR_INVALID_STATE);
 
+    // In case, we are recovering from a state which has gated internal clock, ungate it to be able to reconnect a device
+    // Soft reset does not clear the GateHclk bit
+    _internal_clk_gate(port, false);
     // We are about to do a soft reset on the peripheral. Disable the peripheral throughout
     esp_intr_disable(port->isr_hdl);
     usb_dwc_hal_core_soft_reset(port->hal);

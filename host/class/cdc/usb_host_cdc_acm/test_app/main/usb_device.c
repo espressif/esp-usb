@@ -1,15 +1,28 @@
 /*
- * SPDX-FileCopyrightText: 2015-2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2015-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
 
 #include <stdint.h>
 #include "sdkconfig.h"
+#include "unity.h"
 #include "tinyusb.h"
 #include "tinyusb_default_config.h"
 #include "tinyusb_cdc_acm.h"
+#include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
+#define DEV_CB_EVT_SUSPEND_REMOTE_WAKE_DIS  (1U << 0)   /**< Device suspend callback with remote wakeup disabled */
+#define DEV_CB_EVT_SUSPEND_REMOTE_WAKE_EN   (1U << 1)   /**< Device suspend callback with remote wakeup enabled */
+#define DEV_CB_EVT_RESUME                   (1U << 2)   /**< Device resume callback */
+// Any suspend event
+#define DEV_CV_EVT_SUSPEND                  (DEV_CB_EVT_SUSPEND_REMOTE_WAKE_DIS | DEV_CB_EVT_SUSPEND_REMOTE_WAKE_EN)
+
+static TaskHandle_t main_task_hdl = NULL;
+
+const char *CDC_DEV_TAG = "CDC device";
 static uint8_t buf[CONFIG_TINYUSB_CDC_RX_BUFSIZE + 1];
 static void tinyusb_cdc_rx_callback(int itf, cdcacm_event_t *event)
 {
@@ -65,8 +78,24 @@ static const tusb_desc_device_qualifier_t device_qualifier = {
 
 #endif // TUD_OPT_HIGH_SPEED
 
-void run_usb_dual_cdc_device(void)
+/**
+ * @brief Device callback events handler
+ *
+ * @param[in] mask_notify_bits Notify bits will be masked
+ */
+inline static uint32_t device_cb_handler(const uint32_t mask_notify_bits)
 {
+    uint32_t notify_bits = 0;
+    if (pdTRUE == xTaskNotifyWait(pdFALSE, UINT32_MAX, &notify_bits, portMAX_DELAY)) {
+        notify_bits &= ~mask_notify_bits;
+        return notify_bits;
+    }
+    return 0;
+}
+
+static void cdc_acm_mock_device_run(void)
+{
+    ESP_LOGI(CDC_DEV_TAG, "Initialization");
     tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG();
     tusb_cfg.descriptor.device = &cdc_device_descriptor;
     tusb_cfg.descriptor.full_speed_config = cdc_fs_desc_configuration;
@@ -91,5 +120,104 @@ void run_usb_dual_cdc_device(void)
     ESP_ERROR_CHECK(tinyusb_cdcacm_init(&amc_cfg));
 #endif
 
+    main_task_hdl = xTaskGetCurrentTaskHandle();
     printf("USB initialization DONE\n");
+}
+
+/* TinyUSB device callbacks */
+
+// Called when USB bus is suspended
+void tud_suspend_cb(bool remote_wakeup_en)
+{
+    if (! main_task_hdl) {
+        return;
+    }
+
+    const uint32_t notify_bits = (remote_wakeup_en) ?
+                                 (DEV_CB_EVT_SUSPEND_REMOTE_WAKE_EN) :
+                                 (DEV_CB_EVT_SUSPEND_REMOTE_WAKE_DIS);
+
+    xTaskNotify(main_task_hdl, notify_bits, eSetBits);
+    ESP_LOGI(CDC_DEV_TAG, "Suspended with remote wakeup %s", ( (remote_wakeup_en) ? ("enabled") : ("disabled") ));
+}
+
+// Called when USB bus resumes
+void tud_resume_cb(void)
+{
+    if (! main_task_hdl) {
+        return;
+    }
+
+    xTaskNotify(main_task_hdl, DEV_CB_EVT_RESUME, eSetBits);
+    ESP_LOGI(CDC_DEV_TAG, "resumed");
+}
+
+/* Following test cases implement dual CDC-ACM USB device that can be used as mock device for CDC-ACM Host tests */
+
+/**
+ * @brief Run CDC-ACM Device with 2 interfaces in a loopback mode
+ */
+TEST_CASE("mock_dev_app_dual_iface", "[cdc_acm_mock_dev][dual_iface][ignore]")
+{
+    cdc_acm_mock_device_run();
+
+    while (1) {
+        vTaskDelay(10);
+    }
+}
+
+/**
+ * @brief Run CDC-ACM Device with 2 interfaces in a loopback mode
+ *
+ * Device performs sudden disconnect followed by a connect upon receiving Suspend callback
+ */
+TEST_CASE("mock_dev_app_suspend_dconn", "[cdc_acm_mock_dev][suspend_dconn][ignore]")
+{
+    cdc_acm_mock_device_run();
+    uint32_t mask_notify_bits = 0;
+
+    while (1) {
+        const uint32_t notify_bits = device_cb_handler(mask_notify_bits);
+        if (notify_bits & DEV_CB_EVT_SUSPEND_REMOTE_WAKE_DIS) {
+
+            TEST_ASSERT(tud_disconnect());
+            ESP_LOGI(CDC_DEV_TAG, "Triggering disconnect");
+
+            // Stay disconnected for a while and trigger connect
+            vTaskDelay(pdMS_TO_TICKS(1000));
+            ESP_LOGI(CDC_DEV_TAG, "Triggering connect");
+            TEST_ASSERT(tud_connect());
+
+            // End of the test: Ignore the suspend event from the device after uninstalling the cdc-acm host
+            mask_notify_bits = DEV_CV_EVT_SUSPEND;
+        }
+    }
+}
+
+/**
+ * @brief Run CDC-ACM Device with 2 interfaces in a loopback mode
+ *
+ * Device performs sudden disconnect followed by a connect upon receiving Resume callback
+ */
+TEST_CASE("mock_dev_app_resume_dconn", "[cdc_acm_mock_dev][resume_dconn][ignore]")
+{
+    cdc_acm_mock_device_run();
+    uint32_t mask_notify_bits = 0;
+
+    while (1) {
+        const uint32_t notify_bits = device_cb_handler(mask_notify_bits);
+        if (notify_bits & DEV_CB_EVT_RESUME) {
+
+            TEST_ASSERT(tud_disconnect());
+            ESP_LOGI(CDC_DEV_TAG, "Triggering disconnect");
+
+            // Stay disconnected for a while and trigger connect
+            vTaskDelay(pdMS_TO_TICKS(1000));
+            ESP_LOGI(CDC_DEV_TAG, "Triggering connect");
+            TEST_ASSERT(tud_connect());
+
+            // End of the test: Ignore the suspend event from the device after uninstalling the cdc-acm host
+            mask_notify_bits = DEV_CV_EVT_SUSPEND;
+        }
+    }
 }

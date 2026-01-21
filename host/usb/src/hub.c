@@ -458,6 +458,7 @@ reset_err:
 #ifdef REMOTE_WAKE_HAL_SUPPORTED
     case HCD_PORT_EVENT_REMOTE_WAKEUP:
         // Mark root port as ready to be resumed
+        // We allow this to fail in case a disconnect/port error happens while remote wakeup.
         hub_root_mark_resume();
         break;
 #endif // REMOTE_WAKE_HAL_SUPPORTED
@@ -511,8 +512,22 @@ static void root_port_req(hcd_port_handle_t root_port_hdl)
             return;
         }
 
-        ESP_ERROR_CHECK(hcd_port_command(p_hub_driver_obj->constant.root_port_hdl, HCD_PORT_CMD_SUSPEND));
+        const esp_err_t port_cmd_err = hcd_port_command(p_hub_driver_obj->constant.root_port_hdl, HCD_PORT_CMD_SUSPEND);
+        switch (port_cmd_err) {
+        case ESP_OK:
+            // Root port suspended correctly
+            break;
+        case ESP_ERR_INVALID_RESPONSE:
+            // Root port's state machine changed it's state during suspend command execution (port disconnect)
+            // The root port is already in recovery state, which was set by dconn event interrupt, no further action needed
+            return;
+        default:
+            // Fatal error occurred: Do ESP_ERROR_CHECK for backtrace
+            ESP_ERROR_CHECK(port_cmd_err);
+            return;
+        }
 
+        // Suspend command executed successfully, finish the suspend procedure
         HUB_DRIVER_ENTER_CRITICAL();
         p_hub_driver_obj->dynamic.root_port_state = ROOT_PORT_STATE_SUSPENDED;
         HUB_DRIVER_EXIT_CRITICAL();
@@ -534,8 +549,22 @@ static void root_port_req(hcd_port_handle_t root_port_hdl)
             return;
         }
 
-        ESP_ERROR_CHECK(hcd_port_command(p_hub_driver_obj->constant.root_port_hdl, HCD_PORT_CMD_RESUME));
+        const esp_err_t port_cmd_err = hcd_port_command(p_hub_driver_obj->constant.root_port_hdl, HCD_PORT_CMD_RESUME);
+        switch (port_cmd_err) {
+        case ESP_OK:
+            // Root port resumed correctly
+            break;
+        case ESP_ERR_INVALID_RESPONSE:
+            // Root port's state machine changed it's state during suspend command execution (port disconnect)
+            // The root port is already in recovery state, which was set by dconn event interrupt, no further action needed
+            return;
+        default:
+            // Fatal error occurred: Do ESP_ERROR_CHECK for backtrace
+            ESP_ERROR_CHECK(port_cmd_err);
+            return;
+        }
 
+        // Resume command executed successfully, finish the resume procedure
         HUB_DRIVER_ENTER_CRITICAL();
         p_hub_driver_obj->dynamic.root_port_state = ROOT_PORT_STATE_ENABLED;
         HUB_DRIVER_EXIT_CRITICAL();
