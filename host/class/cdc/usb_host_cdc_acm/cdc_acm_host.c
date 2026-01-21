@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2015-2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2015-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -241,6 +241,9 @@ static void cdc_acm_transfers_free(cdc_dev_t *cdc_dev);
 static void cdc_acm_device_remove(cdc_dev_t *cdc_dev)
 {
     assert(cdc_dev);
+    if (cdc_dev->intf_func.del) {
+        cdc_dev->intf_func.del(cdc_dev);
+    }
     cdc_acm_transfers_free(cdc_dev);
     free(cdc_dev->cdc_func_desc);
     // We don't check the error code of usb_host_device_close, as the close might fail, if someone else is still using the device (not all interfaces are released)
