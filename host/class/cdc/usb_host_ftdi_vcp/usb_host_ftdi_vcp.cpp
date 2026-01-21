@@ -39,6 +39,11 @@ FT23x::FT23x(uint16_t pid, const cdc_acm_host_device_config_t *dev_config, uint8
         ftdi_config.user_arg = this;
     }
 
+    if (ftdi_config.in_buffer_size > 0) {
+        ESP_LOGW("FT23x", "RX FIFO size %d is not supported, setting to 0", ftdi_config.in_buffer_size);
+        ftdi_config.in_buffer_size = 0;
+    }
+
     esp_err_t err;
     err = this->open_vendor_specific(vid, pid, this->intf, &ftdi_config);
     if (err != ESP_OK) {
