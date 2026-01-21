@@ -8,6 +8,6 @@ repository_info:
   path: "host/class/cdc/usb_host_ftdi_vcp"
 dependencies:
   espressif/usb_host_cdc_acm:
-    version: "^2.0.0"
+    version: "^2.3.0"
     public: true
     override_path: "../usb_host_cdc_acm"
