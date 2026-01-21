@@ -229,9 +229,10 @@ TEST_CASE("mock_dev_app_resume_dconn", "[cdc_acm_mock_dev][resume_dconn][ignore]
 TEST_CASE("mock_dev_app_remote_wake", "[cdc_acm_mock_dev][remote_wake][ignore]")
 {
     cdc_acm_mock_device_run();
+    uint32_t mask_notify_bits = 0;
 
     while (1) {
-        const uint32_t notify_bits = device_cb_handler();
+        const uint32_t notify_bits = device_cb_handler(mask_notify_bits);
         if (notify_bits & DEV_CB_EVT_RESUME) {
             // The host resumed the device, no action
             continue;
@@ -246,7 +247,9 @@ TEST_CASE("mock_dev_app_remote_wake", "[cdc_acm_mock_dev][remote_wake][ignore]")
             vTaskDelay(pdMS_TO_TICKS(1000));
             ESP_LOGI(CDC_DEV_TAG, "Triggering remote wakeup");
             TEST_ASSERT(tud_remote_wakeup());
-            break;  // End of the test
+
+            // End of the test: Ignore the suspend event from the device after uninstalling the cdc-acm host
+            mask_notify_bits = DEV_CV_EVT_SUSPEND;
         }
     }
 }
@@ -258,9 +261,10 @@ TEST_CASE("mock_dev_app_remote_wake", "[cdc_acm_mock_dev][remote_wake][ignore]")
 TEST_CASE("mock_dev_app_remote_wake_dconn", "[cdc_acm_mock_dev][remote_wake_dconn][ignore]")
 {
     cdc_acm_mock_device_run();
+    uint32_t mask_notify_bits = 0;
 
     while (1) {
-        const uint32_t notify_bits = device_cb_handler();
+        const uint32_t notify_bits = device_cb_handler(mask_notify_bits);
         if (notify_bits & DEV_CB_EVT_RESUME) {
             TEST_FAIL_MESSAGE("We are not expecting the device to deliver resume callback in this test mode");
         }
@@ -281,7 +285,9 @@ TEST_CASE("mock_dev_app_remote_wake_dconn", "[cdc_acm_mock_dev][remote_wake_dcon
             vTaskDelay(pdMS_TO_TICKS(1000));
             ESP_LOGI(CDC_DEV_TAG, "Triggering connect");
             TEST_ASSERT(tud_connect());
-            break; // End of the test
+
+            // End of the test: Ignore the suspend event from the device after uninstalling the cdc-acm host
+            mask_notify_bits = DEV_CV_EVT_SUSPEND;
         }
     }
 }
