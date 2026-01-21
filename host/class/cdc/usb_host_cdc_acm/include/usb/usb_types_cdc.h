@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2015-2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2015-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -260,6 +260,10 @@ typedef struct {
 
 /**
  * @brief UART State Bitmap
+ *
+ * This state bitmap is based on USB CDC-PSTN specification.
+ * It was extended with CTS signal, which is the only missing input signal from RS-232 set.
+ *
  * @see Table 31, USB CDC-PSTN specification rev. 1.2
  */
 typedef union {
@@ -271,7 +275,10 @@ typedef union {
         uint16_t bFraming : 1;    // A framing error has occurred.
         uint16_t bParity : 1;     // A parity error has occurred.
         uint16_t bOverRun : 1;    // Received data has been discarded due to overrun in the device.
-        uint16_t reserved : 9;
+        uint16_t reserved : 8;
+
+        // Following bits are not defined in the USB specification.
+        uint16_t bClearToSend : 1;    // State of Clear To Send (CTS) signal
     };
     uint16_t val;
 } cdc_acm_uart_state_t;
