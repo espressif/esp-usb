@@ -16,6 +16,7 @@
 #include "usb_private.h"
 #include "hcd.h"
 #include "hub.h"
+#include "usbh.h"
 
 #if ENABLE_USB_HUBS
 #include "ext_hub.h"
@@ -658,10 +659,12 @@ esp_err_t hub_install(hub_config_t *hub_config, void **client_ret)
 #endif // ENABLE_USB_HUBS
 
     // Install HCD port
-    hcd_port_config_t port_config = {
+    const hcd_port_config_t port_config = {
         .callback = root_port_callback,
         .callback_arg = NULL,
         .context = NULL,
+        .intr_flags = hub_config->intr_flags,
+        .fifo_config = hub_config->fifo_config,
     };
     hcd_port_handle_t root_port_hdl;
 

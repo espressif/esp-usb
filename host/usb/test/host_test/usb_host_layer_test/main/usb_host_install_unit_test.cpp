@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2025-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -69,37 +69,6 @@ SCENARIO("USB Host install")
             REQUIRE(ESP_ERR_INVALID_STATE == usb_host_install(&usb_host_config));
         }
 
-        // Try to install the USB Host driver, with HCD Install error, use internal PHY
-        SECTION("Fail to install USB Host - HCD Install error (internal PHY)") {
-
-            // Make the PHY install to pass
-            usb_phy_handle_t phy_handle;
-            usb_new_phy_ExpectAnyArgsAndReturn(ESP_OK);
-            usb_new_phy_ReturnThruPtr_handle_ret(&phy_handle);
-
-            // make the HCD port install to fail
-            hcd_install_ExpectAnyArgsAndReturn(ESP_ERR_INVALID_STATE);
-
-            // goto hcd_err: We must uninstall the PHY
-            usb_del_phy_ExpectAndReturn(phy_handle, ESP_OK);
-
-            // Call the DUT function, expect ESP_ERR_INVALID_STATE
-            REQUIRE(ESP_ERR_INVALID_STATE == usb_host_install(&usb_host_config));
-        }
-
-        // Try to install the USB Host driver, with HCD Install error, use external PHY
-        SECTION("Fail to install USB Host - HCD Install error (external PHY)") {
-
-            // Skip the PHY Setup (external phy)
-            usb_host_config.skip_phy_setup = true;
-
-            // make the HCD port install to fail
-            hcd_install_ExpectAnyArgsAndReturn(ESP_ERR_INVALID_STATE);
-
-            // Call the DUT function, expect ESP_ERR_INVALID_STATE
-            REQUIRE(ESP_ERR_INVALID_STATE == usb_host_install(&usb_host_config));
-        }
-
         // Try to install the USB Host driver, with USBH Install error, use internal PHY
         SECTION("Fail to install USB Host - USBH install error") {
 
@@ -108,14 +77,10 @@ SCENARIO("USB Host install")
             usb_new_phy_ExpectAnyArgsAndReturn(ESP_OK);
             usb_new_phy_ReturnThruPtr_handle_ret(&phy_handle);
 
-            // make the HCD port install to pass
-            hcd_install_ExpectAnyArgsAndReturn(ESP_OK);
-
             // Make the USBH install to fail
             usbh_install_ExpectAnyArgsAndReturn(ESP_ERR_INVALID_STATE);
 
-            // goto usbh_err: We must uninstall HCD port and PHY
-            hcd_uninstall_ExpectAndReturn(ESP_OK);
+            // goto usbh_err: We must uninstall PHY
             usb_del_phy_ExpectAndReturn(phy_handle, ESP_OK);
 
             // Call the DUT function, expect ESP_ERR_INVALID_STATE
@@ -130,18 +95,14 @@ SCENARIO("USB Host install")
             usb_new_phy_ExpectAnyArgsAndReturn(ESP_OK);
             usb_new_phy_ReturnThruPtr_handle_ret(&phy_handle);
 
-            // make the HCD port install to pass
-            hcd_install_ExpectAnyArgsAndReturn(ESP_OK);
-
             // Make the USBH install to pass
             usbh_install_ExpectAnyArgsAndReturn(ESP_OK);
 
             // Make the ENUM Driver to fail
             enum_install_ExpectAnyArgsAndReturn(ESP_ERR_INVALID_STATE);
 
-            // goto enum_err: We must uninstall USBH, HCD port and PHY
+            // goto enum_err: We must uninstall USBHand PHY
             usbh_uninstall_ExpectAndReturn(ESP_OK);
-            hcd_uninstall_ExpectAndReturn(ESP_OK);
             usb_del_phy_ExpectAndReturn(phy_handle, ESP_OK);
 
             // Call the DUT function, expect ESP_ERR_INVALID_STATE
@@ -156,9 +117,6 @@ SCENARIO("USB Host install")
             usb_new_phy_ExpectAnyArgsAndReturn(ESP_OK);
             usb_new_phy_ReturnThruPtr_handle_ret(&phy_handle);
 
-            // make the HCD port install to pass
-            hcd_install_ExpectAnyArgsAndReturn(ESP_OK);
-
             // Make the USBH install to pass
             usbh_install_ExpectAnyArgsAndReturn(ESP_OK);
 
@@ -168,10 +126,9 @@ SCENARIO("USB Host install")
             // Make the HUB Driver to fail
             hub_install_ExpectAnyArgsAndReturn(ESP_ERR_INVALID_STATE);
 
-            // goto hub_err: We must uninstall Enum driver, USBH, HCD port and PHY
+            // goto hub_err: We must uninstall Enum driver, USBH and PHY
             enum_uninstall_ExpectAndReturn(ESP_OK);
             usbh_uninstall_ExpectAndReturn(ESP_OK);
-            hcd_uninstall_ExpectAndReturn(ESP_OK);
             usb_del_phy_ExpectAndReturn(phy_handle, ESP_OK);
 
             // Call the DUT function, expect ESP_ERR_INVALID_STATE
@@ -185,9 +142,6 @@ SCENARIO("USB Host install")
             usb_phy_handle_t phy_handle;
             usb_new_phy_ExpectAnyArgsAndReturn(ESP_OK);
             usb_new_phy_ReturnThruPtr_handle_ret(&phy_handle);
-
-            // make the HCD port install to pass
-            hcd_install_ExpectAnyArgsAndReturn(ESP_OK);
 
             // Make the USBH install to pass
             usbh_install_ExpectAnyArgsAndReturn(ESP_OK);
@@ -234,7 +188,6 @@ SCENARIO("USB Host post-uninstall")
             hub_uninstall_ExpectAndReturn(ESP_OK);
             enum_uninstall_ExpectAndReturn(ESP_OK);
             usbh_uninstall_ExpectAndReturn(ESP_OK);
-            hcd_uninstall_ExpectAndReturn(ESP_OK);
 
             // Make the usb_del_phy() to pass
             usb_del_phy_ExpectAnyArgsAndReturn(ESP_OK);

@@ -1,17 +1,16 @@
 /*
- * SPDX-FileCopyrightText: 2015-2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2015-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
 
 #pragma once
 
-#include <stdlib.h>
 #include <stdint.h>
 #include "sdkconfig.h"
 #include "esp_err.h"
 #include "usb_private.h"
-#include "usbh.h"
+#include "hcd.h"
 
 #if CONFIG_USB_HOST_HUBS_SUPPORTED
 #define ENABLE_USB_HUBS                     1
@@ -65,6 +64,8 @@ typedef struct {
     void *proc_req_cb_arg;                          /**< Processing request callback argument */
     hub_event_cb_t event_cb;                        /**< Hub event callback */
     void *event_cb_arg;                             /**< Hub event callback argument */
+    int intr_flags;                                 /**< Interrupt flags for HCD interrupt */
+    const hcd_fifo_settings_t *fifo_config;         /**< Optional pointer to custom FIFO config. If NULL, default configuration is used. */
 } hub_config_t;
 
 // ---------------------------------------------- Hub Driver Functions -------------------------------------------------

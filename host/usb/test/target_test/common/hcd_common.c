@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2015-2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2015-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -31,7 +31,6 @@
 
 #if TEST_P4_OTG11
 #define TEST_PHY                USB_PHY_TARGET_INT
-#define TEST_PERIPHERAL_MAP     BIT1
 #define TEST_PORT_NUM           1
 #else
 #if CONFIG_IDF_TARGET_ESP32P4
@@ -39,7 +38,6 @@
 #else
 #define TEST_PHY                USB_PHY_TARGET_INT
 #endif
-#define TEST_PERIPHERAL_MAP     BIT0
 #define TEST_PORT_NUM           0
 #endif // TEST_P4_OTG11
 
@@ -181,17 +179,13 @@ hcd_port_handle_t test_hcd_setup(void)
     // Create a queue for port callback to queue up port events
     QueueHandle_t port_evt_queue = xQueueCreate(EVENT_QUEUE_LEN, sizeof(port_event_msg_t));
     TEST_ASSERT_NOT_NULL(port_evt_queue);
-    // Install HCD
-    hcd_config_t hcd_config = {
-        .intr_flags = ESP_INTR_FLAG_LOWMED,
-        .peripheral_map = TEST_PERIPHERAL_MAP,
-    };
-    TEST_ASSERT_EQUAL(ESP_OK, hcd_install(&hcd_config));
     // Initialize a port
     hcd_port_config_t port_config = {
         .callback = port_callback,
         .callback_arg = (void *)port_evt_queue,
         .context = (void *)port_evt_queue,
+        .fifo_config = NULL, // Default: use bias strategy from Kconfig
+        .intr_flags = ESP_INTR_FLAG_LOWMED,
     };
     hcd_port_handle_t port_hdl;
     TEST_ASSERT_EQUAL(ESP_OK, hcd_port_init(TEST_PORT_NUM, &port_config, &port_hdl));
@@ -209,8 +203,6 @@ void test_hcd_teardown(hcd_port_handle_t port_hdl)
     TEST_ASSERT_NOT_NULL(port_evt_queue);
     // Deinitialize a port
     TEST_ASSERT_EQUAL(ESP_OK, hcd_port_deinit(port_hdl));
-    // Uninstall the HCD
-    TEST_ASSERT_EQUAL(ESP_OK, hcd_uninstall());
     vQueueDelete(port_evt_queue);
     // Deinitialize the internal USB PHY
     test_delete_usb_phy();

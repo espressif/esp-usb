@@ -256,7 +256,7 @@ struct port_obj {
         };
         uint32_t val;
     } flags;
-    bool initialized;
+    int periph_idx;                                 // Peripheral index of this port. Used for initialization check
     // FIFO related
     usb_dwc_hal_fifo_config_t fifo_config;          // FIFO config to be applied at HAL level
     // Port callback and context
@@ -267,15 +267,9 @@ struct port_obj {
     intr_handle_t isr_hdl;       // Interrupt handle for this root port (USB-OTG peripheral)
 };
 
-/**
- * @brief Object representing the HCD
- */
-typedef struct {
-    // Ports: Each peripheral is a root port
-    port_t *port_obj[NUM_PORTS];
-} hcd_obj_t;
-
-static hcd_obj_t *s_hcd_obj = NULL;     // Note: "s_" is for the static pointer
+// With s_port_inited[] we can check if a port has been initialized -> to provide singleton handle for each root port
+// Each peripheral is a root port
+static bool s_port_inited[NUM_PORTS] = {0};
 
 // ------------------------------------------------- Forward Declare ---------------------------------------------------
 
@@ -575,8 +569,7 @@ static void _port_reset_all_pipes(port_t *port);
 /**
  * @brief Convert user-provided FIFO configuration to HAL format
  *
- * This function validates and converts a user-defined FIFO configuration
- * (provided via `hcd_config_t.fifo_config`) into the format expected by the HAL.
+ * This function validates and converts a user-defined FIFO configuration into the format expected by the HAL.
  * It ensures that both RX FIFO and Non-Periodic TX FIFO sizes are non-zero.
  *
  * @param[in]  src Pointer to user-defined FIFO settings (HCD format)
@@ -586,7 +579,6 @@ static void _port_reset_all_pipes(port_t *port);
  *      - ESP_OK: Conversion successful and values copied
  *      - ESP_ERR_INVALID_SIZE: Either RX FIFO or Non-Periodic TX FIFO is zero
  */
-
 static esp_err_t convert_fifo_config_to_hal_config(const hcd_fifo_settings_t *src, usb_dwc_hal_fifo_config_t *dst);
 
 /**
@@ -1097,107 +1089,6 @@ static void port_obj_free(port_t *port)
     free(port);
 }
 
-// ----------------------- Public --------------------------
-
-esp_err_t hcd_install(const hcd_config_t *config)
-{
-    HCD_ENTER_CRITICAL();
-    HCD_CHECK_FROM_CRIT(s_hcd_obj == NULL, ESP_ERR_INVALID_STATE);
-    HCD_EXIT_CRITICAL();
-
-    // Check if peripheral_map does not have bits set outside of valid range. Valid bits are BIT0 - BIT(NUM_PORTS - 1)
-    HCD_CHECK((config->peripheral_map != 0) && (config->peripheral_map < BIT(NUM_PORTS)), ESP_ERR_INVALID_ARG);
-
-    esp_err_t err_ret;
-
-    // Allocate memory for the driver object
-    hcd_obj_t *p_hcd_obj_dmy = calloc(1, sizeof(hcd_obj_t));
-    if (p_hcd_obj_dmy == NULL) {
-        return ESP_ERR_NO_MEM;
-    }
-
-    // Allocate each port object
-    for (int i = 0; i < NUM_PORTS; i++) {
-        if (BIT(i) & config->peripheral_map) {
-            p_hcd_obj_dmy->port_obj[i] = port_obj_alloc();
-            if (p_hcd_obj_dmy->port_obj[i] == NULL) {
-                err_ret = ESP_ERR_NO_MEM;
-                goto clean_up;
-            }
-            // Allocate interrupt
-            const int irq_index = usb_dwc_info.controllers[i].irq;
-            err_ret = esp_intr_alloc(irq_index,
-                                     config->intr_flags | ESP_INTR_FLAG_INTRDISABLED,  // The interrupt must be disabled until the port is initialized
-                                     intr_hdlr_main,
-                                     (void *)p_hcd_obj_dmy->port_obj[i],
-                                     &p_hcd_obj_dmy->port_obj[i]->isr_hdl);
-            if (err_ret != ESP_OK) {
-                ESP_LOGE(HCD_DWC_TAG, "Interrupt alloc error: %s", esp_err_to_name(err_ret));
-                goto clean_up;
-            }
-
-            // Apply custom FIFO config if provided
-            if (config->fifo_config != NULL) {
-                // Convert and validate user-provided config
-                err_ret = convert_fifo_config_to_hal_config(config->fifo_config, &p_hcd_obj_dmy->port_obj[i]->fifo_config);
-                if (err_ret != ESP_OK) {
-                    goto clean_up;
-                }
-            }
-        }
-    }
-
-    HCD_ENTER_CRITICAL();
-    if (s_hcd_obj != NULL) {
-        HCD_EXIT_CRITICAL();
-        err_ret = ESP_ERR_INVALID_STATE;
-        goto clean_up;
-    }
-    s_hcd_obj = p_hcd_obj_dmy;
-    HCD_EXIT_CRITICAL();
-    return ESP_OK;
-
-clean_up:
-    // Free resources
-    for (int i = 0; i < NUM_PORTS; i++) {
-        if (p_hcd_obj_dmy->port_obj[i]) {
-            esp_intr_free(p_hcd_obj_dmy->port_obj[i]->isr_hdl);
-            port_obj_free(p_hcd_obj_dmy->port_obj[i]);
-        }
-    }
-    free(p_hcd_obj_dmy);
-    return err_ret;
-}
-
-esp_err_t hcd_uninstall(void)
-{
-    HCD_ENTER_CRITICAL();
-    // Check that all ports have been disabled
-    bool all_ports_disabled = true;
-    for (int i = 0; i < NUM_PORTS; i++) {
-        if (s_hcd_obj->port_obj[i]) {
-            all_ports_disabled = all_ports_disabled && !(s_hcd_obj->port_obj[i]->initialized);
-        }
-    }
-    if (s_hcd_obj == NULL || !all_ports_disabled) {
-        HCD_EXIT_CRITICAL();
-        return ESP_ERR_INVALID_STATE;
-    }
-    hcd_obj_t *p_hcd_obj_dmy = s_hcd_obj;
-    s_hcd_obj = NULL;
-    HCD_EXIT_CRITICAL();
-
-    // Free resources
-    for (int i = 0; i < NUM_PORTS; i++) {
-        if (p_hcd_obj_dmy->port_obj[i]) {
-            esp_intr_free(p_hcd_obj_dmy->port_obj[i]->isr_hdl);
-            port_obj_free(p_hcd_obj_dmy->port_obj[i]);
-        }
-    }
-    free(p_hcd_obj_dmy);
-    return ESP_OK;
-}
-
 // ------------------------------------------------------ Port ---------------------------------------------------------
 
 // ----------------------- Helpers -------------------------
@@ -1559,9 +1450,20 @@ esp_err_t hcd_port_init(int port_number, const hcd_port_config_t *port_config, h
     HCD_CHECK(port_number < NUM_PORTS, ESP_ERR_NOT_FOUND);
 
     HCD_ENTER_CRITICAL();
-    HCD_CHECK_FROM_CRIT(s_hcd_obj != NULL && !s_hcd_obj->port_obj[port_number]->initialized, ESP_ERR_INVALID_STATE);
-    // Port object memory and resources (such as the mutex) already be allocated. Just need to initialize necessary fields only
-    port_t *port_obj = s_hcd_obj->port_obj[port_number];
+    HCD_CHECK_FROM_CRIT(!s_port_inited[port_number], ESP_ERR_INVALID_STATE);
+    s_port_inited[port_number] = true; // Reserve the port slot to avoid concurrent init
+    HCD_EXIT_CRITICAL();
+
+    esp_err_t err_ret = ESP_OK;
+    bool hal_inited = false;
+    bool isr_allocated = false;
+    port_t *port_obj = port_obj_alloc();
+    if (port_obj == NULL) {
+        err_ret = ESP_ERR_NO_MEM;
+        goto clean_up;
+    }
+
+    port_obj->periph_idx = port_number;
     TAILQ_INIT(&port_obj->pipes_idle_tailq);
     TAILQ_INIT(&port_obj->pipes_active_tailq);
     port_obj->state = HCD_PORT_STATE_NOT_POWERED;
@@ -1570,13 +1472,37 @@ esp_err_t hcd_port_init(int port_number, const hcd_port_config_t *port_config, h
     port_obj->callback_arg = port_config->callback_arg;
     port_obj->context = port_config->context;
 
+    // Apply custom FIFO config if provided
+    if (port_config->fifo_config != NULL) {
+        err_ret = convert_fifo_config_to_hal_config(port_config->fifo_config, &port_obj->fifo_config);
+        if (err_ret != ESP_OK) {
+            goto clean_up;
+        }
+    }
+
+    // Allocate interrupt (disabled by default; enabled after init completes)
+    const int irq_index = usb_dwc_info.controllers[port_number].irq;
+    err_ret = esp_intr_alloc(irq_index,
+                             port_config->intr_flags | ESP_INTR_FLAG_INTRDISABLED,
+                             intr_hdlr_main,
+                             (void *)port_obj,
+                             &port_obj->isr_hdl);
+    if (err_ret != ESP_OK) {
+        ESP_LOGE(HCD_DWC_TAG, "Interrupt alloc error: %s", esp_err_to_name(err_ret));
+        goto clean_up;
+    }
+    isr_allocated = true;
+
     // USB-HAL's size is dependent on its configuration, namely on number of channels in the configuration
     // We must first initialize the HAL, to get the number of channels and then allocate memory for the channels
     usb_dwc_hal_init(port_obj->hal, port_number);
+    hal_inited = true;
     port_obj->hal->channels.hdls = calloc(port_obj->hal->constant_config.chan_num_total, sizeof(usb_dwc_hal_chan_t *));
-    HCD_CHECK_FROM_CRIT(port_obj->hal->channels.hdls != NULL, ESP_ERR_NO_MEM);
+    if (port_obj->hal->channels.hdls == NULL) {
+        err_ret = ESP_ERR_NO_MEM;
+        goto clean_up;
+    }
 
-    port_obj->initialized = true;
     // Clear the frame list. We will set the frame list register and enable periodic scheduling after a successful reset
     memset(port_obj->frame_list, 0, FRAME_LIST_LEN * sizeof(uint32_t));
     // If FIFO config is zeroed -> calculate from bias
@@ -1584,33 +1510,55 @@ esp_err_t hcd_port_init(int port_number, const hcd_port_config_t *port_config, h
         // Calculate default FIFO sizes based on Kconfig bias settings
         _calculate_fifo_from_bias(port_obj, port_obj->hal);
     }
+
     esp_intr_enable(port_obj->isr_hdl);
     *port_hdl = (hcd_port_handle_t)port_obj;
-    HCD_EXIT_CRITICAL();
     ESP_LOGD(HCD_DWC_TAG, "FIFO config lines: RX=%" PRIu32 ", PTX=%" PRIu32 ", NPTX=%" PRIu32,
              port_obj->fifo_config.rx_fifo_lines,
              port_obj->fifo_config.ptx_fifo_lines,
              port_obj->fifo_config.nptx_fifo_lines);
     vTaskDelay(pdMS_TO_TICKS(INIT_DELAY_MS));    // Need a short delay before host mode takes effect
     return ESP_OK;
+
+clean_up:
+    if (port_obj != NULL) {
+        if (port_obj->hal != NULL && port_obj->hal->channels.hdls != NULL) {
+            free(port_obj->hal->channels.hdls);
+            port_obj->hal->channels.hdls = NULL;
+        }
+        if (hal_inited) {
+            usb_dwc_hal_deinit(port_obj->hal);
+        }
+        if (isr_allocated) {
+            esp_intr_free(port_obj->isr_hdl);
+        }
+        port_obj_free(port_obj);
+    }
+    HCD_ENTER_CRITICAL();
+    s_port_inited[port_number] = false;
+    HCD_EXIT_CRITICAL();
+    return err_ret;
 }
 
 esp_err_t hcd_port_deinit(hcd_port_handle_t port_hdl)
 {
     port_t *port = (port_t *)port_hdl;
+    HCD_CHECK(port != NULL, ESP_ERR_INVALID_ARG);
 
     HCD_ENTER_CRITICAL();
-    HCD_CHECK_FROM_CRIT(s_hcd_obj != NULL && port->initialized
+    HCD_CHECK_FROM_CRIT(s_port_inited[port->periph_idx]
                         && port->num_pipes_idle == 0 && port->num_pipes_queued == 0
                         && (port->state == HCD_PORT_STATE_NOT_POWERED || port->state == HCD_PORT_STATE_RECOVERY)
                         && port->task_waiting_port_notif == NULL,
                         ESP_ERR_INVALID_STATE);
-    port->initialized = false;
+    s_port_inited[port->periph_idx] = false;
     esp_intr_disable(port->isr_hdl);
-    free(port->hal->channels.hdls);
-    usb_dwc_hal_deinit(port->hal);
     HCD_EXIT_CRITICAL();
 
+    esp_intr_free(port->isr_hdl);
+    free(port->hal->channels.hdls);
+    usb_dwc_hal_deinit(port->hal);
+    port_obj_free(port);
     return ESP_OK;
 }
 
@@ -1620,7 +1568,7 @@ esp_err_t hcd_port_command(hcd_port_handle_t port_hdl, hcd_port_cmd_t command)
     port_t *port = (port_t *)port_hdl;
     xSemaphoreTake(port->port_mux, portMAX_DELAY);
     HCD_ENTER_CRITICAL();
-    if (port->initialized && !port->flags.event_pending) { // Port events need to be handled first before issuing a command
+    if (s_port_inited[port->periph_idx] && !port->flags.event_pending) { // Port events need to be handled first before issuing a command
         port->flags.cmd_processing = 1;
         switch (command) {
         case HCD_PORT_CMD_POWER_ON: {
@@ -1683,7 +1631,7 @@ hcd_port_event_t hcd_port_handle_event(hcd_port_handle_t port_hdl)
     hcd_port_event_t ret = HCD_PORT_EVENT_NONE;
     xSemaphoreTake(port->port_mux, portMAX_DELAY);
     HCD_ENTER_CRITICAL();
-    if (port->initialized && port->flags.event_pending) {
+    if (s_port_inited[port->periph_idx] && port->flags.event_pending) {
         port->flags.event_pending = 0;
         port->flags.event_processing = 1;
         ret = port->last_event;
@@ -1716,7 +1664,7 @@ esp_err_t hcd_port_recover(hcd_port_handle_t port_hdl)
 {
     port_t *port = (port_t *)port_hdl;
     HCD_ENTER_CRITICAL();
-    HCD_CHECK_FROM_CRIT(s_hcd_obj != NULL && port->initialized && port->state == HCD_PORT_STATE_RECOVERY
+    HCD_CHECK_FROM_CRIT(s_port_inited[port->periph_idx] && port->state == HCD_PORT_STATE_RECOVERY
                         && port->num_pipes_idle == 0 && port->num_pipes_queued == 0
                         && port->flags.val == 0 && port->task_waiting_port_notif == NULL,
                         ESP_ERR_INVALID_STATE);
@@ -1753,7 +1701,7 @@ esp_err_t hcd_port_check_all_pipes_idle(hcd_port_handle_t port_hdl)
     port_t *port = (port_t *)port_hdl;
 
     HCD_ENTER_CRITICAL();
-    HCD_CHECK_FROM_CRIT(port->initialized, ESP_ERR_INVALID_STATE);
+    HCD_CHECK_FROM_CRIT(s_port_inited[port->periph_idx], ESP_ERR_INVALID_STATE);
     HCD_CHECK_FROM_CRIT(port->num_pipes_queued == 0, ESP_ERR_NOT_FINISHED);
     HCD_EXIT_CRITICAL();
 
@@ -2057,7 +2005,7 @@ esp_err_t hcd_pipe_alloc(hcd_port_handle_t port_hdl, const hcd_pipe_config_t *pi
     port_t *port = (port_t *)port_hdl;
     HCD_ENTER_CRITICAL();
     // Can only allocate a pipe if the target port is initialized and connected to an enabled device
-    HCD_CHECK_FROM_CRIT(port->initialized && port->flags.conn_dev_ena, ESP_ERR_INVALID_STATE);
+    HCD_CHECK_FROM_CRIT(s_port_inited[port->periph_idx] && port->flags.conn_dev_ena, ESP_ERR_INVALID_STATE);
     usb_speed_t port_speed = port->speed;
     int pipe_idx = port->num_pipes_idle + port->num_pipes_queued;
     HCD_EXIT_CRITICAL();
@@ -2117,7 +2065,7 @@ esp_err_t hcd_pipe_alloc(hcd_port_handle_t port_hdl, const hcd_pipe_config_t *pi
 
     // Allocate channel
     HCD_ENTER_CRITICAL();
-    if (!port->initialized || !port->flags.conn_dev_ena) {
+    if (!s_port_inited[port->periph_idx] || !port->flags.conn_dev_ena) {
         HCD_EXIT_CRITICAL();
         ret = ESP_ERR_INVALID_STATE;
         goto err;
