@@ -85,6 +85,10 @@ typedef struct hid_host_device {
     usb_transfer_t *ctrl_xfer;                  /**< Pointer to control transfer buffer */
     usb_device_handle_t dev_hdl;                /**< USB device handle */
     uint8_t dev_addr;                           /**< USB device address */
+#ifdef HID_HOST_REMOTE_WAKE_SUPPORTED
+    bool remote_wakeup_supported;               /**< To indicate whether remote wakeup is supported by device */
+    bool remote_wakeup_enabled;                 /**< To indicate whether remote wakeup is currently enabled */
+#endif // HID_HOST_REMOTE_WAKE_SUPPORTED
 } hid_device_t;
 
 /**
@@ -1191,9 +1195,9 @@ static esp_err_t hid_host_string_descriptor_copy(wchar_t *dest,
     return ESP_OK;
 }
 
-esp_err_t hid_host_install_device(uint8_t dev_addr,
-                                  usb_device_handle_t dev_hdl,
-                                  hid_device_t **hid_device_handle)
+static esp_err_t hid_host_install_device(uint8_t dev_addr,
+                                         usb_device_handle_t dev_hdl,
+                                         hid_device_t **hid_device_handle)
 {
     esp_err_t ret;
     hid_device_t *hid_device;
@@ -1204,6 +1208,19 @@ esp_err_t hid_host_install_device(uint8_t dev_addr,
 
     hid_device->dev_addr = dev_addr;
     hid_device->dev_hdl = dev_hdl;
+
+#ifdef HID_HOST_REMOTE_WAKE_SUPPORTED
+    hid_device->remote_wakeup_supported = false;
+    hid_device->remote_wakeup_enabled = false;
+
+    // Find out whether the deice supports remote wakeup
+    // Remote wakeup is pre-device not per-interface, we are doing the check here for the whole device (with multiple ifaces)
+    const usb_config_desc_t *config_desc;
+    HID_GOTO_ON_ERROR(usb_host_get_active_config_descriptor(dev_hdl, &config_desc), "Unable to get active config descriptor");
+    if (config_desc->bmAttributes & USB_BM_ATTRIBUTES_WAKEUP) {
+        hid_device->remote_wakeup_supported = true;
+    }
+#endif // HID_HOST_REMOTE_WAKE_SUPPORTED
 
     HID_GOTO_ON_FALSE( hid_device->ctrl_xfer_done = xSemaphoreCreateBinary(),
                        ESP_ERR_NO_MEM,
@@ -1394,6 +1411,35 @@ fail:
     return ret;
 }
 
+#ifdef HID_HOST_REMOTE_WAKE_SUPPORTED
+
+static esp_err_t hid_host_enable_remote_wakeup(hid_device_t *hid_device, bool enable)
+{
+    esp_err_t ret;
+    usb_transfer_t *ctrl_xfer = hid_device->ctrl_xfer;
+    HID_RETURN_ON_INVALID_ARG(hid_device);
+    HID_RETURN_ON_INVALID_ARG(hid_device->ctrl_xfer);
+    HID_RETURN_ON_ERROR( hid_device_try_lock(hid_device, DEFAULT_TIMEOUT_MS), "HID Device is busy by other task");
+
+    usb_setup_packet_t *setup = (usb_setup_packet_t *)ctrl_xfer->data_buffer;
+    if (enable) {
+        // Enable remote wakeup
+        USB_SETUP_PACKET_INIT_SET_FEATURE(setup, DEVICE_REMOTE_WAKEUP);
+    } else {
+        // Disable remote wakeup
+        USB_SETUP_PACKET_INIT_CLEAR_FEATURE(setup, DEVICE_REMOTE_WAKEUP);
+    }
+
+    ret = hid_control_transfer(hid_device,
+                               USB_SETUP_PACKET_SIZE + setup->wLength,
+                               DEFAULT_TIMEOUT_MS);
+
+    hid_device_unlock(hid_device);
+    return ret;
+}
+
+#endif // HID_HOST_REMOTE_WAKE_SUPPORTED
+
 esp_err_t hid_host_device_open(hid_host_device_handle_t hid_dev_handle,
                                const hid_host_device_config_t *config)
 {
@@ -1423,6 +1469,44 @@ esp_err_t hid_host_device_open(hid_host_device_handle_t hid_dev_handle,
     // Claim interface, allocate xfer and save report callback
     HID_GOTO_ON_ERROR(hid_host_interface_claim_and_prepare_transfer(hid_iface),
                       "Unable to claim interface");
+
+#ifdef HID_HOST_REMOTE_WAKE_SUPPORTED
+    if (config->enable_remote_wakeup) {
+        // User wants to enable the remote wakeup
+        if (hid_iface->parent->remote_wakeup_supported) {
+            // Remote wakeup is supported by the device
+            if (hid_iface->parent->remote_wakeup_enabled) {
+                // Remote wakeup already enabled (save ctrl transfer)
+                ESP_LOGW(TAG, "Remote wakeup already enabled on this device by different interface");
+            } else {
+                // Enable remote wakeup on the device if it hasn't been already set by different interface
+                HID_GOTO_ON_ERROR(hid_host_enable_remote_wakeup(hid_iface->parent, true), "Enabling remote wakeup on device not successful");
+                hid_iface->parent->remote_wakeup_enabled = true;
+                ESP_LOGW(TAG, "Remote wakeup enabled on the device");
+            }
+        } else {
+            ESP_LOGW(TAG, "Device does not support remote wakeup");
+        }
+    } else {
+        // User does not want to enable (wants to disable) remote wakeup
+        if (hid_iface->parent->remote_wakeup_supported) {
+            // Remote wakeup is supported by the device
+            if (hid_iface->parent->remote_wakeup_enabled) {
+                // Remote wakeup is currently enabled
+
+                HID_GOTO_ON_ERROR(hid_host_enable_remote_wakeup(hid_iface->parent, false), "Disabling remote wakeup on device not successful");
+                hid_iface->parent->remote_wakeup_enabled = false;
+                ESP_LOGW(TAG, "Remote wakeup disabled on the device");
+            } else {
+                // Remote wakeup is currently disabled (and user does not want to enable it)
+                // No action, silently continue
+            }
+        } else {
+            // Remote wakeup is not supported (and user does not want to enable it)
+            // No action, silently continue
+        }
+    }
+#endif // HID_HOST_REMOTE_WAKE_SUPPORTED
 
     // Save HID Interface callback
     hid_iface->user_cb = config->callback;
