@@ -11,3 +11,5 @@
 - Fix FTDI VCP SerialState parsing (correct 1-bit flags, avoid short-packet reads)
 - Added CTS state to `CDC_ACM_HOST_SERIAL_STATE` event (https://github.com/espressif/esp-usb/issues/360)
 - Fixed data receiving with configured RX FIFO greater than IN endpoint's MPS
+- Added PID autodetection
+- Added C API
