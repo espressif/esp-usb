@@ -20,3 +20,5 @@ target_sources(${COMPONENT_LIB} PRIVATE "${original_usb_dir}/src/usbh.c")
 target_sources(${COMPONENT_LIB} PRIVATE "${original_usb_dir}/src/usb_host.c")
 target_sources(${COMPONENT_LIB} PRIVATE "${original_usb_dir}/src/enum.c")
 target_sources(${COMPONENT_LIB} PRIVATE "${original_usb_dir}/src/hub.c")
+# This definition is missing for linux target, so we add it here
+target_compile_definitions(${COMPONENT_LIB} PRIVATE -DSOC_USB_OTG_PERIPH_NUM=2)

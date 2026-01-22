@@ -77,7 +77,7 @@ typedef struct {
  * - USBH must already be installed
  * Exit:
  * - Install Hub driver memory resources
- * - Initializes the HCD root port
+ * - Initializes the HCD root ports selected by hub_config->port_map
  *
  * @param[in] hub_config Hub driver configuration
  * @param[out] client_ret Unique pointer to identify the Hub as a USB Host client
@@ -95,44 +95,43 @@ esp_err_t hub_install(hub_config_t *hub_config, void **client_ret);
  *
  * This must be called before uninstalling the USBH
  * Entry:
- * - Must have stopped the root port
+ * - Must have stopped all enabled root ports
  * Exit:
- * - HCD root port deinitialized
+ * - HCD root ports deinitialized
  *
  * @return
  *    - ESP_OK: Hub driver uninstalled successfully
- *    - ESP_ERR_INVALID_STATE: Hub driver is not installed, or root port is in other state than not powered
+ *    - ESP_ERR_INVALID_STATE: Hub driver is not installed, or any enabled root port is in other state than not powered
  */
 esp_err_t hub_uninstall(void);
 
 /**
- * @brief Start the Hub driver's root port
+ * @brief Start the Hub driver's root ports
  *
- * This will power the root port ON
- *
- * @note This function should only be called from the Host Library task
+ * This will power ON all enabled root ports.
  *
  * @return
- *    - ESP_OK: Root port has been powered on
- *    - ESP_ERR_INVALID_STATE: Hub driver is not installed, or root port is in other state than not powered
+ *    - ESP_OK: All enabled root ports have been powered on
+ *    - ESP_ERR_INVALID_STATE: Hub driver is not installed, or any enabled root port is in other state than not powered
  */
 esp_err_t hub_root_start(void);
 
 /**
- * @brief Stops the Hub driver's root port
+ * @brief Stops the Hub driver's root ports
  *
- * This will power OFF the root port
+ * This will power OFF all enabled root ports.
  *
  * @return
- *    - ESP_OK: Root port has been powered off
- *    - ESP_ERR_INVALID_STATE: Hub driver is not installed, or root port is in not powered state
+ *    - ESP_OK: All enabled root ports have been powered off
+ *    - ESP_ERR_INVALID_STATE: Hub driver is not installed, or all enabled root ports are already not powered
  */
 esp_err_t hub_root_stop(void);
 
 /**
- * @brief Check if root port is in suspended state
+ * @brief Check if a root port is in suspended state
  *
- * This will check root port state
+ * This will check root port state. In multi-port configurations, this currently
+ * checks the first enabled root port only.
  *
  * @return
  *    - true: Root port is in suspended state
@@ -143,7 +142,8 @@ bool hub_root_is_suspended(void);
 /**
  * @brief Check if the Hub driver's root port can be suspended
  *
- * This will check if all HCD pipes are idle and which state the root port is in
+ * This will check if all HCD pipes are idle and which state the root port is in.
+ * In multi-port configurations, this currently checks the first enabled root port only.
  *
  * @return
  *    - ESP_OK: Hub driver's root port can be suspended
@@ -157,6 +157,8 @@ esp_err_t hub_root_can_suspend(void);
 /**
  * @brief Check if the Hub driver's root port can be resumed
  *
+ * In multi-port configurations, this currently checks the first enabled root port only.
+ *
  * @return
  *    - ESP_OK: Hub driver's root port can be resumed
  *    - ESP_ERR_INVALID_STATE: Hub driver is not installed
@@ -169,7 +171,8 @@ esp_err_t hub_root_can_resume(void);
 /**
  * @brief Mark the Hub driver's root port as ready for suspend
  *
- * This will mark the root port, as ready to be suspended and and will be processed by the hub processing loop
+ * This will mark the root port as ready to be suspended and will be processed by the hub processing loop.
+ * In multi-port configurations, this currently targets the first enabled root port only.
  *
  * @return
  *    - ESP_OK: Hub driver suspended successfully
@@ -181,7 +184,8 @@ esp_err_t hub_root_mark_suspend(void);
 /**
  * @brief Mark the Hub driver's root port as ready for resume
  *
- * This will mark the root port, as ready to be resumed and and will be processed by the hub processing loop
+ * This will mark the root port as ready to be resumed and will be processed by the hub processing loop.
+ * In multi-port configurations, this currently targets the first enabled root port only.
  *
  * @return
  *    - ESP_OK: Hub driver resumed successfully
