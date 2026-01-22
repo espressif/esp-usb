@@ -39,6 +39,11 @@ FT23x::FT23x(uint16_t pid, const cdc_acm_host_device_config_t *dev_config, uint8
         ftdi_config.user_arg = this;
     }
 
+    if (ftdi_config.in_buffer_size > 0) {
+        ESP_LOGW("FT23x", "RX FIFO size %d is not supported, setting to 0", ftdi_config.in_buffer_size);
+        ftdi_config.in_buffer_size = 0;
+    }
+
     esp_err_t err;
     err = this->open_vendor_specific(vid, pid, this->intf, &ftdi_config);
     if (err != ESP_OK) {
@@ -94,13 +99,14 @@ bool FT23x::ftdi_rx(const uint8_t *data, size_t data_len, void *user_arg)
     if (this_ftdi->user_event_cb && data_len >= 2) {
         cdc_acm_uart_state_t new_state;
         new_state.val = 0;
-        new_state.bRxCarrier =  (data[0] & 0x80u) != 0; // DCD
-        new_state.bTxCarrier =  (data[0] & 0x20u) != 0; // DSR
-        new_state.bBreak =      (data[1] & 0x10u) != 0;
-        new_state.bRingSignal = (data[0] & 0x40u) != 0;
-        new_state.bFraming =    (data[1] & 0x08u) != 0;
-        new_state.bParity =     (data[1] & 0x04u) != 0;
-        new_state.bOverRun =    (data[1] & 0x02u) != 0;
+        new_state.bRxCarrier =   (data[0] & 0x80u) != 0; // DCD
+        new_state.bTxCarrier =   (data[0] & 0x20u) != 0; // DSR
+        new_state.bBreak =       (data[1] & 0x10u) != 0;
+        new_state.bRingSignal =  (data[0] & 0x40u) != 0;
+        new_state.bFraming =     (data[1] & 0x08u) != 0;
+        new_state.bParity =      (data[1] & 0x04u) != 0;
+        new_state.bOverRun =     (data[1] & 0x02u) != 0;
+        new_state.bClearToSend = (data[0] & 0x10u) != 0; // CTS
 
         if (this_ftdi->uart_state != new_state.val) {
             cdc_acm_host_dev_event_data_t serial_event;
