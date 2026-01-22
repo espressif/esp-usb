@@ -1394,6 +1394,32 @@ fail:
     return ret;
 }
 
+#ifdef HID_HOST_SUSPEND_RESUME_API_SUPPORTED
+
+static esp_err_t hid_host_set_remote_wakeup(hid_device_t *hid_device)
+{
+    esp_err_t ret;
+    usb_transfer_t *ctrl_xfer = hid_device->ctrl_xfer;
+    HID_RETURN_ON_INVALID_ARG(hid_device);
+    HID_RETURN_ON_INVALID_ARG(hid_device->ctrl_xfer);
+
+    HID_RETURN_ON_ERROR( hid_device_try_lock(hid_device, DEFAULT_TIMEOUT_MS),
+                         "HID Device is busy by other task");
+
+    usb_setup_packet_t *setup = (usb_setup_packet_t *)ctrl_xfer->data_buffer;
+    USB_SETUP_PACKET_INIT_SET_FEATURE(setup, DEVICE_REMOTE_WAKEUP);
+
+    ret = hid_control_transfer(hid_device,
+                               USB_SETUP_PACKET_SIZE + setup->wLength,
+                               DEFAULT_TIMEOUT_MS);
+
+    hid_device_unlock(hid_device);
+
+    return ret;
+}
+
+#endif // HID_HOST_SUSPEND_RESUME_API_SUPPORTED
+
 esp_err_t hid_host_device_open(hid_host_device_handle_t hid_dev_handle,
                                const hid_host_device_config_t *config)
 {
@@ -1423,6 +1449,22 @@ esp_err_t hid_host_device_open(hid_host_device_handle_t hid_dev_handle,
     // Claim interface, allocate xfer and save report callback
     HID_GOTO_ON_ERROR(hid_host_interface_claim_and_prepare_transfer(hid_iface),
                       "Unable to claim interface");
+
+#ifdef HID_HOST_SUSPEND_RESUME_API_SUPPORTED
+    if (config->enable_remote_wakeup) {
+        // Get configuration descriptor
+        const usb_config_desc_t *config_desc;
+
+        HID_GOTO_ON_ERROR(usb_host_get_active_config_descriptor(hid_iface->parent->dev_hdl, &config_desc), "Unable to get active config descriptor");
+        if (config_desc->bmAttributes & USB_BM_ATTRIBUTES_WAKEUP) {
+            // Set remote wakeup
+            HID_GOTO_ON_ERROR(hid_host_set_remote_wakeup(hid_iface->parent), "Unable to set remote wakeup on device");
+            ESP_LOGW(TAG, "Remote wakeup set");
+        } else {
+            ESP_LOGW(TAG, "Device does not support remote wakeup");
+        }
+    }
+#endif // HID_HOST_SUSPEND_RESUME_API_SUPPORTED
 
     // Save HID Interface callback
     hid_iface->user_cb = config->callback;

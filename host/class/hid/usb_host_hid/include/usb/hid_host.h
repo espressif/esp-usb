@@ -123,6 +123,9 @@ typedef struct {
 typedef struct {
     hid_host_interface_event_cb_t callback;     /**< Callback invoked when HID Interface event occurs */
     void *callback_arg;                         /**< User provided argument passed to callback */
+#ifdef HID_HOST_SUSPEND_RESUME_API_SUPPORTED
+    bool enable_remote_wakeup;              /**< Enable remote wakeup functionality on the device (if supported) */
+#endif // HID_HOST_SUSPEND_RESUME_API_SUPPORTED
 } hid_host_device_config_t;
 
 /**
