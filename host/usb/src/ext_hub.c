@@ -416,8 +416,7 @@ static esp_err_t device_port_new(ext_hub_dev_t *ext_hub_dev, uint8_t port_idx)
 {
     ext_port_config_t port_config = {
         .context = (void *) ext_hub_dev,
-        .parent_dev_hdl =  ext_hub_dev->constant.dev_hdl,
-        .parent_port_num = port_idx + 1,
+        .port_num = port_idx + 1,
         .port_power_delay_ms = ext_hub_dev->constant.hub_desc->bPwrOn2PwrGood * 2,
     };
 
