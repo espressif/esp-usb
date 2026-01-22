@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2015-2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2015-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -394,6 +394,18 @@ esp_err_t usbh_dev_get_addr(usb_device_handle_t dev_hdl, uint8_t *dev_addr);
  *    - ESP_ERR_INVALID_ARG: Invalid argument
  */
 esp_err_t usbh_dev_get_info(usb_device_handle_t dev_hdl, usb_device_info_t *dev_info);
+
+/**
+ * @brief Get the root port handle of a device
+ *
+ * @param[in] dev_hdl Device handle
+ * @param[out] root_port_hdl Root port handle
+ *
+ * @return
+ *    - ESP_OK: Root port handle obtained successfully
+ *    - ESP_ERR_INVALID_ARG: Invalid argument
+ */
+esp_err_t usbh_dev_get_root_port_hdl(usb_device_handle_t dev_hdl, hcd_port_handle_t *root_port_hdl);
 
 /**
  * @brief Get a device's device descriptor

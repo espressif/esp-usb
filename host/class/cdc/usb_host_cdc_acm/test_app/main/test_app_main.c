@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2024-2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2024-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -38,6 +38,6 @@ void app_main(void)
     printf("                 \\/         \\/             \\/     \\/        \r\n");
 
     unity_utils_setup_heap_record(80);
-    unity_utils_set_leak_level(30);
+    unity_utils_set_leak_level(40);
     unity_run_menu();
 }

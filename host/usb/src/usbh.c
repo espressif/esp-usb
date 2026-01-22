@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2015-2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2015-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -1252,6 +1252,14 @@ esp_err_t usbh_dev_get_info(usb_device_handle_t dev_hdl, usb_device_info_t *dev_
     dev_info->str_desc_product = dev_obj->constant.str_desc_product;
     dev_info->str_desc_serial_num = dev_obj->constant.str_desc_ser_num;
 
+    return ESP_OK;
+}
+
+esp_err_t usbh_dev_get_root_port_hdl(usb_device_handle_t dev_hdl, hcd_port_handle_t *root_port_hdl)
+{
+    USBH_CHECK(dev_hdl != NULL && root_port_hdl != NULL, ESP_ERR_INVALID_ARG);
+    device_t *dev_obj = (device_t *)dev_hdl;
+    *root_port_hdl = dev_obj->constant.port_hdl;
     return ESP_OK;
 }
 
