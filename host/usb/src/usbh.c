@@ -84,8 +84,6 @@ struct device_s {
         // Assigned on device allocation and remain constant for the device's lifetime
         hcd_pipe_handle_t default_pipe;             /**< Pipe handle for Control EP0 */
         hcd_port_handle_t port_hdl;                 /**< HCD port handle */
-        usb_device_handle_t parent_dev_hdl;         /**< Device's parent device handle. NULL if device is connected to the root port */
-        uint8_t parent_port_num;                           /**< Device's parent port number. 0 if device connected to the root port */
         usb_speed_t speed;                          /**< Device's speed */
         unsigned int uid;                           /**< Device's Unique ID */
         /*
@@ -393,8 +391,6 @@ static esp_err_t device_alloc(usbh_dev_params_t *params, device_t **dev_obj_ret)
     dev_obj->dynamic.state = USB_DEVICE_STATE_DEFAULT;
     dev_obj->constant.default_pipe = default_pipe_hdl;
     dev_obj->constant.port_hdl = params->root_port_hdl;
-    dev_obj->constant.parent_dev_hdl = params->parent_dev_hdl;
-    dev_obj->constant.parent_port_num = params->parent_port_num;
     dev_obj->constant.speed = params->speed;
     dev_obj->constant.uid = params->uid;
     // Note: Enumeration related dev_obj->constant fields are initialized later using usbh_dev_set_...() functions
@@ -644,8 +640,6 @@ static inline void handle_free(device_t *dev_obj)
 {
     // Cache a copy of the device's address as we are about to free the device object
     const unsigned int dev_uid = dev_obj->constant.uid;
-    usb_device_handle_t parent_dev_hdl = dev_obj->constant.parent_dev_hdl;
-    const uint8_t parent_port_num = dev_obj->constant.parent_port_num;
     bool all_free;
     ESP_LOGD(USBH_TAG, "Freeing device %d", dev_obj->constant.address);
 
@@ -670,8 +664,6 @@ static inline void handle_free(device_t *dev_obj)
         .event = USBH_EVENT_DEV_FREE,
         .dev_free_data = {
             .dev_uid = dev_uid,
-            .parent_dev_hdl = parent_dev_hdl,
-            .port_num = parent_port_num,
         }
     };
     p_usbh_obj->constant.event_cb(&event_data, p_usbh_obj->constant.event_cb_arg);
@@ -1000,27 +992,6 @@ exit:
     return ret;
 }
 
-esp_err_t usbh_devs_get_parent_info(unsigned int uid, usb_parent_dev_info_t *parent_info)
-{
-    USBH_CHECK(parent_info, ESP_ERR_INVALID_ARG);
-    esp_err_t ret = ESP_FAIL;
-    device_t *dev_obj = NULL;
-
-    USBH_ENTER_CRITICAL();
-    dev_obj = _find_dev_from_uid(uid);
-    if (dev_obj == NULL) {
-        ret = ESP_ERR_NOT_FOUND;
-        goto exit;
-    } else {
-        parent_info->dev_hdl = dev_obj->constant.parent_dev_hdl;
-        parent_info->port_num = dev_obj->constant.parent_port_num;
-        ret = ESP_OK;
-    }
-exit:
-    USBH_EXIT_CRITICAL();
-    return ret;
-}
-
 esp_err_t usbh_devs_mark_all_free(void)
 {
     USBH_ENTER_CRITICAL();
@@ -1214,6 +1185,18 @@ esp_err_t usbh_dev_close(usb_device_handle_t dev_hdl)
 // ---------------------------- Getters ----------------------------------------
 // -----------------------------------------------------------------------------
 
+esp_err_t usbh_dev_get_uid(usb_device_handle_t dev_hdl, unsigned int *uid)
+{
+    USBH_CHECK(dev_hdl != NULL && uid != NULL, ESP_ERR_INVALID_ARG);
+    device_t *dev_obj = (device_t *)dev_hdl;
+
+    USBH_ENTER_CRITICAL();
+    *uid = dev_obj->constant.uid;
+    USBH_EXIT_CRITICAL();
+
+    return ESP_OK;
+}
+
 esp_err_t usbh_dev_get_addr(usb_device_handle_t dev_hdl, uint8_t *dev_addr)
 {
     USBH_CHECK(dev_hdl != NULL && dev_addr != NULL, ESP_ERR_INVALID_ARG);
@@ -1231,8 +1214,6 @@ esp_err_t usbh_dev_get_info(usb_device_handle_t dev_hdl, usb_device_info_t *dev_
     USBH_CHECK(dev_hdl != NULL && dev_info != NULL, ESP_ERR_INVALID_ARG);
     device_t *dev_obj = (device_t *)dev_hdl;
 
-    dev_info->parent.dev_hdl = dev_obj->constant.parent_dev_hdl;
-    dev_info->parent.port_num = dev_obj->constant.parent_port_num;
     dev_info->speed = dev_obj->constant.speed;
     dev_info->dev_addr = dev_obj->constant.address;
     // Device descriptor might not have been set yet
