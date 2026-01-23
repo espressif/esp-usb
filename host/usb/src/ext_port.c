@@ -689,7 +689,7 @@ static void handle_port_state(ext_port_t *ext_port)
                                     ? USB_SPEED_HIGH
                                     : USB_SPEED_FULL;
                     }
-                    ESP_LOGD(EXT_PORT_TAG, "Device speed %s", (char *[]) {
+                    ESP_LOGD(EXT_PORT_TAG, "Device speed %s", (const char *[]) {
                         "Low", "Full", "High"
                     }[dev_speed]);
                     ext_port->dev_state = PORT_DEV_PRESENT;
