@@ -1,3 +1,7 @@
+## [Unreleased]
+
+- Added Suspend/Resume device events invoked by tud_suspend_cb and tud_resume_cb
+
 ## 2.0.1~1
 
 - esp_tinyusb: Claim forward compatibility with TinyUSB 0.19

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2020-2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2020-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -76,6 +76,47 @@ void tud_umount_cb(void)
 #endif // CONFIG_TINYUSB_MSC_ENABLED
     tinyusb_event_t event = {
         .id = TINYUSB_EVENT_DETACHED,
+        .rhport = s_ctx.port,
+    };
+
+    if (s_ctx.event_cb) {
+        s_ctx.event_cb(&event, s_ctx.event_arg);
+    }
+}
+
+/**
+ * @brief Callback function invoked when device is suspended
+ *
+ * This function is called by TinyUSB stack when:
+ *
+ * - Host suspends the root port
+ *
+ * @param[in] remote_wakeup_en Remote wakeup is currently enabled/disabled on the device
+ */
+void tud_suspend_cb(bool remote_wakeup_en)
+{
+    tinyusb_event_t event = {
+        .id = TINYUSB_EVENT_SUSPENDED,
+        .rhport = s_ctx.port,
+        .suspended.remote_wakeup = remote_wakeup_en,
+    };
+
+    if (s_ctx.event_cb) {
+        s_ctx.event_cb(&event, s_ctx.event_arg);
+    }
+}
+
+/**
+ * @brief Callback function invoked when device is resumed
+ *
+ * This function is called by TinyUSB stack when:
+ *
+ * - Host resumes the the root port
+ */
+void tud_resume_cb(void)
+{
+    tinyusb_event_t event = {
+        .id = TINYUSB_EVENT_RESUMED,
         .rhport = s_ctx.port,
     };
 
