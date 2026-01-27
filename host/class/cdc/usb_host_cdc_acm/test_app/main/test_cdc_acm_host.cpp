@@ -54,7 +54,7 @@ typedef struct {
 } test_event_t;
 
 // Static app queue storage
-uint8_t ucQueueStorage[APP_QUEUE_LENGTH * sizeof(test_event_t)];
+static uint8_t ucQueueStorage[APP_QUEUE_LENGTH * sizeof(test_event_t)];
 
 // Default device config
 static const cdc_acm_host_device_config_t default_dev_config = {
