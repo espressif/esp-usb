@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2015-2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2015-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -129,7 +129,7 @@ TEST_CASE("Test HCD isochronous pipe URBs all", "[isoc][full_speed][high_speed]"
     const int isoc_packet_size = USB_EP_DESC_GET_MPS(out_ep_desc);
 
     // For all channels (except channel allocated for EP0)
-    for (int channel = 0; channel < usb_dwc_ll_ghwcfg_get_channel_num(USB_DWC_LL_GET_HW(0)) - 1; channel++) {
+    for (int channel = 0; channel < usb_dwc_ll_ghwcfg_get_channel_num(USB_DWC_LL_GET_HW(TEST_PORT_NUM)) - 1; channel++) {
         // Allocate unused pipes, so the active isoc_out_pipe uses different channel index
         for (int ch = 0; ch < channel; ch++) {
             unused_pipes[ch] = test_hcd_pipe_alloc(port_hdl, out_ep_desc, dev_addr + 1, port_speed);
