@@ -7,7 +7,7 @@ repository: "https://github.com/espressif/esp-usb.git"
 repository_info:
   path: "host/class/hid/usb_host_hid"
 dependencies:
-  idf: ">=5.0"
+  idf: ">=5.4.4"
   usb:
     version: "^1.0.0"
     public: true

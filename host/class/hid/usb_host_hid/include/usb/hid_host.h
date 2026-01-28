@@ -12,6 +12,7 @@
 #include <freertos/FreeRTOS.h>
 
 #include "usb/usb_host.h"
+#include "esp_idf_version.h"
 #include "hid.h"
 
 #ifdef __cplusplus
@@ -33,6 +34,16 @@ extern "C" {
 // For backward compatibility with IDF versions which do not have suspend/resume api
 #ifdef USB_HOST_LIB_EVENT_FLAGS_AUTO_SUSPEND
 #define HID_HOST_SUSPEND_RESUME_API_SUPPORTED
+#endif
+
+// Remote wakeup depends on HAL changes presence in esp-idf
+// On IDF 5.4.x from IDF 5.4.4
+// On IDF 5.5.x from IDF 5.5.3
+// On IDF 6.0.x from IDF 6.0.0
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 4, 4) && ESP_IDF_VERSION <  ESP_IDF_VERSION_VAL(5, 5, 0)
+#define HID_HOST_REMOTE_WAKE_SUPPORTED
+#elif ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 5, 3)
+#define HID_HOST_REMOTE_WAKE_SUPPORTED
 #endif
 
 typedef struct hid_interface *hid_host_device_handle_t;    /**< Device Handle. Handle to a particular HID interface */
@@ -123,6 +134,9 @@ typedef struct {
 typedef struct {
     hid_host_interface_event_cb_t callback;     /**< Callback invoked when HID Interface event occurs */
     void *callback_arg;                         /**< User provided argument passed to callback */
+#ifdef HID_HOST_SUSPEND_RESUME_API_SUPPORTED
+    bool enable_remote_wakeup;              /**< Enable remote wakeup functionality on the device (if supported) */
+#endif // HID_HOST_SUSPEND_RESUME_API_SUPPORTED
 } hid_host_device_config_t;
 
 /**

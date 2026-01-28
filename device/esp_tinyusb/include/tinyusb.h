@@ -105,6 +105,8 @@ typedef struct {
 typedef enum {
     TINYUSB_EVENT_ATTACHED,             /*!< USB device attached to the Host */
     TINYUSB_EVENT_DETACHED,             /*!< USB device detached from the Host */
+    TINYUSB_EVENT_SUSPENDED,
+    TINYUSB_EVENT_RESUMED,
 } tinyusb_event_id_t;
 
 /**
