@@ -940,8 +940,9 @@ esp_err_t usbh_devs_add(usbh_dev_params_t *params)
         ret = ESP_ERR_INVALID_ARG;
         goto exit;
     }
-    // Check that there is not already a device currently with address 0
-    if (_find_dev_from_addr(0) != NULL) {
+    // Check that there is not already a device currently with address 0 (not enumerated) on the same port
+    device_t *dev_with_addr_0 = _find_dev_from_addr(0);
+    if (dev_with_addr_0 != NULL && dev_with_addr_0->constant.port_hdl == params->root_port_hdl) {
         ret = ESP_ERR_NOT_FINISHED;
         goto exit;
     }
@@ -1131,14 +1132,9 @@ void usbh_devs_set_pm_actions_all(usbh_dev_ctrl_t device_ctrl)
     }
 }
 
-esp_err_t usbh_devs_open(uint8_t dev_addr, usb_device_handle_t *dev_hdl)
+esp_err_t _dev_open(device_t *dev_obj)
 {
-    USBH_CHECK(dev_hdl != NULL, ESP_ERR_INVALID_ARG);
     esp_err_t ret;
-
-    USBH_ENTER_CRITICAL();
-    // Go through the device lists to find the device with the specified address
-    device_t *dev_obj = _find_dev_from_addr(dev_addr);
     if (dev_obj != NULL) {
         // Check if the device is in a state to be opened
         if (dev_obj->dynamic.flags.is_gone ||           // Device is already gone (disconnected)
@@ -1148,14 +1144,45 @@ esp_err_t usbh_devs_open(uint8_t dev_addr, usb_device_handle_t *dev_hdl)
             ret = ESP_ERR_NOT_ALLOWED;
         } else {
             dev_obj->dynamic.open_count++;
-            *dev_hdl = (usb_device_handle_t)dev_obj;
             ret = ESP_OK;
         }
     } else {
         ret = ESP_ERR_NOT_FOUND;
     }
+    return ret;
+}
+
+esp_err_t usbh_devs_open(uint8_t dev_addr, usb_device_handle_t *dev_hdl)
+{
+    USBH_CHECK(dev_hdl != NULL, ESP_ERR_INVALID_ARG);
+    esp_err_t ret;
+
+    USBH_ENTER_CRITICAL();
+    // Go through the device lists to find the device with the specified address
+    device_t *dev_obj = _find_dev_from_addr(dev_addr);
+    ret = _dev_open(dev_obj);
     USBH_EXIT_CRITICAL();
 
+    if (ret == ESP_OK) {
+        *dev_hdl = (usb_device_handle_t)dev_obj;
+    }
+    return ret;
+}
+
+esp_err_t usbh_devs_open_uid(unsigned int uid, usb_device_handle_t *dev_hdl)
+{
+    USBH_CHECK(dev_hdl != NULL, ESP_ERR_INVALID_ARG);
+    esp_err_t ret;
+
+    USBH_ENTER_CRITICAL();
+    // Go through the device lists to find the device with the specified address
+    device_t *dev_obj = _find_dev_from_uid(uid);
+    ret = _dev_open(dev_obj);
+    USBH_EXIT_CRITICAL();
+
+    if (ret == ESP_OK) {
+        *dev_hdl = (usb_device_handle_t)dev_obj;
+    }
     return ret;
 }
 
