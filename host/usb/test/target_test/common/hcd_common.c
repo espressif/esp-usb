@@ -25,22 +25,6 @@
 
 // ----------------------------------------------------- Macros --------------------------------------------------------
 
-#define TEST_P4_OTG11 0 // Change this to 1 to test on OTG1.1 peripheral - only for ESP32-P4
-
-// --------------------- Constants -------------------------
-
-#if TEST_P4_OTG11
-#define TEST_PHY                USB_PHY_TARGET_INT
-#define TEST_PORT_NUM           1
-#else
-#if CONFIG_IDF_TARGET_ESP32P4
-#define TEST_PHY                USB_PHY_TARGET_UTMI
-#else
-#define TEST_PHY                USB_PHY_TARGET_INT
-#endif
-#define TEST_PORT_NUM           0
-#endif // TEST_P4_OTG11
-
 #define EVENT_QUEUE_LEN         5
 #define ENUM_ADDR               1   // Device address to use for tests that enumerate the device
 #define ENUM_CONFIG             1   // Device configuration number to use for tests that enumerate the device

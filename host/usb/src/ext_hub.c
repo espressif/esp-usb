@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2024-2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2024-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -1296,6 +1296,18 @@ esp_err_t ext_hub_get_speed(ext_hub_handle_t ext_hub_hdl, usb_speed_t *speed)
     ESP_ERROR_CHECK(usbh_dev_get_info(ext_hub_dev->constant.dev_hdl, &dev_info));
     *speed = dev_info.speed;
     return ESP_OK;
+}
+
+hcd_port_handle_t ext_hub_get_root_port(ext_hub_handle_t ext_hub_hdl)
+{
+    EXT_HUB_CHECK(ext_hub_hdl != NULL, NULL);
+    EXT_HUB_CHECK(dev_is_in_list(ext_hub_hdl), NULL);
+    ext_hub_dev_t *ext_hub_dev = (ext_hub_dev_t *)ext_hub_hdl;
+    hcd_port_handle_t root_port_hdl = NULL;
+    if (usbh_dev_get_root_port_hdl(ext_hub_dev->constant.dev_hdl, &root_port_hdl) != ESP_OK) {
+        return NULL;
+    }
+    return root_port_hdl;
 }
 
 esp_err_t ext_hub_new_dev(uint8_t dev_addr)

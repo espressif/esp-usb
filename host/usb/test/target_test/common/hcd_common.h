@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2025-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -9,6 +9,22 @@
 #include "hcd.h"
 #include "usb_private.h"
 #include "usb/usb_types_ch9.h"
+
+// ----------------------------------------------------- Macros --------------------------------------------------------
+
+#define TEST_P4_OTG11 0 // Change this to 1 to test on OTG1.1 peripheral - only for ESP32-P4
+
+#if TEST_P4_OTG11
+#define TEST_PHY                USB_PHY_TARGET_INT
+#define TEST_PORT_NUM           1
+#else
+#if CONFIG_IDF_TARGET_ESP32P4
+#define TEST_PHY                USB_PHY_TARGET_UTMI
+#else
+#define TEST_PHY                USB_PHY_TARGET_INT
+#endif
+#define TEST_PORT_NUM           0
+#endif // TEST_P4_OTG11
 
 extern hcd_port_handle_t port_hdl;
 

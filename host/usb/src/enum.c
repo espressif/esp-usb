@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2023-2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2023-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -26,6 +26,7 @@
 #define ENUM_WORST_CASE_MPS_FS_HS                   64      // The worst case MPS of EP0 for a FS/HS device
 #define ENUM_LANGID                                 0x409   // Current enumeration only supports English (United States) string descriptors
 #define ENUM_MAX_ADDRESS                            (127)   // Maximal device address value
+#define ENUM_PENDING_QUEUE_LEN                      (5)
 
 /**
  * @brief Stages of device enumeration listed in their order of execution
@@ -139,6 +140,11 @@ typedef struct {
         enum_device_params_t dev_params;            /**< Parameters of device under enumeration */
         int expect_num_bytes;                       /**< Expected number of bytes for IN transfers stages. Set to 0 for OUT transfer */
         uint8_t next_dev_addr;                      /**< Device address for device under enumeration */
+        // Pending enumeration queue
+        unsigned int pending_uids[ENUM_PENDING_QUEUE_LEN];
+        uint16_t pending_head;
+        uint16_t pending_tail;
+        uint16_t pending_count;
     } single_thread;                                /**< Single thread members don't require a critical section so long as they are never accessed from multiple threads */
 
     struct {
@@ -201,6 +207,30 @@ static uint8_t get_next_free_dev_addr(void)
     // Sanity check
     assert(new_dev_addr != 0);
     return new_dev_addr;
+}
+
+static bool pending_uid_enqueue(unsigned int uid)
+{
+    if (p_enum_driver->single_thread.pending_count >= ENUM_PENDING_QUEUE_LEN) {
+        return false;
+    }
+    p_enum_driver->single_thread.pending_uids[p_enum_driver->single_thread.pending_tail] = uid;
+    p_enum_driver->single_thread.pending_tail =
+        (p_enum_driver->single_thread.pending_tail + 1) % ENUM_PENDING_QUEUE_LEN;
+    p_enum_driver->single_thread.pending_count++;
+    return true;
+}
+
+static bool pending_uid_dequeue(unsigned int *uid)
+{
+    if (p_enum_driver->single_thread.pending_count == 0) {
+        return false;
+    }
+    *uid = p_enum_driver->single_thread.pending_uids[p_enum_driver->single_thread.pending_head];
+    p_enum_driver->single_thread.pending_head =
+        (p_enum_driver->single_thread.pending_head + 1) % ENUM_PENDING_QUEUE_LEN;
+    p_enum_driver->single_thread.pending_count--;
+    return true;
 }
 
 /**
@@ -1161,11 +1191,19 @@ esp_err_t enum_start(unsigned int uid)
 {
     ENUM_CHECK(p_enum_driver != NULL, ESP_ERR_INVALID_STATE);
 
+    if (p_enum_driver->single_thread.stage != ENUM_STAGE_IDLE) {
+
+        // We are already enumerating a device, add the new device to the pending queue
+        if (!pending_uid_enqueue(uid)) {
+            return ESP_ERR_NO_MEM;
+        }
+        return ESP_OK;
+    }
     esp_err_t ret = ESP_FAIL;
 
     // Open device and lock it for enumeration process
     usb_device_handle_t dev_hdl;
-    ret = usbh_devs_open(0, &dev_hdl);
+    ret = usbh_devs_open_uid(uid, &dev_hdl);
     if (ret != ESP_OK) {
         return ret;
     }
@@ -1176,7 +1214,7 @@ esp_err_t enum_start(unsigned int uid)
     ESP_ERROR_CHECK(usbh_dev_get_info(dev_hdl, &dev_info));
 
     // Stage ENUM_STAGE_GET_SHORT_DEV_DESC
-    ESP_LOGD(ENUM_TAG, "Start processing device with address %d", 0);
+    ESP_LOGD(ENUM_TAG, "Start processing device with uid %d", uid);
 
     p_enum_driver->single_thread.stage = ENUM_STAGE_GET_SHORT_DEV_DESC;
     p_enum_driver->single_thread.node_uid = uid;
@@ -1320,6 +1358,18 @@ esp_err_t enum_process(void)
     // Set nest stage of enumeration process, based on the stage pass result
     if (set_next_stage(res == ESP_OK)) {
         p_enum_driver->constant.proc_req_cb(USB_PROC_REQ_SOURCE_ENUM, false, p_enum_driver->constant.proc_req_cb_arg);
+    }
+
+    // If we are idle and there are pending devices, start the next one
+    while (p_enum_driver->single_thread.pending_count > 0 &&
+            p_enum_driver->single_thread.stage == ENUM_STAGE_IDLE) {
+        unsigned int next_uid = 0;
+        if (!pending_uid_dequeue(&next_uid)) {
+            break;
+        }
+        if (enum_start(next_uid) == ESP_OK) {
+            break;
+        }
     }
 
     return ESP_OK;
