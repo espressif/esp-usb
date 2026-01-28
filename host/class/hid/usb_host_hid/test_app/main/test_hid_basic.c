@@ -24,6 +24,7 @@
 #include "hid_mock_device.h"
 
 #define TEST_EVENT_WAIT_MS          500     // Time to expect driver or device event
+#define TEST_DEV_CONN_WAIT_MS       2000    // Time to wait for new device connection
 
 // Global variable to verify user arg passing through callbacks
 static uint32_t user_arg_value = 0x8A53E0A4; // Just a constant random number
@@ -429,17 +430,6 @@ static void hid_host_test_pm_driver_callback(hid_host_device_handle_t hid_device
                dev_params.iface_num,
                test_hid_sub_class_names[dev_params.sub_class],
                test_hid_proto_names[dev_params.proto]);
-
-//        const hid_host_device_config_t dev_config = {
-//            .callback = hid_host_pm_interface_callback,
-//            .callback_arg = &user_arg_value,
-//            .enable_remote_wakeup = false,
-//        };
-
-//        TEST_ASSERT_EQUAL(ESP_OK, hid_host_device_open(hid_device_handle, &dev_config) );
-//        TEST_ASSERT_EQUAL(ESP_OK, hid_host_device_start(hid_device_handle) );
-
-//        s_global_hdl = hid_device_handle;
         break;
     default:
         TEST_FAIL_MESSAGE("HID Driver unhandled event");
@@ -461,22 +451,27 @@ static void hid_host_test_pm_driver_callback(hid_host_device_handle_t hid_device
 static void open_start_device(void)
 {
     // Wait, until the device is connected, expect 2 CONNECTED events
-    hid_host_device_handle_t dev_hdl1 = (hid_host_device_handle_t)hid_host_test_expect_event(&new_dev_event, pdMS_TO_TICKS(10000), 1);
-    hid_host_device_handle_t dev_hdl2 = (hid_host_device_handle_t)hid_host_test_expect_event(&new_dev_event, pdMS_TO_TICKS(10000), 1);
+    hid_host_device_handle_t dev1_hdl = (hid_host_device_handle_t)hid_host_test_expect_event(&new_dev_event, pdMS_TO_TICKS(TEST_DEV_CONN_WAIT_MS), 1);
+    hid_host_device_handle_t dev2_hdl = (hid_host_device_handle_t)hid_host_test_expect_event(&new_dev_event, pdMS_TO_TICKS(TEST_DEV_CONN_WAIT_MS), 1);
+
+    TEST_ASSERT_NOT_NULL(dev1_hdl);
+    TEST_ASSERT_NOT_NULL(dev2_hdl);
 
     const hid_host_device_config_t dev_config = {
         .callback = hid_host_pm_interface_callback,
         .callback_arg = &user_arg_value,
+#ifdef HID_HOST_REMOTE_WAKE_SUPPORTED
         .enable_remote_wakeup = true,
+#endif // HID_HOST_REMOTE_WAKE_SUPPORTED
     };
 
-    TEST_ASSERT_EQUAL(ESP_OK, hid_host_device_open(dev_hdl1, &dev_config));
-    TEST_ASSERT_EQUAL(ESP_OK, hid_host_device_start(dev_hdl1));
+    TEST_ASSERT_EQUAL(ESP_OK, hid_host_device_open(dev1_hdl, &dev_config));
+    TEST_ASSERT_EQUAL(ESP_OK, hid_host_device_start(dev1_hdl));
 
-    TEST_ASSERT_EQUAL(ESP_OK, hid_host_device_open(dev_hdl2, &dev_config));
-    TEST_ASSERT_EQUAL(ESP_OK, hid_host_device_start(dev_hdl2));
+    TEST_ASSERT_EQUAL(ESP_OK, hid_host_device_open(dev2_hdl, &dev_config));
+    TEST_ASSERT_EQUAL(ESP_OK, hid_host_device_start(dev2_hdl));
 
-    s_global_hdl = dev_hdl2;
+    s_global_hdl = dev2_hdl;
 }
 #endif // HID_HOST_SUSPEND_RESUME_API_SUPPORTED
 
@@ -1290,8 +1285,11 @@ TEST_CASE("sudden_disconnect_during_resume", "[hid_host_resume_dconn]")
     hid_host_test_event_queue = NULL;
 }
 
+#endif // HID_HOST_SUSPEND_RESUME_API_SUPPORTED
+#ifdef HID_HOST_REMOTE_WAKE_SUPPORTED
+
 /**
- * @brief Remote wakeup
+ * @brief Basic remote wakeup test
  *
  * Purpose:
  *     - Test remote wakeup generated from the device
@@ -1335,6 +1333,23 @@ TEST_CASE("remote_wakeup", "[hid_host_remote_wake]")
     hid_host_test_event_queue = NULL;
 }
 
+/**
+ * @brief Remote wakeup setting with multiple interfaces
+ *
+ * Purpose:
+ *     - Test correctly enabling/disabling the remote wakeup on device with multiple interfaces
+ *     - Remote wakeup feature is pre-device, not per interface
+ *
+ * Procedure:
+ *     - Install USB Host lib, Install HID driver, wait for both interfaces to be connected
+ *     - Enable remote wakeup in 1st iface config, disable it in 2nd iface config
+ *     - Open/Start device 1, then device 2 and suspend the root port
+ *     - Don't expect remote wakeup from device, as it was enabled by 1st iface, then disabled by the 2nd iface
+ *     - Reconnect the device and wait for bot interfaces to be connected
+ *     - Open/Start device 2, then device 1 and suspend the root port
+ *     - Expect remote wakeup for from device, as it was disabled (not set) by the 2nd iface, the enabled by 1st iface
+ *     - Expect resume event, teardown
+ */
 TEST_CASE("remote_wakeup_multiple_ifaces", "[hid_host_remote_wake]")
 {
     hid_host_test_event_queue = xQueueCreate(10, sizeof(hid_host_event_queue_t));
@@ -1344,16 +1359,20 @@ TEST_CASE("remote_wakeup_multiple_ifaces", "[hid_host_remote_wake]")
     test_hid_setup(hid_host_test_pm_driver_callback, HID_TEST_EVENT_HANDLE_IN_DRIVER);
 
     // Wait for both devices to connect
-    hid_host_device_handle_t dev1_hdl = (hid_host_device_handle_t)hid_host_test_expect_event(&new_dev_event, pdMS_TO_TICKS(10000), 1);
-    hid_host_device_handle_t dev2_hdl = (hid_host_device_handle_t)hid_host_test_expect_event(&new_dev_event, pdMS_TO_TICKS(10000), 1);
+    hid_host_device_handle_t dev1_hdl = (hid_host_device_handle_t)hid_host_test_expect_event(&new_dev_event, pdMS_TO_TICKS(TEST_DEV_CONN_WAIT_MS), 1);
+    hid_host_device_handle_t dev2_hdl = (hid_host_device_handle_t)hid_host_test_expect_event(&new_dev_event, pdMS_TO_TICKS(TEST_DEV_CONN_WAIT_MS), 1);
+    TEST_ASSERT_NOT_NULL(dev1_hdl);
+    TEST_ASSERT_NOT_NULL(dev2_hdl);
 
-    hid_host_device_config_t dev1_config = {
+    // Device 1 config with remote wakeup enabled
+    const hid_host_device_config_t dev1_config = {
         .callback = hid_host_pm_interface_callback,
         .callback_arg = &user_arg_value,
         .enable_remote_wakeup = true,
     };
 
-    hid_host_device_config_t dev2_config = {
+    // Device 2 config with remote wakeup disabled
+    const hid_host_device_config_t dev2_config = {
         .callback = hid_host_pm_interface_callback,
         .callback_arg = &user_arg_value,
         .enable_remote_wakeup = false,
@@ -1375,13 +1394,14 @@ TEST_CASE("remote_wakeup_multiple_ifaces", "[hid_host_remote_wake]")
     // No resume event shall be delivered
     hid_host_test_expect_no_event(pdMS_TO_TICKS(5000));
 
+    // Reconnect
     force_conn_state(false, 0);
     hid_host_test_expect_event(&dev_gone_event, pdMS_TO_TICKS(TEST_EVENT_WAIT_MS), 2);
     force_conn_state(true, pdMS_TO_TICKS(1000));
 
     // Wait for both devices to connect
-    dev1_hdl = (hid_host_device_handle_t)hid_host_test_expect_event(&new_dev_event, pdMS_TO_TICKS(10000), 1);
-    dev2_hdl = (hid_host_device_handle_t)hid_host_test_expect_event(&new_dev_event, pdMS_TO_TICKS(10000), 1);
+    dev1_hdl = (hid_host_device_handle_t)hid_host_test_expect_event(&new_dev_event, pdMS_TO_TICKS(TEST_DEV_CONN_WAIT_MS), 1);
+    dev2_hdl = (hid_host_device_handle_t)hid_host_test_expect_event(&new_dev_event, pdMS_TO_TICKS(TEST_DEV_CONN_WAIT_MS), 1);
 
     // Open device 2 with remote wakeup disabled
     TEST_ASSERT_EQUAL(ESP_OK, hid_host_device_open(dev2_hdl, &dev2_config));
@@ -1410,4 +1430,4 @@ TEST_CASE("remote_wakeup_multiple_ifaces", "[hid_host_remote_wake]")
     hid_host_test_event_queue = NULL;
 }
 
-#endif // HID_HOST_SUSPEND_RESUME_API_SUPPORTED
+#endif // HID_HOST_REMOTE_WAKE_SUPPORTED

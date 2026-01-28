@@ -16,10 +16,26 @@
 
 #define EVT_QUEUE_LENGTH 5
 
-static enum test_hid_mock_device _test_hid_mock_device_mode = TEST_HID_MOCK_DEVICE_MAX;
+const char *HID_DEV_TAG = "HID device";
 static QueueHandle_t dev_evt_queue = NULL;
 static StaticQueue_t s_queue_buf;
 uint8_t ucQueueStorage[EVT_QUEUE_LENGTH * sizeof(tinyusb_event_t)];
+
+/************* Device types ****************/
+
+// Define test HID mock device types
+enum test_hid_mock_device {
+    TEST_HID_MOCK_DEVICE_WITH_ONE_IFACE = 0,
+    TEST_HID_MOCK_DEVICE_WITH_TWO_IFACES,
+    TEST_HID_MOCK_DEVICE_WITH_REPORT_DESC_1905B,
+    TEST_HID_MOCK_DEVICE_WITH_REPORT_DESC_32KB,
+    TEST_HID_MOCK_DEVICE_SUSPEND_DCONN,
+    TEST_HID_MOCK_DEVICE_RESUME_DCONN,
+    TEST_HID_MOCK_DEVICE_REMOTE_WAKE,
+    TEST_HID_MOCK_DEVICE_MAX,
+};
+
+static enum test_hid_mock_device _test_hid_mock_device_mode = TEST_HID_MOCK_DEVICE_MAX;
 
 /************* TinyUSB descriptors ****************/
 #define TUSB_DESC_TOTAL_LEN      (TUD_CONFIG_DESC_LEN + CFG_TUD_HID * TUD_HID_DESC_LEN)
@@ -228,7 +244,7 @@ uint16_t tud_hid_get_report_cb(uint8_t instance, uint8_t report_id, hid_report_t
         return get_mouse_report(buffer);
 
     default:
-        printf("HID mock device, Unhandled ReportID %d\n", report_id);
+        ESP_LOGW(HID_DEV_TAG, "Unhandled ReportID %d", report_id);
         break;
     }
     return 0;
@@ -254,16 +270,16 @@ static void hid_mock_device_event_handler(tinyusb_event_t *event, void *arg)
 {
     switch (event->id) {
     case TINYUSB_EVENT_ATTACHED:
-        printf("\t --> Attached\n");
+        ESP_LOGI(HID_DEV_TAG, "\t --> Attached");
         break;
     case TINYUSB_EVENT_DETACHED:
-        printf("\t <-- Detached\n");
+        ESP_LOGI(HID_DEV_TAG, "\t <-- Detached");
         break;
     case TINYUSB_EVENT_SUSPENDED:
-        printf("\t <-- Suspended with remote wakeup %s\n", ((event->suspended.remote_wakeup) ? ("enabled") : ("disabled")) );
+        ESP_LOGI(HID_DEV_TAG, "\t --> Suspended with remote wakeup %s\n", ((event->suspended.remote_wakeup) ? ("enabled") : ("disabled")));
         break;
     case TINYUSB_EVENT_RESUMED:
-        printf("\t <-- Resumed\n");
+        ESP_LOGI(HID_DEV_TAG, "\t --> Resumed");
         break;
     default:
         break;
@@ -272,22 +288,22 @@ static void hid_mock_device_event_handler(tinyusb_event_t *event, void *arg)
     xQueueSend(dev_evt_queue, event, 0);
 }
 
-void hid_mock_device_set_mode(const enum test_hid_mock_device mode)
-{
-    // Validate test mode parameter, should be less than max value
-    TEST_ASSERT_LESS_THAN_MESSAGE(TEST_HID_MOCK_DEVICE_MAX, mode, "HID mock device set mode, wrong test mode");
-    _test_hid_mock_device_mode = mode;
-}
-
-void hid_mock_device_run(void)
+/**
+ * @brief Run HID mock device in selected mode
+ *
+ * @param[in] mode   Device mode
+ */
+static void hid_mock_device_run(const enum test_hid_mock_device mode)
 {
     // Create static app message queue
     dev_evt_queue = xQueueCreateStatic(EVT_QUEUE_LENGTH, sizeof(tinyusb_event_t), &(ucQueueStorage[0]), &s_queue_buf);
     configASSERT(dev_evt_queue);
 
-    tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG(hid_mock_device_event_handler);
+    // Validate test mode parameter, should be less than max value
+    TEST_ASSERT_LESS_THAN_MESSAGE(TEST_HID_MOCK_DEVICE_MAX, mode, "HID mock device set mode, wrong test mode");
+    _test_hid_mock_device_mode = mode;
 
-    TEST_ASSERT_LESS_THAN_MESSAGE(TEST_HID_MOCK_DEVICE_MAX, _test_hid_mock_device_mode, "HID mock device run, wrong test mode");
+    tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG(hid_mock_device_event_handler);
 
     tusb_cfg.descriptor.full_speed_config = hid_configuration_descriptor_list[_test_hid_mock_device_mode];
 #if (TUD_OPT_HIGH_SPEED)
@@ -323,58 +339,75 @@ void hid_mock_device_run(void)
     }
 }
 
+/**
+ * @brief Run HID Device with 1 interface
+ */
 TEST_CASE("mock_hid_device_with_one_iface", "[hid_device][ignore]")
 {
-    hid_mock_device_set_mode(TEST_HID_MOCK_DEVICE_WITH_ONE_IFACE);
-    hid_mock_device_run();
+    hid_mock_device_run(TEST_HID_MOCK_DEVICE_WITH_ONE_IFACE);
+
     while (1) {
         vTaskDelay(10);
     }
 }
 
+/**
+ * @brief Run HID Device with 2 interfaces
+ */
 TEST_CASE("mock_hid_device_with_two_ifaces", "[hid_device_two_ifaces][ignore]")
 {
-    hid_mock_device_set_mode(TEST_HID_MOCK_DEVICE_WITH_TWO_IFACES);
-    hid_mock_device_run();
+    hid_mock_device_run(TEST_HID_MOCK_DEVICE_WITH_TWO_IFACES);
+
     while (1) {
         vTaskDelay(10);
     }
 }
 
+/**
+ * @brief Run HID Device with 2 interfaces and large report descriptor
+ */
 TEST_CASE("mock_hid_device_with_large_report", "[hid_device_large_report][ignore]")
 {
-    hid_mock_device_set_mode(TEST_HID_MOCK_DEVICE_WITH_REPORT_DESC_1905B);
-    hid_mock_device_run();
+    hid_mock_device_run(TEST_HID_MOCK_DEVICE_WITH_REPORT_DESC_1905B);
+
     while (1) {
         vTaskDelay(10);
     }
 }
 
+/**
+ * @brief Run HID Device with 2 interfaces and 32kb report descriptor
+ */
 TEST_CASE("mock_hid_device_with_32K_report", "[hid_device_extra_large_report][ignore]")
 {
-    hid_mock_device_set_mode(TEST_HID_MOCK_DEVICE_WITH_REPORT_DESC_32KB);
-    hid_mock_device_run();
+    hid_mock_device_run(TEST_HID_MOCK_DEVICE_WITH_REPORT_DESC_32KB);
+
     while (1) {
         vTaskDelay(10);
     }
 }
 
+/**
+ * @brief Run HID Device with 2 interfaces
+ *
+ * Device performs sudden disconnect followed by a reconnect upon receiving device suspend event
+ */
 TEST_CASE("mock_hid_device_disconnect_during_suspend", "[hid_device_suspend_dconn][ignore]")
 {
-    hid_mock_device_set_mode(TEST_HID_MOCK_DEVICE_SUSPEND_DCONN);
-    hid_mock_device_run();
+    hid_mock_device_run(TEST_HID_MOCK_DEVICE_SUSPEND_DCONN);
 
     while (1) {
         tinyusb_event_t dev_evt;
         if (xQueueReceive(dev_evt_queue, &dev_evt, portMAX_DELAY)) {
             switch (dev_evt.id) {
             case TINYUSB_EVENT_SUSPENDED:
-                tud_disconnect();
-                printf("Device: Triggering disconnect\n");
+                TEST_ASSERT(tud_disconnect());
+                ESP_LOGI(HID_DEV_TAG, "Triggering disconnect");
 
+                // Stay disconnected for a while and trigger connect
                 vTaskDelay(pdMS_TO_TICKS(1000));
-                printf("Device: Triggering connect\n");
-                tud_connect();
+                ESP_LOGI(HID_DEV_TAG, "Triggering reconnect");
+                TEST_ASSERT(tud_connect());
                 break;
             default:
                 break;
@@ -383,22 +416,27 @@ TEST_CASE("mock_hid_device_disconnect_during_suspend", "[hid_device_suspend_dcon
     }
 }
 
+/**
+ * @brief Run HID Device with 2 interfaces
+ *
+ * Device performs sudden disconnect followed by a reconnect upon receiving device resume event
+ */
 TEST_CASE("mock_hid_device_disconnect_during_resume", "[hid_device_resume_dconn][ignore]")
 {
-    hid_mock_device_set_mode(TEST_HID_MOCK_DEVICE_RESUME_DCONN);
-    hid_mock_device_run();
+    hid_mock_device_run(TEST_HID_MOCK_DEVICE_RESUME_DCONN);
 
     while (1) {
         tinyusb_event_t dev_evt;
         if (xQueueReceive(dev_evt_queue, &dev_evt, portMAX_DELAY)) {
             switch (dev_evt.id) {
             case TINYUSB_EVENT_RESUMED:
-                tud_disconnect();
-                printf("Device: Triggering disconnect\n");
+                TEST_ASSERT(tud_disconnect());
+                ESP_LOGI(HID_DEV_TAG, "Triggering disconnect");
 
+                // Stay disconnected for a while and trigger connect
                 vTaskDelay(pdMS_TO_TICKS(1000));
-                printf("Device: Triggering connect\n");
-                tud_connect();
+                ESP_LOGI(HID_DEV_TAG, "Triggering reconnect");
+                TEST_ASSERT(tud_connect());
                 break;
             default:
                 break;
@@ -407,25 +445,28 @@ TEST_CASE("mock_hid_device_disconnect_during_resume", "[hid_device_resume_dconn]
     }
 }
 
+/**
+ * @brief Run HID Device with 2 interfaces
+ *
+ * Device performs remote wakeup (if enabled by the host) upon receiving device resume event
+ */
 TEST_CASE("mock_hid_device_remote_wake", "[hid_device_remote_wake][ignore]")
 {
-    hid_mock_device_set_mode(TEST_HID_MOCK_DEVICE_REMOTE_WAKE);
-    hid_mock_device_run();
+    hid_mock_device_run(TEST_HID_MOCK_DEVICE_REMOTE_WAKE);
 
     while (1) {
         tinyusb_event_t dev_evt;
         if (xQueueReceive(dev_evt_queue, &dev_evt, portMAX_DELAY)) {
             switch (dev_evt.id) {
             case TINYUSB_EVENT_SUSPENDED:
-
+                // Stay suspended for a while
                 vTaskDelay(pdMS_TO_TICKS(2000));
                 if (dev_evt.suspended.remote_wakeup) {
-                    printf("Device: Triggering remote wakeup\n");
-                    tud_remote_wakeup();
+                    ESP_LOGI(HID_DEV_TAG, "Triggering remote wakeup");
+                    TEST_ASSERT(tud_remote_wakeup());
                 } else {
-                    printf("Device: does not have remote wakeup enabled\n");
+                    ESP_LOGI(HID_DEV_TAG, "Remote wakeup not enabled by host");
                 }
-
                 break;
             default:
                 break;

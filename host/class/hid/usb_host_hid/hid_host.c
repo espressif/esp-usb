@@ -85,8 +85,10 @@ typedef struct hid_host_device {
     usb_transfer_t *ctrl_xfer;                  /**< Pointer to control transfer buffer */
     usb_device_handle_t dev_hdl;                /**< USB device handle */
     uint8_t dev_addr;                           /**< USB device address */
+#ifdef HID_HOST_REMOTE_WAKE_SUPPORTED
     bool remote_wakeup_supported;               /**< To indicate whether remote wakeup is supported by device */
     bool remote_wakeup_enabled;                 /**< To indicate whether remote wakeup is currently enabled */
+#endif // HID_HOST_REMOTE_WAKE_SUPPORTED
 } hid_device_t;
 
 /**
@@ -1206,6 +1208,8 @@ static esp_err_t hid_host_install_device(uint8_t dev_addr,
 
     hid_device->dev_addr = dev_addr;
     hid_device->dev_hdl = dev_hdl;
+
+#ifdef HID_HOST_REMOTE_WAKE_SUPPORTED
     hid_device->remote_wakeup_supported = false;
     hid_device->remote_wakeup_enabled = false;
 
@@ -1216,6 +1220,7 @@ static esp_err_t hid_host_install_device(uint8_t dev_addr,
     if (config_desc->bmAttributes & USB_BM_ATTRIBUTES_WAKEUP) {
         hid_device->remote_wakeup_supported = true;
     }
+#endif // HID_HOST_REMOTE_WAKE_SUPPORTED
 
     HID_GOTO_ON_FALSE( hid_device->ctrl_xfer_done = xSemaphoreCreateBinary(),
                        ESP_ERR_NO_MEM,
@@ -1406,7 +1411,7 @@ fail:
     return ret;
 }
 
-#ifdef HID_HOST_SUSPEND_RESUME_API_SUPPORTED
+#ifdef HID_HOST_REMOTE_WAKE_SUPPORTED
 
 static esp_err_t hid_host_enable_remote_wakeup(hid_device_t *hid_device, bool enable)
 {
@@ -1433,7 +1438,7 @@ static esp_err_t hid_host_enable_remote_wakeup(hid_device_t *hid_device, bool en
     return ret;
 }
 
-#endif // HID_HOST_SUSPEND_RESUME_API_SUPPORTED
+#endif // HID_HOST_REMOTE_WAKE_SUPPORTED
 
 esp_err_t hid_host_device_open(hid_host_device_handle_t hid_dev_handle,
                                const hid_host_device_config_t *config)
@@ -1465,7 +1470,7 @@ esp_err_t hid_host_device_open(hid_host_device_handle_t hid_dev_handle,
     HID_GOTO_ON_ERROR(hid_host_interface_claim_and_prepare_transfer(hid_iface),
                       "Unable to claim interface");
 
-#ifdef HID_HOST_SUSPEND_RESUME_API_SUPPORTED
+#ifdef HID_HOST_REMOTE_WAKE_SUPPORTED
     if (config->enable_remote_wakeup) {
         // User wants to enable the remote wakeup
         if (hid_iface->parent->remote_wakeup_supported) {
@@ -1501,7 +1506,7 @@ esp_err_t hid_host_device_open(hid_host_device_handle_t hid_dev_handle,
             // No action, silently continue
         }
     }
-#endif // HID_HOST_SUSPEND_RESUME_API_SUPPORTED
+#endif // HID_HOST_REMOTE_WAKE_SUPPORTED
 
     // Save HID Interface callback
     hid_iface->user_cb = config->callback;
