@@ -1194,6 +1194,21 @@ TEST_CASE("sudden_disconnect_suspended_device", "[hid_host_pm]")
     hid_host_test_event_queue = NULL;
 }
 
+/**
+ * @brief Sudden disconnect during suspend sequence
+ *
+ * Purpose:
+ *     - Test HID Host reaction to unfinished suspend sequence
+ *
+ * Procedure:
+ *     - Install USB Host lib, Install HID driver, open device and start device
+ *     - Host suspends the root port
+ *     - Device disconnects itself as soon as it registers suspend event
+ *     - Host expects disconnection event to be delivered
+ *     - Device connects itself back
+ *     - Host expects connection event and reopens the device
+ *     - Teardown
+ */
 TEST_CASE("sudden_disconnect_during_suspend", "[hid_host_suspend_dconn]")
 {
     hid_host_test_event_queue = xQueueCreate(10, sizeof(hid_host_event_queue_t));
@@ -1205,8 +1220,17 @@ TEST_CASE("sudden_disconnect_during_suspend", "[hid_host_suspend_dconn]")
 
     printf("Issue suspend\n");
     TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_root_port_suspend());
+
+    // The device has registered suspend event and suddenly disconnected the port
+
+    // Expect device disconnect event and new device event
     hid_host_test_expect_event(&dev_gone_event, pdMS_TO_TICKS(TEST_EVENT_WAIT_MS), 2);
     open_start_device();
+
+    // Verify transfer on resumed device
+    hid_host_dev_params_t dev_params;
+    TEST_ASSERT_EQUAL(ESP_OK, hid_host_device_get_params(s_global_hdl, &dev_params));
+    test_hid_host_device_stress(&dev_params);
 
     // Tear down test
     vTaskDelay(20);
@@ -1215,6 +1239,20 @@ TEST_CASE("sudden_disconnect_during_suspend", "[hid_host_suspend_dconn]")
     hid_host_test_event_queue = NULL;
 }
 
+/**
+ * @brief Sudden disconnect during resume sequence
+ *
+ * Purpose:
+ *     - Test HID Host reaction to unfinished resume sequence
+ *
+ * Procedure:
+ *     - Install USB Host lib, Install HID driver, open and start the device, suspend and resumes the root port
+ *     - Device disconnects itself as soon as it registers resume events
+ *     - Host expects disconnection event to be delivered
+ *     - Device connects itself back
+ *     - Host expects connection event and reopens the device
+ *     - Teardown
+ */
 TEST_CASE("sudden_disconnect_during_resume", "[hid_host_resume_dconn]")
 {
     hid_host_test_event_queue = xQueueCreate(10, sizeof(hid_host_event_queue_t));
@@ -1228,12 +1266,22 @@ TEST_CASE("sudden_disconnect_during_resume", "[hid_host_resume_dconn]")
     TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_root_port_suspend());
     hid_host_test_expect_event(&suspend_event, pdMS_TO_TICKS(TEST_EVENT_WAIT_MS), 2);
 
+    // Keep suspended for a while
     vTaskDelay(100);
 
+    printf("Issue resume\n");
     TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_root_port_resume());
-    hid_host_test_expect_event(&dev_gone_event, pdMS_TO_TICKS(TEST_EVENT_WAIT_MS), 2);
 
+    // The device has registered suspend event and suddenly disconnected the port
+
+    // Expect device disconnect event and new device event
+    hid_host_test_expect_event(&dev_gone_event, pdMS_TO_TICKS(TEST_EVENT_WAIT_MS), 2);
     open_start_device();
+
+    // Verify transfer on resumed device
+    hid_host_dev_params_t dev_params;
+    TEST_ASSERT_EQUAL(ESP_OK, hid_host_device_get_params(s_global_hdl, &dev_params));
+    test_hid_host_device_stress(&dev_params);
 
     // Tear down test
     vTaskDelay(20);
@@ -1242,6 +1290,18 @@ TEST_CASE("sudden_disconnect_during_resume", "[hid_host_resume_dconn]")
     hid_host_test_event_queue = NULL;
 }
 
+/**
+ * @brief Remote wakeup
+ *
+ * Purpose:
+ *     - Test remote wakeup generated from the device
+ *
+ * Procedure:
+ *     - Install USB Host lib, Install HID driver, open and starts the device, suspend the root port
+ *     - Device issues remote wakeup signalling after some time of being suspended
+ *     - Host expects resume event
+ *     - Teardown
+ */
 TEST_CASE("remote_wakeup", "[hid_host_remote_wake]")
 {
     hid_host_test_event_queue = xQueueCreate(10, sizeof(hid_host_event_queue_t));
@@ -1255,9 +1315,93 @@ TEST_CASE("remote_wakeup", "[hid_host_remote_wake]")
     TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_root_port_suspend());
     hid_host_test_expect_event(&suspend_event, pdMS_TO_TICKS(TEST_EVENT_WAIT_MS), 2);
 
+    // Keep suspended for a while
     vTaskDelay(100);
 
+    // The device has registered suspend event and started issuing remote wakeup sequence after some time
+
+    // Expect resume event (remote wakeup)
     hid_host_test_expect_event(&resume_event, pdMS_TO_TICKS(2000), 2);
+
+    // Verify transfer on resumed device
+    hid_host_dev_params_t dev_params;
+    TEST_ASSERT_EQUAL(ESP_OK, hid_host_device_get_params(s_global_hdl, &dev_params));
+    test_hid_host_device_stress(&dev_params);
+
+    // Tear down test
+    vTaskDelay(20);
+    test_hid_teardown();
+    vQueueDelete(hid_host_test_event_queue);
+    hid_host_test_event_queue = NULL;
+}
+
+TEST_CASE("remote_wakeup_multiple_ifaces", "[hid_host_remote_wake]")
+{
+    hid_host_test_event_queue = xQueueCreate(10, sizeof(hid_host_event_queue_t));
+    TEST_ASSERT_NOT_NULL(hid_host_test_event_queue);
+
+    // Install USB and HID driver with 'hid_host_test_pm_driver_callback'
+    test_hid_setup(hid_host_test_pm_driver_callback, HID_TEST_EVENT_HANDLE_IN_DRIVER);
+
+    // Wait for both devices to connect
+    hid_host_device_handle_t dev1_hdl = (hid_host_device_handle_t)hid_host_test_expect_event(&new_dev_event, pdMS_TO_TICKS(10000), 1);
+    hid_host_device_handle_t dev2_hdl = (hid_host_device_handle_t)hid_host_test_expect_event(&new_dev_event, pdMS_TO_TICKS(10000), 1);
+
+    hid_host_device_config_t dev1_config = {
+        .callback = hid_host_pm_interface_callback,
+        .callback_arg = &user_arg_value,
+        .enable_remote_wakeup = true,
+    };
+
+    hid_host_device_config_t dev2_config = {
+        .callback = hid_host_pm_interface_callback,
+        .callback_arg = &user_arg_value,
+        .enable_remote_wakeup = false,
+    };
+
+    // Open device 1 with remote wakeup enabled
+    TEST_ASSERT_EQUAL(ESP_OK, hid_host_device_open(dev1_hdl, &dev1_config));
+    TEST_ASSERT_EQUAL(ESP_OK, hid_host_device_start(dev1_hdl));
+    // Open device 2 with remote wakeup disabled
+    TEST_ASSERT_EQUAL(ESP_OK, hid_host_device_open(dev2_hdl, &dev2_config));
+    TEST_ASSERT_EQUAL(ESP_OK, hid_host_device_start(dev2_hdl));
+
+    printf("Issue suspend\n");
+    TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_root_port_suspend());
+    hid_host_test_expect_event(&suspend_event, pdMS_TO_TICKS(TEST_EVENT_WAIT_MS), 2);
+
+    // The device has registered suspend event, but remote wakeup is currently disabled
+
+    // No resume event shall be delivered
+    hid_host_test_expect_no_event(pdMS_TO_TICKS(5000));
+
+    force_conn_state(false, 0);
+    hid_host_test_expect_event(&dev_gone_event, pdMS_TO_TICKS(TEST_EVENT_WAIT_MS), 2);
+    force_conn_state(true, pdMS_TO_TICKS(1000));
+
+    // Wait for both devices to connect
+    dev1_hdl = (hid_host_device_handle_t)hid_host_test_expect_event(&new_dev_event, pdMS_TO_TICKS(10000), 1);
+    dev2_hdl = (hid_host_device_handle_t)hid_host_test_expect_event(&new_dev_event, pdMS_TO_TICKS(10000), 1);
+
+    // Open device 2 with remote wakeup disabled
+    TEST_ASSERT_EQUAL(ESP_OK, hid_host_device_open(dev2_hdl, &dev2_config));
+    TEST_ASSERT_EQUAL(ESP_OK, hid_host_device_start(dev2_hdl));
+    // Open device 1 with remote wakeup enabled
+    TEST_ASSERT_EQUAL(ESP_OK, hid_host_device_open(dev1_hdl, &dev1_config));
+    TEST_ASSERT_EQUAL(ESP_OK, hid_host_device_start(dev1_hdl));
+
+    printf("Issue suspend\n");
+    TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_root_port_suspend());
+    hid_host_test_expect_event(&suspend_event, pdMS_TO_TICKS(TEST_EVENT_WAIT_MS), 2);
+
+    // The device has registered suspend event, remote wakeup is currently enabled, expect resume event
+
+    hid_host_test_expect_event(&resume_event, pdMS_TO_TICKS(5000), 2);
+
+    // Verify transfer on resumed device
+    hid_host_dev_params_t dev_params;
+    TEST_ASSERT_EQUAL(ESP_OK, hid_host_device_get_params(s_global_hdl, &dev_params));
+    test_hid_host_device_stress(&dev_params);
 
     // Tear down test
     vTaskDelay(20);

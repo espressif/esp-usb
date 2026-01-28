@@ -419,8 +419,13 @@ TEST_CASE("mock_hid_device_remote_wake", "[hid_device_remote_wake][ignore]")
             case TINYUSB_EVENT_SUSPENDED:
 
                 vTaskDelay(pdMS_TO_TICKS(2000));
-                printf("Device: Triggering remote wakeup\n");
-                tud_remote_wakeup();
+                if (dev_evt.suspended.remote_wakeup) {
+                    printf("Device: Triggering remote wakeup\n");
+                    tud_remote_wakeup();
+                } else {
+                    printf("Device: does not have remote wakeup enabled\n");
+                }
+
                 break;
             default:
                 break;

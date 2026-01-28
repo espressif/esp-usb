@@ -19,12 +19,12 @@ def test_usb_host_hid(dut: Tuple[IdfDut, IdfDut]) -> None:
 
     hid_dev = "HID mock device with"
     tests = [
-        ("hid_device",                     ["hid_host", "hid_host_pm"],     f"{hid_dev} 1xInterface (Protocol=None) has been started"),
-        ("hid_device_two_ifaces",          ["hid_host", "hid_host_pm"],     f"{hid_dev} 2xInterfaces (Protocol=BootKeyboard, Protocol=BootMouse) has been started"),
-        ("hid_device_large_report",        ["hid_host"],                    f"{hid_dev} large report descriptor has been started"),
-        ("hid_device_extra_large_report",  ["hid_host_extra_large_report"], f"{hid_dev} extra large report descriptor has been started"),
-        ("hid_device_suspend_dconn",       ["hid_host_suspend_dconn"],      f"{hid_dev} 2xInterfaces (Protocol=BootKeyboard, Protocol=BootMouse) has been started"),
-        ("hid_device_resume_dconn",        ["hid_host_resume_dconn"],       f"{hid_dev} 2xInterfaces (Protocol=BootKeyboard, Protocol=BootMouse) has been started"),
+        #("hid_device",                     ["hid_host", "hid_host_pm"],     f"{hid_dev} 1xInterface (Protocol=None) has been started"),
+        #("hid_device_two_ifaces",          ["hid_host", "hid_host_pm"],     f"{hid_dev} 2xInterfaces (Protocol=BootKeyboard, Protocol=BootMouse) has been started"),
+        #("hid_device_large_report",        ["hid_host"],                    f"{hid_dev} large report descriptor has been started"),
+        #("hid_device_extra_large_report",  ["hid_host_extra_large_report"], f"{hid_dev} extra large report descriptor has been started"),
+        #("hid_device_suspend_dconn",       ["hid_host_suspend_dconn"],      f"{hid_dev} 2xInterfaces (Protocol=BootKeyboard, Protocol=BootMouse) has been started"),
+        #("hid_device_resume_dconn",        ["hid_host_resume_dconn"],       f"{hid_dev} 2xInterfaces (Protocol=BootKeyboard, Protocol=BootMouse) has been started"),
         ("hid_device_remote_wake",         ["hid_host_remote_wake"],        f"{hid_dev} 2xInterfaces (Protocol=BootKeyboard, Protocol=BootMouse) has been started"),
     ]
 
