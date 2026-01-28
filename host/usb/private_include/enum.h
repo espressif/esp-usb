@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2024-2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2024-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -109,6 +109,7 @@ esp_err_t enum_uninstall(void);
  * @return
  *    - ESP_OK: Enumeration process started
  *    - ESP_ERR_NOT_FOUND: No device at address 0
+ *    - ESP_ERR_NO_MEM: Pending enumeration queue is full
  */
 esp_err_t enum_start(unsigned int uid);
 
