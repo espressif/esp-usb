@@ -1385,7 +1385,9 @@ TEST_CASE("device_resume_sudden_disconnect", "[host_resume_dconn]")
     TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_uninstall());
     vTaskDelay(20); // Short delay to allow task to be cleaned up
 }
+#endif // CDC_HOST_SUSPEND_RESUME_API_SUPPORTED
 
+#ifdef CDC_HOST_REMOTE_WAKE_SUPPORTED
 /**
  * @brief Test: device remote wakeup
  *
@@ -1433,6 +1435,86 @@ TEST_CASE("device_remote_wakeup", "[host_remote_wake]")
     // Clean-up
     vTaskDelay(100);
     TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_close(cdc_dev));
+    TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_uninstall());
+    vTaskDelay(20); // Short delay to allow task to be cleaned up
+}
+
+/**
+ * @brief Test: device remote wakeup whit multiple interfaces
+ *
+ * #. open cdc_dev1 with remote wakeup enabled and cdc_dev2 with remote wakeup disabled
+ * #. suspend the root port, expect no remote wakeup event
+ * #. resume the root port and close both devices
+ * #. open cdc_dev2 with remote wakeup disabled and cdc_dev2 with remote wakeup enabled
+ * #. suspend the root port, expect remote wakeup from from device
+ * #. cleanup
+ */
+TEST_CASE("device_remote_wakeup_multiple_interfaces", "[host_remote_wake]")
+{
+    test_install_cdc_driver(NULL);
+
+    cdc_acm_dev_hdl_t cdc_dev1 = NULL, cdc_dev2 = NULL;
+    cdc_acm_host_device_config_t dev1_config = default_dev_config;
+    cdc_acm_host_device_config_t dev2_config = default_dev_config;
+    dev1_config.enable_remote_wakeup = true;
+    dev2_config.enable_remote_wakeup = false;
+
+    printf("Opening CDC-ACM devices\n");
+    // Open device 1 with remote wakeup enabled
+    TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_open(0x303A, 0x4002, 0, &dev1_config, &cdc_dev1)); // 0x303A:0x4002 (TinyUSB Dual CDC device)
+    // Open device 2 with remote wakeup disabled
+    TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_open(0x303A, 0x4002, 2, &dev2_config, &cdc_dev2)); // 0x303A:0x4002 (TinyUSB Dual CDC device)
+    TEST_ASSERT_NOT_NULL(cdc_dev1);
+    TEST_ASSERT_NOT_NULL(cdc_dev2);
+
+    // Suspend the device and expect 2 suspend events
+    printf("Suspending the root port\n");
+    TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_root_port_suspend());
+    wait_for_app_event(&suspend_event, 100);
+    wait_for_app_event(&suspend_event, 100);
+
+    // Remote wakeup was first enabled by cdc_dev1, then disabled by cdc_dev2
+    // No remote wakeup event shall be generated from the device
+
+    // Expect NO event
+    wait_for_no_app_event(pdMS_TO_TICKS(5000));
+
+    printf("Resume the root port\n");
+    TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_root_port_resume());
+    wait_for_app_event(&resume_event, 100);
+    wait_for_app_event(&resume_event, 100);
+
+    printf("Closing devices");
+    TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_close(cdc_dev1));
+    TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_close(cdc_dev2));
+    cdc_dev1 = NULL;
+    cdc_dev2 = NULL;
+
+    printf("Opening CDC-ACM devices\n");
+    // Open device 2 with remote wakeup disabled
+    TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_open(0x303A, 0x4002, 2, &dev2_config, &cdc_dev2)); // 0x303A:0x4002 (TinyUSB Dual CDC device)
+    // Open device 1 with remote wakeup enabled
+    TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_open(0x303A, 0x4002, 0, &dev1_config, &cdc_dev1)); // 0x303A:0x4002 (TinyUSB Dual CDC device)
+    TEST_ASSERT_NOT_NULL(cdc_dev1);
+    TEST_ASSERT_NOT_NULL(cdc_dev2);
+
+    // Suspend the device and expect 2 suspend events
+    printf("Suspending the root port\n");
+    TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_root_port_suspend());
+    wait_for_app_event(&suspend_event, 100);
+    wait_for_app_event(&suspend_event, 100);
+
+    // Remote wakeup was first disabled (no set) by cdc_dev2, then enabled by cdc_dev1
+    // A remote wakeup event shall be generated from the device
+
+    // Expect resume event (Remote wakeup)
+    wait_for_app_event(&resume_event, 500);
+    wait_for_app_event(&resume_event, 500);
+
+    // Clean-up
+    vTaskDelay(100);
+    TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_close(cdc_dev1));
+    TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_close(cdc_dev2));
     TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_uninstall());
     vTaskDelay(20); // Short delay to allow task to be cleaned up
 }
@@ -1493,8 +1575,7 @@ TEST_CASE("device_remote_wakeup_sudden_disconnect", "[host_remote_wake_dconn]")
     TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_uninstall());
     vTaskDelay(20); // Short delay to allow task to be cleaned up
 }
-
-#endif // CDC_HOST_SUSPEND_RESUME_API_SUPPORTED
+#endif // CDC_HOST_REMOTE_WAKE_SUPPORTED
 
 /**
  * @brief Test sending a large data buffer over CDC-ACM

@@ -11,6 +11,9 @@ host/class/cdc:
     - 'device/esp_tinyusb/**' # For MSC mock device
   enable:
     - if: SOC_USB_OTG_SUPPORTED == 1
+  disable:
+    - if: IDF_VERSION < "5.4.4"
+      reason: Remote wakeup feature is present in esp-idf HAL starting at IDF 5.4.4
 
 host/class/hid:
   depends_filepatterns:

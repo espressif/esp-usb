@@ -83,9 +83,9 @@ public:
             .event_cb = handle_notif,
             .data_cb = handle_rx,
             .user_arg = this,
-#ifdef CDC_HOST_SUSPEND_RESUME_API_SUPPORTED
+#ifdef CDC_HOST_REMOTE_WAKE_SUPPORTED
             .enable_remote_wakeup = false,
-#endif // CDC_HOST_SUSPEND_RESUME_API_SUPPORTED
+#endif // CDC_HOST_REMOTE_WAKE_SUPPORTED
         };
 
         // Determine Terminal interface index

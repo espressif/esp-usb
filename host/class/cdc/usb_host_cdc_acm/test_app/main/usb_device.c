@@ -83,11 +83,17 @@ static const tusb_desc_device_qualifier_t device_qualifier = {
  *
  * @param[in] mask_notify_bits Notify bits will be masked
  */
-inline static uint32_t device_cb_handler(const uint32_t mask_notify_bits)
+inline static uint32_t device_cb_handler(uint32_t *mask_notify_bits)
 {
+    uint32_t mask = *mask_notify_bits;
     uint32_t notify_bits = 0;
     if (pdTRUE == xTaskNotifyWait(pdFALSE, UINT32_MAX, &notify_bits, portMAX_DELAY)) {
-        notify_bits &= ~mask_notify_bits;
+
+        if (notify_bits & mask) {
+            // masked once
+            *mask_notify_bits = 0;
+        }
+        notify_bits &= ~mask;
         return notify_bits;
     }
     return 0;
@@ -177,7 +183,7 @@ TEST_CASE("mock_dev_app_suspend_dconn", "[cdc_acm_mock_dev][suspend_dconn][ignor
     uint32_t mask_notify_bits = 0;
 
     while (1) {
-        const uint32_t notify_bits = device_cb_handler(mask_notify_bits);
+        const uint32_t notify_bits = device_cb_handler(&mask_notify_bits);
         if (notify_bits & DEV_CB_EVT_SUSPEND_REMOTE_WAKE_DIS) {
 
             TEST_ASSERT(tud_disconnect());
@@ -205,7 +211,7 @@ TEST_CASE("mock_dev_app_resume_dconn", "[cdc_acm_mock_dev][resume_dconn][ignore]
     uint32_t mask_notify_bits = 0;
 
     while (1) {
-        const uint32_t notify_bits = device_cb_handler(mask_notify_bits);
+        const uint32_t notify_bits = device_cb_handler(&mask_notify_bits);
         if (notify_bits & DEV_CB_EVT_RESUME) {
 
             TEST_ASSERT(tud_disconnect());
@@ -232,14 +238,14 @@ TEST_CASE("mock_dev_app_remote_wake", "[cdc_acm_mock_dev][remote_wake][ignore]")
     uint32_t mask_notify_bits = 0;
 
     while (1) {
-        const uint32_t notify_bits = device_cb_handler(mask_notify_bits);
+        const uint32_t notify_bits = device_cb_handler(&mask_notify_bits);
         if (notify_bits & DEV_CB_EVT_RESUME) {
             // The host resumed the device, no action
             continue;
         }
 
         if (notify_bits & DEV_CB_EVT_SUSPEND_REMOTE_WAKE_DIS) {
-            TEST_FAIL_MESSAGE("Device does not have remote wakeup feature enabled");
+            //TEST_FAIL_MESSAGE("Device does not have remote wakeup feature enabled");
         }
 
         if (notify_bits & DEV_CB_EVT_SUSPEND_REMOTE_WAKE_EN) {
@@ -264,7 +270,7 @@ TEST_CASE("mock_dev_app_remote_wake_dconn", "[cdc_acm_mock_dev][remote_wake_dcon
     uint32_t mask_notify_bits = 0;
 
     while (1) {
-        const uint32_t notify_bits = device_cb_handler(mask_notify_bits);
+        const uint32_t notify_bits = device_cb_handler(&mask_notify_bits);
         if (notify_bits & DEV_CB_EVT_RESUME) {
             TEST_FAIL_MESSAGE("We are not expecting the device to deliver resume callback in this test mode");
         }
