@@ -568,6 +568,134 @@ err:
     return ret;
 }
 
+#ifdef CDC_HOST_REMOTE_WAKE_SUPPORTED
+
+/**
+ * @brief Enable/Disable remote wakeup on device
+ *
+ * @param[in] cdc_dev       Pointer to CDC device
+ * @param[in] enable        Enable/Disable remote wakeup
+ * @return
+ *     - ESP_OK:                   Success
+ *     - ESP_ERR_TIMEOUT:          Transfer timed out, or failed to acquire ctr transfer mutex
+ *     - ESP_ERR_INVALID_RESPONSE: Invalid response of the control transfer
+ *     - Errors propagated from caller functions
+ */
+static esp_err_t cdc_acm_host_enable_remote_wakeup(cdc_dev_t *cdc_dev, bool enable)
+{
+    esp_err_t ret;
+
+    // Take Mutex and fill the CTRL request
+    BaseType_t taken = xSemaphoreTake(cdc_dev->ctrl_mux, pdMS_TO_TICKS(CDC_ACM_CTRL_TIMEOUT_MS));
+    if (!taken) {
+        return ESP_ERR_TIMEOUT;
+    }
+
+    usb_setup_packet_t *req = (usb_setup_packet_t *)(cdc_dev->ctrl_transfer->data_buffer);
+    if (enable) {
+        USB_SETUP_PACKET_INIT_SET_FEATURE(req, DEVICE_REMOTE_WAKEUP);
+    } else {
+        USB_SETUP_PACKET_INIT_CLEAR_FEATURE(req, DEVICE_REMOTE_WAKEUP);
+    }
+    cdc_dev->ctrl_transfer->num_bytes = sizeof(usb_setup_packet_t);
+
+    ESP_GOTO_ON_ERROR(
+        usb_host_transfer_submit_control(p_cdc_acm_obj->cdc_acm_client_hdl, cdc_dev->ctrl_transfer),
+        unblock, TAG, "CTRL transfer failed");
+
+    taken = xSemaphoreTake((SemaphoreHandle_t)cdc_dev->ctrl_transfer->context, pdMS_TO_TICKS(CDC_ACM_CTRL_TIMEOUT_MS));
+    if (!taken) {
+        // Transfer was not finished, error in USB LIB. Reset the endpoint
+        cdc_acm_reset_transfer_endpoint(cdc_dev->dev_hdl, cdc_dev->ctrl_transfer);
+        ret = ESP_ERR_TIMEOUT;
+        goto unblock;
+    }
+
+    ESP_GOTO_ON_FALSE(cdc_dev->ctrl_transfer->status == USB_TRANSFER_STATUS_COMPLETED, ESP_ERR_INVALID_RESPONSE, unblock, TAG, "Control transfer error");
+    ESP_GOTO_ON_FALSE(cdc_dev->ctrl_transfer->actual_num_bytes == cdc_dev->ctrl_transfer->num_bytes, ESP_ERR_INVALID_RESPONSE, unblock, TAG, "Incorrect number of bytes transferred");
+    ret = ESP_OK;
+
+unblock:
+    xSemaphoreGive(cdc_dev->ctrl_mux);
+    return ret;
+}
+
+/**
+ * @brief Check remote wakeup status on device
+ *
+ * Remote wakeup feature is pre-device, not per interface
+ *
+ * @param[in] this_cdc_dev  Pointer to the current CDC device
+ * @param[in] dev_config    Device configuration
+ * @param[in] config_desc   Configuration descriptor of the device
+ * @return
+ *     - ESP_OK:                   Success
+ *     - Errors propagated from caller functions
+ */
+static esp_err_t cdc_acm_host_check_remote_wakeup(cdc_dev_t *this_cdc_dev, const cdc_acm_host_device_config_t *dev_config, const usb_config_desc_t *config_desc)
+{
+    cdc_dev_t *cdc_dev;
+    cdc_dev_t *tcdc_dev;
+    bool remote_wake_enabled = false;       // Disabled by default (if supported) after reset
+    const bool remote_wake_supported = (bool)(config_desc->bmAttributes & USB_BM_ATTRIBUTES_WAKEUP);
+
+    // Go through all pseudo devices and find out whether physical USB Device has remote wakeup enabled/disabled
+    SLIST_FOREACH_SAFE(cdc_dev, &p_cdc_acm_obj->cdc_devices_list, list_entry, tcdc_dev) {
+        if ((cdc_dev->dev_hdl == this_cdc_dev->dev_hdl) && (cdc_dev != this_cdc_dev)) {
+            remote_wake_enabled = cdc_dev->remote_wakeup_enabled;
+            break;
+        }
+    }
+
+    if (dev_config->enable_remote_wakeup) {
+        // User wants to enable remote wakeup
+        if (remote_wake_supported) {
+            // Remote wakeup is supported by the device
+            if (remote_wake_enabled) {
+                // Remote wakeup was already enabled by another interface (save ctrl transfer)
+                ESP_LOGW(TAG, "Remote wakeup already enabled on this device by different interface");
+            } else {
+                // Remote wakeup is disabled, will be enabled
+                ESP_RETURN_ON_ERROR(cdc_acm_host_enable_remote_wakeup(this_cdc_dev, true), TAG,);
+                ESP_LOGW(TAG, "Remote wakeup enabled on the device");
+                goto update_remote_wake_status;
+            }
+        } else {
+            // User wants to enabled remote wakeup on this device, but it does not support it
+            ESP_LOGW(TAG, "Device does not support remote wakeup");
+        }
+    } else {
+        // User does not want to enable (wants to disable) remote wakeup
+        if (remote_wake_supported) {
+            // Remote wakeup is supported by the device
+            if (remote_wake_enabled) {
+                // Remote wakeup is currently enabled, will be disabled
+                ESP_RETURN_ON_ERROR(cdc_acm_host_enable_remote_wakeup(this_cdc_dev, false), TAG,);
+                ESP_LOGW(TAG, "Remote wakeup disabled on the device");
+                goto update_remote_wake_status;
+            } else {
+                // Remote wakeup is currently disabled (and user does not want to enabled it)
+                // Nothing to do
+            }
+        } else {
+            // Remote wakeup is not supported (and user does not want to enabled it)
+            // Nothing to do
+        }
+    }
+    return ESP_OK;
+
+update_remote_wake_status:
+
+    // Remote wakeup status has changed, update all pseud-devices
+    SLIST_FOREACH_SAFE(cdc_dev, &p_cdc_acm_obj->cdc_devices_list, list_entry, tcdc_dev) {
+        if (cdc_dev->dev_hdl == this_cdc_dev->dev_hdl) {
+            cdc_dev->remote_wakeup_enabled = !remote_wake_enabled;
+        }
+    }
+    return ESP_OK;
+}
+#endif // CDC_HOST_REMOTE_WAKE_SUPPORTED
+
 esp_err_t cdc_acm_host_open(uint16_t vid, uint16_t pid, uint8_t interface_idx, const cdc_acm_host_device_config_t *dev_config, cdc_acm_dev_hdl_t *cdc_hdl_ret)
 {
     esp_err_t ret;
@@ -622,6 +750,11 @@ esp_err_t cdc_acm_host_open(uint16_t vid, uint16_t pid, uint8_t interface_idx, c
         cdc_acm_transfers_allocate(cdc_dev, cdc_info.notif_ep, cdc_info.in_ep, in_buf_size, cdc_info.out_ep, dev_config->out_buffer_size),
         err, TAG,);
     ESP_GOTO_ON_ERROR(cdc_acm_start(cdc_dev, dev_config->event_cb, dev_config->data_cb, dev_config->user_arg), err, TAG,);
+
+#ifdef CDC_HOST_REMOTE_WAKE_SUPPORTED
+    ESP_GOTO_ON_ERROR(cdc_acm_host_check_remote_wakeup(cdc_dev, dev_config, config_desc), err, TAG,);
+#endif //CDC_HOST_REMOTE_WAKE_SUPPORTED
+
     *cdc_hdl_ret = (cdc_acm_dev_hdl_t)cdc_dev;
     xSemaphoreGive(p_cdc_acm_obj->open_close_mutex);
     return ESP_OK;

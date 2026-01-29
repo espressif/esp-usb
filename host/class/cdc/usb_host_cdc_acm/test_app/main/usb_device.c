@@ -83,11 +83,17 @@ static const tusb_desc_device_qualifier_t device_qualifier = {
  *
  * @param[in] mask_notify_bits Notify bits will be masked
  */
-inline static uint32_t device_cb_handler(const uint32_t mask_notify_bits)
+inline static uint32_t device_cb_handler(uint32_t *mask_notify_bits)
 {
+    uint32_t mask = *mask_notify_bits;
     uint32_t notify_bits = 0;
     if (pdTRUE == xTaskNotifyWait(pdFALSE, UINT32_MAX, &notify_bits, portMAX_DELAY)) {
-        notify_bits &= ~mask_notify_bits;
+
+        if (notify_bits & mask) {
+            // masked once
+            *mask_notify_bits = 0;
+        }
+        notify_bits &= ~mask;
         return notify_bits;
     }
     return 0;
@@ -177,7 +183,7 @@ TEST_CASE("mock_dev_app_suspend_dconn", "[cdc_acm_mock_dev][suspend_dconn][ignor
     uint32_t mask_notify_bits = 0;
 
     while (1) {
-        const uint32_t notify_bits = device_cb_handler(mask_notify_bits);
+        const uint32_t notify_bits = device_cb_handler(&mask_notify_bits);
         if (notify_bits & DEV_CB_EVT_SUSPEND_REMOTE_WAKE_DIS) {
 
             TEST_ASSERT(tud_disconnect());
@@ -205,11 +211,81 @@ TEST_CASE("mock_dev_app_resume_dconn", "[cdc_acm_mock_dev][resume_dconn][ignore]
     uint32_t mask_notify_bits = 0;
 
     while (1) {
-        const uint32_t notify_bits = device_cb_handler(mask_notify_bits);
+        const uint32_t notify_bits = device_cb_handler(&mask_notify_bits);
         if (notify_bits & DEV_CB_EVT_RESUME) {
 
             TEST_ASSERT(tud_disconnect());
             ESP_LOGI(CDC_DEV_TAG, "Triggering disconnect");
+
+            // Stay disconnected for a while and trigger connect
+            vTaskDelay(pdMS_TO_TICKS(1000));
+            ESP_LOGI(CDC_DEV_TAG, "Triggering connect");
+            TEST_ASSERT(tud_connect());
+
+            // End of the test: Ignore the suspend event from the device after uninstalling the cdc-acm host
+            mask_notify_bits = DEV_CV_EVT_SUSPEND;
+        }
+    }
+}
+
+/**
+ * @brief Run CDC-ACM Device with 2 interfaces in a loopback mode
+ * Device performs remote wakeup upon receiving Suspend callback
+ */
+TEST_CASE("mock_dev_app_remote_wake", "[cdc_acm_mock_dev][remote_wake][ignore]")
+{
+    cdc_acm_mock_device_run();
+    uint32_t mask_notify_bits = 0;
+
+    while (1) {
+        const uint32_t notify_bits = device_cb_handler(&mask_notify_bits);
+        if (notify_bits & DEV_CB_EVT_RESUME) {
+            // The host resumed the device, no action
+            continue;
+        }
+
+        if (notify_bits & DEV_CB_EVT_SUSPEND_REMOTE_WAKE_DIS) {
+            //TEST_FAIL_MESSAGE("Device does not have remote wakeup feature enabled");
+        }
+
+        if (notify_bits & DEV_CB_EVT_SUSPEND_REMOTE_WAKE_EN) {
+            // Device is now in suspended state with remote wakeup enabled, start remote wakeup signaling
+            vTaskDelay(pdMS_TO_TICKS(1000));
+            ESP_LOGI(CDC_DEV_TAG, "Triggering remote wakeup");
+            TEST_ASSERT(tud_remote_wakeup());
+
+            // End of the test: Ignore the suspend event from the device after uninstalling the cdc-acm host
+            mask_notify_bits = DEV_CV_EVT_SUSPEND;
+        }
+    }
+}
+
+/**
+ * @brief Run CDC-ACM Device with 2 interfaces in a loopback mode
+ * Device performs remote wakeup followed by a sudden disconnect and connect upon receiving Suspend callback
+ */
+TEST_CASE("mock_dev_app_remote_wake_dconn", "[cdc_acm_mock_dev][remote_wake_dconn][ignore]")
+{
+    cdc_acm_mock_device_run();
+    uint32_t mask_notify_bits = 0;
+
+    while (1) {
+        const uint32_t notify_bits = device_cb_handler(&mask_notify_bits);
+        if (notify_bits & DEV_CB_EVT_RESUME) {
+            TEST_FAIL_MESSAGE("We are not expecting the device to deliver resume callback in this test mode");
+        }
+
+        if (notify_bits & DEV_CB_EVT_SUSPEND_REMOTE_WAKE_DIS) {
+            TEST_FAIL_MESSAGE("Device does not have remote wakeup feature enabled");
+        }
+
+        if (notify_bits & DEV_CB_EVT_SUSPEND_REMOTE_WAKE_EN) {
+            // Device is now in suspended state with remote wakeup enabled
+            // Start remote wakeup signaling followed by sudden disconnect
+            vTaskDelay(pdMS_TO_TICKS(1000));
+            ESP_LOGI(CDC_DEV_TAG, "Triggering remote wakeup and sudden disconnect");
+            TEST_ASSERT(tud_remote_wakeup());
+            TEST_ASSERT(tud_disconnect());
 
             // Stay disconnected for a while and trigger connect
             vTaskDelay(pdMS_TO_TICKS(1000));

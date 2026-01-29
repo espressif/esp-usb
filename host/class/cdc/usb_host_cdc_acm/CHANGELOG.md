@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- Added remote wakeup feature
 - Added missing CTS signal definition in `cdc_acm_uart_state_t` to complete RS-232 set
 - Added support for storing user-defined, device-specific data within CDC-ACM-like driver implementations via `cdc_acm_host_interface.h`
 

@@ -59,5 +59,6 @@ struct cdc_dev_s {
     cdc_data_protocol_t data_protocol;
     int cdc_func_desc_cnt;                // Number of CDC Functional descriptors in following array
     const usb_standard_desc_t *(*cdc_func_desc)[]; // Pointer to array of pointers to const usb_standard_desc_t
+    bool remote_wakeup_enabled;           // Remote wakeup currently enabled/disabled on the device
     SLIST_ENTRY(cdc_dev_s) list_entry;
 };

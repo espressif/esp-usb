@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2025-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -8,12 +8,23 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include "esp_idf_version.h"
 #include "usb/usb_types_cdc.h"
 #include "usb/usb_host.h"               // For USB Host suspend/resume API
 
 // For backward compatibility with IDF versions which do not have suspend/resume api
 #ifdef USB_HOST_LIB_EVENT_FLAGS_AUTO_SUSPEND
 #define CDC_HOST_SUSPEND_RESUME_API_SUPPORTED
+#endif
+
+// Remote wakeup depends on HAL changes presence in esp-idf
+// On IDF 5.4.x from IDF 5.4.4
+// On IDF 5.5.x from IDF 5.5.3
+// On IDF 6.0.x from IDF 6.0.0
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 4, 4) && ESP_IDF_VERSION <  ESP_IDF_VERSION_VAL(5, 5, 0)
+#define CDC_HOST_REMOTE_WAKE_SUPPORTED
+#elif ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 5, 3)
+#define CDC_HOST_REMOTE_WAKE_SUPPORTED
 #endif
 
 typedef struct cdc_dev_s *cdc_acm_dev_hdl_t;
@@ -74,4 +85,7 @@ typedef struct {
     cdc_acm_host_dev_callback_t event_cb; /**< Device's event callback function. Can be NULL */
     cdc_acm_data_callback_t data_cb;      /**< Device's data RX callback function. Can be NULL for write-only devices */
     void *user_arg;                       /**< User's argument that will be passed to the callbacks */
+#ifdef CDC_HOST_REMOTE_WAKE_SUPPORTED
+    bool enable_remote_wakeup;            /**< Enable remote wakeup functionality on the device (if supported) */
+#endif // CDC_HOST_REMOTE_WAKE_SUPPORTED
 } cdc_acm_host_device_config_t;
