@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2020-2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2020-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -10,6 +10,7 @@
 #include "esp_err.h"
 #include "soc/soc_caps.h"
 #include "tusb.h"
+#include "sdkconfig.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -103,10 +104,14 @@ typedef struct {
  * @brief TinyUSB event type
  */
 typedef enum {
-    TINYUSB_EVENT_ATTACHED,             /*!< USB device attached to the Host */
-    TINYUSB_EVENT_DETACHED,             /*!< USB device detached from the Host */
-    TINYUSB_EVENT_SUSPENDED,            /*!< USB device suspended */
-    TINYUSB_EVENT_RESUMED,              /*!< USB device resumed */
+    TINYUSB_EVENT_ATTACHED = 0,             /*!< USB device attached to the Host */
+    TINYUSB_EVENT_DETACHED = 1,             /*!< USB device detached from the Host */
+#ifdef CONFIG_TINYUSB_SUSPEND_CALLBACK
+    TINYUSB_EVENT_SUSPENDED = 2,            /*!< USB device suspended */
+#endif // CONFIG_TINYUSB_SUSPEND_CALLBACK
+#ifdef CONFIG_TINYUSB_RESUME_CALLBACK
+    TINYUSB_EVENT_RESUMED = 3,              /*!< USB device resumed */
+#endif // CONFIG_TINYUSB_RESUME_CALLBACK
 } tinyusb_event_id_t;
 
 /**

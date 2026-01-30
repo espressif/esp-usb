@@ -1,9 +1,10 @@
 # SPDX-FileCopyrightText: 2026 Espressif Systems (Shanghai) CO LTD
 # SPDX-License-Identifier: Apache-2.0
 
+from time import sleep
 import pytest
 import usb.core
-from time import sleep
+import usb.util
 from serial import Serial, SerialException
 from serial.tools.list_ports import comports
 from pytest_embedded_idf.dut import IdfDut
@@ -58,7 +59,7 @@ def test_usb_device_suspend_resume(dut: IdfDut) -> None:
         if (p.vid == DUT_VID and p.pid == DUT_PID):
             ports.append(p.device)
 
-    if not len(ports):
+    if len(ports) == 0:
         raise Exception('TinyUSB COM port not found')
 
     try:
@@ -131,7 +132,7 @@ def check_remote_wake_feature(VID: int, PID: int, has_remote_wake: bool) -> None
     cfg = dev.get_active_configuration()
     remote_wake_supported = bool(cfg.bmAttributes & USB_BM_ATTRIBUTES_WAKEUP)
 
-    if (remote_wake_supported):
+    if remote_wake_supported:
         print("Device advertises remote wakeup feature in it's descriptor")
     else:
         print("Device does not advertise remote wakeup feature in it's descriptor")

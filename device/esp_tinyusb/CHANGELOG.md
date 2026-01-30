@@ -1,6 +1,6 @@
 ## [Unreleased]
 
-- Added Suspend/Resume device events invoked by tud_suspend_cb and tud_resume_cb
+- Added configurable Suspend/Resume device event support using TinyUSB callbacks `tud_suspend_cb` and `tud_resume_cb`
 
 ## 2.0.1~1
 

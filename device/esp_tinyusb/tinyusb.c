@@ -84,6 +84,7 @@ void tud_umount_cb(void)
     }
 }
 
+#ifdef CONFIG_TINYUSB_SUSPEND_CALLBACK
 /**
  * @brief Callback function invoked when device is suspended
  *
@@ -105,7 +106,9 @@ void tud_suspend_cb(bool remote_wakeup_en)
         s_ctx.event_cb(&event, s_ctx.event_arg);
     }
 }
+#endif // CONFIG_TINYUSB_SUSPEND_CALLBACK
 
+#ifdef CONFIG_TINYUSB_RESUME_CALLBACK
 /**
  * @brief Callback function invoked when device is resumed
  *
@@ -124,6 +127,7 @@ void tud_resume_cb(void)
         s_ctx.event_cb(&event, s_ctx.event_arg);
     }
 }
+#endif // CONFIG_TINYUSB_RESUME_CALLBACK
 
 // ==================================================================================
 // ============================= ESP TinyUSB Driver =================================

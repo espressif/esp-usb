@@ -126,15 +126,6 @@ static void cdc_acm_mock_device_run(void)
 
 /* TinyUSB device callbacks */
 
-
-/*  TODO: Update the tinyusb initialization to esp_tinyusb V.2
-
-Reason: Hid host mock device already uses esp_tinyusb V.2
-        V.2 uses device callback handler: Suspend/Resume callbacks needed for further HID Host tests are missing in tinyusb.c
-        After updating tinyusb.c with the SUspend/Resume callbacks There is a linker error about tud_suspend_cb tud_resume_cb
-        As the callbacks are already defined in this file.
-
-
 // Called when USB bus is suspended
 void tud_suspend_cb(bool remote_wakeup_en)
 {
@@ -160,7 +151,6 @@ void tud_resume_cb(void)
     xTaskNotify(main_task_hdl, DEV_CB_EVT_RESUME, eSetBits);
     ESP_LOGI(CDC_DEV_TAG, "resumed");
 }
-*/
 
 /* Following test cases implement dual CDC-ACM USB device that can be used as mock device for CDC-ACM Host tests */
 
