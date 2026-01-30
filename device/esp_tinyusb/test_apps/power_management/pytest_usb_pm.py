@@ -178,3 +178,8 @@ def test_usb_device_remote_wakeup_en(dut: IdfDut) -> None:
     dut.expect_exact(TINYUSB_EVENTS['resumed'])
     # Expect device suspend event (auto suspend) with remote wakeup enabled
     dut.expect_exact(TINYUSB_EVENTS['suspended_remote_wake_en'])
+
+    # Device called remote wakeup
+
+    # Expect device to resume (remote wakeup)
+    dut.expect_exact(TINYUSB_EVENTS['resumed'])

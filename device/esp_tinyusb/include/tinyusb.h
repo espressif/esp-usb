@@ -180,6 +180,17 @@ esp_err_t tinyusb_driver_install(const tinyusb_config_t *config);
  */
 esp_err_t tinyusb_driver_uninstall(void);
 
+/**
+ * @brief Send a remote wakeup signal to the USB host
+ *
+ * @note This function can be called only when the device is suspended and the host has enabled remote wakeup.
+ *
+ * @retval ESP_ERR_INVALID_STATE Remote wakeup is not enabled by the host
+ * @retval ESP_FAIL Remote wakeup request failed
+ * @retval ESP_OK Remote wakeup request sent successfully
+ */
+esp_err_t tinyusb_remote_wakeup(void);
+
 #ifdef __cplusplus
 }
 #endif

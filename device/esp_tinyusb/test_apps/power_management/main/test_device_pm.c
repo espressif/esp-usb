@@ -287,6 +287,9 @@ TEST_CASE("tinyusb_remote_wakeup_reporting", "[esp_tinyusb][device_pm_remote_wak
     expect_device_event(EVENT_BITS_ATTACHED, pdMS_TO_TICKS(DEVICE_EVENT_WAIT_MS));
     expect_device_event(EVENT_BITS_SUSPENDED_REMOTE_WAKE_DIS, pdMS_TO_TICKS(DEVICE_EVENT_WAIT_MS));
 
+    // Try to signalize remote wakeup, when the host did not enable it
+    TEST_ASSERT_EQUAL(ESP_ERR_INVALID_STATE, tinyusb_remote_wakeup());
+
     // Pytest enables remote wakeup on the device by sending a ctrl transfer to the the device
     // Expect the device to:
     //  - resumed (because of the ctrl transfer)
@@ -294,6 +297,10 @@ TEST_CASE("tinyusb_remote_wakeup_reporting", "[esp_tinyusb][device_pm_remote_wak
 
     expect_device_event(EVENT_BITS_RESUMED, pdMS_TO_TICKS(DEVICE_EVENT_WAIT_MS));
     expect_device_event(EVENT_BITS_SUSPENDED_REMOTE_WAKE_EN, pdMS_TO_TICKS(DEVICE_EVENT_WAIT_MS));
+
+    // Signalize remote wakeup and expect resume event
+    TEST_ASSERT_EQUAL(ESP_OK, tinyusb_remote_wakeup());
+    expect_device_event(EVENT_BITS_RESUMED, pdMS_TO_TICKS(DEVICE_EVENT_WAIT_MS));
 
     ESP_LOGI(TAG, "Cleanup");
     tinyusb_cdcacm_deinit(TINYUSB_CDC_ACM_0);
