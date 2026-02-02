@@ -146,6 +146,8 @@ jobs:
     container:
       image: python:3.11-bookworm
       options: --privileged --device-cgroup-rule="c 188:* rmw" --device-cgroup-rule="c 166:* rmw"
+      volumes:
+        - /dev/bus/usb:/dev/bus/usb
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
@@ -157,7 +159,7 @@ jobs:
         if: success() && steps.download_artifact.outcome == 'success'
         run: |
           apt-get update -y
-          apt-get install -y usbutils
+          apt-get install -y usbutils libusb-1.0-0
       - name: Install Python packages
         if: success() && steps.download_artifact.outcome == 'success'
         env:

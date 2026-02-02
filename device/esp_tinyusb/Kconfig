@@ -20,6 +20,44 @@ menu "TinyUSB Stack"
         endchoice
     endmenu # "TinyUSB DCD"
 
+    menu "TinyUSB callbacks"
+        config TINYUSB_SUSPEND_CALLBACK
+            bool "Register suspend callback"
+            default n
+            help
+                Register TinyUSB's suspend callback (tud_suspend_cb()) in esp_tinyusb.
+
+                When enabled, esp_tinyusb provides a strong implementation of
+                tud_suspend_cb() and dispatches TINYUSB_EVENT_SUSPENDED via the
+                esp_tinyusb device event callback.
+
+                When disabled, tinyusb provides weak implementation of the tud_suspend_cb(),
+                and user can provide it's own strong implementation of the tud_suspend_cb().
+
+                NOTE: When this option is enabled, user applications MUST NOT
+                define tud_suspend_cb() themselves. Defining tud_suspend_cb()
+                in the application while this option is enabled will result in
+                a linker error due to multiple definitions.
+
+        config TINYUSB_RESUME_CALLBACK
+            bool "Register resume callback"
+            default n
+            help
+                Register TinyUSB's resume callback (tud_resume_cb()) in esp_tinyusb.
+
+                When enabled, esp_tinyusb provides a strong implementation of
+                tud_resume_cb() and dispatches TINYUSB_EVENT_RESUMED via the
+                esp_tinyusb device event callback.
+
+                When disabled, tinyusb provides weak implementation of the tud_resume_cb(),
+                and user can provide it's own strong implementation of the tud_resume_cb().
+
+                NOTE: When this option is enabled, user applications MUST NOT
+                define tud_resume_cb() themselves. Defining tud_resume_cb()
+                in the application while this option is enabled will result in
+                a linker error due to multiple definitions.
+    endmenu # "TinyUSB callbacks"
+
     menu "Descriptor configuration"
         comment "You can provide your custom descriptors via tinyusb_driver_install()"
         config TINYUSB_DESC_USE_ESPRESSIF_VID
