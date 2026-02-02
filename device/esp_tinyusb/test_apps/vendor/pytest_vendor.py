@@ -4,12 +4,17 @@
 import pytest
 from pytest_embedded_idf.dut import IdfDut
 from pytest_embedded_idf.utils import idf_parametrize
-import usb.core
-import usb.util
 from time import sleep
 
+# Mainly for a local run, as there is no error when pyusb is not installed and the pytest silently fails
+try:
+    import usb.core
+    import usb.util
+except ImportError as e:
+    raise RuntimeError("pyusb is not installed. Install it with: pip install pyusb") from e
 
-def find_interface_by_index(device, interface_index):
+
+def find_interface_by_index(device, interface_index: int) -> int:
     '''
     Function to find the interface by index
     '''
@@ -20,7 +25,7 @@ def find_interface_by_index(device, interface_index):
     return None
 
 
-def send_data_to_intf(VID, PID, interface_index):
+def send_data_to_intf(VID: int, PID: int, interface_index: int) -> None:
     '''
     Find a device, its interface and dual BULK endpoints
     Send some data to it
@@ -35,19 +40,17 @@ def send_data_to_intf(VID, PID, interface_index):
     if intf is None:
         raise ValueError(f"Interface with index {interface_index} not found")
 
-    if intf:
+    try:
         def ep_read(len):
             try:
                 return ep_in.read(len, 100)
-            except:
+            except usb.core.USBError:
                 return None
         def ep_write(buf):
             try:
                 ep_out.write(buf, 100)
-            except:
+            except usb.core.USBError:
                 pass
-
-        maximum_packet_size = 64
 
         ep_in  = usb.util.find_descriptor(intf, custom_match = \
         lambda e: usb.util.endpoint_direction(e.bEndpointAddress) == usb.util.ENDPOINT_IN)
@@ -57,15 +60,19 @@ def send_data_to_intf(VID, PID, interface_index):
 
         #print(ep_in)
         #print(ep_out)
+        maximum_packet_size = ep_in.wMaxPacketSize
         buf = "IF{}\n".format(interface_index).encode('utf-8')
         ep_write(bytes(buf))
 
         ep_read(maximum_packet_size)
-    else:
-        print("NOT found")
 
+    finally:
+        try:
+            usb.util.dispose_resources(dev)
+        except usb.core.USBError:
+            pass
 
-#@pytest.mark.usb_device                        Disable in CI, for now, not possible to run this test in Docker container
+#@pytest.mark.usb_device        Disable in CI, for now, not stable when running this test in Docker container
 @idf_parametrize('target', ['esp32s2', 'esp32s3', 'esp32p4'], indirect=['target'])
 def test_usb_device_vendor(dut: IdfDut) -> None:
     '''
