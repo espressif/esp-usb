@@ -13,14 +13,13 @@
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/queue.h"
 
-#define DEV_CB_EVT_SUSPEND_REMOTE_WAKE_DIS  (1U << 0)   /**< Device suspend callback with remote wakeup disabled */
-#define DEV_CB_EVT_SUSPEND_REMOTE_WAKE_EN   (1U << 1)   /**< Device suspend callback with remote wakeup enabled */
-#define DEV_CB_EVT_RESUME                   (1U << 2)   /**< Device resume callback */
-// Any suspend event
-#define DEV_CV_EVT_SUSPEND                  (DEV_CB_EVT_SUSPEND_REMOTE_WAKE_DIS | DEV_CB_EVT_SUSPEND_REMOTE_WAKE_EN)
+#define DEV_EVT_QUEUE_LENGTH                5
 
-static TaskHandle_t main_task_hdl = NULL;
+static QueueHandle_t dev_evt_queue = NULL;
+static StaticQueue_t s_queue_buf;
+static uint8_t ucQueueStorage[DEV_EVT_QUEUE_LENGTH * sizeof(tinyusb_event_t)];
 
 const char *CDC_DEV_TAG = "CDC device";
 static uint8_t buf[CONFIG_TINYUSB_CDC_RX_BUFSIZE + 1];
@@ -79,24 +78,42 @@ static const tusb_desc_device_qualifier_t device_qualifier = {
 #endif // TUD_OPT_HIGH_SPEED
 
 /**
- * @brief Device callback events handler
+ * @brief TinyUSB device events handler
  *
- * @param[in] mask_notify_bits Notify bits will be masked
+ * @param[in] event Device event
+ * @param[in] arg User arguments
  */
-inline static uint32_t device_cb_handler(const uint32_t mask_notify_bits)
+static void device_event_handler(tinyusb_event_t *event, void *arg)
 {
-    uint32_t notify_bits = 0;
-    if (pdTRUE == xTaskNotifyWait(pdFALSE, UINT32_MAX, &notify_bits, portMAX_DELAY)) {
-        notify_bits &= ~mask_notify_bits;
-        return notify_bits;
+    switch (event->id) {
+    case TINYUSB_EVENT_ATTACHED:
+        ESP_LOGI(CDC_DEV_TAG, "TinyUSB event: Device attached");
+        break;
+    case TINYUSB_EVENT_DETACHED:
+        ESP_LOGI(CDC_DEV_TAG, "TinyUSB event: Device detached");
+        break;
+    case TINYUSB_EVENT_SUSPENDED:
+        ESP_LOGI(CDC_DEV_TAG, "TinyUSB event: Device suspended with remote wakeup %s",
+                 ((event->suspended.remote_wakeup) ? ("enabled") : ("disabled")));
+        break;
+    case TINYUSB_EVENT_RESUMED:
+        ESP_LOGI(CDC_DEV_TAG, "TinyUSB event: Device resumed");
+        break;
+    default:
+        break;
     }
-    return 0;
+
+    xQueueSend(dev_evt_queue, event, 0);
 }
 
 static void cdc_acm_mock_device_run(void)
 {
+    // Create static app message queue
+    dev_evt_queue = xQueueCreateStatic(DEV_EVT_QUEUE_LENGTH, sizeof(tinyusb_event_t), &(ucQueueStorage[0]), &s_queue_buf);
+    configASSERT(dev_evt_queue);
+
     ESP_LOGI(CDC_DEV_TAG, "Initialization");
-    tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG();
+    tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG(device_event_handler);
     tusb_cfg.descriptor.device = &cdc_device_descriptor;
     tusb_cfg.descriptor.full_speed_config = cdc_fs_desc_configuration;
 #if (TUD_OPT_HIGH_SPEED)
@@ -120,36 +137,7 @@ static void cdc_acm_mock_device_run(void)
     ESP_ERROR_CHECK(tinyusb_cdcacm_init(&amc_cfg));
 #endif
 
-    main_task_hdl = xTaskGetCurrentTaskHandle();
     printf("USB initialization DONE\n");
-}
-
-/* TinyUSB device callbacks */
-
-// Called when USB bus is suspended
-void tud_suspend_cb(bool remote_wakeup_en)
-{
-    if (! main_task_hdl) {
-        return;
-    }
-
-    const uint32_t notify_bits = (remote_wakeup_en) ?
-                                 (DEV_CB_EVT_SUSPEND_REMOTE_WAKE_EN) :
-                                 (DEV_CB_EVT_SUSPEND_REMOTE_WAKE_DIS);
-
-    xTaskNotify(main_task_hdl, notify_bits, eSetBits);
-    ESP_LOGI(CDC_DEV_TAG, "Suspended with remote wakeup %s", ( (remote_wakeup_en) ? ("enabled") : ("disabled") ));
-}
-
-// Called when USB bus resumes
-void tud_resume_cb(void)
-{
-    if (! main_task_hdl) {
-        return;
-    }
-
-    xTaskNotify(main_task_hdl, DEV_CB_EVT_RESUME, eSetBits);
-    ESP_LOGI(CDC_DEV_TAG, "resumed");
 }
 
 /* Following test cases implement dual CDC-ACM USB device that can be used as mock device for CDC-ACM Host tests */
@@ -174,22 +162,34 @@ TEST_CASE("mock_dev_app_dual_iface", "[cdc_acm_mock_dev][dual_iface][ignore]")
 TEST_CASE("mock_dev_app_suspend_dconn", "[cdc_acm_mock_dev][suspend_dconn][ignore]")
 {
     cdc_acm_mock_device_run();
-    uint32_t mask_notify_bits = 0;
+    tinyusb_event_id_t mask_event = UINT32_MAX;
 
     while (1) {
-        const uint32_t notify_bits = device_cb_handler(mask_notify_bits);
-        if (notify_bits & DEV_CB_EVT_SUSPEND_REMOTE_WAKE_DIS) {
+        tinyusb_event_t dev_event;
+        if (xQueueReceive(dev_evt_queue, &dev_event, portMAX_DELAY)) {
 
-            TEST_ASSERT(tud_disconnect());
-            ESP_LOGI(CDC_DEV_TAG, "Triggering disconnect");
+            if (mask_event == dev_event.id) {
+                ESP_LOGD(CDC_DEV_TAG, "Event %d masked", dev_event.id);
+                continue;
+            }
 
-            // Stay disconnected for a while and trigger connect
-            vTaskDelay(pdMS_TO_TICKS(1000));
-            ESP_LOGI(CDC_DEV_TAG, "Triggering connect");
-            TEST_ASSERT(tud_connect());
+            switch (dev_event.id) {
+            case TINYUSB_EVENT_SUSPENDED:
+                TEST_ASSERT(tud_disconnect());
+                ESP_LOGI(CDC_DEV_TAG, "Triggering disconnect");
 
-            // End of the test: Ignore the suspend event from the device after uninstalling the cdc-acm host
-            mask_notify_bits = DEV_CV_EVT_SUSPEND;
+                // Stay disconnected for a while and trigger connect
+                vTaskDelay(pdMS_TO_TICKS(1000));
+
+                ESP_LOGI(CDC_DEV_TAG, "Triggering connect");
+                TEST_ASSERT(tud_connect());
+
+                // End of the test: Mask next suspend event (auto suspend) from the device after uninstalling the cdc-acm host
+                mask_event = TINYUSB_EVENT_SUSPENDED;
+                break;
+            default:
+                break;
+            }
         }
     }
 }
@@ -202,22 +202,25 @@ TEST_CASE("mock_dev_app_suspend_dconn", "[cdc_acm_mock_dev][suspend_dconn][ignor
 TEST_CASE("mock_dev_app_resume_dconn", "[cdc_acm_mock_dev][resume_dconn][ignore]")
 {
     cdc_acm_mock_device_run();
-    uint32_t mask_notify_bits = 0;
 
     while (1) {
-        const uint32_t notify_bits = device_cb_handler(mask_notify_bits);
-        if (notify_bits & DEV_CB_EVT_RESUME) {
+        tinyusb_event_t dev_event;
+        if (xQueueReceive(dev_evt_queue, &dev_event, portMAX_DELAY)) {
 
-            TEST_ASSERT(tud_disconnect());
-            ESP_LOGI(CDC_DEV_TAG, "Triggering disconnect");
+            switch (dev_event.id) {
+            case TINYUSB_EVENT_RESUMED:
+                TEST_ASSERT(tud_disconnect());
+                ESP_LOGI(CDC_DEV_TAG, "Triggering disconnect");
 
-            // Stay disconnected for a while and trigger connect
-            vTaskDelay(pdMS_TO_TICKS(1000));
-            ESP_LOGI(CDC_DEV_TAG, "Triggering connect");
-            TEST_ASSERT(tud_connect());
+                // Stay disconnected for a while and trigger connect
+                vTaskDelay(pdMS_TO_TICKS(1000));
 
-            // End of the test: Ignore the suspend event from the device after uninstalling the cdc-acm host
-            mask_notify_bits = DEV_CV_EVT_SUSPEND;
+                ESP_LOGI(CDC_DEV_TAG, "Triggering connect");
+                TEST_ASSERT(tud_connect());
+                break;
+            default:
+                break;
+            }
         }
     }
 }
