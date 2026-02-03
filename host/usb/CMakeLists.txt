@@ -72,3 +72,24 @@ idf_component_register(SRCS ${srcs}
 if(CONFIG_COMPILER_STATIC_ANALYZER AND CMAKE_C_COMPILER_ID STREQUAL "GNU") # TODO GCC-366 (segfault)
     set_property(SOURCE usb_host.c PROPERTY COMPILE_FLAGS -fno-analyzer)
 endif()
+
+# Create public symbol representing remote wakeup changes availability based on IDF version
+# Remote wakeup HAL changes are present:
+# On IDF 5.4.x from IDF 5.4.4
+# On IDF 5.5.x from IDF 5.5.3
+# On IDF 6.0.x from IDF 6.0.0
+set(REMOTE_WAKE_HAL_SUPPORTED OFF)
+set(IDF_VERSION "${IDF_VERSION_MAJOR}.${IDF_VERSION_MINOR}.${IDF_VERSION_PATCH}")
+
+# IDF 5.4.x from 5.4.4
+if(IDF_VERSION VERSION_GREATER_EQUAL "5.4.4" AND IDF_VERSION VERSION_LESS "5.5.0")
+    set(REMOTE_WAKE_HAL_SUPPORTED ON)
+
+# IDF 5.5.x from 5.5.3 and all 6.x+
+elseif(IDF_VERSION VERSION_GREATER_EQUAL "5.5.3")
+    set(REMOTE_WAKE_HAL_SUPPORTED ON)
+endif()
+
+if(REMOTE_WAKE_HAL_SUPPORTED)
+    target_compile_definitions(${COMPONENT_LIB} PUBLIC REMOTE_WAKE_HAL_SUPPORTED)
+endif()
