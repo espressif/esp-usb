@@ -255,10 +255,15 @@ If any descriptor field is set to `NULL`, default descriptor will be assigned du
 
 ### USB PHY configuration & Self-Powered Device
 
-For self-powered devices, monitoring the VBUS voltage is required. To do this:
+USB 2.0 requires self‑powered devices to sense VBUS and only present the pull‑up (attach) when VBUS is valid. If VBUS falls out of range, the device must detach and must not back‑power the bus. TinyUSB uses VBUS presence to drive connect/disconnect events in the DCD layer, so the VBUS sense signal must be correct. More information is available [here](https://docs.espressif.com/projects/esp-usb/en/latest/esp32p4/usb_device.html#self-powered-device).
 
-- Configure a GPIO pin as an input, using an external voltage divider or comparator to detect the VBUS state.
-- Set `self_powered = true` and assign the VBUS monitor GPIO in the `tinyusb_config_t` structure.
+In esp_tinyusb, enable this by setting `self_powered = true` and providing a GPIO that reflects VBUS validity. The PHY is configured with that GPIO (via `USB_PHY_SELF_POWERED_DEVICE()`), and the TinyUSB stack will correctly detect attach/detach.
+
+Hardware requirements for VBUS sense:
+
+- VBUS valid range is 4.40 V to 5.25 V at the device port (USB 2.0). ESP pins are not 5 V tolerant, so the sensing circuit must output a clean logic level at Vdd (typically 3.3 V).
+- If using a resistor divider, the divider output should be at least 0.75 * Vdd when VBUS is 4.4 V.
+- If using a comparator, use hysteresis with thresholds around 4.75 V (rising) and 4.35 V (falling).
 
 ```c
   #include "tinyusb_default_config.h"
@@ -268,13 +273,13 @@ For self-powered devices, monitoring the VBUS voltage is required. To do this:
     tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG();
 
     tusb_cfg.phy.self_powered = true;
-    tusb_cfg.phy.vbus_monitor_io = GPIO_NUM_0;
+    tusb_cfg.phy.vbus_monitor_io = GPIO_NUM_0; // GPIO that reflects VBUS validity
 
     tinyusb_driver_install(&tusb_cfg);
   }
 ```
 
-If external PHY is used:
+If you use the external PHY (ESP32-S3 only), you must initialize the PHY explicitly before installing esp_tinyusb driver:
 
 ```c
   #include "tinyusb_default_config.h"
@@ -282,11 +287,16 @@ If external PHY is used:
 
   void main(void)
   {
-    // Initialize the USB PHY externally
-    usb_new_phy(...);
+    // Configuring VBUS monitor IO is mandatory only for self-powered devices
+    const usb_phy_otg_io_conf_t otg_io_conf = USB_PHY_SELF_POWERED_DEVICE(vbus_monitor_io);
 
+    // Initialize the external USB PHY
+    usb_phy_config_t phy_conf = { ... };
+    phy_conf.otg_io_conf = &otg_io_conf;
+    usb_new_phy(&phy_conf, ...);
+
+    // Skip PHY initialization in esp_tinyusb
     tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG();
-
     tusb_cfg.phy.skip_setup = true;
 
     tinyusb_driver_install(&tusb_cfg);

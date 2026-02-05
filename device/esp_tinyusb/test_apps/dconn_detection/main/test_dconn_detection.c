@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2024-2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2024-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -9,88 +9,53 @@
 #if SOC_USB_OTG_SUPPORTED
 
 #include <stdio.h>
-#include <string.h>
-#include "esp_system.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "esp_log.h"
 #include "esp_err.h"
 #include "driver/gpio.h"
-#include "esp_rom_gpio.h"
-#include "soc/gpio_sig_map.h"
 #include "unity.h"
 #include "tinyusb.h"
 #include "tinyusb_default_config.h"
 
 #define DEVICE_DETACH_TEST_ROUNDS       10
-#define DEVICE_DETACH_ROUND_DELAY_MS    1000
+#define DEVICE_DETACH_ROUND_DELAY_MS    150
+#define VBUS_GPIO_NUM                   GPIO_NUM_6
 
-#if (CONFIG_IDF_TARGET_ESP32P4)
-#define USB_SRP_BVALID_IN_IDX       USB_SRP_BVALID_PAD_IN_IDX
-#endif // CONFIG_IDF_TARGET_ESP32P4
-
-/* TinyUSB descriptors
-   ********************************************************************* */
-#define TUSB_DESC_TOTAL_LEN         (TUD_CONFIG_DESC_LEN)
+// Set to 1 to simulate the VBUS signal using GPIO. This is useful for automatic CI testing with no user interaction.
+// Set to 0 to use the real VBUS signal from the USB port. This is useful for manual testing with a USB cable.
+//     VBUS must be connected thorough a resistor divider to the GPIO.
+#define SIMULATED_VBUS_SIGNAL           (1)
 
 static unsigned int dev_mounted = 0;
 static unsigned int dev_umounted = 0;
-
-static uint8_t const test_configuration_descriptor[] = {
-    // Config number, interface count, string index, total length, attribute, power in mA
-    TUD_CONFIG_DESCRIPTOR(1, 0, 0, TUSB_DESC_TOTAL_LEN, TUSB_DESC_CONFIG_ATT_SELF_POWERED | TUSB_DESC_CONFIG_ATT_REMOTE_WAKEUP, 100),
-};
-
-static const tusb_desc_device_t test_device_descriptor = {
-    .bLength = sizeof(test_device_descriptor),
-    .bDescriptorType = TUSB_DESC_DEVICE,
-    .bcdUSB = 0x0200,
-    .bDeviceClass = TUSB_CLASS_MISC,
-    .bDeviceSubClass = MISC_SUBCLASS_COMMON,
-    .bDeviceProtocol = MISC_PROTOCOL_IAD,
-    .bMaxPacketSize0 = CFG_TUD_ENDPOINT0_SIZE,
-    .idVendor = 0x303A, // This is Espressif VID. This needs to be changed according to Users / Customers
-    .idProduct = 0x4002,
-    .bcdDevice = 0x100,
-    .iManufacturer = 0x01,
-    .iProduct = 0x02,
-    .iSerialNumber = 0x03,
-    .bNumConfigurations = 0x01
-};
-
-#if (TUD_OPT_HIGH_SPEED)
-static const tusb_desc_device_qualifier_t device_qualifier = {
-    .bLength = sizeof(tusb_desc_device_qualifier_t),
-    .bDescriptorType = TUSB_DESC_DEVICE_QUALIFIER,
-    .bcdUSB = 0x0200,
-    .bDeviceClass = TUSB_CLASS_MISC,
-    .bDeviceSubClass = MISC_SUBCLASS_COMMON,
-    .bDeviceProtocol = MISC_PROTOCOL_IAD,
-    .bMaxPacketSize0 = CFG_TUD_ENDPOINT0_SIZE,
-    .bNumConfigurations = 0x01,
-    .bReserved = 0
-};
-#endif // TUD_OPT_HIGH_SPEED
 
 /**
  * @brief TinyUSB callback for device event
  *
  * @note
- * For Linux-based Hosts: Reflects the SetConfiguration() request from the Host Driver.
- * For Win-based Hosts: SetConfiguration() request is present only with available Class in device descriptor.
+ * TinyUSB generates Attach event after the Host sends the SetConfiguration() request.
+ * - Linux-based Hosts: SetConfiguration() is part of enumeration process.
+ * - Win-based Hosts: SetConfiguration() request is present only if Windows has a driver for the device.
  */
 void test_dconn_event_handler(tinyusb_event_t *event, void *arg)
 {
     switch (event->id) {
     case TINYUSB_EVENT_ATTACHED:
-        printf("%s\n", __FUNCTION__);
+        printf("ATTACHED event %d\n", dev_mounted);
         dev_mounted++;
         break;
     case TINYUSB_EVENT_DETACHED:
-        printf("%s\n", __FUNCTION__);
+        printf("DETACHED event %d\n", dev_umounted);
         dev_umounted++;
         break;
+    case TINYUSB_EVENT_SUSPENDED:
+        printf("SUSPENDED event\n");
+        break;
+    case TINYUSB_EVENT_RESUMED:
+        printf("RESUMED event\n");
+        break;
     default:
+        printf("Unprocessed event %d\n", event->id);
         break;
     }
 }
@@ -98,54 +63,61 @@ void test_dconn_event_handler(tinyusb_event_t *event, void *arg)
 /**
  * @brief TinyUSB Disconnect Detection test case
  *
- * This is specific artificial test for verifying the disconnection detection event.
- * Normally, this event comes as a result of detaching USB device from the port and disappearing the VBUS voltage.
- * In this test case, we use GPIO matrix and connect the signal to the ZERO or ONE constant inputs.
- * Connection to constant ONE input emulates the attachment to the USB Host port (appearing VBUS).
- * Connection to constant ZERO input emulates the detachment from the USB Host port (removing VBUS).
+ * In this test case, we either simulate VBUS on a GPIO or rely on the real VBUS signal.
+ * The VBUS monitor only generates a TinyUSB DCD event on the falling edge (VBUS drop).
  *
  * Test logic:
  * - Install TinyUSB Device stack without any class
  * - In cycle:
- *      - Emulate the detachment, get the tud_umount_cb(), increase the dev_umounted value
- *      - Emulate the attachment, get the tud_mount_cb(), increase the dev_mounted value
- * - Verify that dev_umounted == dev_mounted
- * - Verify that dev_mounted == DEVICE_DETACH_TEST_ROUNDS, where DEVICE_DETACH_TEST_ROUNDS - amount of rounds
+ *      - Emulate the detachment (VBUS high -> low)
+ *      - Verify the DETACHED event counter increases
+ * - Verify that dev_umounted == DEVICE_DETACH_TEST_ROUNDS, where DEVICE_DETACH_TEST_ROUNDS is amount of rounds
  * - Uninstall TinyUSB Device stack
  *
+ * SIMULATED_VBUS_SIGNAL usage:
+ * - Set SIMULATED_VBUS_SIGNAL to 1 to drive VBUS_GPIO_NUM as output and toggle it high/low.
+ *   This is useful for automated CI testing with no user interaction.
+ * - Set SIMULATED_VBUS_SIGNAL to 0 to use the real VBUS signal from the USB port.
+ *   VBUS must be connected through a resistor divider to VBUS_GPIO_NUM for manual testing.
  */
 TEST_CASE("dconn_detection", "[esp_tinyusb][dconn]")
 {
-    unsigned int rounds = DEVICE_DETACH_TEST_ROUNDS;
-
-    // Install TinyUSB driver
-    tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG(test_dconn_event_handler);
-    tusb_cfg.descriptor.device = &test_device_descriptor;
-    tusb_cfg.descriptor.full_speed_config = test_configuration_descriptor;
-#if (TUD_OPT_HIGH_SPEED)
-    tusb_cfg.descriptor.qualifier = &device_qualifier;
-    tusb_cfg.descriptor.high_speed_config = test_configuration_descriptor;
-#endif // TUD_OPT_HIGH_SPEED
-
-    TEST_ASSERT_EQUAL(ESP_OK, tinyusb_driver_install(&tusb_cfg));
-
     dev_mounted = 0;
     dev_umounted = 0;
 
-    while (rounds--) {
-        // LOW to emulate disconnect USB device
-        esp_rom_gpio_connect_in_signal(GPIO_MATRIX_CONST_ZERO_INPUT, USB_SRP_BVALID_IN_IDX, false);
+    gpio_install_isr_service(ESP_INTR_FLAG_LOWMED);
+
+    // Install TinyUSB driver
+    tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG(test_dconn_event_handler);
+    tusb_cfg.phy.self_powered = true;
+    tusb_cfg.phy.vbus_monitor_io = VBUS_GPIO_NUM;
+    TEST_ASSERT_EQUAL(ESP_OK, tinyusb_driver_install(&tusb_cfg));
+
+#if SIMULATED_VBUS_SIGNAL
+    // Enable output path for VBUS GPIO so we can manually control the VBUS signal
+    // Input path is already enabled by the TinyUSB driver
+    gpio_set_level(VBUS_GPIO_NUM, 1);
+    gpio_set_direction(VBUS_GPIO_NUM, GPIO_MODE_INPUT_OUTPUT); // gpio_output_enable() is not available in older idf versions
+
+    for (unsigned int i = 0; i < DEVICE_DETACH_TEST_ROUNDS; i++) {
+        gpio_set_level(VBUS_GPIO_NUM, 1);
         vTaskDelay(pdMS_TO_TICKS(DEVICE_DETACH_ROUND_DELAY_MS));
-        // HIGH to emulate connect USB device
-        esp_rom_gpio_connect_in_signal(GPIO_MATRIX_CONST_ONE_INPUT, USB_SRP_BVALID_IN_IDX, false);
+        gpio_set_level(VBUS_GPIO_NUM, 0);
         vTaskDelay(pdMS_TO_TICKS(DEVICE_DETACH_ROUND_DELAY_MS));
     }
 
-    // Verify
-    TEST_ASSERT_EQUAL(dev_umounted, dev_mounted);
-    TEST_ASSERT_EQUAL(DEVICE_DETACH_TEST_ROUNDS, dev_mounted);
-
+    // We cannot generate ATTACH events by manipulating the VBUS signal
+    // ATTACH events are generated only if we force re-enumeration of the device
+    //TEST_ASSERT_EQUAL(dev_umounted, dev_mounted);
+    TEST_ASSERT_EQUAL(DEVICE_DETACH_TEST_ROUNDS, dev_umounted);
+#else
+    // Just an endless loop to keep the test running
+    while (1) {
+        vTaskDelay(pdMS_TO_TICKS(DEVICE_DETACH_ROUND_DELAY_MS));
+    }
+#endif // SIMULATED_VBUS_SIGNAL
     // Cleanup
     TEST_ASSERT_EQUAL(ESP_OK, tinyusb_driver_uninstall());
+    gpio_uninstall_isr_service();
 }
 #endif // SOC_USB_OTG_SUPPORTED
