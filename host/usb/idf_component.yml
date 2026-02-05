@@ -1,6 +1,6 @@
 ## IDF Component Manager Manifest File
 description: USB Host library
-version: "1.1.0"
+version: "1.2.0"
 url: https://github.com/espressif/esp-usb/tree/master/host/usb
 documentation: "https://docs.espressif.com/projects/esp-idf/en/latest/esp32s2/api-reference/peripherals/usb_host.html"
 issues: "https://github.com/espressif/esp-usb/issues"
