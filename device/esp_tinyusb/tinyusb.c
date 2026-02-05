@@ -11,6 +11,7 @@
 #include "esp_private/usb_phy.h"
 #include "tinyusb.h"
 #include "tinyusb_task.h"
+#include "tinyusb_vbus_monitor.h"
 #include "tusb.h"
 
 #if (CONFIG_TINYUSB_MSC_ENABLED)
@@ -188,6 +189,24 @@ esp_err_t tinyusb_driver_install(const tinyusb_config_t *config)
     // Init TinyUSB stack in task
     ESP_GOTO_ON_ERROR(tinyusb_task_start(config->port, &config->task, &config->descriptor), del_phy, TAG, "Init TinyUSB task failed");
 
+#if (CONFIG_IDF_TARGET_ESP32P4)
+    // Due to hardware limitations on ESP32-P4, VBUS cannot be monitored automatically by the High-Speed USB-OTG peripheral,
+    // so we need to initialize VBUS GPIO monitoring manually.
+
+    // Initialize VBUS monitoring only for High-Speed ports and self-powered devices
+    if (config->port == TINYUSB_PORT_HIGH_SPEED_0 && config->phy.self_powered) {
+        const tinyusb_vbus_monitor_config_t vbus_cfg = {
+            .gpio_num = config->phy.vbus_monitor_io,
+            .port = (int)config->port,
+        };
+        ret = tinyusb_vbus_monitor_init(&vbus_cfg);
+        if (ESP_OK != ret) {
+            tinyusb_task_stop();
+            goto del_phy;
+        }
+    }
+#endif // CONFIG_IDF_TARGET_ESP32P4
+
     s_ctx.port = config->port;              // Save the port number
     s_ctx.phy_hdl = phy_hdl;                // Save the PHY handle for uninstallation
     s_ctx.event_cb = config->event_cb;      // Save the event callback
@@ -211,6 +230,11 @@ esp_err_t tinyusb_driver_uninstall(void)
         ESP_RETURN_ON_ERROR(usb_del_phy(s_ctx.phy_hdl), TAG, "Unable to delete PHY");
         s_ctx.phy_hdl = NULL;
     }
+#if (CONFIG_IDF_TARGET_ESP32P4)
+    if (s_ctx.port == TINYUSB_PORT_HIGH_SPEED_0) {
+        tinyusb_vbus_monitor_deinit();
+    }
+#endif // CONFIG_IDF_TARGET_ESP32P4
     return ESP_OK;
 }
 

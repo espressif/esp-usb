@@ -36,22 +36,21 @@ typedef enum {
 } tinyusb_port_t;
 
 /**
- * @brief TinyUSB PHY configuration
+ * @brief TinyUSB PHY and VBUS monitoring configuration
  *
- * @note This structure is used to configure the USB PHY. The user can set the parameters
- *       according to their requirements.
+ * @note On ESP32-P4 High Speed port, GPIO ISR service must be installed with gpio_install_isr_service() before calling tinyusb_driver_install().
  */
 typedef struct {
     bool skip_setup;                       /*!< If set, the esp_tinyusb will not configure the USB PHY thus allowing
                                                 the user to manually configure the USB PHY before calling tinyusb_driver_install().
                                                 Users should set this if they want to use an external USB PHY. Otherwise,
                                                 the esp_tinyusb will automatically configure the internal USB PHY */
-    // Relevant only when skip_setup is false
-    bool self_powered;                        /*!< USB specification mandates self-powered devices to monitor USB VBUS to detect connection/disconnection events.
+    bool self_powered;                     /*!< USB specification mandates self-powered devices to monitor USB VBUS to detect connection/disconnection events.
                                                 To use this feature, connect VBUS to any free GPIO through a voltage divider or voltage comparator.
                                                 The voltage divider output should be (0.75 * Vdd) if VBUS is 4.4V (lowest valid voltage at device port).
-                                                The comparator thresholds should be set with hysteresis: 4.35V (falling edge) and 4.75V (raising edge). */
-    int vbus_monitor_io;                      /*!< GPIO for VBUS monitoring, 3.3 V tolerant (use a comparator or a resistior divider to detect the VBUS valid condition). Ignored if not self_powered. */
+                                                The comparator thresholds should be set with hysteresis: 4.35V (falling edge) and 4.75V (raising edge).
+                                                On ESP32-P4 High Speed port, GPIO ISR service must be installed with gpio_install_isr_service() before calling tinyusb_driver_install(). */
+    int vbus_monitor_io;                   /*!< GPIO for VBUS monitoring, 3.3 V tolerant (use a comparator or a resistor divider to detect the VBUS valid condition). Ignored if not self_powered. */
 } tinyusb_phy_config_t;
 
 /**
