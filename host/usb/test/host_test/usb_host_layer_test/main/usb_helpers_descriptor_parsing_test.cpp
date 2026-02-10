@@ -1,12 +1,14 @@
 /*
- * SPDX-FileCopyrightText: 2015-2021 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2015-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <stdio.h>
-#include "unity.h"
-#include "usb/usb_host.h"
+#include <catch2/catch_test_macros.hpp>
+
+extern "C" {
+#include "usb_host.h"
+}
 
 /*
 Tests that check the configuration descriptor parsing functions provided in usb_host.h work by parsing a fixed
@@ -308,7 +310,7 @@ Configuration Descriptor:
             bInterval               1
 */
 
-static uint8_t config_desc_bytes [] = {
+static uint8_t config_desc_bytes[] = {
     0x09, 0x02, 0x85, 0x01, 0x02, 0x01, 0x00, 0x80, 0xFA, 0x08, 0x0B, 0x00, 0x02, 0x0E, 0x03, 0x00, 0x05, 0x09, 0x04,
     0x00, 0x00, 0x01, 0x0E, 0x01, 0x00, 0x05, 0x0D, 0x24, 0x01, 0x00, 0x01, 0x4F, 0x00, 0xC0, 0xE1, 0xE4, 0x00, 0x01,
     0x01, 0x09, 0x24, 0x03, 0x04, 0x01, 0x01, 0x00, 0x03, 0x00, 0x1C, 0x24, 0x06, 0x03, 0xB6, 0x8D, 0xF1, 0x4C, 0xD0,
@@ -331,39 +333,39 @@ static uint8_t config_desc_bytes [] = {
     0x00, 0x01, 0x2A, 0x2C, 0x0A, 0x00, 0x06, 0x24, 0x0D, 0x01, 0x01, 0x04, 0x09, 0x04, 0x01, 0x01, 0x01, 0x0E, 0x02,
     0x00, 0x00, 0x07, 0x05, 0x81, 0x05, 0xBC, 0x03, 0x01,
 };
-_Static_assert(sizeof(config_desc_bytes) == 0x0185, "Configuration Descriptor size does not match");
+static_assert(sizeof(config_desc_bytes) == 0x0185, "Configuration descriptor size must match wTotalLength");
 
-#define TEST_NUM_INTF_DESC      3   // Total number of interface descriptors (including alternate)
+#define TEST_NUM_INTF_DESC  3   // Total number of interface descriptors (including alternate)
 
 // --------------------- Sub-Test 1 ------------------------
 
 /*
-Test if we can walk the configuration descriptor to find each interface descriptor
-*/
+ * Test if we can walk the configuration descriptor to find each interface descriptor
+ */
 static void test_walk_desc(const usb_config_desc_t *config_desc)
 {
     int offset = 0;
-    const usb_standard_desc_t *cur_desc = (usb_standard_desc_t *)config_desc;
+    const usb_standard_desc_t *cur_desc = (const usb_standard_desc_t *)config_desc;
     for (int i = 0; i < TEST_NUM_INTF_DESC; i++) {
         cur_desc = usb_parse_next_descriptor_of_type(cur_desc, config_desc->wTotalLength, USB_B_DESCRIPTOR_TYPE_INTERFACE, &offset);
-        TEST_ASSERT_NOT_NULL(cur_desc);
+        REQUIRE(cur_desc != nullptr);
     }
     // Attempting to look for another interface descriptor should result in NULL
     cur_desc = usb_parse_next_descriptor_of_type(cur_desc, config_desc->wTotalLength, USB_B_DESCRIPTOR_TYPE_INTERFACE, &offset);
-    TEST_ASSERT_NULL(cur_desc);
+    REQUIRE(cur_desc == nullptr);
 }
 
 /*
-Test if the count of number of alternate descriptors is correct
-*/
+ * Test if the count of number of alternate descriptors is correct
+ */
 static void test_alt_intf_desc_count(const usb_config_desc_t *config_desc)
 {
     // bInterface 0 has no alternate interfaces
-    TEST_ASSERT_EQUAL(0, usb_parse_interface_number_of_alternate(config_desc, 0));
+    REQUIRE(usb_parse_interface_number_of_alternate(config_desc, 0) == 0);
     // bInterface 1 has 1 alternate interface
-    TEST_ASSERT_EQUAL(1, usb_parse_interface_number_of_alternate(config_desc, 1));
+    REQUIRE(usb_parse_interface_number_of_alternate(config_desc, 1) == 1);
     // Non existent bInterface 2 should return -1
-    TEST_ASSERT_EQUAL(-1, usb_parse_interface_number_of_alternate(config_desc, 2));
+    REQUIRE(usb_parse_interface_number_of_alternate(config_desc, 2) == -1);
 }
 
 static void test_parse_intf_and_ep(const usb_config_desc_t *config_desc)
@@ -372,37 +374,37 @@ static void test_parse_intf_and_ep(const usb_config_desc_t *config_desc)
 
     // Get bInterfaceNumber 0 (index 0)
     const usb_intf_desc_t *intf_desc = usb_parse_interface_descriptor(config_desc, 0, 0, &offset_intf);
-    TEST_ASSERT_NOT_NULL(intf_desc);
+    REQUIRE(intf_desc != nullptr);
     // Should only have one endpoint
     int offset_ep = offset_intf;
     const usb_ep_desc_t *ep_desc = usb_parse_endpoint_descriptor_by_index(intf_desc, 0, config_desc->wTotalLength, &offset_ep);
-    TEST_ASSERT_NOT_NULL(ep_desc);
-    TEST_ASSERT_EQUAL(0x83, ep_desc->bEndpointAddress);
+    REQUIRE(ep_desc != nullptr);
+    REQUIRE(ep_desc->bEndpointAddress == 0x83);
     offset_ep = offset_intf;
     ep_desc = usb_parse_endpoint_descriptor_by_index(intf_desc, 1, config_desc->wTotalLength, &offset_ep);
-    TEST_ASSERT_NULL(ep_desc);
+    REQUIRE(ep_desc == nullptr);
 
     // Get bInterfaceNumber 1 alternate setting 0
     offset_intf = 0;
     intf_desc = usb_parse_interface_descriptor(config_desc, 1, 0, &offset_intf);
-    TEST_ASSERT_NOT_NULL(intf_desc);
+    REQUIRE(intf_desc != nullptr);
     // Should have no endpoints
     offset_ep = offset_intf;
     ep_desc = usb_parse_endpoint_descriptor_by_index(intf_desc, 0, config_desc->wTotalLength, &offset_ep);
-    TEST_ASSERT_NULL(ep_desc);
+    REQUIRE(ep_desc == nullptr);
 
     // Get bInterfaceNumber 1 alternate setting 1
     offset_intf = 0;
     intf_desc = usb_parse_interface_descriptor(config_desc, 1, 1, &offset_intf);
-    TEST_ASSERT_NOT_NULL(intf_desc);
+    REQUIRE(intf_desc != nullptr);
     // Should only have one endpoint
     offset_ep = offset_intf;
     ep_desc = usb_parse_endpoint_descriptor_by_index(intf_desc, 0, config_desc->wTotalLength, &offset_ep);
-    TEST_ASSERT_NOT_NULL(ep_desc);
-    TEST_ASSERT_EQUAL(0x81, ep_desc->bEndpointAddress);
+    REQUIRE(ep_desc != nullptr);
+    REQUIRE(ep_desc->bEndpointAddress == 0x81);
     offset_ep = offset_intf;
     ep_desc = usb_parse_endpoint_descriptor_by_index(intf_desc, 1, config_desc->wTotalLength, &offset_ep);
-    TEST_ASSERT_NULL(ep_desc);
+    REQUIRE(ep_desc == nullptr);
 }
 
 static void test_parse_ep_by_address(const usb_config_desc_t *config_desc)
@@ -410,25 +412,25 @@ static void test_parse_ep_by_address(const usb_config_desc_t *config_desc)
     int offset_ep = 0;
     // Get bInterface 0 bAlternateSetting 0 EP 0x83
     const usb_ep_desc_t *ep_desc = usb_parse_endpoint_descriptor_by_address(config_desc, 0, 0, 0x83, &offset_ep);
-    TEST_ASSERT_NOT_NULL(ep_desc);
-    TEST_ASSERT_EQUAL(0x83, ep_desc->bEndpointAddress);
+    REQUIRE(ep_desc != nullptr);
+    REQUIRE(ep_desc->bEndpointAddress == 0x83);
     // Getting same EP address under different interface should return NULL
     offset_ep = 0;
     ep_desc = usb_parse_endpoint_descriptor_by_address(config_desc, 1, 0, 0x83, &offset_ep);
-    TEST_ASSERT_NULL(ep_desc);
+    REQUIRE(ep_desc == nullptr);
 
     // Get bInterface 1 bAlternateSetting 1 EP 0x81
     offset_ep = 0;
     ep_desc = usb_parse_endpoint_descriptor_by_address(config_desc, 1, 1, 0x81, &offset_ep);
-    TEST_ASSERT_NOT_NULL(ep_desc);
-    TEST_ASSERT_EQUAL(0x81, ep_desc->bEndpointAddress);
+    REQUIRE(ep_desc != nullptr);
+    REQUIRE(ep_desc->bEndpointAddress == 0x81);
     // Getting same EP address under different interface should return NULL
     offset_ep = 0;
     ep_desc = usb_parse_endpoint_descriptor_by_address(config_desc, 1, 0, 0x81, &offset_ep);
-    TEST_ASSERT_NULL(ep_desc);
+    REQUIRE(ep_desc == nullptr);
 }
 
-TEST_CASE("Test USB Helpers descriptor parsing", "[helpers][full_speed][high_speed]")
+TEST_CASE("USB Helpers descriptor parsing", "[helpers]")
 {
     const usb_config_desc_t *config_desc = (const usb_config_desc_t *)config_desc_bytes;
     test_walk_desc(config_desc);

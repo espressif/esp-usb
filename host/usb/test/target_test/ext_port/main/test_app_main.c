@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2025-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: CC0-1.0
  */
@@ -12,6 +12,7 @@
 #include "hcd_common.h"
 #include "hub_common.h"
 #include "ext_port_common.h"
+#include "esp_newlib.h"
 
 static hcd_port_handle_t _root_port_hdl;
 
@@ -37,6 +38,7 @@ void tearDown(void)
     test_hcd_teardown(_root_port_hdl);
     // Short delay to allow task to be cleaned up after client uninstall
     vTaskDelay(10);
+    esp_reent_cleanup();    //clean up some of the newlib's lazy allocations
     unity_utils_evaluate_leaks();
 }
 
