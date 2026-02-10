@@ -14,11 +14,16 @@ extern "C" {
 #include <stdbool.h>
 #include <sys/queue.h>
 #include "esp_err.h"
+#include "soc/soc_caps.h"
 #include "esp_idf_version.h"
 #include "usb_private.h"
 #include "usb/usb_types_ch9.h"
 
 // ------------------------------------------------- Macros & Types ----------------------------------------------------
+
+// ----------------------- Configs -------------------------
+
+#define HCD_NUM_PORTS                           SOC_USB_OTG_PERIPH_NUM   // Each peripheral is a root port
 
 // ----------------------- States --------------------------
 

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2015-2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2015-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -337,6 +337,23 @@ void usbh_devs_set_pm_actions_all(usbh_dev_ctrl_t device_ctrl);
 esp_err_t usbh_devs_open(uint8_t dev_addr, usb_device_handle_t *dev_hdl);
 
 /**
+ * @brief Open a device by UID
+ *
+ * A device must be opened before it can be used
+ *
+ * @param[in]  uid     Unique ID assigned to the device
+ * @param[out] dev_hdl Device handle
+ *
+ * @return
+ *    - ESP_OK: Device opened successfully
+ *    - ESP_ERR_INVALID_ARG: Invalid argument
+ *    - ESP_ERR_INVALID_STATE: Device is in invalid state, either already gone (disconnected), or waiting to be freed
+ *    - ESP_ERR_NOT_ALLOWED: It is not allowed to open the device, it is locked for the enumeration
+ *    - ESP_ERR_NOT_FOUND: Device with provided UID not found
+ */
+esp_err_t usbh_devs_open_uid(unsigned int uid, usb_device_handle_t *dev_hdl);
+
+/**
  * @brief Trigger a USBH_EVENT_NEW_DEV event for the device
  *
  * This is typically called after a device has been fully enumerated.
@@ -394,6 +411,18 @@ esp_err_t usbh_dev_get_addr(usb_device_handle_t dev_hdl, uint8_t *dev_addr);
  *    - ESP_ERR_INVALID_ARG: Invalid argument
  */
 esp_err_t usbh_dev_get_info(usb_device_handle_t dev_hdl, usb_device_info_t *dev_info);
+
+/**
+ * @brief Get the root port handle of a device
+ *
+ * @param[in] dev_hdl Device handle
+ * @param[out] root_port_hdl Root port handle
+ *
+ * @return
+ *    - ESP_OK: Root port handle obtained successfully
+ *    - ESP_ERR_INVALID_ARG: Invalid argument
+ */
+esp_err_t usbh_dev_get_root_port_hdl(usb_device_handle_t dev_hdl, hcd_port_handle_t *root_port_hdl);
 
 /**
  * @brief Get a device's device descriptor

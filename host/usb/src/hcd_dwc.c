@@ -17,7 +17,6 @@
 #include "esp_err.h"
 #include "esp_log.h"
 
-#include "soc/soc_caps.h"
 #include "hal/usb_dwc_hal.h"
 #include "hcd.h"
 #include "usb_private.h"
@@ -50,8 +49,6 @@
 
 #define CTRL_EP_MAX_MPS_LS                      8   // Largest Maximum Packet Size for Low Speed control endpoints
 #define CTRL_EP_MAX_MPS_HSFS                    64  // Largest Maximum Packet Size for High & Full Speed control endpoints
-
-#define NUM_PORTS                               SOC_USB_OTG_PERIPH_NUM   // Each peripheral is a root port
 
 // ----------------------- Configs -------------------------
 
@@ -269,7 +266,7 @@ struct port_obj {
 
 // With s_port_inited[] we can check if a port has been initialized -> to provide singleton handle for each root port
 // Each peripheral is a root port
-static bool s_port_inited[NUM_PORTS] = {0};
+static bool s_port_inited[HCD_NUM_PORTS] = {0};
 
 // ------------------------------------------------- Forward Declare ---------------------------------------------------
 
@@ -1454,7 +1451,7 @@ exit:
 esp_err_t hcd_port_init(int port_number, const hcd_port_config_t *port_config, hcd_port_handle_t *port_hdl)
 {
     HCD_CHECK(port_number >= 0 && port_config != NULL && port_hdl != NULL, ESP_ERR_INVALID_ARG);
-    HCD_CHECK(port_number < NUM_PORTS, ESP_ERR_NOT_FOUND);
+    HCD_CHECK(port_number < HCD_NUM_PORTS, ESP_ERR_NOT_FOUND);
 
     HCD_ENTER_CRITICAL();
     HCD_CHECK_FROM_CRIT(!s_port_inited[port_number], ESP_ERR_INVALID_STATE);

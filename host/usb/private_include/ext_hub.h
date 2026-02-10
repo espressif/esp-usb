@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2024-2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2024-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -96,6 +96,15 @@ void *ext_hub_get_client(void);
  *    - ESP_OK if the speed was obtained
  */
 esp_err_t ext_hub_get_speed(ext_hub_handle_t ext_hub_hdl, usb_speed_t *speed);
+
+/**
+ * @brief Get the root port handle of an External Hub device
+ *
+ * @param[in] ext_hub_hdl External Hub device handle
+ *
+ * @return Root port handle on success, NULL on error
+ */
+hcd_port_handle_t ext_hub_get_root_port(ext_hub_handle_t ext_hub_hdl);
 
 /**
  * @brief Add new device
