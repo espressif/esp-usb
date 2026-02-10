@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2022-2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2022-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: CC0-1.0
  */
@@ -9,6 +9,7 @@
 #include "unity_test_utils_memory.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "esp_newlib.h"
 #include "dev_msc.h"
 #include "phy_common.h"
 #include "usb/usb_host.h"
@@ -58,6 +59,7 @@ void tearDown(void)
     test_delete_usb_phy();
     // Short delay to allow task to be cleaned up after client uninstall
     vTaskDelay(10);
+    esp_reent_cleanup();    //clean up some of the newlib's lazy allocations
     unity_utils_evaluate_leaks();
 }
 

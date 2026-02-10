@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2025-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: CC0-1.0
  */
@@ -11,6 +11,7 @@
 #include "freertos/task.h"
 #include "esp_private/usb_phy.h"
 #include "unity.h"
+#include "esp_newlib.h"
 
 static usb_phy_handle_t phy_hdl = NULL;
 
@@ -34,6 +35,7 @@ void tearDown(void)
     // Deinitialize the internal USB PHY
     TEST_ASSERT_EQUAL_MESSAGE(ESP_OK, usb_del_phy(phy_hdl), "Failed to delete USB Device PHY");
     phy_hdl = NULL;
+    esp_reent_cleanup();    //clean up some of the newlib's lazy allocations
     unity_utils_evaluate_leaks();
 }
 

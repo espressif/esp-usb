@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2022-2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2022-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: CC0-1.0
  */
@@ -12,6 +12,7 @@
 #include "dev_msc.h"
 #include "dev_hid.h"
 #include "hcd_common.h"
+#include "esp_newlib.h"
 
 void setUp(void)
 {
@@ -27,6 +28,7 @@ void tearDown(void)
     vTaskDelay(10);
     test_hcd_teardown(port_hdl);
     port_hdl = NULL;
+    esp_reent_cleanup();    //clean up some of the newlib's lazy allocations
     unity_utils_evaluate_leaks();
 }
 
