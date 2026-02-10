@@ -14,3 +14,4 @@ Welcome to the ESP-USB Programming Guide.
 
    usb_host
    usb_device
+   vulnerabilities
