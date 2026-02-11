@@ -71,6 +71,9 @@ host/class/cdc/usb_host_cdc_acm/host_test:
 host/class/hid/usb_host_hid/host_test:
   <<: *host_test_enable_rules
 
+host/class/msc/usb_host_msc/host_test:
+  <<: *host_test_enable_rules
+
 host/class/uvc/usb_host_uvc/host_test:
   <<: *host_test_enable_rules
 
