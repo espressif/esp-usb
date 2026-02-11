@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2015-2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2015-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -123,7 +123,7 @@ typedef struct {
     bool root_port_unpowered;                   /**< If set, the USB Host Library will not power on the root port on installation.
                                                      This allows users to power on the root port manually by calling
                                                      usb_host_lib_set_root_port_power(). */
-    int intr_flags;                             /**< Interrupt flags for the underlying ISR used by the USB Host stack */
+    int intr_flags;                             /**< Interrupt flags for the underlying ISR used by the USB Host stack. In dual host applications, this applies to all ports.*/
     usb_host_enum_filter_cb_t enum_filter_cb;   /**< Enumeration filter callback. Enable CONFIG_USB_HOST_ENABLE_ENUM_FILTER_CALLBACK
                                                      to use this feature. Set to NULL otherwise. */
     struct {
@@ -133,7 +133,7 @@ typedef struct {
                                        Can be 0 if periodic TX endpoints are not used. */
         uint32_t rx_fifo_lines;   /**< Required: Number of RX FIFO lines.
                                        Must be > 0 to enable custom configuration. */
-    } fifo_settings_custom;       /**< Optional custom FIFO configuration (advanced use).
+    } fifo_settings_custom;       /**< Optional custom FIFO configuration (advanced use), ignored for dual port applications.
                                        RX and NPTX must be > 0. If all fields are zero,
                                        a default configuration will be selected based on Kconfig bias. */
     unsigned peripheral_map;      /**< Selects the USB peripheral(s) to use.
@@ -172,8 +172,10 @@ typedef struct {
  * @note If skip_phy_setup is set in the install configuration, the user is responsible for ensuring that the underlying
  *       Host Controller is enabled and the USB PHY (internal or external) is already setup before this function is
  *       called.
- * @param[in] config USB Host Library configuration
  *
+ * @note In dual host configuration, fifo_settings_custom field is ignored and intr_flags field is used for all ports.
+ *
+ * @param[in] config USB Host Library configuration
  * @return
  *    - ESP_OK: USB Host installed successfully
  *    - ESP_ERR_INVALID_ARG: Invalid argument
