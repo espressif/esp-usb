@@ -20,6 +20,8 @@ targets:
   - esp32s3
   - esp32p4
   - esp32h4
+  - linux
 files:
   exclude:
     - "test_app"
+    - "host_test"

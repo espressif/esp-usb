@@ -162,7 +162,7 @@ __attribute__((deprecated("use API from esp_private/msc_scsi_bot.h")));
  *     - ESP_ERR_TIMEOUT: No events handled within the timeout
  *     - ESP_FAIL:        Event handling finished, driver uninstalled. You do not have to call this function further
  */
-esp_err_t msc_host_handle_events(uint32_t timeout);
+esp_err_t msc_host_handle_events(TickType_t timeout);
 
 /**
  * @brief Gets devices information.

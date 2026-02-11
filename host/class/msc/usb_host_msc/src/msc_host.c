@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2015-2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2015-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -23,7 +23,10 @@
 #include "msc_scsi_bot.h"
 #include "usb/usb_types_ch9.h"
 #include "usb/usb_helpers.h"
+
+#if !CONFIG_IDF_TARGET_LINUX
 #include "soc/soc_memory_layout.h"
+#endif
 
 // MSC driver spin lock
 static portMUX_TYPE msc_lock = portMUX_INITIALIZER_UNLOCKED;
@@ -326,7 +329,7 @@ static bool is_mass_storage_device(uint8_t dev_addr)
     return is_msc_device;
 }
 
-esp_err_t msc_host_handle_events(uint32_t timeout)
+esp_err_t msc_host_handle_events(TickType_t timeout)
 {
     MSC_RETURN_ON_FALSE(s_msc_driver != NULL, ESP_ERR_INVALID_STATE);
 
