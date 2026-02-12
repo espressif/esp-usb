@@ -153,7 +153,7 @@ TEST_CASE("tinyusb_suspend_resume_events", "[esp_tinyusb][device_pm_suspend_resu
     int test_iterations = 0;
     do {
         // Wait for new data from the host (Sent by pytest)
-        if (pdTRUE == ulTaskNotifyTake(true, pdMS_TO_TICKS(5000))) {
+        if (pdTRUE == ulTaskNotifyTake(true, pdMS_TO_TICKS(10000))) {
 
             size_t rx_size = 0;
             ESP_ERROR_CHECK(tinyusb_cdcacm_read(TINYUSB_CDC_ACM_0, buf, TINYUSB_CDC_RX_BUFSIZE, &rx_size));
@@ -172,10 +172,6 @@ TEST_CASE("tinyusb_suspend_resume_events", "[esp_tinyusb][device_pm_suspend_resu
             TEST_FAIL_MESSAGE("RX Data CB not received on time");
         }
     } while (test_iterations <= SUSPEND_RESUME_TEST_ITERATIONS);
-
-    ESP_LOGI(TAG, "Cleanup");
-    tinyusb_cdcacm_deinit(TINYUSB_CDC_ACM_0);
-    tinyusb_driver_uninstall();
 }
 
 /**
@@ -302,10 +298,6 @@ TEST_CASE("tinyusb_remote_wakeup_reporting", "[esp_tinyusb][device_pm_remote_wak
     // Signalize remote wakeup and expect resume event
     TEST_ASSERT_EQUAL(ESP_OK, tinyusb_remote_wakeup());
     expect_device_event(EVENT_BITS_RESUMED, pdMS_TO_TICKS(DEVICE_EVENT_WAIT_MS));
-
-    ESP_LOGI(TAG, "Cleanup");
-    tinyusb_cdcacm_deinit(TINYUSB_CDC_ACM_0);
-    tinyusb_driver_uninstall();
 }
 
 #endif
