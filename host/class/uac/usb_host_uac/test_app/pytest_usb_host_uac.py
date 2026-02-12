@@ -7,7 +7,11 @@ from pytest_embedded_idf.utils import idf_parametrize
 
 
 # No runner marker, unable to mock UAC 1.0 device with tinyusb
-@idf_parametrize('target', ['esp32s2', 'esp32s3', 'esp32p4'], indirect=['target'])
+@idf_parametrize(
+    'config,target',
+    [('default', 'esp32s2'), ('default', 'esp32s3'), ('default', 'esp32p4'), ('esp32p4_psram', 'esp32p4')],
+    indirect=['config', 'target'],
+)
 def test_usb_host_uac(dut: IdfDut) -> None:
     dut.expect_exact('Press ENTER to see the list of tests.')
     dut.write('[uac_host]')
