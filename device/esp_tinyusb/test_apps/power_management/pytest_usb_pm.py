@@ -3,12 +3,17 @@
 
 from time import sleep
 import pytest
-import usb.core
-import usb.util
 from serial import Serial, SerialException
 from serial.tools.list_ports import comports
 from pytest_embedded_idf.dut import IdfDut
 from pytest_embedded_idf.utils import idf_parametrize
+
+# Mainly for a local run, as there is no error when pyusb is not installed and the pytest silently fails
+try:
+    import usb.core
+    import usb.util
+except ImportError as e:
+    raise RuntimeError("pyusb is not installed. Install it with: pip install pyusb") from e
 
 # Standard USB requests (USB 2.0 spec, Table 9-4)
 USB_B_REQUEST_SET_FEATURE       = 0x03
@@ -91,11 +96,14 @@ def test_usb_device_suspend_resume(dut: IdfDut) -> None:
 
 def set_remote_wake_on_device(VID: int, PID: int) -> None:
     '''
+    Resume the device by opening it
     Set remote wakeup on device by sending SET_FEATURE ctrl transfer to the device
 
     :param VID: VID of the device
     :param PID: PID of the device
     '''
+
+    # Device is currently suspended, we must open it to resume it and send the ctrl transfer
     dev = usb.core.find(idVendor=VID, idProduct=PID)
     if dev is None:
         raise ValueError("Device not found")
@@ -105,14 +113,22 @@ def set_remote_wake_on_device(VID: int, PID: int) -> None:
                     usb.util.CTRL_TYPE_STANDARD,
                     usb.util.CTRL_RECIPIENT_DEVICE)
 
-    dev.ctrl_transfer(
-        bmRequestType=bmRequestType,
-        bRequest=USB_B_REQUEST_SET_FEATURE,
-        wValue=USB_FEAT_DEVICE_REMOTE_WAKEUP,
-        wIndex=0,
-        data_or_wLength=None
-    )
+    try:
+        dev.ctrl_transfer(
+            bmRequestType=bmRequestType,
+            bRequest=USB_B_REQUEST_SET_FEATURE,
+            wValue=USB_FEAT_DEVICE_REMOTE_WAKEUP,
+            wIndex=0,
+        )
+    except usb.core.USBError as e:
+        raise RuntimeError("Control transfer not sent") from e
+
     print("CTRL transfer sent")
+
+    try:
+        usb.util.dispose_resources(dev)
+    except usb.core.USBError as e:
+        raise RuntimeError("Device resources not released") from e
 
 
 def check_remote_wake_feature(VID: int, PID: int, has_remote_wake: bool) -> None:
@@ -144,6 +160,11 @@ def check_remote_wake_feature(VID: int, PID: int, has_remote_wake: bool) -> None
         f"device reports {remote_wake_supported}"
     )
 
+    try:
+        usb.util.dispose_resources(dev)
+    except usb.core.USBError as e:
+        raise RuntimeError("Device resources not released") from e
+
 @pytest.mark.usb_device
 @idf_parametrize('target', ['esp32s2', 'esp32s3', 'esp32p4'], indirect=['target'])
 def test_usb_device_remote_wakeup_en(dut: IdfDut) -> None:
@@ -162,6 +183,7 @@ def test_usb_device_remote_wakeup_en(dut: IdfDut) -> None:
     dut.expect_exact('Press ENTER to see the list of tests.')
     dut.write('[device_pm_remote_wake]')
     dut.expect_exact('TinyUSB: TinyUSB Driver installed')
+    sleep(2)
 
     # Wait for device attach event
     dut.expect_exact(TINYUSB_EVENTS['attached'])
