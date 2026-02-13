@@ -176,4 +176,4 @@ jobs:
           fi
           # Run pytest with the configured target and marker
           echo "Running pytest with target: $TARGET_ARG and marker: ${{ matrix.runner_tag }}"
-          pytest --ignore-no-tests-collected-error $TARGET_ARG -m "${{ matrix.runner_tag }}" --build-dir=build_${{ matrix.idf_target }}_default
+          pytest --ignore-no-tests-collected-error $TARGET_ARG -m "${{ matrix.runner_tag }}" --build-dir=build_${{ matrix.idf_target }}_
