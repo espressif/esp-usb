@@ -620,7 +620,7 @@ static esp_err_t msc_storage_new(const tinyusb_msc_storage_config_t *config,
     SemaphoreHandle_t mux_lock = xSemaphoreCreateMutex();
     ESP_RETURN_ON_FALSE(mux_lock != NULL, ESP_ERR_NO_MEM, TAG, "Failed to create mutex for storage operations");
     // Create storage object
-    msc_storage_obj_t *storage_obj = (msc_storage_obj_t *)heap_caps_aligned_calloc(MSC_STORAGE_MEM_ALIGN, sizeof(msc_storage_obj_t), sizeof(uint32_t), MALLOC_CAP_DMA);
+    msc_storage_obj_t *storage_obj = (msc_storage_obj_t *)heap_caps_aligned_calloc(MSC_STORAGE_MEM_ALIGN, 1, sizeof(msc_storage_obj_t), MALLOC_CAP_DMA);
     if (storage_obj == NULL) {
         ESP_LOGE(TAG, "Failed to allocate memory for MSC storage");
         ret = ESP_ERR_NO_MEM;
@@ -714,7 +714,7 @@ static esp_err_t msc_driver_install(const tinyusb_msc_driver_config_t *config, b
 
     esp_err_t ret;
     tinyusb_msc_driver_t *msc_driver = NULL;
-    msc_driver = (tinyusb_msc_driver_t *)heap_caps_aligned_calloc(MSC_STORAGE_MEM_ALIGN, sizeof(tinyusb_msc_driver_t), sizeof(uint32_t), MALLOC_CAP_DMA);
+    msc_driver = (tinyusb_msc_driver_t *)heap_caps_calloc(1, sizeof(tinyusb_msc_driver_t), MALLOC_CAP_DEFAULT);
     ESP_RETURN_ON_FALSE(msc_driver != NULL, ESP_ERR_NO_MEM, TAG, "Failed to allocate memory for MSC driver");
 
     // Default callback
