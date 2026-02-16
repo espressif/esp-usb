@@ -1,0 +1,10 @@
+# Keep mbedTLS crypto features aligned with current Kconfig defaults.
+# CONFIG_MBEDTLS_ARIA_C is not set
+# CONFIG_MBEDTLS_SHA3_C is not set
+
+# Keep target/flash defaults aligned with current Kconfig defaults.
+CONFIG_ESPTOOLPY_FLASHFREQ_40M=y
+
+# Keep libc console line-ending behavior explicit.
+CONFIG_LIBC_STDOUT_LINE_ENDING_CRLF=y
+CONFIG_LIBC_STDIN_LINE_ENDING_CR=y
