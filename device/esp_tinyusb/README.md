@@ -60,8 +60,6 @@ idf.py add-dependency esp_tinyusb~2.0.0
 
 ## USB Device Stack: usage, installation & configuration
 
-Hardware-related documentation can be found in the [ESP-IDF Programming Guide](https://docs.espressif.com/projects/esp-idf/en/latest/esp32s2/api-reference/peripherals/usb_device.html).
-
 ### Structure overview
 
 The Device Stack is built on top of TinyUSB and provides:

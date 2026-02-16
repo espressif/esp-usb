@@ -2,7 +2,7 @@
 description: USB Host library
 version: "1.2.0"
 url: https://github.com/espressif/esp-usb/tree/master/host/usb
-documentation: "https://docs.espressif.com/projects/esp-idf/en/latest/esp32s2/api-reference/peripherals/usb_host.html"
+documentation: "https://docs.espressif.com/projects/esp-usb/en/latest/esp32p4/usb_host.html"
 issues: "https://github.com/espressif/esp-usb/issues"
 repository: "https://github.com/espressif/esp-usb.git"
 repository_info:
