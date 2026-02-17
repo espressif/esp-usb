@@ -35,6 +35,11 @@ extern "C" {
 #define HID_HOST_SUSPEND_RESUME_API_SUPPORTED
 #endif
 
+// For backward compatibility with IDF versions which do not have remote wakeup HAL changes
+#ifdef REMOTE_WAKE_HAL_SUPPORTED
+#define HID_HOST_REMOTE_WAKE_SUPPORTED
+#endif
+
 typedef struct hid_interface *hid_host_device_handle_t;    /**< Device Handle. Handle to a particular HID interface */
 
 // ------------------------ USB HID Host events --------------------------------
@@ -123,6 +128,9 @@ typedef struct {
 typedef struct {
     hid_host_interface_event_cb_t callback;     /**< Callback invoked when HID Interface event occurs */
     void *callback_arg;                         /**< User provided argument passed to callback */
+#ifdef HID_HOST_SUSPEND_RESUME_API_SUPPORTED
+    bool enable_remote_wakeup;              /**< Enable remote wakeup functionality on the device (if supported) */
+#endif // HID_HOST_SUSPEND_RESUME_API_SUPPORTED
 } hid_host_device_config_t;
 
 /**
