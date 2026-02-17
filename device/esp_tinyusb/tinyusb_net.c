@@ -68,7 +68,7 @@ static void do_send_async(void *ctx)
 
 esp_err_t tinyusb_net_send_async(void *buffer, uint16_t len, void *buff_free_arg)
 {
-    if (!tud_ready()) {
+    if (!tud_mounted()) {
         return ESP_ERR_INVALID_STATE;
     }
 
@@ -83,7 +83,7 @@ esp_err_t tinyusb_net_send_async(void *buffer, uint16_t len, void *buff_free_arg
 
 esp_err_t tinyusb_net_send_sync(void *buffer, uint16_t len, void *buff_free_arg, TickType_t  timeout)
 {
-    if (!tud_ready()) {
+    if (!tud_mounted()) {
         return ESP_ERR_INVALID_STATE;
     }
 
