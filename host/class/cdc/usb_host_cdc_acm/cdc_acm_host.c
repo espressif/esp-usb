@@ -12,6 +12,7 @@
 #include "freertos/task.h"
 #include "freertos/semphr.h"
 #include "freertos/event_groups.h"
+#include "esp_private/critical_section.h"
 #include "soc/soc_caps.h"
 #include "esp_log.h"
 #include "esp_check.h"
@@ -30,9 +31,9 @@ static const char *TAG = "cdc_acm";
 #define CDC_ACM_CTRL_TIMEOUT_MS    (5000) // Every CDC device should be able to respond to CTRL transfer in 5 seconds
 
 // CDC-ACM spinlock
-static portMUX_TYPE cdc_acm_lock = portMUX_INITIALIZER_UNLOCKED;
-#define CDC_ACM_ENTER_CRITICAL()   portENTER_CRITICAL(&cdc_acm_lock)
-#define CDC_ACM_EXIT_CRITICAL()    portEXIT_CRITICAL(&cdc_acm_lock)
+DEFINE_CRIT_SECTION_LOCK_STATIC(cdc_acm_lock);
+#define CDC_ACM_ENTER_CRITICAL()           esp_os_enter_critical(&cdc_acm_lock)
+#define CDC_ACM_EXIT_CRITICAL()            esp_os_exit_critical(&cdc_acm_lock)
 
 // CDC-ACM events
 #define CDC_ACM_TEARDOWN          BIT0
