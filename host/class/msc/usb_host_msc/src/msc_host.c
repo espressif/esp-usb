@@ -690,9 +690,13 @@ esp_err_t msc_bulk_transfer(msc_device_t *device, uint8_t *data, size_t size, ms
     switch (status) {
     case USB_TRANSFER_STATUS_COMPLETED:
         if (ep == MSC_EP_IN) {
-            memcpy(data, xfer->data_buffer, xfer->actual_num_bytes);
+            if (xfer->actual_num_bytes > size) {
+                ret = ESP_ERR_INVALID_SIZE;
+            } else {
+                memcpy(data, xfer->data_buffer, xfer->actual_num_bytes);
+                ret = ESP_OK;
+            }
         }
-        ret = ESP_OK;
         break;
     case USB_TRANSFER_STATUS_STALL:
         ret = ESP_ERR_MSC_STALL; break;
