@@ -110,6 +110,9 @@ const usb_intf_desc_t *usb_parse_interface_descriptor(const usb_config_desc_t *c
     if (next_intf_desc != NULL && offset != NULL) {
         *offset = offset_temp;
     }
+    if (next_intf_desc->bNumEndpoints > USB_MAX_ENDPOINTS_PER_INTERFACE) {
+        return NULL;    // Too many endpoints, invalid descriptor
+    }
     return next_intf_desc;
 }
 
