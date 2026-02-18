@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2015-2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2015-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -320,6 +320,10 @@ esp_err_t scsi_cmd_read10(msc_host_device_handle_t dev,
                           uint32_t num_sectors,
                           uint32_t sector_size)
 {
+    if (num_sectors != 0 && sector_size > UINT32_MAX / num_sectors) {
+        return ESP_ERR_INVALID_SIZE;
+    }
+
     msc_device_t *device = (msc_device_t *)dev;
     cbw_read10_t cbw = {
         CBW_BASE_INIT(IN_DIR, CBW_CMD_SIZE(cbw_read10_t), num_sectors * sector_size),
@@ -344,6 +348,10 @@ esp_err_t scsi_cmd_write10(msc_host_device_handle_t dev,
                            uint32_t num_sectors,
                            uint32_t sector_size)
 {
+    if (num_sectors != 0 && sector_size > UINT32_MAX / num_sectors) {
+        return ESP_ERR_INVALID_SIZE;
+    }
+
     msc_device_t *device = (msc_device_t *)dev;
     cbw_write10_t cbw = {
         CBW_BASE_INIT(OUT_DIR, CBW_CMD_SIZE(cbw_write10_t), num_sectors * sector_size),
