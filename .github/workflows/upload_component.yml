@@ -44,6 +44,7 @@ jobs:
             host/class/uac/usb_host_uac
             host/class/uvc/usb_host_uvc
             host/usb
+            type_c/usb_tcpm
           namespace: "espressif"
           # API token will only be available in the master branch in the main repository.
           # However, dry-run doesn't require a valid token.

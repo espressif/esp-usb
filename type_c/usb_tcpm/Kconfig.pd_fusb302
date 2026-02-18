@@ -1,0 +1,48 @@
+menu "FUSB302 TCPM Configuration"
+
+    orsource "$IDF_PATH/examples/common_components/env_caps/$IDF_TARGET/Kconfig.env_caps"
+
+    config USB_TCPM_PD_FUSB302_I2C_SDA_GPIO
+        int "I2C SDA GPIO number"
+        range ENV_GPIO_RANGE_MIN ENV_GPIO_OUT_RANGE_MAX
+        default 7
+        help
+            GPIO number for the I2C SDA line.
+
+    config USB_TCPM_PD_FUSB302_I2C_SCL_GPIO
+        int "I2C SCL GPIO number"
+        range ENV_GPIO_RANGE_MIN ENV_GPIO_OUT_RANGE_MAX
+        default 8
+        help
+            GPIO number for the I2C SCL line.
+
+    config USB_TCPM_PD_FUSB302_FUSB_INT_GPIO
+        int "FUSB302 INT GPIO number"
+        range ENV_GPIO_RANGE_MIN ENV_GPIO_IN_RANGE_MAX
+        default 9
+        help
+            GPIO number for the FUSB302 interrupt line.
+
+    config USB_TCPM_PD_FUSB302_VBUS_GPIO_PH
+        int "VBUS enable GPIO (active high)"
+        range ENV_GPIO_RANGE_MIN ENV_GPIO_OUT_RANGE_MAX
+        default 28 if IDF_TARGET_ESP32
+        default 28 if IDF_TARGET_ESP32S2
+        default 28 if IDF_TARGET_ESP32S3
+        default 28 if IDF_TARGET_ESP32P4
+        default 28 if IDF_TARGET_ESP32H4
+        default 28 if IDF_TARGET_ESP32C5
+        default 28 if IDF_TARGET_ESP32C6
+        default 28 if IDF_TARGET_ESP32C61
+        default 4
+        help
+            Active-high VBUS enable GPIO.
+
+    config USB_TCPM_PD_FUSB302_VBUS_GPIO_N
+        int "VBUS enable GPIO (active low)"
+        range ENV_GPIO_RANGE_MIN ENV_GPIO_OUT_RANGE_MAX
+        default 15
+        help
+            Active-low VBUS enable GPIO.
+
+endmenu
