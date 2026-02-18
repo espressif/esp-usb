@@ -438,3 +438,42 @@ TEST_CASE("USB Helpers descriptor parsing", "[helpers]")
     test_parse_intf_and_ep(config_desc);
     test_parse_ep_by_address(config_desc);
 }
+
+TEST_CASE("USB descriptor parsing with bLength=0", "[helpers]")
+{
+    // Minimal config descriptor containing a descriptor with bLength=0
+    static const uint8_t bad_config_desc_bytes[] = {
+        // Configuration Descriptor (9 bytes)
+        0x09,                       // bLength = 9
+        0x02,                       // bDescriptorType = Configuration
+        0x12, 0x00,                 // wTotalLength = 18
+        0x01,                       // bNumInterfaces = 1
+        0x01,                       // bConfigurationValue = 1
+        0x00,                       // iConfiguration = 0
+        0x80,                       // bmAttributes
+        0x32,                       // bMaxPower = 100mA
+        // Interface Descriptor (9 bytes) with bLength=0
+        0x00,                       // bLength = 0  <-- MALICIOUS
+        0x04,                       // bDescriptorType = Interface
+        0x00, 0x00, 0x00, 0xFF,
+        0x00, 0x00, 0x00,
+    };
+
+    const auto *config_desc = reinterpret_cast<const usb_config_desc_t *>(bad_config_desc_bytes);
+
+    GIVEN("A configuration descriptor with a zero-length descriptor inside") {
+        int offset = 0;
+        const auto *cur_desc = reinterpret_cast<const usb_standard_desc_t *>(config_desc);
+
+        WHEN("Parsing past the valid config descriptor into the bLength=0 descriptor") {
+            // First call should succeed (config descriptor has valid bLength=9)
+            cur_desc = usb_parse_next_descriptor(cur_desc, config_desc->wTotalLength, &offset);
+            REQUIRE(cur_desc != nullptr);
+
+            THEN("The parser returns NULL instead of looping forever") {
+                cur_desc = usb_parse_next_descriptor(cur_desc, config_desc->wTotalLength, &offset);
+                REQUIRE(cur_desc == nullptr);
+            }
+        }
+    }
+}
