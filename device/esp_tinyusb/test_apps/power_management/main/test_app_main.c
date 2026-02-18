@@ -9,6 +9,11 @@
 #include "unity.h"
 #include "unity_test_runner.h"
 #include "unity_test_utils_memory.h"
+#include "esp_log.h"
+
+#include "tinyusb.h"
+#include "tinyusb_cdc_acm.h"
+const static char *TAG = "PM_Device_main_app";
 
 void app_main(void)
 {
@@ -58,5 +63,8 @@ void setUp(void)
 /* tearDown runs after every test */
 void tearDown(void)
 {
+    ESP_LOGI(TAG, "Cleanup");
+    tinyusb_cdcacm_deinit(TINYUSB_CDC_ACM_0);
+    tinyusb_driver_uninstall();
     unity_utils_evaluate_leaks();
 }

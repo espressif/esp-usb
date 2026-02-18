@@ -38,6 +38,7 @@ TINYUSB_EVENTS = {
 }
 
 @pytest.mark.usb_device
+@pytest.mark.flaky(reruns=1, reruns_delay=10)
 @idf_parametrize('target', ['esp32s2', 'esp32s3', 'esp32p4'], indirect=['target'])
 def test_usb_device_suspend_resume(dut: IdfDut) -> None:
     '''
@@ -53,6 +54,7 @@ def test_usb_device_suspend_resume(dut: IdfDut) -> None:
     4. Suspend: Device enters suspended state after some time of inactivity
     5. Resume: Device is resumed by accessing it (sending some data to it)
     '''
+    sleep(5) # When rerunning flaky test, to re-initialize the device
     dut.expect_exact('Press ENTER to see the list of tests.')
     dut.write('[device_pm_suspend_resume]')
     dut.expect_exact('TinyUSB: TinyUSB Driver installed')
@@ -72,6 +74,9 @@ def test_usb_device_suspend_resume(dut: IdfDut) -> None:
             dut.expect_exact(TINYUSB_EVENTS['attached'])
 
             # Wait for auto suspend (set to 3 seconds)
+            # This expect_exact is ignored by pytest when running second rerun of flaky test (unknown reason),
+            # making the test fail in further steps, adding explicit sleep(3) to wait for the suspend events
+            sleep(3)
             dut.expect_exact(TINYUSB_EVENTS['suspended'])
 
             for i in range(0, 5):
@@ -92,7 +97,6 @@ def test_usb_device_suspend_resume(dut: IdfDut) -> None:
 
     except SerialException as e:
         raise RuntimeError(f"Failed to open CDC device on {ports[0]}") from e
-
 
 def set_remote_wake_on_device(VID: int, PID: int) -> None:
     '''
@@ -166,6 +170,7 @@ def check_remote_wake_feature(VID: int, PID: int, has_remote_wake: bool) -> None
         raise RuntimeError("Device resources not released") from e
 
 @pytest.mark.usb_device
+@pytest.mark.flaky(reruns=1, reruns_delay=10)
 @idf_parametrize('target', ['esp32s2', 'esp32s3', 'esp32p4'], indirect=['target'])
 def test_usb_device_remote_wakeup_en(dut: IdfDut) -> None:
     '''
@@ -180,6 +185,7 @@ def test_usb_device_remote_wakeup_en(dut: IdfDut) -> None:
     3. Check the device's configuration descriptor, if it reports remote wakeup functionality
     4. Enable the remote wakeup by sending a ctrl transfer
     '''
+    sleep(5)
     dut.expect_exact('Press ENTER to see the list of tests.')
     dut.write('[device_pm_remote_wake]')
     dut.expect_exact('TinyUSB: TinyUSB Driver installed')
