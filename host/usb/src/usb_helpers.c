@@ -107,8 +107,16 @@ const usb_intf_desc_t *usb_parse_interface_descriptor(const usb_config_desc_t *c
         // Get the next interface descriptor
         next_intf_desc = (const usb_intf_desc_t *)usb_parse_next_descriptor_of_type((const usb_standard_desc_t *)next_intf_desc, config_desc->wTotalLength, USB_B_DESCRIPTOR_TYPE_INTERFACE, &offset_temp);
     }
-    if (next_intf_desc != NULL && offset != NULL) {
-        *offset = offset_temp;
+
+    if (next_intf_desc != NULL) {
+        // In case offset was provided, set it
+        if (offset != NULL) {
+            *offset = offset_temp;
+        }
+        // Check if the interface descriptor has too many endpoints
+        if (next_intf_desc->bNumEndpoints > USB_MAX_ENDPOINTS_PER_INTERFACE) {
+            return NULL;    // Too many endpoints, invalid descriptor
+        }
     }
     return next_intf_desc;
 }

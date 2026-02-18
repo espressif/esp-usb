@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2015-2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2015-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -431,6 +431,11 @@ ESP_STATIC_ASSERT(sizeof(usb_iad_desc_t) == USB_IAD_DESC_SIZE, "Size of usb_iad_
  * @brief Size of a USB interface descriptor in bytes
  */
 #define USB_INTF_DESC_SIZE      9
+
+/**
+ * @brief Maximum number of endpoints in a USB interface descriptor
+ */
+#define USB_MAX_ENDPOINTS_PER_INTERFACE  32 // 16 IN and 16 OUT
 
 /**
  * @brief Structure representing a USB interface descriptor
