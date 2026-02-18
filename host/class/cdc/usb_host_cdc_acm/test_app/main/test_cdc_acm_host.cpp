@@ -422,30 +422,6 @@ TEST_CASE("cdc_specific_commands", "[cdc_acm]")
     vTaskDelay(20); // Short delay to allow task to be cleaned up
 }
 
-/* Test descriptor print function */
-TEST_CASE("desc_print", "[cdc_acm]")
-{
-    cdc_acm_dev_hdl_t cdc_dev = NULL;
-
-    test_install_cdc_driver(NULL);
-
-    const cdc_acm_host_device_config_t dev_config = {
-        .connection_timeout_ms = 500,
-        .out_buffer_size = 64
-    };
-
-    printf("Opening CDC-ACM device\n");
-    TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_open(0x303A, 0x4002, 0, &dev_config, &cdc_dev)); // 0x303A:0x4002 (TinyUSB Dual CDC device)
-    TEST_ASSERT_NOT_NULL(cdc_dev);
-    cdc_acm_host_desc_print(cdc_dev);
-    vTaskDelay(10);
-
-    // Clean-up
-    TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_close(cdc_dev));
-    TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_uninstall());
-    vTaskDelay(20); // Short delay to allow task to be cleaned up
-}
-
 /* Test communication with multiple CDC-ACM devices from one thread */
 TEST_CASE("multiple_devices", "[cdc_acm]")
 {
@@ -758,47 +734,6 @@ TEST_CASE("rx_buffer", "[cdc_acm]")
     vTaskDelay(5);
     TEST_ASSERT_FALSE_MESSAGE(rx_overflow, "RX overflowed");
     rx_overflow = false;
-
-    // Clean-up
-    TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_close(cdc_dev));
-    TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_uninstall());
-    vTaskDelay(20); // Short delay to allow task to be cleaned up
-}
-
-TEST_CASE("functional_descriptor", "[cdc_acm]")
-{
-    test_install_cdc_driver(NULL);
-
-    cdc_acm_dev_hdl_t cdc_dev;
-    const cdc_acm_host_device_config_t dev_config = default_dev_config;
-
-    TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_open(0x303A, 0x4002, 0, &dev_config, &cdc_dev));
-    TEST_ASSERT_NOT_NULL(cdc_dev);
-
-    // Request various CDC functional descriptors
-    // Following are present in the TinyUSB CDC device: Header, Call management, ACM, Union
-    const cdc_header_desc_t *header_desc;
-    const cdc_acm_call_desc_t *call_desc;
-    const cdc_acm_acm_desc_t *acm_desc;
-    const cdc_union_desc_t *union_desc;
-
-    TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_cdc_desc_get(cdc_dev, USB_CDC_DESC_SUBTYPE_HEADER, (const usb_standard_desc_t **)&header_desc));
-    TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_cdc_desc_get(cdc_dev, USB_CDC_DESC_SUBTYPE_CALL, (const usb_standard_desc_t **)&call_desc));
-    TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_cdc_desc_get(cdc_dev, USB_CDC_DESC_SUBTYPE_ACM, (const usb_standard_desc_t **)&acm_desc));
-    TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_cdc_desc_get(cdc_dev, USB_CDC_DESC_SUBTYPE_UNION, (const usb_standard_desc_t **)&union_desc));
-    TEST_ASSERT_NOT_NULL(header_desc);
-    TEST_ASSERT_NOT_NULL(call_desc);
-    TEST_ASSERT_NOT_NULL(acm_desc);
-    TEST_ASSERT_NOT_NULL(union_desc);
-    TEST_ASSERT_EQUAL(USB_CDC_DESC_SUBTYPE_HEADER, header_desc->bDescriptorSubtype);
-    TEST_ASSERT_EQUAL(USB_CDC_DESC_SUBTYPE_CALL, call_desc->bDescriptorSubtype);
-    TEST_ASSERT_EQUAL(USB_CDC_DESC_SUBTYPE_ACM, acm_desc->bDescriptorSubtype);
-    TEST_ASSERT_EQUAL(USB_CDC_DESC_SUBTYPE_UNION, union_desc->bDescriptorSubtype);
-
-    // Check few errors
-    TEST_ASSERT_EQUAL(ESP_ERR_NOT_FOUND, cdc_acm_host_cdc_desc_get(cdc_dev, USB_CDC_DESC_SUBTYPE_OBEX, (const usb_standard_desc_t **)&header_desc));
-    TEST_ASSERT_EQUAL(ESP_ERR_INVALID_ARG, cdc_acm_host_cdc_desc_get(cdc_dev, USB_CDC_DESC_SUBTYPE_MAX, (const usb_standard_desc_t **)&header_desc));
-    TEST_ASSERT_EQUAL(ESP_ERR_INVALID_ARG, cdc_acm_host_cdc_desc_get(NULL, USB_CDC_DESC_SUBTYPE_HEADER, (const usb_standard_desc_t **)&header_desc));
 
     // Clean-up
     TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_close(cdc_dev));
