@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2024-2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2024-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -13,6 +13,7 @@
 #include "common_test_fixtures.hpp"
 #include "usb_helpers.h"
 #include "cdc_host_descriptor_parsing.h"
+#include "usb/usb_types_ch9.h"
 
 extern "C" {
 #include "Mockusb_host.h"
@@ -72,6 +73,46 @@ static void _submit_mock_transfer(cdc_acm_dev_hdl_t *dev)
     REQUIRE(ESP_ERR_INVALID_RESPONSE == test_cdc_acm_host_data_tx_blocking(*dev, tx_buf, sizeof(tx_buf), 200, MOCK_USB_TRANSFER_ERROR));
     // Submit transfer which times out
     REQUIRE(ESP_ERR_TIMEOUT == test_cdc_acm_host_data_tx_blocking(*dev, tx_buf, sizeof(tx_buf), 200, MOCK_USB_TRANSFER_TIMEOUT));
+}
+
+SCENARIO("Invalid custom command")
+{
+    _add_mocked_devices();
+
+    GIVEN("Mocked device is opened") {
+        REQUIRE(ESP_OK == test_cdc_acm_host_install(nullptr));
+
+        cdc_acm_dev_hdl_t dev = nullptr;
+        const cdc_acm_host_device_config_t dev_config = {
+            .connection_timeout_ms = 1000,
+            .out_buffer_size = 100,
+            .in_buffer_size = 100,
+            .event_cb = nullptr,
+            .data_cb = nullptr,
+            .user_arg = nullptr,
+        };
+
+        // Use any device, does not matter for this test
+        const uint16_t vid = 0xB95, pid = 0x772A;
+        const uint8_t device_address = 0, interface_index = 0;
+
+        // Open a device
+        REQUIRE(ESP_OK == test_cdc_acm_host_open(device_address, vid, pid, interface_index, &dev_config, &dev));
+        REQUIRE(dev != nullptr);
+
+        THEN("Command that does not fit into EP0 buffer is rejected with ESP_ERR_INVALID_SIZE") {
+            uint8_t data[64 - USB_SETUP_PACKET_SIZE + 1]; // +1 to make sure that the buffer overflows
+            REQUIRE(ESP_ERR_INVALID_SIZE == cdc_acm_host_send_custom_request(dev, 0x21, 34, 1, 0, sizeof(data), data));
+        }
+
+        THEN("Command length > 0 but data is NULL is rejected with ESP_ERR_INVALID_ARG") {
+            REQUIRE(ESP_ERR_INVALID_ARG == cdc_acm_host_send_custom_request(dev, 0x21, 34, 1, 0, 10, nullptr));
+        }
+
+        // Close the device
+        REQUIRE(ESP_OK == test_cdc_acm_host_close(&dev, interface_index));
+        REQUIRE(ESP_OK == test_cdc_acm_host_uninstall());
+    }
 }
 
 SCENARIO("Interact with mocked USB devices")
