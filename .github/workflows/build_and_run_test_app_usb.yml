@@ -141,8 +141,14 @@ jobs:
             idf_ver: "release-v6.0"
           - test_app: host_native
             idf_ver: "latest"
+        include:
+          # Use only ECO4 runners by default for now
+          - idf_target: "esp32p4"
+            eco: "eco4"
+          - idf_target: "esp32s2"
+            eco: "ARM64"
 
-    runs-on: [self-hosted, linux, docker, "${{ matrix.idf_target }}", "${{ matrix.runner_tag }}"]
+    runs-on: [self-hosted, linux, docker, "${{ matrix.idf_target }}", "${{ matrix.runner_tag }}", "${{ matrix.eco}}"]
     container:
       image: python:3.11-bookworm
       options: --privileged --device-cgroup-rule="c 188:* rmw" --device-cgroup-rule="c 166:* rmw"
