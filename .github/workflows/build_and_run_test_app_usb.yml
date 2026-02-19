@@ -164,7 +164,7 @@ jobs:
         if: success() && steps.download_artifact.outcome == 'success'
         env:
           PIP_EXTRA_INDEX_URL: "https://dl.espressif.com/pypi/"
-        run: pip install --no-cache-dir --only-binary cryptography pytest-embedded pytest-embedded-serial-esp pytest-embedded-idf idf-ci pytest-ignore-test-results pyserial pyusb
+        run: pip install --no-cache-dir --only-binary cryptography pytest-embedded pytest-embedded-serial-esp pytest-embedded-idf idf-ci pytest-ignore-test-results pytest-rerunfailures pyserial pyusb
       - name: Run USB Test App on target
         if: success() && steps.download_artifact.outcome == 'success'
         run: |

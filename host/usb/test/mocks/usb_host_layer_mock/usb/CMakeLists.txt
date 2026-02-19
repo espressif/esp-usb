@@ -29,3 +29,5 @@ target_sources(${COMPONENT_LIB} PRIVATE "${original_usb_dir}/src/usb_private.c")
 # We do not mock usb_helpers. We use the original implementation
 # This way, we can test descriptor parsing
 target_sources(${COMPONENT_LIB} PRIVATE "${original_usb_dir}/src/usb_helpers.c")
+# This definition is missing for linux target, so we add it here
+target_compile_definitions(${COMPONENT_LIB} PRIVATE -DSOC_USB_OTG_PERIPH_NUM=2)

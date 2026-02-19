@@ -1991,7 +1991,6 @@ esp_err_t uac_host_install(const uac_host_driver_config_t *config)
     if (config->create_background_task) {
         UAC_RETURN_ON_FALSE(config->stack_size != 0, ESP_ERR_INVALID_ARG, "Wrong stack size value");
         UAC_RETURN_ON_FALSE(config->task_priority != 0, ESP_ERR_INVALID_ARG, "Wrong task priority value");
-        UAC_RETURN_ON_FALSE(config->core_id < 2, ESP_ERR_INVALID_ARG, "Wrong core id value");
     }
 
     uac_driver_t *driver = heap_caps_calloc(1, sizeof(uac_driver_t), MALLOC_CAP_DEFAULT);

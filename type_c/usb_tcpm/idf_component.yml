@@ -1,0 +1,17 @@
+## IDF Component Manager Manifest File
+
+description: ESP-IDF USB Type-C stack (beta)
+version: "0.1.0-beta1"
+url: https://github.com/espressif/esp-usb/tree/master/type_c/usb_tcpm
+issues: "https://github.com/espressif/esp-usb/issues"
+repository: "https://github.com/espressif/esp-usb.git"
+repository_info:
+  path: "type_c/usb_tcpm"
+dependencies:
+  idf: ">=5.4"
+files:
+  exclude:
+    - "test_apps/**/*"
+tags:
+  - usb
+  - usb_typec

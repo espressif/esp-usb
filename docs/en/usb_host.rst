@@ -33,7 +33,7 @@ The Host Library has the following features:
     :esp32p4: - Supports High Speed (HS), Full Speed (FS) and Low Speed (LS) Devices.
     - Supports all four transfer types: Control, Bulk, Interrupt, and Isochronous.
     :esp32p4: - Supports High-Bandwidth Isochronous endpoints.
-    :esp32p4: - {IDF_TARGET_NAME} includes two USB 2.0 OTG peripherals: one High-Speed and one Full-Speed. Both support USB Host functionality. However, due to a current software limitation, only one can operate as a USB Host at a time. Support for dual USB Host operation is planned for a future update.
+    :esp32p4: - {IDF_TARGET_NAME} has two USB 2.0 OTG controllers: one High-Speed and one Full-Speed. Each controller can operate as a USB host independently, so either one alone or both together can function as USB hosts simultaneously.
     - Allows multiple class drivers to run simultaneously, i.e., multiple clients of the Host Library.
     - A single device can be used by multiple clients simultaneously, e.g., composite devices.
     - The Host Library itself and the underlying Host Stack does not internally instantiate any OS tasks. The number of tasks is entirely controlled by how the Host Library interface is used. However, a general rule of thumb regarding the number of tasks is ``(the number of host class drivers running + 1)``.
@@ -54,7 +54,6 @@ Currently, the Host Library and the underlying Host Stack has the following limi
     - The External Hub Driver: Remote Wakeup feature is not supported (External Hubs are active, even if there are no devices inserted).
     - The External Hub Driver: Doesn't handle error cases (overcurrent handling, errors during initialization etc. are not implemented yet).
     - The External Hub Driver: No Interface selection. The Driver uses the first available Interface with Hub Class code (09h).
-    - The External Port Driver: No downstream port debounce mechanism (not implemented yet).
     :esp32p4: - The External Hub Driver: No Transaction Translator layer (No FS/LS Devices support when a Hub is attached to HS Host).
 
 
@@ -536,8 +535,7 @@ CDC-ACM
 """""""
 
 * A host class driver for the Communication Device Class (Abstract Control Model) is distributed as a managed component via the `ESP Component Registry <https://components.espressif.com/component/espressif/usb_host_cdc_acm>`__.
-* `cdc_acm_host <https://github.com/espressif/esp-idf/tree/master/examples/peripherals/usb/host/cdc/cdc_acm_host>`__ demonstrates how to use the CDC-ACM Host Driver to enable communication between {IDF_TARGET_NAME} and a USB CDC-ACM device.
-* `cdc_acm_vcp <https://github.com/espressif/esp-idf/tree/master/examples/peripherals/usb/host/cdc/cdc_acm_vcp>`__ demonstrates how to extend the CDC-ACM driver for Virtual Communication Port (VCP) devices like CP210x, FTDI FT23x or CH34x devices, and how to control the device and send data using the CDC-ACM API.
+* `cdc_acm_host <https://github.com/espressif/esp-idf/tree/master/examples/peripherals/usb/host/cdc>`__ demonstrates how to use the CDC-ACM Host Driver to enable communication between {IDF_TARGET_NAME} and a USB CDC-ACM device, including vendor-specific devices such as CP210x, FTDI FT23x or CH34x.
 * The CDC-ACM driver is also used in `esp_modem examples <https://github.com/espressif/esp-protocols/tree/master/components/esp_modem/examples>`__, where it is used for communication with cellular modems.
 
 MSC

@@ -28,6 +28,14 @@ host/class/msc:
   enable:
     - if: SOC_USB_OTG_SUPPORTED == 1
 
+type_c:
+  depends_filepatterns:
+    - 'type_c/**'
+  disable:
+    - if: IDF_TARGET in ["linux"]
+    - if: SOC_I2C_SUPPORTED == 0
+      reason: Type-C TCPM backend requires I2C support (FUSB302)
+
 host/class/uac:
   depends_filepatterns:
     - 'host/class/uac/**'

@@ -2,7 +2,7 @@
 
 [![Component Registry](https://components.espressif.com/components/espressif/usb_host_uac/badge.svg)](https://components.espressif.com/components/espressif/usb_host_uac) ![maintenance-status](https://img.shields.io/badge/maintenance-actively--developed-brightgreen.svg) ![changelog](https://img.shields.io/badge/Keep_a_Changelog-blue?logo=keepachangelog&logoColor=E05735)
 
-This directory contains an implementation of a USB UAC Driver implemented on top of the [USB Host Library](https://docs.espressif.com/projects/esp-idf/en/latest/esp32s2/api-reference/peripherals/usb_host.html).
+This directory contains an implementation of a USB UAC Driver implemented on top of the [USB Host Library](https://components.espressif.com/components/espressif/usb).
 
 UAC driver allows access to UAC 1.0 devices.
 

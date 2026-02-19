@@ -1,0 +1,5 @@
+## IDF Component Manager Manifest File
+dependencies:
+  espressif/usb_tcpm:
+    version: "*"
+    override_path: "../../../"

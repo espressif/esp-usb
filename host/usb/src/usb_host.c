@@ -161,10 +161,10 @@ typedef struct {
     struct {
         SemaphoreHandle_t event_sem;
         SemaphoreHandle_t mux_lock;
-        TimerHandle_t auto_suspend_timer;   // Freertos timer used for automatic suspend of the root port
-        usb_phy_handle_t phy_handle;        // Will be NULL if host library is installed with skip_phy_setup
-        void *enum_client;                  // Pointer to Enum driver (acting as a client). Used to reroute completed USBH control transfers
-        void *hub_client;                   // Pointer to External Hub driver (acting as a client). Used to reroute completed USBH control transfers. NULL, when External Hub Driver not available.
+        TimerHandle_t auto_suspend_timer;             // Freertos timer used for automatic suspend of the root port
+        usb_phy_handle_t phy_handles[HCD_NUM_PORTS];  // One per port; NULL if skip_phy_setup or port not enabled
+        void *enum_client;                            // Pointer to Enum driver (acting as a client). Used to reroute completed USBH control transfers
+        void *hub_client;                             // Pointer to External Hub driver (acting as a client). Used to reroute completed USBH control transfers. NULL, when External Hub Driver not available.
     } constant;
 } host_lib_t;
 
@@ -536,6 +536,23 @@ esp_err_t usb_host_install(const usb_host_config_t *config)
     HOST_CHECK_FROM_CRIT(p_host_lib_obj == NULL, ESP_ERR_INVALID_STATE);
     HOST_EXIT_CRITICAL();
 
+    // Validate configuration before any allocation (enables early return on invalid config)
+    const unsigned peripheral_map = config->peripheral_map == 0 ? (unsigned)BIT0 : config->peripheral_map;
+    const unsigned peripheral_map_max = (1U << SOC_USB_OTG_PERIPH_NUM) - 1;
+    if (peripheral_map > peripheral_map_max) {
+        ESP_LOGE(USB_HOST_TAG, "peripheral_map 0x%x exceeds maximum 0x%x", peripheral_map, peripheral_map_max);
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    const bool multi_port = (peripheral_map & (peripheral_map - 1)) != 0;
+    if (multi_port) {
+        if (config->fifo_settings_custom.rx_fifo_lines != 0 ||
+                config->fifo_settings_custom.nptx_fifo_lines != 0 ||
+                config->fifo_settings_custom.ptx_fifo_lines != 0) {
+            ESP_LOGW(USB_HOST_TAG, "Custom FIFO configuration is not supported for dual port applications; default FIFO will be used");
+        }
+    }
+
     esp_err_t ret;
     host_lib_t *host_lib_obj = heap_caps_calloc(1, sizeof(host_lib_t), MALLOC_CAP_DEFAULT);
     SemaphoreHandle_t event_sem = xSemaphoreCreateBinary();
@@ -560,35 +577,34 @@ esp_err_t usb_host_install(const usb_host_config_t *config)
     - Hub
     */
 
-    // For backward compatibility accept 0 too
-    const unsigned peripheral_map = config->peripheral_map == 0 ? BIT0 : config->peripheral_map;
+    // Initialize PHY handles to NULL
+    memset(host_lib_obj->constant.phy_handles, 0, sizeof(host_lib_obj->constant.phy_handles));
 
-    // Install USB PHY (if necessary). USB PHY driver will also enable the underlying Host Controller
+    // Install USB PHY for each enabled port (if not skip_phy_setup)
     if (!config->skip_phy_setup) {
-        bool init_utmi_phy = false; // Default value for Linux simulation
+        for (int i = 0; i < SOC_USB_OTG_PERIPH_NUM; i++) {
+            if (!(peripheral_map & BIT(i))) {
+                continue;
+            }
+            bool init_utmi_phy = false; // Default for Linux simulation / non-SOC builds
 
-#if SOC_USB_OTG_SUPPORTED // In case we run on a real target, select the PHY from usb_dwc_info description structure
-        // Right now we support only one peripheral, can be extended in future
-        int peripheral_index = 0;
-        if (peripheral_map & BIT1) {
-            peripheral_index = 1;
-        }
-        init_utmi_phy = (usb_dwc_info.controllers[peripheral_index].supported_phys == USB_PHY_INST_UTMI_0);
+#if SOC_USB_OTG_SUPPORTED
+            init_utmi_phy = (usb_dwc_info.controllers[i].supported_phys == USB_PHY_INST_UTMI_0);
 #endif // SOC_USB_OTG_SUPPORTED
 
-        // Host Library defaults to internal PHY
-        usb_phy_config_t phy_config = {
-            .controller = USB_PHY_CTRL_OTG,
-            .target = init_utmi_phy ? USB_PHY_TARGET_UTMI : USB_PHY_TARGET_INT,
-            .otg_mode = USB_OTG_MODE_HOST,
-            .otg_speed = USB_PHY_SPEED_UNDEFINED,   // In Host mode, the speed is determined by the connected device
-            .ext_io_conf = NULL,
-            .otg_io_conf = NULL,
-        };
-        ret = usb_new_phy(&phy_config, &host_lib_obj->constant.phy_handle);
-        if (ret != ESP_OK) {
-            ESP_LOGE(USB_HOST_TAG, "PHY install error: %s", esp_err_to_name(ret));
-            goto phy_err;
+            usb_phy_config_t phy_config = {
+                .controller = USB_PHY_CTRL_OTG,
+                .target = init_utmi_phy ? USB_PHY_TARGET_UTMI : USB_PHY_TARGET_INT,
+                .otg_mode = USB_OTG_MODE_HOST,
+                .otg_speed = USB_PHY_SPEED_UNDEFINED,
+                .ext_io_conf = NULL,
+                .otg_io_conf = NULL,
+            };
+            ret = usb_new_phy(&phy_config, &host_lib_obj->constant.phy_handles[i]);
+            if (ret != ESP_OK) {
+                ESP_LOGE(USB_HOST_TAG, "PHY install error for port %d: %s", i, esp_err_to_name(ret));
+                goto phy_err;
+            }
         }
     }
 
@@ -633,11 +649,12 @@ esp_err_t usb_host_install(const usb_host_config_t *config)
         .fifo_config = NULL,
     };
 
-    // Check if user has provided a custom FIFO configuration
+    // Check if user has provided a custom FIFO configuration (not used for multi-port)
     hcd_fifo_settings_t user_fifo_config;
-    if (config->fifo_settings_custom.rx_fifo_lines != 0 ||
-            config->fifo_settings_custom.nptx_fifo_lines != 0 ||
-            config->fifo_settings_custom.ptx_fifo_lines != 0) {
+    if (!multi_port &&
+            (config->fifo_settings_custom.rx_fifo_lines != 0 ||
+             config->fifo_settings_custom.nptx_fifo_lines != 0 ||
+             config->fifo_settings_custom.ptx_fifo_lines != 0)) {
 
         // Populate user FIFO configuration with provided values
         user_fifo_config.rx_fifo_lines = config->fifo_settings_custom.rx_fifo_lines;
@@ -678,11 +695,13 @@ hub_err:
     ESP_ERROR_CHECK(enum_uninstall());
 enum_err:
     ESP_ERROR_CHECK(usbh_uninstall());
-usbh_err:
-    if (host_lib_obj->constant.phy_handle) {
-        ESP_ERROR_CHECK(usb_del_phy(host_lib_obj->constant.phy_handle));
-    }
 phy_err:
+usbh_err:
+    for (int i = 0; i < HCD_NUM_PORTS; i++) {
+        if (host_lib_obj->constant.phy_handles[i] != NULL) {
+            ESP_ERROR_CHECK(usb_del_phy(host_lib_obj->constant.phy_handles[i]));
+        }
+    }
 alloc_err:
     if (mux_lock) {
         vSemaphoreDelete(mux_lock);
@@ -728,9 +747,11 @@ esp_err_t usb_host_uninstall(void)
     ESP_ERROR_CHECK(hub_uninstall());
     ESP_ERROR_CHECK(enum_uninstall());
     ESP_ERROR_CHECK(usbh_uninstall());
-    // If the USB PHY was setup, then delete it
-    if (host_lib_obj->constant.phy_handle) {
-        ESP_ERROR_CHECK(usb_del_phy(host_lib_obj->constant.phy_handle));
+    // Delete all PHYs that were created
+    for (int i = 0; i < HCD_NUM_PORTS; i++) {
+        if (host_lib_obj->constant.phy_handles[i] != NULL) {
+            ESP_ERROR_CHECK(usb_del_phy(host_lib_obj->constant.phy_handles[i]));
+        }
     }
 
     // Free memory objects

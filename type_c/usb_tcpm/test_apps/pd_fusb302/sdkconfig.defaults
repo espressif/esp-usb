@@ -1,0 +1,22 @@
+# Disable watchdogs, they'd get triggered during unity interactive menu
+# CONFIG_ESP_TASK_WDT_INIT is not set
+
+# Run-time checks of Heap and Stack
+CONFIG_HEAP_POISONING_COMPREHENSIVE=y
+CONFIG_COMPILER_STACK_CHECK_MODE_STRONG=y
+
+CONFIG_UNITY_ENABLE_BACKTRACE_ON_FAIL=y
+
+# Use USB Serial/JTAG for console I/O (Unity menu input/output)
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
+CONFIG_ESP_CONSOLE_SECONDARY_NONE=y
+# CONFIG_ESP_CONSOLE_UART_DEFAULT is not set
+# CONFIG_ESP_CONSOLE_UART_CUSTOM is not set
+# CONFIG_ESP_CONSOLE_NONE is not set
+
+# Keep mbedTLS crypto features aligned with current Kconfig defaults.
+# CONFIG_MBEDTLS_ARIA_C is not set
+# CONFIG_MBEDTLS_SHA3_C is not set
+
+# Keep target/flash defaults aligned with current Kconfig defaults.
+CONFIG_ESPTOOLPY_FLASHFREQ_40M=y
