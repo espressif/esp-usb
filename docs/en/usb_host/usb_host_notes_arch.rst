@@ -26,13 +26,13 @@ The layers of the Host Stack are described in the following table. The layers ar
       - The HAL (Hardware Abstraction Layer) abstracts the operating steps of the USB controller into functions according to ESP-IDF's `Hardware Abstraction API Guidelines <https://docs.espressif.com/projects/esp-idf/en/stable/{IDF_TARGET_PATH_NAME}/api-guides/hardware-abstraction.html>`__. This layer also abstracts the controller's host port and host channels, and provides APIs to operate the them.
     * - HCD
       - ``hcd.h``, ``hcd.c``
-      - The HCD (Host Controller Driver) acts as hardware agnostic API for all USB controllers (i.e., an API that can theoretically be used with any USB controller implementation). This layer also abstracts the root port (i.e., root hub) and USB pipes.
+      - The HCD (Host Controller Driver) acts as hardware agnostic API for all USB controllers (i.e., an API that can theoretically be used with any USB controller implementation). This layer also abstracts the root port and USB pipes.
     * - USBH and Hub Driver
       - ``usbh.h``, ``usbh.c``
       - The USBH (USB Host Driver) layer is equivalent to the USBD layer described in chapter 10 of the USB2.0 specification. The USBH presents an abstraction of USB devices, internally manages a list of connected devices (i.e., device pool), and also arbitrates device sharing between clients (i.e., tracks which endpoints are in use and also presents a shared endpoint 0).
     * - Hub Driver
-      - ``hub.h``, ``hub.c``
-      - The Hub Driver layer acts as a special client of the USBH that is responsible for handling device attachment/detachment, and notifying the USBH of such events. For device attachment, the Hub Driver also handles the enumeration process as well.
+      - ``hub.h``, ``hub.c``, ``enum.h``, ``enum.c``
+      - The Hub Driver layer implements the Root HUB and acts as a special client of the USBH that is responsible for handling device attachment/detachment, and notifying the USBH of such events. For device attachment, the Hub Driver also handles the enumeration process as well.
     * - USB Host Library
       - ``usb_host.h``, ``usb_host.c``
       - The USB Host Library layer is the lowest public API layer of the Host Stack and presents the concept of USB Host Clients. The abstraction of clients allows for multiple class drivers to coexist simultaneously (where each class roughly maps to a single client) and also acts as a mechanism for division of labor (where each client is responsible for its own processing and event handling).
