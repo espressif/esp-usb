@@ -477,3 +477,40 @@ TEST_CASE("USB descriptor parsing with bLength=0", "[helpers]")
         }
     }
 }
+
+TEST_CASE("USB descriptor parsing with interface that has too many endpoints", "[helpers]")
+{
+    // Minimal config descriptor containing an interface with bNumEndpoints > USB_MAX_ENDPOINTS_PER_INTERFACE (32)
+    static const uint8_t bad_config_desc_bytes[] = {
+        // Configuration Descriptor (9 bytes)
+        0x09,                       // bLength = 9
+        0x02,                       // bDescriptorType = Configuration
+        0x12, 0x00,                 // wTotalLength = 18
+        0x01,                       // bNumInterfaces = 1
+        0x01,                       // bConfigurationValue = 1
+        0x00,                       // iConfiguration = 0
+        0x80,                       // bmAttributes
+        0x32,                       // bMaxPower = 100mA
+        // Interface Descriptor (9 bytes) with bNumEndpoints = 33 (> 32)
+        0x09,                       // bLength = 9
+        0x04,                       // bDescriptorType = Interface
+        0x00,                       // bInterfaceNumber = 0
+        0x00,                       // bAlternateSetting = 0
+        0x21,                       // bNumEndpoints = 33  <-- exceeds USB_MAX_ENDPOINTS_PER_INTERFACE
+        0xFF, 0x00, 0x00, 0x00,     // bInterfaceClass, SubClass, Protocol, iInterface
+    };
+
+    const auto *config_desc = reinterpret_cast<const usb_config_desc_t *>(bad_config_desc_bytes);
+
+    GIVEN("A configuration descriptor with an interface declaring too many endpoints") {
+        int offset = 0;
+
+        WHEN("Parsing the interface descriptor by number and alternate setting") {
+            const auto *intf_desc = usb_parse_interface_descriptor(config_desc, 0, 0, &offset);
+
+            THEN("The parser returns NULL and rejects the invalid descriptor") {
+                REQUIRE(intf_desc == nullptr);
+            }
+        }
+    }
+}
