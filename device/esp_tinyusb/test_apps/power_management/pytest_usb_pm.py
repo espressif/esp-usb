@@ -6,7 +6,6 @@ import pytest
 from serial import Serial, SerialException
 from serial.tools.list_ports import comports
 from pytest_embedded_idf.dut import IdfDut
-from pytest_embedded_idf.utils import idf_parametrize
 
 # Mainly for a local run, as there is no error when pyusb is not installed and the pytest silently fails
 try:
@@ -39,7 +38,16 @@ TINYUSB_EVENTS = {
 
 @pytest.mark.usb_device
 @pytest.mark.flaky(reruns=1, reruns_delay=10)
-@idf_parametrize('target', ['esp32s2', 'esp32s3', 'esp32p4'], indirect=['target'])
+@pytest.mark.parametrize(
+    'config, target',
+    [
+        pytest.param('default', 'esp32s2'),
+        pytest.param('default', 'esp32s3'),
+        pytest.param('default', 'esp32p4', marks=[pytest.mark.eco_default]),
+        pytest.param('esp32p4_eco4', 'esp32p4', marks=[pytest.mark.esp32p4_eco4]),
+    ],
+    indirect=['target'],
+)
 def test_usb_device_suspend_resume(dut: IdfDut) -> None:
     '''
     Running the test locally:
@@ -171,7 +179,16 @@ def check_remote_wake_feature(VID: int, PID: int, has_remote_wake: bool) -> None
 
 @pytest.mark.usb_device
 @pytest.mark.flaky(reruns=1, reruns_delay=10)
-@idf_parametrize('target', ['esp32s2', 'esp32s3', 'esp32p4'], indirect=['target'])
+@pytest.mark.parametrize(
+    'config, target',
+    [
+        pytest.param('default', 'esp32s2'),
+        pytest.param('default', 'esp32s3'),
+        pytest.param('default', 'esp32p4', marks=[pytest.mark.eco_default]),
+        pytest.param('esp32p4_eco4', 'esp32p4', marks=[pytest.mark.esp32p4_eco4]),
+    ],
+    indirect=['target'],
+)
 def test_usb_device_remote_wakeup_en(dut: IdfDut) -> None:
     '''
     Running the test locally:

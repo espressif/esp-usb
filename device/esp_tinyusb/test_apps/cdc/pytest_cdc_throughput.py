@@ -344,9 +344,18 @@ try:
     # That is why we do not export throughput results from here
     import pytest
     from pytest_embedded_idf.dut import IdfDut
-    from pytest_embedded_idf.utils import idf_parametrize
+
     @pytest.mark.usb_device
-    @idf_parametrize('target', ['esp32s2', 'esp32s3', 'esp32p4'], indirect=['target'])
+    @pytest.mark.parametrize(
+        'config, target',
+        [
+            pytest.param('default', 'esp32s2'),
+            pytest.param('default', 'esp32s3'),
+            pytest.param('default', 'esp32p4', marks=[pytest.mark.eco_default]),
+            pytest.param('esp32p4_eco4', 'esp32p4', marks=[pytest.mark.esp32p4_eco4]),
+        ],
+        indirect=['target'],
+    )
     def test_tusb_cdc_throughput(dut: IdfDut) -> None:
         dut.expect_exact('Press ENTER to see the list of tests.')
         dut.write('[cdc_throughput]')

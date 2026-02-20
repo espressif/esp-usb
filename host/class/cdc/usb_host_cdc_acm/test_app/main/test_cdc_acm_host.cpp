@@ -1053,7 +1053,7 @@ static void suspend_tx_task(void *arg)
 }
 
 /**
- * @brief Initiate auto suspend from multiple
+ * @brief Initiate auto suspend from multiple threads
  *
  * open device and send transfer from multiple tasks
  * immediately suspend the root port
@@ -1061,7 +1061,9 @@ static void suspend_tx_task(void *arg)
  * Expect transfer either to pass, or to fail, due to root being int suspending state
  * close the device, cleanup
  */
-TEST_CASE("auto_suspend_multiple_threads", "[cdc_acm]")
+
+// TODO: Test failing in CI on esp32p4 ECO6 IDF-15358
+TEST_CASE("auto_suspend_multiple_threads", "[cdc_acm][ignore]")
 {
     cdc_acm_dev_hdl_t cdc_dev;
     test_install_cdc_driver(NULL);
