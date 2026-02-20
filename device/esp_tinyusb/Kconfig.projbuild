@@ -248,6 +248,237 @@ menu "TinyUSB Stack"
                 BTH ISO ALT COUNT.
     endmenu # "Bluetooth Host Device Class"
 
+    menu "USB Video Class (UVC)"
+        config TINYUSB_UVC_ENABLED
+            bool "Enable TinyUSB UVC feature"
+            default n
+            help
+                Enable TinyUSB UVC (USB Video Class) feature for webcam devices.
+
+        config TINYUSB_DESC_UVC_STRING
+            depends on TINYUSB_UVC_ENABLED
+            string "UVC Device String"
+            default "Espressif UVC Camera"
+            help
+                Name of the UVC device.
+
+        config TINYUSB_UVC_SUPPORT_TWO_CAM
+            depends on TINYUSB_UVC_ENABLED
+            bool "Support two cameras"
+            default n
+            help
+                Enable support for two independent UVC camera interfaces.
+
+        config TINYUSB_UVC_CAM1_FRAMERATE
+            depends on TINYUSB_UVC_ENABLED
+            int "Camera 1 Frame Rate (fps)"
+            default 15
+            range 1 60
+            help
+                Frame rate for camera 1 in frames per second.
+
+        config TINYUSB_UVC_CAM1_FRAMESIZE_WIDTH
+            depends on TINYUSB_UVC_ENABLED
+            int "Camera 1 Frame Width"
+            default 640
+            help
+                Frame width for camera 1 in pixels.
+
+        config TINYUSB_UVC_CAM1_FRAMESIZE_HEIGHT
+            depends on TINYUSB_UVC_ENABLED
+            int "Camera 1 Frame Height"
+            default 480
+            help
+                Frame height for camera 1 in pixels.
+
+        choice TINYUSB_UVC_CAM1_FORMAT
+            depends on TINYUSB_UVC_ENABLED
+            prompt "Camera 1 Video Format"
+            default TINYUSB_UVC_FORMAT_MJPEG_CAM1
+            help
+                Select video format for camera 1.
+
+            config TINYUSB_UVC_FORMAT_MJPEG_CAM1
+                bool "MJPEG"
+            config TINYUSB_UVC_FORMAT_H264_CAM1
+                bool "H264"
+        endchoice
+
+        config TINYUSB_UVC_CAM1_MULTI_FRAMESIZE
+            depends on TINYUSB_UVC_ENABLED
+            bool "Enable multiple frame sizes for Camera 1"
+            default n
+            help
+                Enable support for multiple frame sizes (VGA, HVGA, etc.).
+
+        config TINYUSB_UVC_CAM1_BULK_MODE
+            depends on TINYUSB_UVC_ENABLED
+            bool "Use Bulk mode for Camera 1"
+            default n
+            help
+                Use Bulk transfer mode instead of Isochronous for Camera 1.
+
+        config TINYUSB_UVC_CAM2_FRAMERATE
+            depends on TINYUSB_UVC_ENABLED && TINYUSB_UVC_SUPPORT_TWO_CAM
+            int "Camera 2 Frame Rate (fps)"
+            default 15
+            range 1 60
+            help
+                Frame rate for camera 2 in frames per second.
+
+        config TINYUSB_UVC_CAM2_FRAMESIZE_WIDTH
+            depends on TINYUSB_UVC_ENABLED && TINYUSB_UVC_SUPPORT_TWO_CAM
+            int "Camera 2 Frame Width"
+            default 640
+            help
+                Frame width for camera 2 in pixels.
+
+        config TINYUSB_UVC_CAM2_FRAMESIZE_HEIGHT
+            depends on TINYUSB_UVC_ENABLED && TINYUSB_UVC_SUPPORT_TWO_CAM
+            int "Camera 2 Frame Height"
+            default 480
+            help
+                Frame height for camera 2 in pixels.
+
+        choice TINYUSB_UVC_CAM2_FORMAT
+            depends on TINYUSB_UVC_ENABLED && TINYUSB_UVC_SUPPORT_TWO_CAM
+            prompt "Camera 2 Video Format"
+            default TINYUSB_UVC_FORMAT_MJPEG_CAM2
+            help
+                Select video format for camera 2.
+
+            config TINYUSB_UVC_FORMAT_MJPEG_CAM2
+                bool "MJPEG"
+            config TINYUSB_UVC_FORMAT_H264_CAM2
+                bool "H264"
+        endchoice
+
+        config TINYUSB_UVC_CAM2_MULTI_FRAMESIZE
+            depends on TINYUSB_UVC_ENABLED && TINYUSB_UVC_SUPPORT_TWO_CAM
+            bool "Enable multiple frame sizes for Camera 2"
+            default n
+            help
+                Enable support for multiple frame sizes (VGA, HVGA, etc.).
+
+        config TINYUSB_UVC_CAM2_BULK_MODE
+            depends on TINYUSB_UVC_ENABLED && TINYUSB_UVC_SUPPORT_TWO_CAM
+            bool "Use Bulk mode for Camera 2"
+            default n
+            help
+                Use Bulk transfer mode instead of Isochronous for Camera 2.
+
+        config TINYUSB_UVC_MULTI_FRAME_WIDTH_1
+            depends on TINYUSB_UVC_ENABLED
+            int "Multi-frame Width 1"
+            default 640
+            help
+                Additional frame size width 1.
+
+        config TINYUSB_UVC_MULTI_FRAME_HEIGHT_1
+            depends on TINYUSB_UVC_ENABLED
+            int "Multi-frame Height 1"
+            default 480
+            help
+                Additional frame size height 1.
+
+        config TINYUSB_UVC_MULTI_FRAME_FPS_1
+            depends on TINYUSB_UVC_ENABLED
+            int "Multi-frame FPS 1"
+            default 15
+            help
+                Additional frame rate 1.
+
+        config TINYUSB_UVC_MULTI_FRAME_WIDTH_2
+            depends on TINYUSB_UVC_ENABLED
+            int "Multi-frame Width 2"
+            default 320
+            help
+                Additional frame size width 2.
+
+        config TINYUSB_UVC_MULTI_FRAME_HEIGHT_2
+            depends on TINYUSB_UVC_ENABLED
+            int "Multi-frame Height 2"
+            default 240
+            help
+                Additional frame size height 2.
+
+        config TINYUSB_UVC_MULTI_FRAME_FPS_2
+            depends on TINYUSB_UVC_ENABLED
+            int "Multi-frame FPS 2"
+            default 15
+            help
+                Additional frame rate 2.
+
+        config TINYUSB_UVC_MULTI_FRAME_WIDTH_3
+            depends on TINYUSB_UVC_ENABLED
+            int "Multi-frame Width 3"
+            default 160
+            help
+                Additional frame size width 3.
+
+        config TINYUSB_UVC_MULTI_FRAME_HEIGHT_3
+            depends on TINYUSB_UVC_ENABLED
+            int "Multi-frame Height 3"
+            default 120
+            help
+                Additional frame size height 3.
+
+        config TINYUSB_UVC_MULTI_FRAME_FPS_3
+            depends on TINYUSB_UVC_ENABLED
+            int "Multi-frame FPS 3"
+            default 15
+            help
+                Additional frame rate 3.
+
+        config TINYUSB_UVC_CAM1_TASK_PRIORITY
+            depends on TINYUSB_UVC_ENABLED
+            int "Camera 1 Task Priority"
+            default 5
+            range 1 25
+            help
+                Priority of the Camera 1 task.
+
+        config TINYUSB_UVC_CAM1_TASK_CORE
+            depends on TINYUSB_UVC_ENABLED
+            int "Camera 1 Task Core (-1 for any)"
+            default -1
+            range -1 1
+            help
+                Core affinity for Camera 1 task. -1 for no affinity.
+
+        config TINYUSB_UVC_CAM2_TASK_PRIORITY
+            depends on TINYUSB_UVC_ENABLED && TINYUSB_UVC_SUPPORT_TWO_CAM
+            int "Camera 2 Task Priority"
+            default 5
+            range 1 25
+            help
+                Priority of the Camera 2 task.
+
+        config TINYUSB_UVC_CAM2_TASK_CORE
+            depends on TINYUSB_UVC_ENABLED && TINYUSB_UVC_SUPPORT_TWO_CAM
+            int "Camera 2 Task Core (-1 for any)"
+            default -1
+            range -1 1
+            help
+                Core affinity for Camera 2 task. -1 for no affinity.
+
+        config TINYUSB_UVC_TINYUSB_TASK_PRIORITY
+            depends on TINYUSB_UVC_ENABLED
+            int "TinyUSB Task Priority"
+            default 5
+            range 1 25
+            help
+                Priority of the TinyUSB task for UVC.
+
+        config TINYUSB_UVC_TINYUSB_TASK_CORE
+            depends on TINYUSB_UVC_ENABLED
+            int "TinyUSB Task Core (-1 for any)"
+            default -1
+            range -1 1
+            help
+                Core affinity for TinyUSB task. -1 for no affinity.
+    endmenu # "USB Video Class (UVC)"
+
     menu "Network driver (ECM/NCM/RNDIS)"
         choice TINYUSB_NET_MODE
             prompt "Network mode"

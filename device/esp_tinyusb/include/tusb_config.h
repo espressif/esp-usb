@@ -165,6 +165,20 @@ extern "C" {
 // Number of BTH ISO alternatives
 #define CFG_TUD_BTH_ISO_ALT_COUNT   CONFIG_TINYUSB_BTH_ISO_ALT_COUNT
 
+// UVC (Video Class) configuration
+#if CONFIG_TINYUSB_UVC_ENABLED
+  #if CONFIG_TINYUSB_UVC_SUPPORT_TWO_CAM
+    #define CFG_TUD_VIDEO                       2
+  #else
+    #define CFG_TUD_VIDEO                       1
+  #endif
+  #define CFG_TUD_VIDEO_STREAMING             CFG_TUD_VIDEO
+  #define CFG_TUD_VIDEO_STREAMING_EP_BUFSIZE  (TUD_OPT_HIGH_SPEED ? 1023 : 512)
+#else
+  #define CFG_TUD_VIDEO                       0
+  #define CFG_TUD_VIDEO_STREAMING             0
+#endif
+
 // Enabled device class driver
 #define CFG_TUD_CDC                 CONFIG_TINYUSB_CDC_COUNT
 #define CFG_TUD_MSC                 CONFIG_TINYUSB_MSC_ENABLED
