@@ -170,7 +170,7 @@ const char *ENUM_TAG = "ENUM";
 // ---------------------------- Helpers ----------------------------------------
 // -----------------------------------------------------------------------------
 #define ENUM_CHECK(cond, ret_val) ({                                        \
-            if (!(cond)) {                                                  \
+            if (unlikely(!(cond))) {                                        \
                 return (ret_val);                                           \
             }                                                               \
 })
@@ -558,31 +558,22 @@ exit:
  */
 static esp_err_t parse_short_config_desc(void)
 {
-    esp_err_t ret;
     usb_transfer_t *ctrl_xfer = &p_enum_driver->constant.urb->transfer;
     const usb_config_desc_t *config_desc = (usb_config_desc_t *)(ctrl_xfer->data_buffer + sizeof(usb_setup_packet_t));
 
     // Check if the returned descriptor is corrupted
-    if (config_desc->bDescriptorType != USB_B_DESCRIPTOR_TYPE_CONFIGURATION) {
-        ESP_LOGE(ENUM_TAG, "Short config desc has wrong bDescriptorType");
-        ret = ESP_ERR_INVALID_RESPONSE;
-        goto exit;
-    }
+    ENUM_CHECK(config_desc->bDescriptorType == USB_B_DESCRIPTOR_TYPE_CONFIGURATION && config_desc->wTotalLength >= sizeof(usb_config_desc_t), ESP_ERR_INVALID_RESPONSE);
 
 #if (ENUM_CTRL_TRANSFER_MAX_DATA_LEN < UINT16_MAX)  // Suppress -Wtype-limits warning due to uint16_t wTotalLength
     // Check if the descriptor is too long to be supported
     if (config_desc->wTotalLength > ENUM_CTRL_TRANSFER_MAX_DATA_LEN) {
         ESP_LOGE(ENUM_TAG, "Configuration descriptor larger than control transfer max length");
-        ret = ESP_ERR_INVALID_SIZE;
-        goto exit;
+        return ESP_ERR_INVALID_SIZE;
     }
 #endif
     // Set the configuration descriptor's full length
     p_enum_driver->single_thread.dev_params.wTotalLength = config_desc->wTotalLength;
-    ret = ESP_OK;
-
-exit:
-    return ret;
+    return ESP_OK;
 }
 
 /**
@@ -593,22 +584,17 @@ exit:
  */
 static esp_err_t parse_full_config_desc(void)
 {
-    esp_err_t ret;
     usb_device_handle_t dev_hdl = p_enum_driver->single_thread.dev_hdl;
     usb_transfer_t *ctrl_xfer = &p_enum_driver->constant.urb->transfer;
     const usb_config_desc_t *config_desc = (usb_config_desc_t *)(ctrl_xfer->data_buffer + sizeof(usb_setup_packet_t));
 
     // Check if the returned descriptor is corrupted
-    if (config_desc->bDescriptorType != USB_B_DESCRIPTOR_TYPE_CONFIGURATION) {
-        ESP_LOGE(ENUM_TAG, "Full config desc has wrong bDescriptorType");
-        ret = ESP_ERR_INVALID_RESPONSE;
-        goto exit;
-    }
+    ENUM_CHECK(config_desc->bDescriptorType == USB_B_DESCRIPTOR_TYPE_CONFIGURATION, ESP_ERR_INVALID_RESPONSE);
+    // Validate wTotalLength against actual received data size to prevent OOB reads
+    int actual_data_len = ctrl_xfer->actual_num_bytes - sizeof(usb_setup_packet_t);
+    ENUM_CHECK(actual_data_len >= (int)sizeof(usb_config_desc_t) && config_desc->wTotalLength <= actual_data_len, ESP_ERR_INVALID_RESPONSE);
     // Allocate Configuration descriptor and set it's value to device object
-    ret = usbh_dev_set_config_desc(dev_hdl, config_desc);
-
-exit:
-    return ret;
+    return usbh_dev_set_config_desc(dev_hdl, config_desc);
 }
 
 /**
@@ -619,34 +605,25 @@ exit:
  */
 static esp_err_t parse_short_str_desc(void)
 {
-    esp_err_t ret;
     usb_transfer_t *transfer = &p_enum_driver->constant.urb->transfer;
     const usb_str_desc_t *str_desc = (usb_str_desc_t *)(transfer->data_buffer + sizeof(usb_setup_packet_t));
 
     //Check if the returned descriptor is supported or corrupted
     if (str_desc->bDescriptorType == 0) {
         ESP_LOGE(ENUM_TAG, "String desc not supported");
-        ret = ESP_ERR_NOT_SUPPORTED;
-        goto exit;
-    } else if (str_desc->bDescriptorType != USB_B_DESCRIPTOR_TYPE_STRING) {
-        ESP_LOGE(ENUM_TAG, "Short string desc corrupt");
-        ret = ESP_ERR_INVALID_RESPONSE;
-        goto exit;
+        return ESP_ERR_NOT_SUPPORTED;
     }
+    ENUM_CHECK(str_desc->bDescriptorType == USB_B_DESCRIPTOR_TYPE_STRING && str_desc->bLength >= sizeof(usb_str_desc_t), ESP_ERR_INVALID_RESPONSE);
 #if (ENUM_CTRL_TRANSFER_MAX_DATA_LEN < UINT8_MAX)   //Suppress -Wtype-limits warning due to uint8_t bLength
     //Check if the descriptor is too long to be supported
     if (str_desc->bLength > (uint32_t)ENUM_CTRL_TRANSFER_MAX_DATA_LEN) {
         ESP_LOGE(ENUM_TAG, "String descriptor larger than control transfer max length");
-        ret = ESP_ERR_INVALID_SIZE;
-        goto exit;
+        return ESP_ERR_INVALID_SIZE;
     }
 #endif
     // Set the descriptor's full length
     p_enum_driver->single_thread.dev_params.str_desc_bLength = str_desc->bLength;
-    ret = ESP_OK;
-
-exit:
-    return ret;
+    return ESP_OK;
 }
 
 /**
@@ -660,6 +637,9 @@ static esp_err_t parse_langid_table(void)
     esp_err_t ret;
     usb_transfer_t *transfer = &p_enum_driver->constant.urb->transfer;
     const usb_str_desc_t *str_desc = (usb_str_desc_t *)(transfer->data_buffer + sizeof(usb_setup_packet_t));
+
+    // Validate minimum LANGID descriptor length: header (2 bytes) + at least 1 LANGID entry (2 bytes)
+    ENUM_CHECK(str_desc->bLength >= (sizeof(usb_str_desc_t) + 2), ESP_ERR_INVALID_RESPONSE);
 
     //Scan the LANGID table for our target LANGID
     ret = ESP_ERR_NOT_FOUND;
