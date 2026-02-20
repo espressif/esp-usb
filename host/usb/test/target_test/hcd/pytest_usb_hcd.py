@@ -6,12 +6,26 @@ from pytest_embedded_idf.dut import IdfDut
 from pytest_embedded_idf.utils import idf_parametrize
 
 
-@pytest.mark.usb_host_flash_disk
-@idf_parametrize(
-    'config,target',
-    [('default', 'esp32s2'), ('default', 'esp32s3'), ('default', 'esp32p4'), ('esp32p4_psram', 'esp32p4')],
-    indirect=['config', 'target'],
+#@pytest.mark.usb_host_flash_disk
+#@idf_parametrize(
+#    'config,target',
+#    [('default', 'esp32s2'), ('default', 'esp32s3'), ('default', 'esp32p4'), ('esp32p4_psram', 'esp32p4')],
+#    indirect=['config', 'target'],
+#)
+
+@pytest.mark.parametrize(
+    'config, target',
+    [
+        pytest.param('default', 'esp32s2', marks=[pytest.mark.usb_host_flash_disk]),
+        pytest.param('default', 'esp32s3', marks=[pytest.mark.usb_host_flash_disk]),
+        pytest.param('default', 'esp32p4', marks=[pytest.mark.usb_host_flash_disk, pytest.mark.eco_default]),
+        pytest.param('esp32p4_psram', 'esp32p4', marks=[pytest.mark.usb_host_flash_disk, pytest.mark.eco_default]),
+        pytest.param('esp32p4_eco4', 'esp32p4', marks=[pytest.mark.usb_host_flash_disk, pytest.mark.esp32p4_eco4]),
+    ],
+    indirect=['target'],
 )
+
+
 def test_usb_hcd(dut: IdfDut) -> None:
     if dut.target == 'esp32p4':
         dut.run_all_single_board_cases(group='high_speed', reset=True)
