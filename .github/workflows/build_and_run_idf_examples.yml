@@ -21,8 +21,6 @@
 #     - IDF Releases: Latest, IDF 6.0, IDF 5.5
 #
 # Temporarily disabled tests and TODOs of this workflow:
-# - USB Host examples run: IDF latest and IDF 6.0 disabled for esp32p4 (ECO4-ECO5 build-runner mismatch)
-# - USB Device examples run: IDF latest and IDF 6.0 disabled for esp32p4 (ECO4-ECO5 build-runner mismatch)
 # - USB Device NCM example run: Ignored due to GH Runner configuration (docker needs --net=host to access host network namespace)
 # - Examples runs on targets enabled only for IDF >= 5.5
 
@@ -31,11 +29,13 @@ name: Build and Run ESP-IDF USB examples
 on:
   pull_request:
     types: [opened, reopened, synchronize]
+  schedule:
+    - cron: '0 0 * * 0' # Run at 00:00 on Sunday
 
 jobs:
   build:
-    # Run the workflow, only with BUILD_AND_TEST_IDF_EXAMPLES PR Label
-    if: contains(github.event.pull_request.labels.*.name, 'BUILD_AND_TEST_IDF_EXAMPLES')
+    # Run the workflow, only with BUILD_AND_TEST_IDF_EXAMPLES PR Label or when scheduled
+    if: github.event_name == 'schedule' || contains(github.event.pull_request.labels.*.name, 'BUILD_AND_TEST_IDF_EXAMPLES')
     strategy:
       fail-fast: true
       matrix:
@@ -74,29 +74,41 @@ jobs:
         run: |
           . ${IDF_PATH}/export.sh
 
+          # cdc_acm_host example was merged with cdc_acm_vcp example in IDF 6.1
+          # Check if the path to the cdc_acm_vcp example exist
+          if [[ -d "${{ env.EXAMPLES_PATH }}/host/cdc/cdc_acm_vcp" ]]; then
+            VCP_EXAMPLE_EXIST=true
+            CDC_VCP_EXAMPLE_PATH="${{ env.EXAMPLES_PATH }}/host/cdc/cdc_acm_vcp"
+          else
+            VCP_EXAMPLE_EXIST=false
+            CDC_VCP_EXAMPLE_PATH="${{ env.EXAMPLES_PATH }}/host/cdc"
+          fi
+
           # usb_host_cdc_acm component
-          python .github/ci/override_managed_component.py usb_host_cdc_acm host/class/cdc/usb_host_cdc_acm ${{ env.EXAMPLES_PATH }}/host/cdc
+          python .github/ci/override_managed_component.py usb_host_cdc_acm host/class/cdc/usb_host_cdc_acm "${{ env.EXAMPLES_PATH }}/host/cdc"
 
           # usb_host_ch34x_vcp component
-          python .github/ci/override_managed_component.py usb_host_ch34x_vcp host/class/cdc/usb_host_ch34x_vcp ${{ env.EXAMPLES_PATH }}/host/cdc/cdc_acm_vcp
+          python .github/ci/override_managed_component.py usb_host_ch34x_vcp host/class/cdc/usb_host_ch34x_vcp "$CDC_VCP_EXAMPLE_PATH"
 
           # usb_host_cp210x_vcp component
-          python .github/ci/override_managed_component.py usb_host_cp210x_vcp host/class/cdc/usb_host_cp210x_vcp ${{ env.EXAMPLES_PATH }}/host/cdc/cdc_acm_vcp
+          python .github/ci/override_managed_component.py usb_host_cp210x_vcp host/class/cdc/usb_host_cp210x_vcp "$CDC_VCP_EXAMPLE_PATH"
 
           # usb_host_ftdi_vcp component
-          python .github/ci/override_managed_component.py usb_host_ftdi_vcp host/class/cdc/usb_host_ftdi_vcp ${{ env.EXAMPLES_PATH }}/host/cdc/cdc_acm_vcp
+          python .github/ci/override_managed_component.py usb_host_ftdi_vcp host/class/cdc/usb_host_ftdi_vcp "$CDC_VCP_EXAMPLE_PATH"
 
-          # usb_host_vcp component
-          python .github/ci/override_managed_component.py usb_host_vcp host/class/cdc/usb_host_vcp ${{ env.EXAMPLES_PATH }}/host/cdc/cdc_acm_vcp
+          # usb_host_vcp component is used only in cdc_acm_vcp example
+          if $VCP_EXAMPLE_EXIST; then
+            python .github/ci/override_managed_component.py usb_host_vcp host/class/cdc/usb_host_vcp "$CDC_VCP_EXAMPLE_PATH"
+          fi
 
           # usb_host_hid component
-          python .github/ci/override_managed_component.py usb_host_hid host/class/hid/usb_host_hid ${{ env.EXAMPLES_PATH }}/host/hid
+          python .github/ci/override_managed_component.py usb_host_hid host/class/hid/usb_host_hid "${{ env.EXAMPLES_PATH }}/host/hid"
 
           # usb_host_msc component
-          python .github/ci/override_managed_component.py usb_host_msc host/class/msc/usb_host_msc ${{ env.EXAMPLES_PATH }}/host/msc
+          python .github/ci/override_managed_component.py usb_host_msc host/class/msc/usb_host_msc "${{ env.EXAMPLES_PATH }}/host/msc"
 
           # usb_host_uvc component
-          python .github/ci/override_managed_component.py usb_host_uvc host/class/uvc/usb_host_uvc ${{ env.EXAMPLES_PATH }}/host/uvc
+          python .github/ci/override_managed_component.py usb_host_uvc host/class/uvc/usb_host_uvc "${{ env.EXAMPLES_PATH }}/host/uvc"
 
       - name: Create component manifest file for usb_host_lib
         # Create manifest file for usb_host_lib example, because the examples do not have it for IDF < 6.0
@@ -178,22 +190,7 @@ jobs:
             example: host
           - runner_tag: usb_device
             example: device
-        exclude:
-          # Temp exclude esp32p4 usb_host_flash_disk and usb_device run
-          # for IDF Latest and 6.0 (ECO4-ECO5 build-runner mismatch)
-          - runner_tag: usb_host_flash_disk
-            idf_ver: "latest"
-            idf_target: "esp32p4"
-          - runner_tag: usb_host_flash_disk
-            idf_ver: "release-v6.0"
-            idf_target: "esp32p4"
-          - runner_tag: usb_device
-            idf_ver: "latest"
-            idf_target: "esp32p4"
-          - runner_tag: usb_device
-            idf_ver: "release-v6.0"
-            idf_target: "esp32p4"
-    runs-on: [self-hosted, linux, docker, "${{ matrix.idf_target }}", "${{ matrix.runner_tag }}"]
+    runs-on: [self-hosted, linux, docker, "${{ matrix.idf_target }}", "${{ matrix.runner_tag }}", eco_default]
     container:
       image: python:3.11-bookworm
       options: --privileged --device-cgroup-rule="c 188:* rmw" --device-cgroup-rule="c 166:* rmw"
