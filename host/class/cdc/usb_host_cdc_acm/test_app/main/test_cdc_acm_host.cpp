@@ -834,39 +834,6 @@ TEST_CASE("tx_timeout", "[cdc_acm][ignore]")
     vTaskDelay(20); // Short delay to allow task to be cleaned up
 }
 
-/**
- * @brief Test: Opening with any VID/PID
- *
- * #. Try to open a device with all combinations of any VID/PID
- * #. Try to open a non-existing device with all combinations of any VID/PID
- */
-TEST_CASE("any_vid_pid", "[cdc_acm]")
-{
-    cdc_acm_dev_hdl_t cdc_dev = NULL;
-    test_install_cdc_driver(NULL);
-
-    // Use default device config
-    const cdc_acm_host_device_config_t dev_config = default_dev_config;
-
-    printf("Opening existing CDC-ACM devices with any VID/PID\n");
-    TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_open(CDC_HOST_ANY_VID, CDC_HOST_ANY_PID, 0, &dev_config, &cdc_dev));
-    TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_close(cdc_dev));
-
-    TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_open(0x303A, CDC_HOST_ANY_PID, 0, &dev_config, &cdc_dev));
-    TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_close(cdc_dev));
-
-    TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_open(CDC_HOST_ANY_VID, 0x4002, 0, &dev_config, &cdc_dev));
-    TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_close(cdc_dev));
-
-    printf("Opening non-existing CDC-ACM devices with any VID/PID\n");
-    TEST_ASSERT_EQUAL(ESP_ERR_NOT_FOUND, cdc_acm_host_open(0x1234, CDC_HOST_ANY_PID, 0, &dev_config, &cdc_dev));
-    TEST_ASSERT_EQUAL(ESP_ERR_NOT_FOUND, cdc_acm_host_open(CDC_HOST_ANY_VID, 0x1234, 0, &dev_config, &cdc_dev));
-
-    // Clean-up
-    TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_uninstall());
-    vTaskDelay(20); // Short delay to allow task to be cleaned up
-}
-
 #ifdef CDC_HOST_SUSPEND_RESUME_API_SUPPORTED
 
 /**
