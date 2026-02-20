@@ -14,5 +14,5 @@ from pytest_embedded_idf.utils import idf_parametrize
 )
 def test_usb_host_uac(dut: IdfDut) -> None:
     dut.expect_exact('Press ENTER to see the list of tests.')
-    dut.write('[uac_host]')
+    dut.write('[power_management]')
     dut.expect_unity_test_output(timeout = 3000)
