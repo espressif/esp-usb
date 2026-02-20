@@ -142,13 +142,16 @@ jobs:
           - test_app: host_native
             idf_ver: "latest"
         include:
-          # Use only ECO4 runners by default for now
-          - idf_target: "esp32p4"
-            eco: "eco4"
-          - idf_target: "esp32s2"
-            eco: "ARM64"
+          # Add ECO versions
+          - idf_target: esp32p4
+            eco_ver: eco4
+          - idf_target: esp32p4
+            eco_ver: eco_default
+          - idf_target: esp32s2
+            eco_ver: eco_default
 
-    runs-on: [self-hosted, linux, docker, "${{ matrix.idf_target }}", "${{ matrix.runner_tag }}", "${{ matrix.eco}}"]
+
+    runs-on: [self-hosted, linux, docker, "${{ matrix.idf_target }}", "${{ matrix.runner_tag }}", "${{ matrix.eco_ver }}"]
     container:
       image: python:3.11-bookworm
       options: --privileged --device-cgroup-rule="c 188:* rmw" --device-cgroup-rule="c 166:* rmw"
@@ -180,6 +183,21 @@ jobs:
           else
             TARGET_ARG="--target=${{ matrix.idf_target }}"
           fi
+
+          # Set runner marker argument: used to differentiate between esp32p4 eco
+          if [ "${{ matrix.idf_target }}" = "esp32p4" ]; then
+            if [ "${{ matrix.eco_ver }}" = "eco_default" ]; then
+              # -m='usb_host_flash_disk and eco_default'
+              MARKER_ARG="-m='${{ matrix.runner_tag }} and ${{ matrix.eco_ver }}'"
+            else
+              # -m='usb_host_flash_disk and esp32p4_eco4'
+              MARKER_ARG="-m='${{ matrix.runner_tag }} and ${{ matrix.idf_target }}_${{ matrix.eco_ver }}'"
+            fi
+          else
+            # -m='usb_host_flash_disk'
+            MARKER_ARG="-m=${{ matrix.runner_tag }}"
+          fi
+
           # Run pytest with the configured target and marker
-          echo "Running pytest with target: $TARGET_ARG and marker: ${{ matrix.runner_tag }}"
-          pytest --ignore-no-tests-collected-error $TARGET_ARG -m "${{ matrix.runner_tag }}" --build-dir=build_${{ matrix.idf_target }}_
+          echo "Running pytest with target: $TARGET_ARG and marker: $MARKER_ARG"
+          pytest --ignore-no-tests-collected-error $TARGET_ARG $MARKER_ARG --build-dir=build_${{ matrix.idf_target }}_

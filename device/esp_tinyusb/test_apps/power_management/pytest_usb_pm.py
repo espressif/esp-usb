@@ -37,9 +37,19 @@ TINYUSB_EVENTS = {
     "suspended_remote_wake_en":     "TINYUSB_EVENT_SUSPENDED_REMOTE_WAKE_EN",
 }
 
-@pytest.mark.usb_device
+#@pytest.mark.usb_device
 @pytest.mark.flaky(reruns=1, reruns_delay=10)
-@idf_parametrize('target', ['esp32s2', 'esp32s3', 'esp32p4'], indirect=['target'])
+#@idf_parametrize('target', ['esp32s2', 'esp32s3', 'esp32p4'], indirect=['target'])
+@pytest.mark.parametrize(
+    'config, target',
+    [
+        pytest.param('default', 'esp32s2', marks=[pytest.mark.usb_device]),
+        pytest.param('default', 'esp32s3', marks=[pytest.mark.usb_device]),
+        pytest.param('default', 'esp32p4', marks=[pytest.mark.usb_device, pytest.mark.eco_default]),
+        pytest.param('esp32p4_eco4', 'esp32p4', marks=[pytest.mark.usb_device, pytest.mark.esp32p4_eco4]),
+    ],
+    indirect=['target'],
+)
 def test_usb_device_suspend_resume(dut: IdfDut) -> None:
     '''
     Running the test locally:
@@ -169,9 +179,19 @@ def check_remote_wake_feature(VID: int, PID: int, has_remote_wake: bool) -> None
     except usb.core.USBError as e:
         raise RuntimeError("Device resources not released") from e
 
-@pytest.mark.usb_device
+#@pytest.mark.usb_device
 @pytest.mark.flaky(reruns=1, reruns_delay=10)
-@idf_parametrize('target', ['esp32s2', 'esp32s3', 'esp32p4'], indirect=['target'])
+#@idf_parametrize('target', ['esp32s2', 'esp32s3', 'esp32p4'], indirect=['target'])
+@pytest.mark.parametrize(
+    'config, target',
+    [
+        pytest.param('default', 'esp32s2', marks=[pytest.mark.usb_device]),
+        pytest.param('default', 'esp32s3', marks=[pytest.mark.usb_device]),
+        pytest.param('default', 'esp32p4', marks=[pytest.mark.usb_device, pytest.mark.eco_default]),
+        pytest.param('esp32p4_eco4', 'esp32p4', marks=[pytest.mark.usb_device, pytest.mark.esp32p4_eco4]),
+    ],
+    indirect=['target'],
+)
 def test_usb_device_remote_wakeup_en(dut: IdfDut) -> None:
     '''
     Running the test locally:
