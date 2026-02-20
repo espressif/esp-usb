@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2015-2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2015-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -20,6 +20,9 @@
 const usb_standard_desc_t *usb_parse_next_descriptor(const usb_standard_desc_t *cur_desc, uint16_t wTotalLength, int *offset)
 {
     assert(cur_desc != NULL && offset != NULL);
+    if (cur_desc->bLength < sizeof(usb_standard_desc_t)) {
+        return NULL;    // Invalid descriptor length, would cause infinite loop
+    }
     if (*offset >= wTotalLength) {
         return NULL;    // We have traversed the entire configuration descriptor
     }
