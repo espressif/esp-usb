@@ -1,4 +1,8 @@
-## 2.1.0
+## [Unreleased]
+
+- esp_tinyusb: Fixed VBUS monitoring feature on ESP32P4 USB OTG 2.0 (HS)
+
+## [2.1.0] - 2026-2-5
 
 - Added configurable Suspend/Resume device event support using TinyUSB callbacks `tud_suspend_cb` and `tud_resume_cb`
 
