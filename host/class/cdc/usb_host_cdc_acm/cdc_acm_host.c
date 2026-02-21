@@ -1063,8 +1063,7 @@ esp_err_t cdc_acm_host_send_custom_request(cdc_acm_dev_hdl_t cdc_hdl, uint8_t bm
 
     taken = xSemaphoreTake((SemaphoreHandle_t)cdc_dev->ctrl_transfer->context, pdMS_TO_TICKS(CDC_ACM_CTRL_TIMEOUT_MS));
     if (!taken) {
-        // Transfer was not finished, error in USB LIB. Reset the endpoint
-        cdc_acm_reset_transfer_endpoint(cdc_dev->dev_hdl, cdc_dev->ctrl_transfer);
+        // Transfer was not finished, error in USB LIB. This is EP0, USBH will reset the endpoint.
         ret = ESP_ERR_TIMEOUT;
         goto unblock;
     }
