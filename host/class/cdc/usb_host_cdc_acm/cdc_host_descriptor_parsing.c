@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2024-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -39,7 +39,7 @@ static bool cdc_parse_is_cdc_compliant(const usb_device_desc_t *device_desc, con
     if (device_desc->bDeviceClass == USB_CLASS_PER_INTERFACE ||
             device_desc->bDeviceClass == USB_CLASS_COMM) {
         const usb_intf_desc_t *intf_desc = usb_parse_interface_descriptor(config_desc, intf_idx, 0, NULL);
-        if (intf_desc->bInterfaceClass == USB_CLASS_COMM) {
+        if (intf_desc && intf_desc->bInterfaceClass == USB_CLASS_COMM) {
             // 1. This is a Communication Device Class: Class defined in Interface descriptor
             return true;
         }

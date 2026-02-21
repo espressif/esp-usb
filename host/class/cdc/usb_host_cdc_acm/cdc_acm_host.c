@@ -1033,7 +1033,7 @@ esp_err_t cdc_acm_host_send_custom_request(cdc_acm_dev_hdl_t cdc_hdl, uint8_t bm
     if (wLength > 0) {
         CDC_ACM_CHECK(data, ESP_ERR_INVALID_ARG);
     }
-    CDC_ACM_CHECK(cdc_dev->ctrl_transfer->data_buffer_size >= wLength, ESP_ERR_INVALID_SIZE);
+    CDC_ACM_CHECK(cdc_dev->ctrl_transfer->data_buffer_size >= wLength + sizeof(usb_setup_packet_t), ESP_ERR_INVALID_SIZE);
 
     esp_err_t ret;
 
