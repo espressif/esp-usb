@@ -191,8 +191,8 @@ esp_err_t tinyusb_descriptors_set(tinyusb_port_t port, const tinyusb_desc_config
 
     // Full-speed configuration descriptor
     if (config->full_speed_config == NULL) {
-#if (CFG_TUD_CDC > 0 || CFG_TUD_MSC > 0 || CFG_TUD_NCM > 0)
-        // We provide default config descriptors only for CDC, MSC and NCM classes
+#if (CFG_TUD_CDC > 0 || CFG_TUD_MSC > 0 || CFG_TUD_NCM > 0 || CFG_TUD_VIDEO > 0)
+        // We provide default config descriptors only for CDC, MSC, NCM and VIDEO classes
         ESP_LOGW(TAG, "No Full-speed configuration descriptor provided, using default.");
         s_desc_cfg.fs_cfg = descriptor_fs_cfg_default;
 #else
@@ -208,8 +208,8 @@ esp_err_t tinyusb_descriptors_set(tinyusb_port_t port, const tinyusb_desc_config
     if (port == TINYUSB_PORT_HIGH_SPEED_0) {
 #if (TUD_OPT_HIGH_SPEED)
         if (config->high_speed_config == NULL) {
-#if (CFG_TUD_CDC > 0 || CFG_TUD_MSC > 0 || CFG_TUD_NCM > 0)
-            // We provide default config descriptors only for CDC, MSC and NCM classes
+#if (CFG_TUD_CDC > 0 || CFG_TUD_MSC > 0 || CFG_TUD_NCM > 0 || CFG_TUD_VIDEO > 0)
+            // We provide default config descriptors only for CDC, MSC, NCM and VIDEO classes
             ESP_LOGW(TAG, "No High-speed configuration descriptor provided, using default.");
             s_desc_cfg.hs_cfg = descriptor_hs_cfg_default;
 #else
