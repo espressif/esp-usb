@@ -23,6 +23,7 @@
 #define EP_NUM_MIN                  1   // The smallest possible non-default endpoint number
 #define EP_NUM_MAX                  16  // The largest possible non-default endpoint number
 #define NUM_NON_DEFAULT_EP          ((EP_NUM_MAX - 1) * 2)  // The total number of non-default endpoints a device can have.
+#define USB_MAX_BUFFER_SIZE         (128000 - 1)
 
 // Device action flags. LISTED IN THE ORDER THEY SHOULD BE HANDLED IN within usbh_process(). Some actions are mutually exclusive
 typedef enum {
