@@ -287,21 +287,6 @@ esp_err_t usbh_devs_add(usbh_dev_params_t *params);
 esp_err_t usbh_devs_remove(unsigned int uid);
 
 /**
- * @brief Get a device's connection information
- *
- * @note Can be called without opening the device
- *
- * @param[in] uid               Unique ID assigned to the device
- * @param[out] parent_info      Parent device handle
- *
- * @return
- *    - ESP_OK: Device parent info obtained successfully
- *    - ESP_ERR_INVALID_ARG: Invalid argument
- *    - ESP_ERR_NOT_FOUND: Device with provided uid not found
- */
-esp_err_t usbh_devs_get_parent_info(unsigned int uid, usb_parent_dev_info_t *parent_info);
-
-/**
  * @brief Mark that all devices should be freed at the next possible opportunity
  *
  * A device marked as free will not be freed until the last client using the device has called usbh_devs_close()

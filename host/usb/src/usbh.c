@@ -260,6 +260,36 @@ static bool urb_check_args(urb_t *urb)
     return true;
 }
 
+/*
+ * Max transfer size in bytes per (speed, type) for DWC_otg with OTG_TRANS_COUNT_WIDTH=16,
+ * OTG_PACKET_COUNT_WIDTH=7 (max 65535 bytes, 127 packets). See max_transfer_size.md.
+ */
+static bool transfer_check_size(usb_speed_t speed, usb_transfer_type_t type, size_t transfer_size)
+{
+    uint32_t max_xfer_size;
+    switch (type) {
+    case USB_TRANSFER_TYPE_CTRL:
+        max_xfer_size = (speed == USB_SPEED_LOW) ? 1016u : 8128u;   /* 127 * MPS (8 LS, 64 FS/HS) */
+        break;
+    case USB_TRANSFER_TYPE_BULK:
+    case USB_TRANSFER_TYPE_INTR:
+        max_xfer_size = (speed == USB_SPEED_HIGH) ? 65024u : 8128u; /* HS: 127*512, FS: 127*64 */
+        break;
+    case USB_TRANSFER_TYPE_ISOCHRONOUS:
+        max_xfer_size = 65535u;  /* byte limit */
+        break;
+    default:
+        max_xfer_size = 65535u;
+        break;
+    }
+
+    if (transfer_size > max_xfer_size) {
+        ESP_LOGE(USBH_TAG, "transfer num_bytes %u exceeds max %lu bytes for type %d", transfer_size, (unsigned long)max_xfer_size, type);
+        return false;
+    }
+    return true;
+}
+
 static bool transfer_check_usb_compliance(usb_transfer_t *transfer, usb_transfer_type_t type, unsigned int mps, bool is_in)
 {
     if (type == USB_TRANSFER_TYPE_CTRL) {
@@ -1001,27 +1031,6 @@ exit:
     return ret;
 }
 
-esp_err_t usbh_devs_get_parent_info(unsigned int uid, usb_parent_dev_info_t *parent_info)
-{
-    USBH_CHECK(parent_info, ESP_ERR_INVALID_ARG);
-    esp_err_t ret = ESP_FAIL;
-    device_t *dev_obj = NULL;
-
-    USBH_ENTER_CRITICAL();
-    dev_obj = _find_dev_from_uid(uid);
-    if (dev_obj == NULL) {
-        ret = ESP_ERR_NOT_FOUND;
-        goto exit;
-    } else {
-        parent_info->dev_hdl = dev_obj->constant.parent_dev_hdl;
-        parent_info->port_num = dev_obj->constant.parent_port_num;
-        ret = ESP_OK;
-    }
-exit:
-    USBH_EXIT_CRITICAL();
-    return ret;
-}
-
 esp_err_t usbh_devs_mark_all_free(void)
 {
     USBH_ENTER_CRITICAL();
@@ -1738,6 +1747,12 @@ esp_err_t usbh_ep_enqueue_urb(usbh_ep_handle_t ep_hdl, urb_t *urb)
     USBH_CHECK(urb_check_args(urb), ESP_ERR_INVALID_ARG);
 
     endpoint_t *ep_obj = (endpoint_t *)ep_hdl;
+
+    // Check transfer size
+    USBH_CHECK(transfer_check_size(ep_obj->constant.dev->constant.speed,
+                                   USB_EP_DESC_GET_XFERTYPE(ep_obj->constant.ep_desc),
+                                   urb->transfer.num_bytes),
+               ESP_ERR_INVALID_SIZE);
 
     USBH_CHECK(transfer_check_usb_compliance(&(urb->transfer),
                                              USB_EP_DESC_GET_XFERTYPE(ep_obj->constant.ep_desc),
