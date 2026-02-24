@@ -30,7 +30,14 @@ static inline uint16_t uvc_desc_get_safe_wTotalLength(const usb_config_desc_t *c
 {
     uintptr_t cfg_start = (uintptr_t)cfg_desc;
     uintptr_t header_start = (uintptr_t)header;
-    uint16_t remaining = cfg_desc->wTotalLength - (uint16_t)(header_start - cfg_start);
+    if (header_start <= cfg_start) {
+        return 0;
+    }
+    const size_t offset = (size_t)(header_start - cfg_start);
+    if (offset >= cfg_desc->wTotalLength) {
+        return 0;
+    }
+    size_t remaining = cfg_desc->wTotalLength - offset;
     if (header->wTotalLength > remaining) {
         return remaining;
     }
@@ -432,6 +439,7 @@ esp_err_t uvc_desc_get_frame_list(const usb_config_desc_t *config_desc, uint8_t 
 
     const uvc_vc_header_desc_t *vc_header = uvc_desc_get_control_interface_header(config_desc, uvc_index);
     UVC_CHECK(vc_header, ESP_ERR_NOT_FOUND);
+    UVC_CHECK(vc_header->bInCollection > 0, ESP_ERR_NOT_FOUND);
 
     // Find requested Format descriptors
     const usb_standard_desc_t *current_desc = (const usb_standard_desc_t *)vc_header;
