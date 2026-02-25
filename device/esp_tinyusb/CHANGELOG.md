@@ -1,3 +1,7 @@
+## [Unreleased]
+
+- esp_tinyusb: Fixed VBUS monitoring feature on ESP32-P4 USB OTG 2.0 (HS)
+
 ## 2.1.0
 
 - Added configurable Suspend/Resume device event support using TinyUSB callbacks `tud_suspend_cb` and `tud_resume_cb`
@@ -10,7 +14,7 @@
 ## 2.0.1
 
 - esp_tinyusb: Added ESP32H4 support
-- esp_tinyusb: Fixed an assertion failure on the GetOtherSpeedDescriptor() request for ESP32P4 when the OTG1.1 port is used
+- esp_tinyusb: Fixed an assertion failure on the GetOtherSpeedDescriptor() request for ESP32-P4 when the OTG1.1 port is used
 - MSC: Added dynamic member and storage operation multitask protection
 - MSC: Used `esp_vfs_fat_register_cfg` function prototype for esp-idf v5.3 and higher
 

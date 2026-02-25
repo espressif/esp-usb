@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2022-2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2022-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -102,21 +102,6 @@ static char const *string_desc_arr[] = {
     //"123456",                       // 3: Serials
     //"Test MSC",                  // 4. MSC
 };
-/*********************************************************************** TinyUSB descriptors*/
-
-#define VBUS_MONITORING_GPIO_NUM GPIO_NUM_4
-static void configure_vbus_monitoring(void)
-{
-    // Configure GPIO Pin for vbus monitoring
-    const gpio_config_t vbus_gpio_config = {
-        .pin_bit_mask = BIT64(VBUS_MONITORING_GPIO_NUM),
-        .mode = GPIO_MODE_INPUT,
-        .intr_type = GPIO_INTR_DISABLE,
-        .pull_up_en = true,
-        .pull_down_en = false,
-    };
-    ESP_ERROR_CHECK(gpio_config(&vbus_gpio_config));
-}
 
 static void storage_init(void)
 {
@@ -131,8 +116,6 @@ static void storage_init(void)
 #endif // TUD_OPT_HIGH_SPEED
     tusb_cfg.descriptor.string = string_desc_arr;
     tusb_cfg.descriptor.string_count = sizeof(string_desc_arr) / sizeof(string_desc_arr[0]);
-    tusb_cfg.phy.self_powered = true;
-    tusb_cfg.phy.vbus_monitor_io = VBUS_MONITORING_GPIO_NUM;
 
     ESP_ERROR_CHECK(tinyusb_driver_install(&tusb_cfg));
     ESP_LOGI(TAG, "USB initialization DONE");
@@ -154,7 +137,6 @@ static esp_err_t storage_init_spiflash(wl_handle_t *wl_handle)
 void device_app(void)
 {
     ESP_LOGI(TAG, "Initializing storage...");
-    configure_vbus_monitoring();
 
     static wl_handle_t wl_handle = WL_INVALID_HANDLE;
     ESP_ERROR_CHECK(storage_init_spiflash(&wl_handle));
@@ -246,7 +228,6 @@ clean:
 void device_app_sdmmc(void)
 {
     ESP_LOGI(TAG, "Initializing storage...");
-    configure_vbus_monitoring();
     static sdmmc_card_t *card = NULL;
     ESP_ERROR_CHECK(storage_init_sdmmc(&card));
 
