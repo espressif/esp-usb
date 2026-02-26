@@ -28,6 +28,7 @@ jobs:
   build:
     name: Build USB apps
     strategy:
+      fail-fast: true
       matrix:
         idf_ver: ${{ fromJson(inputs.idf_releases) }}
         test_app: ["device", "host_native", "host_managed"]
@@ -106,15 +107,17 @@ jobs:
 # TODO ideas for target running:
 # - Run all versions (5.2-latest) in one job. So there will be only three jobs per target (device, host_native, host_managed). This could reduce runner time.
   run:
-    name: Run TestApps on target
+    name: Run TestApps on target (${{ matrix.idf_ver }}, ${{ matrix.idf_target }}, ${{ matrix.test_app }}, ${{ matrix.runner_tag }}, ${{ matrix.eco_ver }})
     if: ${{ github.repository_owner == 'espressif' }}
     needs: build
     strategy:
+      fail-fast: true
       matrix:
         idf_ver: ${{ fromJson(inputs.idf_releases) }}
         idf_target: ${{ fromJson(inputs.idf_targets) }}
         test_app: ["device", "host_native", "host_managed"]
         runner_tag: ["usb_device", "usb_host", "usb_host_flash_disk"]
+        eco_ver: ["eco_default", "eco4"]
 
         exclude:
           # Exclude runner_tag <-> test_app combinations
@@ -141,14 +144,19 @@ jobs:
             idf_ver: "release-v6.0"
           - test_app: host_native
             idf_ver: "latest"
-        include:
-          # Use only ECO4 runners by default for now
-          - idf_target: "esp32p4"
-            eco: "eco4"
+          # Exclude eco4 version for esp32s2
           - idf_target: "esp32s2"
-            eco: "ARM64"
+            eco_ver: "eco4"
+          # esp32p4 ECO6 support starts in IDF 5.5
+          - idf_target: "esp32p4"
+            eco_ver: "eco_default"
+            idf_ver: "release-v5.4"
+          - idf_target: "esp32p4"
+            eco_ver: "eco_default"
+            idf_ver: "release-v5.3"
 
-    runs-on: [self-hosted, linux, docker, "${{ matrix.idf_target }}", "${{ matrix.runner_tag }}", "${{ matrix.eco}}"]
+
+    runs-on: [self-hosted, linux, docker, "${{ matrix.idf_target }}", "${{ matrix.runner_tag }}", "${{ matrix.eco_ver }}"]
     container:
       image: python:3.11-bookworm
       options: --privileged --device-cgroup-rule="c 188:* rmw" --device-cgroup-rule="c 166:* rmw"
@@ -180,6 +188,18 @@ jobs:
           else
             TARGET_ARG="--target=${{ matrix.idf_target }}"
           fi
+
+          # Set runner marker argument
+          MARKER_ARG="-m=${{ matrix.runner_tag }}"
+
+          if [ "${{ matrix.idf_target }}" = "esp32p4" ]; then
+            if [ "${{ matrix.eco_ver }}" = "eco_default" ]; then
+              MARKER_ARG="$MARKER_ARG and ${{ matrix.eco_ver }}"
+            else
+              MARKER_ARG="$MARKER_ARG and ${{ matrix.idf_target }}_${{ matrix.eco_ver }}"
+            fi
+          fi
+
           # Run pytest with the configured target and marker
-          echo "Running pytest with target: $TARGET_ARG and marker: ${{ matrix.runner_tag }}"
-          pytest --ignore-no-tests-collected-error $TARGET_ARG -m "${{ matrix.runner_tag }}" --build-dir=build_${{ matrix.idf_target }}_
+          echo "Running pytest with target: $TARGET_ARG and marker: $MARKER_ARG"
+          pytest --ignore-no-tests-collected-error $TARGET_ARG "$MARKER_ARG" --build-dir=build_${{ matrix.idf_target }}_

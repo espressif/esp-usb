@@ -5,12 +5,19 @@ from typing import Tuple
 
 import pytest
 from pytest_embedded_idf.dut import IdfDut
-from pytest_embedded_idf.utils import idf_parametrize
 
 
 @pytest.mark.usb_host
-@pytest.mark.parametrize('count', [2], indirect=True)
-@idf_parametrize('target', ['esp32s2', 'esp32s3', 'esp32p4'], indirect=['target'])
+@pytest.mark.parametrize(
+    'count, config, target',
+    [
+        pytest.param(2, 'default', 'esp32s2'),
+        pytest.param(2, 'default', 'esp32s3'),
+        pytest.param(2, 'default', 'esp32p4', marks=[pytest.mark.eco_default]),
+        pytest.param(2, 'esp32p4_eco4', 'esp32p4', marks=[pytest.mark.esp32p4_eco4]),
+    ],
+    indirect=True,
+)
 def test_usb_host_msc(dut: Tuple[IdfDut, IdfDut]) -> None:
     device = dut[0]
     host = dut[1]

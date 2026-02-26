@@ -3,11 +3,19 @@
 
 import pytest
 from pytest_embedded_idf.dut import IdfDut
-from pytest_embedded_idf.utils import idf_parametrize
 
 
 @pytest.mark.usb_host_flash_disk
-@idf_parametrize('target', ['esp32s2', 'esp32s3', 'esp32p4'], indirect=['target'])
+@pytest.mark.parametrize(
+    'config, target',
+    [
+        pytest.param('default', 'esp32s2'),
+        pytest.param('default', 'esp32s3'),
+        pytest.param('default', 'esp32p4', marks=[pytest.mark.eco_default]),
+        pytest.param('esp32p4_eco4', 'esp32p4', marks=[pytest.mark.esp32p4_eco4]),
+    ],
+    indirect=['target'],
+)
 def test_usb_host(dut: IdfDut) -> None:
     if dut.target == 'esp32p4':
         dut.run_all_single_board_cases(group='high_speed', reset=True)
