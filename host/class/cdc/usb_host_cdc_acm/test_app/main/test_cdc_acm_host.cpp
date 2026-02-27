@@ -985,6 +985,9 @@ TEST_CASE("automatic_suspend_timer", "[cdc_acm]")
         TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_data_tx_blocking(cdc_dev, tx_buf, sizeof(tx_buf), 1000));
     }
 
+    // Let the transfer to finish before disabling the timer, to make sure that the timer won't interfere with the ongoing transfer
+    vTaskDelay(10);
+
     // Disable the Periodic auto suspend timer
     TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_set_auto_suspend(USB_HOST_LIB_AUTO_SUSPEND_PERIODIC, 0));
     // Make sure no event is delivered
