@@ -314,6 +314,7 @@ esp_err_t uac_host_handle_events(TickType_t timeout);
  * - ESP_ERR_INVALID_STATE if the device is not in the right state
  * - ESP_ERR_NO_MEM if memory allocation failed
  * - ESP_ERR_TIMEOUT if the control transfer timeout
+ * - ESP_ERR_INVALID_SIZE if the calculated packet size does not fit endpoint's max packet size
  */
 esp_err_t uac_host_device_start(uac_host_device_handle_t uac_dev_handle, const uac_host_stream_config_t *stream_config);
 

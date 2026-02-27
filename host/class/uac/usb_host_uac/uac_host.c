@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2024-2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2024-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -35,7 +35,7 @@ static portMUX_TYPE uac_lock = portMUX_INITIALIZER_UNLOCKED;
 // UAC verification macros
 #define UAC_GOTO_ON_FALSE_CRITICAL(exp, err)    \
     do {                                        \
-        if(!(exp)) {                            \
+        if (unlikely(!(exp))) {                 \
             UAC_EXIT_CRITICAL();                \
             ret = err;                          \
             goto fail;                          \
@@ -44,7 +44,7 @@ static portMUX_TYPE uac_lock = portMUX_INITIALIZER_UNLOCKED;
 
 #define UAC_RETURN_ON_FALSE_CRITICAL(exp, err)  \
     do {                                        \
-        if(!(exp)) {                            \
+        if (unlikely(!(exp))) {                 \
             UAC_EXIT_CRITICAL();                \
             return err;                         \
         }                                       \
@@ -1502,6 +1502,11 @@ static esp_err_t _uac_host_device_add(uint8_t addr, usb_device_handle_t dev_hdl,
                         free(uac_device);
                         return ESP_ERR_NOT_SUPPORTED;
                     }
+                    // Validate wTotalLength against remaining bytes in config descriptor
+                    size_t remaining = total_length - ((const uint8_t *)uac_cs_desc - (const uint8_t *)config_desc);
+                    UAC_GOTO_ON_FALSE(header_desc->wTotalLength <= remaining,
+                                      ESP_ERR_INVALID_SIZE, "UAC AC header wTotalLength exceeds config descriptor");
+
                     uint8_t *cs_ac_desc = calloc(header_desc->wTotalLength, sizeof(uint8_t));
                     UAC_GOTO_ON_FALSE(cs_ac_desc, ESP_ERR_NO_MEM, "Unable to allocate memory for UAC Control CS descriptor");
                     memcpy(cs_ac_desc, uac_cs_desc, header_desc->wTotalLength);
@@ -2358,10 +2363,16 @@ esp_err_t uac_host_device_start(uac_host_device_handle_t uac_dev_handle, const u
     // enqueue multiple transfers to make sure the data is not lost
     iface->xfer_num = CONFIG_UAC_NUM_ISOC_URBS;
     iface->packet_num = CONFIG_UAC_NUM_PACKETS_PER_URB;
-    iface->packet_size = iface->iface_alt[iface->cur_alt].cur_sampling_freq * stream_config->channels * stream_config->bit_resolution / 8 / 1000;
+    // Use 64-bit intermediate to prevent overflow in packet size calculation
+    const uint64_t packet_size_calc = (uint64_t)iface->iface_alt[iface->cur_alt].cur_sampling_freq
+                                      * stream_config->channels
+                                      * (stream_config->bit_resolution / 8);
+    UAC_GOTO_ON_FALSE(packet_size_calc / 1000 <= iface->iface_alt[iface->cur_alt].ep_mps,
+                      ESP_ERR_INVALID_SIZE, "Calculated packet size exceeds endpoint max packet size");
+    iface->packet_size = (uint32_t)(packet_size_calc / 1000);
     iface->flags |= stream_config->flags;
     // if the packet size is not an integer, we need to add one more byte
-    if (iface->iface_alt[iface->cur_alt].cur_sampling_freq * stream_config->channels * stream_config->bit_resolution / 8 % 1000) {
+    if (packet_size_calc % 1000) {
         ESP_LOGD(TAG, "packet_size %" PRIu32 " is not an integer, add one more byte", iface->packet_size);
         iface->packet_size++;
     }
