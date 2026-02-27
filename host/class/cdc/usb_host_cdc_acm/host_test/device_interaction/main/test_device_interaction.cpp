@@ -75,6 +75,109 @@ static void _submit_mock_transfer(cdc_acm_dev_hdl_t *dev)
     REQUIRE(ESP_ERR_TIMEOUT == test_cdc_acm_host_data_tx_blocking(*dev, tx_buf, sizeof(tx_buf), 200, MOCK_USB_TRANSFER_TIMEOUT));
 }
 
+/**
+ * @brief Send cdc-acm specific requests to the device
+ *
+ * This function checks whether the device is cdc-acm compliant, sends class specific requests to the device and
+ * expects device's response according to the compliance
+ *
+ * @param[in] dev CDC handle
+ * @param[in] address device address
+ */
+static void _set_cdc_acm_specific_requests(cdc_acm_dev_hdl_t *dev, uint8_t address)
+{
+    // Get mocked device's device descriptor and check whether the device is cdc-acm compliant
+    const usb_device_desc_t *device_desc;
+    REQUIRE(ESP_OK == usb_host_mock_get_device_descriptor_by_address(address, &device_desc));
+    REQUIRE(device_desc != nullptr);
+    const uint8_t device_subclass = (uint8_t)(device_desc->bDeviceSubClass);
+
+    if (device_subclass == 0x02) {
+        // This device is CDC compliant. By default, all class specific requests are supported (implemented).
+        // Expect one ctrl transfer for each class specific request
+        usb_host_transfer_submit_control_ExpectAnyArgsAndReturn(ESP_OK);
+        usb_host_transfer_submit_control_ExpectAnyArgsAndReturn(ESP_OK);
+        usb_host_transfer_submit_control_ExpectAnyArgsAndReturn(ESP_OK);
+        usb_host_transfer_submit_control_ExpectAnyArgsAndReturn(ESP_OK);
+
+        cdc_acm_line_coding_t line_coding = {};
+        REQUIRE(ESP_OK == cdc_acm_host_line_coding_get(*dev, &line_coding));
+        REQUIRE(ESP_OK == cdc_acm_host_line_coding_set(*dev, &line_coding));
+        REQUIRE(ESP_OK == cdc_acm_host_set_control_line_state(*dev, false, false));
+        REQUIRE(ESP_OK == cdc_acm_host_send_break(*dev, 10));
+    } else {
+        // This device is not CDC compliant. By default, all class specific requests are not supported (not implemented).
+
+        cdc_acm_line_coding_t line_coding = {};
+        REQUIRE(ESP_ERR_NOT_SUPPORTED == cdc_acm_host_line_coding_get(*dev, &line_coding));
+        REQUIRE(ESP_ERR_NOT_SUPPORTED == cdc_acm_host_line_coding_set(*dev, &line_coding));
+        REQUIRE(ESP_ERR_NOT_SUPPORTED == cdc_acm_host_set_control_line_state(*dev, false, false));
+        REQUIRE(ESP_ERR_NOT_SUPPORTED == cdc_acm_host_send_break(*dev, 10));
+    }
+}
+
+/**
+ * @brief Set remote wakeup on the device
+ *
+ * This function checks whether the device supports remote wakeup feature
+ * Sends mocked transfers to the device to test all the error states and expected behaviour of the public function
+ *
+ * @param[in] dev CDC handle
+ * @param[in] address device address
+ */
+static void _set_remote_wakeup(cdc_acm_dev_hdl_t *dev, uint8_t address)
+{
+    // Get mocked device's config descriptor and check whether it supports remote wakeup
+    const usb_config_desc_t *config_desc;
+    REQUIRE(ESP_OK == usb_host_mock_get_config_descriptor_by_address(address, &config_desc));
+    REQUIRE(config_desc != nullptr);
+    const bool supports_remote_wakeup = bool(config_desc->bmAttributes & USB_BM_ATTRIBUTES_WAKEUP);
+
+    if (supports_remote_wakeup) {
+        // Register ctrl transfer function to timeout callback
+        usb_host_get_active_config_descriptor_ExpectAnyArgsAndReturn(ESP_OK);
+        usb_host_transfer_submit_control_AddCallback(usb_host_transfer_submit_control_timeout_mock_callback);
+        usb_host_transfer_submit_control_ExpectAnyArgsAndReturn(ESP_OK);
+        REQUIRE(ESP_ERR_TIMEOUT == cdc_acm_host_enable_remote_wakeup(*dev, true));
+
+        // Register ctrl transfer function to invalid response callback
+        usb_host_get_active_config_descriptor_ExpectAnyArgsAndReturn(ESP_OK);
+        usb_host_transfer_submit_control_AddCallback(usb_host_transfer_submit_control_invalid_response_mock_callback);
+        usb_host_transfer_submit_control_ExpectAnyArgsAndReturn(ESP_OK);
+        REQUIRE(ESP_ERR_INVALID_RESPONSE == cdc_acm_host_enable_remote_wakeup(*dev, true));
+
+        // Pass invalid invalid argument and expect ESP_ERR_INVALID_ARG
+        REQUIRE(ESP_ERR_INVALID_ARG == cdc_acm_host_enable_remote_wakeup(nullptr, true));
+
+        // Register ctrl transfer function to success callback
+        usb_host_transfer_submit_control_AddCallback(usb_host_transfer_submit_control_success_mock_callback);
+
+        // Successfully enable remote wakeup
+        usb_host_get_active_config_descriptor_ExpectAnyArgsAndReturn(ESP_OK);
+        usb_host_transfer_submit_control_ExpectAnyArgsAndReturn(ESP_OK);
+        REQUIRE(ESP_OK == cdc_acm_host_enable_remote_wakeup(*dev, true));
+
+        // Enable remote wakeup again (when the remote wake is already enabled)
+        // Don't expect any ctrl transfer to be sent to the device
+        usb_host_get_active_config_descriptor_ExpectAnyArgsAndReturn(ESP_OK);
+        REQUIRE(ESP_OK == cdc_acm_host_enable_remote_wakeup(*dev, true));
+
+        // Disable remote wakeup
+        usb_host_get_active_config_descriptor_ExpectAnyArgsAndReturn(ESP_OK);
+        usb_host_transfer_submit_control_ExpectAnyArgsAndReturn(ESP_OK);
+        REQUIRE(ESP_OK == cdc_acm_host_enable_remote_wakeup(*dev, false));
+
+        // Disable remote wakeup again (when the remote wake is already disabled)
+        usb_host_get_active_config_descriptor_ExpectAnyArgsAndReturn(ESP_OK);
+        REQUIRE(ESP_OK == cdc_acm_host_enable_remote_wakeup(*dev, false));
+    } else {
+        // Device does not support remote wakeup
+        // Try to enable it, expect ESP_ERR_NOT_SUPPORTED
+        usb_host_get_active_config_descriptor_ExpectAnyArgsAndReturn(ESP_OK);
+        REQUIRE(ESP_ERR_NOT_SUPPORTED == cdc_acm_host_enable_remote_wakeup(*dev, true));
+    }
+}
+
 SCENARIO("Invalid custom command")
 {
     _add_mocked_devices();
@@ -123,7 +226,7 @@ SCENARIO("Interact with mocked USB devices")
         _add_mocked_devices();
 
         // Optionally, print all the devices
-        //Susb_host_mock_print_mocked_devices(0xFF);
+        // usb_host_mock_print_mocked_devices(0xFF);
     }
 
     GIVEN("Mocked devices are added to the device list") {
@@ -150,15 +253,15 @@ SCENARIO("Interact with mocked USB devices")
             // Open a device
             REQUIRE(ESP_OK == test_cdc_acm_host_open(device_address, vid, pid, interface_index, &dev_config, &dev));
             REQUIRE(dev != nullptr);
+
+            // Interact with the device - set remote wakeup
+            _set_remote_wakeup(&dev, device_address);
+
             // Interact with the device - submit mocked transfers
             _submit_mock_transfer(&dev);
 
-            // This device is not CDC compliant. By default, all class specific requests are not supported (not implemented).
-            cdc_acm_line_coding_t line_coding = {};
-            REQUIRE(ESP_ERR_NOT_SUPPORTED == cdc_acm_host_line_coding_get(dev, &line_coding));
-            REQUIRE(ESP_ERR_NOT_SUPPORTED == cdc_acm_host_line_coding_set(dev, &line_coding));
-            REQUIRE(ESP_ERR_NOT_SUPPORTED == cdc_acm_host_set_control_line_state(dev, false, false));
-            REQUIRE(ESP_ERR_NOT_SUPPORTED == cdc_acm_host_send_break(dev, 10));
+            // Interact with the device - set cdc-acm specific requests
+            _set_cdc_acm_specific_requests(&dev, device_address);
 
             // Close the device
             REQUIRE(ESP_OK == test_cdc_acm_host_close(&dev, interface_index));
@@ -173,15 +276,15 @@ SCENARIO("Interact with mocked USB devices")
             // Open a device
             REQUIRE(ESP_OK == test_cdc_acm_host_open(device_address, vid, pid, interface_index, &dev_config, &dev));
             REQUIRE(dev != nullptr);
+
+            // Interact with the device - set remote wakeup
+            _set_remote_wakeup(&dev, device_address);
+
             // Interact with the device - submit mocked transfers
             _submit_mock_transfer(&dev);
 
-            // This device is not CDC compliant. By default, all class specific requests are not supported (not implemented).
-            cdc_acm_line_coding_t line_coding = {};
-            REQUIRE(ESP_ERR_NOT_SUPPORTED == cdc_acm_host_line_coding_get(dev, &line_coding));
-            REQUIRE(ESP_ERR_NOT_SUPPORTED == cdc_acm_host_line_coding_set(dev, &line_coding));
-            REQUIRE(ESP_ERR_NOT_SUPPORTED == cdc_acm_host_set_control_line_state(dev, false, false));
-            REQUIRE(ESP_ERR_NOT_SUPPORTED == cdc_acm_host_send_break(dev, 10));
+            // Interact with device - set cdc-acm specific requests
+            _set_cdc_acm_specific_requests(&dev, device_address);
 
             // Close the device
             REQUIRE(ESP_OK == test_cdc_acm_host_close(&dev, interface_index));
@@ -196,15 +299,15 @@ SCENARIO("Interact with mocked USB devices")
             // Open a device
             REQUIRE(ESP_OK == test_cdc_acm_host_open(device_address, vid, pid, interface_index, &dev_config, &dev));
             REQUIRE(dev != nullptr);
+
+            // Interact with the device - set remote wakeup
+            _set_remote_wakeup(&dev, device_address);
+
             // Interact with the device - submit mocked transfers
             _submit_mock_transfer(&dev);
 
-            // This device is not CDC compliant. By default, all class specific requests are not supported (not implemented).
-            cdc_acm_line_coding_t line_coding = {};
-            REQUIRE(ESP_ERR_NOT_SUPPORTED == cdc_acm_host_line_coding_get(dev, &line_coding));
-            REQUIRE(ESP_ERR_NOT_SUPPORTED == cdc_acm_host_line_coding_set(dev, &line_coding));
-            REQUIRE(ESP_ERR_NOT_SUPPORTED == cdc_acm_host_set_control_line_state(dev, false, false));
-            REQUIRE(ESP_ERR_NOT_SUPPORTED == cdc_acm_host_send_break(dev, 10));
+            // Interact with device - set cdc-acm specific requests
+            _set_cdc_acm_specific_requests(&dev, device_address);
 
             // Close the device
             REQUIRE(ESP_OK == test_cdc_acm_host_close(&dev, interface_index));
@@ -219,15 +322,15 @@ SCENARIO("Interact with mocked USB devices")
             // Open a device
             REQUIRE(ESP_OK == test_cdc_acm_host_open(device_address, vid, pid, interface_index, &dev_config, &dev));
             REQUIRE(dev != nullptr);
+
+            // Interact with the device - set remote wakeup
+            _set_remote_wakeup(&dev, device_address);
+
             // Interact with the device - submit mocked transfers
             _submit_mock_transfer(&dev);
 
-            // This device is not CDC compliant. By default, all class specific requests are not supported (not implemented).
-            cdc_acm_line_coding_t line_coding = {};
-            REQUIRE(ESP_ERR_NOT_SUPPORTED == cdc_acm_host_line_coding_get(dev, &line_coding));
-            REQUIRE(ESP_ERR_NOT_SUPPORTED == cdc_acm_host_line_coding_set(dev, &line_coding));
-            REQUIRE(ESP_ERR_NOT_SUPPORTED == cdc_acm_host_set_control_line_state(dev, false, false));
-            REQUIRE(ESP_ERR_NOT_SUPPORTED == cdc_acm_host_send_break(dev, 10));
+            // Interact with device - set cdc-acm specific requests
+            _set_cdc_acm_specific_requests(&dev, device_address);
 
             // Close the device
             REQUIRE(ESP_OK == test_cdc_acm_host_close(&dev, interface_index));
@@ -242,15 +345,38 @@ SCENARIO("Interact with mocked USB devices")
             // Open a device
             REQUIRE(ESP_OK == test_cdc_acm_host_open(device_address, vid, pid, interface_index, &dev_config, &dev));
             REQUIRE(dev != nullptr);
+
+            // Interact with the device - set remote wakeup
+            _set_remote_wakeup(&dev, device_address);
+
             // Interact with the device - submit mocked transfers
             _submit_mock_transfer(&dev);
 
-            // This device is not CDC compliant. By default, all class specific requests are not supported (not implemented).
-            cdc_acm_line_coding_t line_coding = {};
-            REQUIRE(ESP_ERR_NOT_SUPPORTED == cdc_acm_host_line_coding_get(dev, &line_coding));
-            REQUIRE(ESP_ERR_NOT_SUPPORTED == cdc_acm_host_line_coding_set(dev, &line_coding));
-            REQUIRE(ESP_ERR_NOT_SUPPORTED == cdc_acm_host_set_control_line_state(dev, false, false));
-            REQUIRE(ESP_ERR_NOT_SUPPORTED == cdc_acm_host_send_break(dev, 10));
+            // Interact with device - set cdc-acm specific requests
+            _set_cdc_acm_specific_requests(&dev, device_address);
+
+            // Close the device
+            REQUIRE(ESP_OK == test_cdc_acm_host_close(&dev, interface_index));
+        }
+
+        SECTION("Interact with device: TinyUSB serial") {
+
+            // Define details of a device which will be opened
+            const uint16_t vid = 0x303A, pid = 0x4001;
+            const uint8_t device_address = 5, interface_index = 0;
+
+            // Open a device
+            REQUIRE(ESP_OK == test_cdc_acm_host_open(device_address, vid, pid, interface_index, &dev_config, &dev));
+            REQUIRE(dev != nullptr);
+
+            // Interact with the device - set remote wakeup
+            _set_remote_wakeup(&dev, device_address);
+
+            // Interact with the device - submit mocked transfers
+            _submit_mock_transfer(&dev);
+
+            // Interact with device - set cdc-acm specific requests
+            _set_cdc_acm_specific_requests(&dev, device_address);
 
             // Close the device
             REQUIRE(ESP_OK == test_cdc_acm_host_close(&dev, interface_index));

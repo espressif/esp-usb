@@ -169,7 +169,8 @@ TEST_CASE("mock_dev_app_suspend_dconn", "[cdc_acm_mock_dev][suspend_dconn][ignor
         if (xQueueReceive(dev_evt_queue, &dev_event, portMAX_DELAY)) {
 
             if (mask_event == dev_event.id) {
-                ESP_LOGD(CDC_DEV_TAG, "Event %d masked", dev_event.id);
+                ESP_LOGI(CDC_DEV_TAG, "Event %d masked", dev_event.id);
+                mask_event = UINT32_MAX;    // Refresh masked event, allowing the device test app to handle further events without hard reset
                 continue;
             }
 
@@ -184,7 +185,7 @@ TEST_CASE("mock_dev_app_suspend_dconn", "[cdc_acm_mock_dev][suspend_dconn][ignor
                 ESP_LOGI(CDC_DEV_TAG, "Triggering connect");
                 TEST_ASSERT(tud_connect());
 
-                // End of the test: Mask next suspend event (auto suspend) from the device after uninstalling the cdc-acm host
+                // End of the test case: Mask next suspend event (auto suspend) from the device after uninstalling the cdc-acm host
                 mask_event = TINYUSB_EVENT_SUSPENDED;
                 break;
             default:
@@ -217,6 +218,103 @@ TEST_CASE("mock_dev_app_resume_dconn", "[cdc_acm_mock_dev][resume_dconn][ignore]
 
                 ESP_LOGI(CDC_DEV_TAG, "Triggering connect");
                 TEST_ASSERT(tud_connect());
+                break;
+            default:
+                break;
+            }
+        }
+    }
+}
+
+/**
+ * @brief Run CDC-ACM Device with 2 interfaces in a loopback mode
+ *
+ * Device performs remote wakeup upon receiving Suspend callback
+ */
+TEST_CASE("mock_dev_app_remote_wake", "[cdc_acm_mock_dev][remote_wake][ignore]")
+{
+    cdc_acm_mock_device_run();
+    tinyusb_event_id_t mask_event = UINT32_MAX;
+
+    while (1) {
+        tinyusb_event_t dev_event;
+        if (xQueueReceive(dev_evt_queue, &dev_event, portMAX_DELAY)) {
+
+            if (mask_event == dev_event.id) {
+                ESP_LOGI(CDC_DEV_TAG, "Event %d masked", dev_event.id);
+                mask_event = UINT32_MAX;    // Refresh masked event, allowing the device test app to handle further events without hard reset
+                continue;
+            }
+
+            switch (dev_event.id) {
+            case TINYUSB_EVENT_SUSPENDED:
+
+                if (!dev_event.suspended.remote_wakeup) {
+                    // Suspend event delivered, but remote wakeup is not enabled by the host
+                    // Try to call remote wakeup on the device
+                    TEST_ASSERT_EQUAL(ESP_ERR_INVALID_STATE, tinyusb_remote_wakeup());
+                    break;
+                }
+
+                // Device is now in suspended state with remote wakeup enabled, start remote wakeup signaling
+                vTaskDelay(pdMS_TO_TICKS(1000));
+                ESP_LOGI(CDC_DEV_TAG, "Triggering remote wakeup");
+                TEST_ASSERT_EQUAL(ESP_OK, tinyusb_remote_wakeup());
+
+                // End of the test case: Ignore the suspend event from the device after uninstalling the cdc-acm host
+                mask_event = TINYUSB_EVENT_SUSPENDED;
+                break;
+            default:
+                break;
+            }
+        }
+    }
+}
+
+/**
+ * @brief Run CDC-ACM Device with 2 interfaces in a loopback mode
+ *
+ * Device performs remote wakeup followed by a sudden disconnect and connect upon receiving Suspend callback
+ */
+TEST_CASE("mock_dev_app_remote_wake_dconn", "[cdc_acm_mock_dev][remote_wake_dconn][ignore]")
+{
+    cdc_acm_mock_device_run();
+    tinyusb_event_id_t mask_event = UINT32_MAX;
+
+    while (1) {
+        tinyusb_event_t dev_event;
+        if (xQueueReceive(dev_evt_queue, &dev_event, portMAX_DELAY)) {
+
+            if (mask_event == dev_event.id) {
+                ESP_LOGI(CDC_DEV_TAG, "Event %d masked", dev_event.id);
+                mask_event = UINT32_MAX;    // Refresh masked event, allowing the device test app to handle further events without hard reset
+                continue;
+            }
+
+            switch (dev_event.id) {
+            case TINYUSB_EVENT_SUSPENDED:
+
+                if (!dev_event.suspended.remote_wakeup) {
+                    // Suspend event delivered, but remote wakeup is not enabled by the host
+                    // Try to call remote wakeup on the device
+                    TEST_ASSERT_EQUAL(ESP_ERR_INVALID_STATE, tinyusb_remote_wakeup());
+                    break;
+                }
+
+                // Device is now in suspended state with remote wakeup enabled
+                // Start remote wakeup signaling followed by sudden disconnect
+                vTaskDelay(pdMS_TO_TICKS(1000));
+                ESP_LOGI(CDC_DEV_TAG, "Triggering remote wakeup and sudden disconnect");
+                TEST_ASSERT_EQUAL(ESP_OK, tinyusb_remote_wakeup());
+                TEST_ASSERT(tud_disconnect());
+
+                // Stay disconnected for a while and trigger connect
+                vTaskDelay(pdMS_TO_TICKS(1000));
+                ESP_LOGI(CDC_DEV_TAG, "Triggering connect");
+                TEST_ASSERT(tud_connect());
+
+                // End of the test case: Ignore the suspend event from the device after uninstalling the cdc-acm host
+                mask_event = TINYUSB_EVENT_SUSPENDED;
                 break;
             default:
                 break;
