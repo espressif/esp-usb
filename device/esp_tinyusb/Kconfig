@@ -318,5 +318,31 @@ menu "TinyUSB Stack"
             range 0 2
             help
                 Setting value greater than 0 will enable TinyUSB Vendor specific feature.
+
+        config TINYUSB_VENDOR_TX_BUFSIZE_OVERRIDE
+            bool "Override default TX buffer size for TinyUSB Vendor Class"
+            depends on TINYUSB_VENDOR_COUNT > 0
+            default n
+            help
+                Override the default TX buffer size for the TinyUSB Vendor Class, which is 512 bytes for Highspeed and 64 for Fullspeed. Enabling this option allows you to set a custom TX buffer size using the CFG_TUD_VENDOR_TX_BUFSIZE configuration option.
+        config TINYUSB_CFG_TUD_VENDOR_TX_BUFSIZE
+            int "TinyUSB Vendor Class TX Buffer Size"
+            depends on TINYUSB_VENDOR_TX_BUFSIZE_OVERRIDE
+            default 64
+            help
+                Set the TX buffer size for the TinyUSB Vendor Class. You may use 0 to avoid sending ZLP (Zero-Length Packet). Or set it to a larger value to improve performance when transferring large data chunks, at the cost of increased RAM usage.
+
+        config TINYUSB_VENDOR_RX_BUFSIZE_OVERRIDE
+            bool "Override default RX buffer size for TinyUSB Vendor Class"
+            depends on TINYUSB_VENDOR_COUNT > 0
+            default n
+            help
+                Override the default RX buffer size for the TinyUSB Vendor Class, which is 512 bytes for Highspeed and 64 for Fullspeed. Enabling this option allows you to set a custom RX buffer size using the CFG_TUD_VENDOR_RX_BUFSIZE configuration option.
+        config TINYUSB_CFG_TUD_VENDOR_RX_BUFSIZE
+            int "TinyUSB Vendor Class RX Buffer Size"
+            depends on TINYUSB_VENDOR_RX_BUFSIZE_OVERRIDE
+            default 64
+            help
+                Set the RX buffer size for the TinyUSB Vendor Class. 
     endmenu # "Vendor Specific Interface"
 endmenu # "TinyUSB Stack"
