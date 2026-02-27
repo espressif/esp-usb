@@ -985,6 +985,9 @@ TEST_CASE("automatic_suspend_timer", "[cdc_acm]")
         TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_data_tx_blocking(cdc_dev, tx_buf, sizeof(tx_buf), 1000));
     }
 
+    // Let the transfer to finish before disabling the timer, to make sure that the timer won't interfere with the ongoing transfer
+    vTaskDelay(10);
+
     // Disable the Periodic auto suspend timer
     TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_set_auto_suspend(USB_HOST_LIB_AUTO_SUSPEND_PERIODIC, 0));
     // Make sure no event is delivered
@@ -1035,19 +1038,27 @@ static void suspend_tx_task(void *arg)
         // We are expecting either
         //  - ESP_OK: Transfer was submitted or deferred
         //  - ESP_ERR_INVALID_STATE: Transfer can't be submitted or deferred, when the root port is in suspending state
+        //  - ESP_ERR_INVALID_RESPONSE: Transfer was submitted, but not finished,
+        //                              EP halt and flush (part of suspend procedure) caused the ongoing transfer to fail with this error code.
 
         // BULK endpoints
         esp_err_t ret;
         ret = cdc_acm_host_data_tx_blocking(cdc_dev, tx_buf, sizeof(tx_buf), 2000);
-        TEST_ASSERT(ret == ESP_OK || ret == ESP_ERR_INVALID_STATE);
+        TEST_ASSERT_MESSAGE(
+            ret == ESP_OK || ret == ESP_ERR_INVALID_STATE || ret == ESP_ERR_INVALID_RESPONSE,
+            "Unexpected return value from transfer submit");
 
         // CTRL endpoints
         cdc_acm_line_coding_t line_coding_get;
         ret = cdc_acm_host_line_coding_get(cdc_dev, &line_coding_get);
-        TEST_ASSERT(ret == ESP_OK || ret == ESP_ERR_INVALID_STATE);
+        TEST_ASSERT_MESSAGE(
+            ret == ESP_OK || ret == ESP_ERR_INVALID_STATE || ret == ESP_ERR_INVALID_RESPONSE,
+            "Unexpected return value from transfer submit");
 
-        ret = cdc_acm_host_set_control_line_state(cdc_dev, true, false);
-        TEST_ASSERT(ret == ESP_OK || ret == ESP_ERR_INVALID_STATE);
+        ret = cdc_acm_host_set_control_line_state(cdc_dev, true, true);
+        TEST_ASSERT_MESSAGE(
+            ret == ESP_OK || ret == ESP_ERR_INVALID_STATE || ret == ESP_ERR_INVALID_RESPONSE,
+            "Unexpected return value from transfer submit");
     }
     vTaskDelete(NULL);
 }
@@ -1061,9 +1072,7 @@ static void suspend_tx_task(void *arg)
  * Expect transfer either to pass, or to fail, due to root being int suspending state
  * close the device, cleanup
  */
-
-// TODO: Test failing in CI on esp32p4 ECO6 IDF-15358
-TEST_CASE("auto_suspend_multiple_threads", "[cdc_acm][ignore]")
+TEST_CASE("auto_suspend_multiple_threads", "[cdc_acm]")
 {
     cdc_acm_dev_hdl_t cdc_dev;
     test_install_cdc_driver(NULL);
