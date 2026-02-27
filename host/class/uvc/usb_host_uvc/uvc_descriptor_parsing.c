@@ -30,7 +30,14 @@ static inline uint16_t uvc_desc_get_safe_wTotalLength(const usb_config_desc_t *c
 {
     uintptr_t cfg_start = (uintptr_t)cfg_desc;
     uintptr_t header_start = (uintptr_t)header;
-    uint16_t remaining = cfg_desc->wTotalLength - (uint16_t)(header_start - cfg_start);
+    if (header_start <= cfg_start) {
+        return 0;
+    }
+    const size_t offset = (size_t)(header_start - cfg_start);
+    if (offset >= cfg_desc->wTotalLength) {
+        return 0;
+    }
+    size_t remaining = cfg_desc->wTotalLength - offset;
     if (header->wTotalLength > remaining) {
         return remaining;
     }
@@ -72,7 +79,6 @@ esp_err_t uvc_desc_get_streaming_intf_and_ep(
 
     const uint8_t num_of_alternate = usb_parse_interface_number_of_alternate(cfg_desc, bInterfaceNumber);
     uint16_t last_mps = 0; // Looking for maximum MPS: init to zero
-    uint8_t last_mult = UINT8_MAX; // Looking for minimum: init to max
     for (int i = 0; i <= num_of_alternate; i++) {
         // Check Interface desc
         intf_desc = usb_parse_interface_descriptor(cfg_desc, bInterfaceNumber, i, &offset);
@@ -88,13 +94,11 @@ esp_err_t uvc_desc_get_streaming_intf_and_ep(
         ep_desc = usb_parse_endpoint_descriptor_by_index(intf_desc, 0, cfg_desc->wTotalLength, &offset);
         UVC_CHECK(ep_desc, ESP_ERR_NOT_FOUND);
 
-        // Here we look for an interface that offers the largest MPS with minimum multiple transactions in a microframe
-        // and that is not bigger that max. requests MPS
-        const uint16_t current_mps = USB_EP_DESC_GET_MPS(ep_desc);
-        const uint8_t current_mult = USB_EP_DESC_GET_MULT(ep_desc);
-        if (current_mps >= last_mps && current_mult <= last_mult && current_mps <= dwMaxPayloadTransferSize) {
+        // Here we look for an interface that offers the largest MPS that is not larger than requested MPS
+        const uint8_t packets_per_frame = USB_EP_DESC_GET_MULT(ep_desc) + 1;
+        const uint16_t current_mps = USB_EP_DESC_GET_MPS(ep_desc) * packets_per_frame;
+        if (current_mps >= last_mps && current_mps <= dwMaxPayloadTransferSize) {
             last_mps = current_mps;
-            last_mult = current_mult;
             *ep_desc_ret = ep_desc;
             *intf_desc_ret = intf_desc;
             ret = ESP_OK;
@@ -435,6 +439,7 @@ esp_err_t uvc_desc_get_frame_list(const usb_config_desc_t *config_desc, uint8_t 
 
     const uvc_vc_header_desc_t *vc_header = uvc_desc_get_control_interface_header(config_desc, uvc_index);
     UVC_CHECK(vc_header, ESP_ERR_NOT_FOUND);
+    UVC_CHECK(vc_header->bInCollection > 0, ESP_ERR_NOT_FOUND);
 
     // Find requested Format descriptors
     const usb_standard_desc_t *current_desc = (const usb_standard_desc_t *)vc_header;
