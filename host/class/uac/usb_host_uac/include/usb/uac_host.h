@@ -31,10 +31,10 @@ extern "C" {
 /**
  * @brief Flags to control stream work flow
  *
- * FLAG_STREAM_SUSPEND_AFTER_START: do not start stream transfer during start, only claim interface and prepare memory
- * @note User should call uac_host_device_resume to start stream transfer when needed
+ * FLAG_STREAM_PAUSE_AFTER_START: do not start stream transfer during start, only claim interface and prepare memory
+ * @note User should call uac_host_device_unpause to start stream transfer when needed
 */
-#define FLAG_STREAM_SUSPEND_AFTER_START      (1 << 0)
+#define FLAG_STREAM_PAUSE_AFTER_START      (1 << 0)
 
 typedef struct uac_interface *uac_host_device_handle_t;    /*!< Logic Device Handle. Handle to a particular UAC interface */
 
@@ -303,7 +303,7 @@ esp_err_t uac_host_handle_events(TickType_t timeout);
 /**
  * @brief Start a UAC stream with specific stream configuration (channels, bit resolution, sample frequency)
  *
- * @note set flags FLAG_STREAM_SUSPEND_AFTER_START to suspend stream after start
+ * @note set flags FLAG_STREAM_PAUSE_AFTER_START to pause stream after start
  *
  * @param[in] uac_dev_handle  UAC device handle
  * @param[in] stream_config   Pointer to UAC stream configuration structure
@@ -318,7 +318,7 @@ esp_err_t uac_host_handle_events(TickType_t timeout);
 esp_err_t uac_host_device_start(uac_host_device_handle_t uac_dev_handle, const uac_host_stream_config_t *stream_config);
 
 /**
- * @brief Suspend a UAC stream
+ * @brief Pause a UAC stream
  *
  * @param[in] uac_dev_handle  UAC device handle
  * @return esp_err_t
@@ -326,10 +326,10 @@ esp_err_t uac_host_device_start(uac_host_device_handle_t uac_dev_handle, const u
  * - ESP_ERR_INVALID_ARG if the device handle is invalid
  * - ESP_ERR_INVALID_STATE if the device is not in the right state
  */
-esp_err_t uac_host_device_suspend(uac_host_device_handle_t uac_dev_handle);
+esp_err_t uac_host_device_pause(uac_host_device_handle_t uac_dev_handle);
 
 /**
- * @brief Resume a UAC stream with same stream configuration
+ * @brief Unpause a UAC stream with same stream configuration
  *
  * @param[in] uac_dev_handle  UAC device handle
  * @return esp_err_t
@@ -337,7 +337,7 @@ esp_err_t uac_host_device_suspend(uac_host_device_handle_t uac_dev_handle);
  * - ESP_ERR_INVALID_ARG if the device handle is invalid
  * - ESP_ERR_INVALID_STATE if the device is not in the right state
  */
-esp_err_t uac_host_device_resume(uac_host_device_handle_t uac_dev_handle);
+esp_err_t uac_host_device_unpause(uac_host_device_handle_t uac_dev_handle);
 
 /**
  * @brief Stop a UAC stream, stream resources will be released

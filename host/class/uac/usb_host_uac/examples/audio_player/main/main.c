@@ -199,11 +199,11 @@ static void mic_palyback_done_cb(void)
 {
     vTaskDelay(pdMS_TO_TICKS(1000)); // wait for a while before resuming recording
     if (s_mic_dev_handle != NULL) {
-        if (uac_host_device_resume(s_mic_dev_handle) == ESP_OK) {
+        if (uac_host_device_unpause(s_mic_dev_handle) == ESP_OK) {
             s_mic_recording = true;
             s_mic_record_wr = 0;
         } else {
-            ESP_LOGE(TAG, "Failed to resume MIC device");
+            ESP_LOGE(TAG, "Failed to unpause MIC device");
         }
     }
 }
@@ -396,8 +396,8 @@ static void uac_lib_task(void *arg)
                         if (s_mic_record_wr >= s_mic_record_buf_size) {
                             if (s_spk_dev_handle != NULL) {
                                 s_mic_recording = false;
-                                // Suspend microphone streaming before playback
-                                uac_host_device_suspend(s_mic_dev_handle);
+                                // Pause microphone streaming before playback
+                                uac_host_device_pause(s_mic_dev_handle);
                                 // Prepare playback of the recorded PCM
                                 player_config_t player_config = {
                                     .pcm_ptr = s_mic_record_buf,
@@ -405,7 +405,7 @@ static void uac_lib_task(void *arg)
                                     .complete_cb = mic_palyback_done_cb,
                                 };
                                 if (start_pcm_playback(&player_config) != ESP_OK) {
-                                    uac_host_device_resume(s_mic_dev_handle);
+                                    uac_host_device_unpause(s_mic_dev_handle);
                                     s_mic_recording = true;
                                     s_mic_record_wr = 0;
                                 }
