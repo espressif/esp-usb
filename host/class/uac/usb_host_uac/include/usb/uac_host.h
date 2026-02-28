@@ -10,6 +10,7 @@
 #include <stdint.h>
 #include "freertos/FreeRTOS.h"
 #include "esp_err.h"
+#include "usb/usb_host.h"
 #include "uac.h"
 
 #ifdef __cplusplus
@@ -31,10 +32,15 @@ extern "C" {
 /**
  * @brief Flags to control stream work flow
  *
- * FLAG_STREAM_SUSPEND_AFTER_START: do not start stream transfer during start, only claim interface and prepare memory
- * @note User should call uac_host_device_resume to start stream transfer when needed
+ * FLAG_STREAM_PAUSE_AFTER_START: do not start stream transfer during start, only claim interface and prepare memory
+ * @note User should call uac_host_device_unpause to start stream transfer when needed
 */
-#define FLAG_STREAM_SUSPEND_AFTER_START      (1 << 0)
+#define FLAG_STREAM_PAUSE_AFTER_START      (1 << 0)
+
+// For backward compatibility with older idf versions without suspend/resume API
+#ifdef USB_HOST_LIB_EVENT_FLAGS_AUTO_SUSPEND
+#define UAC_HOST_SUSPEND_RESUME_API_SUPPORTED
+#endif
 
 typedef struct uac_interface *uac_host_device_handle_t;    /*!< Logic Device Handle. Handle to a particular UAC interface */
 
@@ -55,6 +61,10 @@ typedef enum {
     UAC_HOST_DEVICE_EVENT_TX_DONE,                       /*!< TX Done: the transmit buffer data size falls below the threshold */
     UAC_HOST_DEVICE_EVENT_TRANSFER_ERROR,                /*!< UAC Device transfer error */
     UAC_HOST_DRIVER_EVENT_DISCONNECTED,                  /*!< UAC Device has been disconnected */
+#ifdef UAC_HOST_SUSPEND_RESUME_API_SUPPORTED
+    UAC_HOST_DEVICE_EVENT_SUSPENDED,                     /*!< UAC Device has been suspended */
+    UAC_HOST_DEVICE_EVENT_RESUMED,                       /*!< UAC Device has been resumed */
+#endif // UAC_HOST_SUSPEND_RESUME_API_SUPPORTED
 } uac_host_device_event_t;
 
 // ------------------------ USB UAC Host events callbacks -----------------------------
@@ -303,8 +313,9 @@ esp_err_t uac_host_handle_events(TickType_t timeout);
 /**
  * @brief Start a UAC stream with specific stream configuration (channels, bit resolution, sample frequency)
  *
- * @note set flags FLAG_STREAM_SUSPEND_AFTER_START to suspend stream after start
- *
+ * @note set flags FLAG_STREAM_PAUSE_AFTER_START to pause stream after start
+ * @note The function can block
+ * @note The function sends a control transfer to the device
  * @param[in] uac_dev_handle  UAC device handle
  * @param[in] stream_config   Pointer to UAC stream configuration structure
  * @return esp_err_t
@@ -318,30 +329,36 @@ esp_err_t uac_host_handle_events(TickType_t timeout);
 esp_err_t uac_host_device_start(uac_host_device_handle_t uac_dev_handle, const uac_host_stream_config_t *stream_config);
 
 /**
- * @brief Suspend a UAC stream
+ * @brief Pause a UAC stream
  *
+ * @note The function can block
+ * @note The function sends a control transfer to the device
  * @param[in] uac_dev_handle  UAC device handle
  * @return esp_err_t
  * - ESP_OK on success
  * - ESP_ERR_INVALID_ARG if the device handle is invalid
  * - ESP_ERR_INVALID_STATE if the device is not in the right state
  */
-esp_err_t uac_host_device_suspend(uac_host_device_handle_t uac_dev_handle);
+esp_err_t uac_host_device_pause(uac_host_device_handle_t uac_dev_handle);
 
 /**
- * @brief Resume a UAC stream with same stream configuration
+ * @brief Unpause a UAC stream with same stream configuration
  *
+ * @note The function can block
+ * @note The function sends a control transfer to the device
  * @param[in] uac_dev_handle  UAC device handle
  * @return esp_err_t
  * - ESP_OK on success
  * - ESP_ERR_INVALID_ARG if the device handle is invalid
  * - ESP_ERR_INVALID_STATE if the device is not in the right state
  */
-esp_err_t uac_host_device_resume(uac_host_device_handle_t uac_dev_handle);
+esp_err_t uac_host_device_unpause(uac_host_device_handle_t uac_dev_handle);
 
 /**
  * @brief Stop a UAC stream, stream resources will be released
  *
+ * @note The function can block
+ * @note The function sends a control transfer to the device
  * @param[in] uac_dev_handle  UAC device handle
  * @return esp_err_t
  * - ESP_OK on success
@@ -353,6 +370,7 @@ esp_err_t uac_host_device_stop(uac_host_device_handle_t uac_dev_handle);
 /**
  * @brief Read data from UAC stream buffer, only available after stream started
  *
+ * @note The function can block
  * @param[in] uac_dev_handle  UAC device handle
  * @param[out] data           Pointer to the buffer to store the data
  * @param[in] size            Number of bytes to read
@@ -371,7 +389,8 @@ esp_err_t uac_host_device_read(uac_host_device_handle_t uac_dev_handle, uint8_t 
  *
  * @note The data will be sent to internal ringbuffer before function return,
  * the actual data transfer is scheduled by the background task.
- *
+ * @note The function can block
+ * @note The function sends a transfer to the device
  * @param[in] uac_dev_handle  UAC device handle
  * @param[in] data            Pointer to the data buffer
  * @param[in] size            Number of bytes to write
@@ -389,6 +408,8 @@ esp_err_t uac_host_device_write(uac_host_device_handle_t uac_dev_handle, uint8_t
  * @brief Mute or un-mute the UAC device
  * @param[in] uac_dev_handle  UAC device handle
  * @param[in] mute        True to mute, false to unmute
+ * @note The function can block
+ * @note The function sends a control transfer to the device
  * @return esp_err_t
  * - ESP_OK on success
  * - ESP_ERR_INVALID_STATE if the device is not ready or active
@@ -402,6 +423,8 @@ esp_err_t uac_host_device_set_mute(uac_host_device_handle_t uac_dev_handle, bool
  * @brief Get the mute status of the UAC device
  * @param[in] uac_dev_handle  UAC device handle
  * @param[out] mute       Pointer to store the mute status
+ * @note The function can block
+ * @note The function sends a control transfer to the device
  * @return esp_err_t
  * - ESP_OK on success
  * - ESP_ERR_INVALID_STATE if the device is not ready or active
@@ -415,6 +438,8 @@ esp_err_t uac_host_device_get_mute(uac_host_device_handle_t uac_dev_handle, bool
  * @brief Set the volume of the UAC device
  * @param[in] uac_dev_handle  UAC device handle
  * @param[in] volume      Volume to set, 0-100
+ * @note The function can block
+ * @note The function sends a control transfer to the device
  * @return esp_err_t
  * - ESP_OK on success
  * - ESP_ERR_INVALID_STATE if the device is not ready or active
@@ -428,6 +453,8 @@ esp_err_t uac_host_device_set_volume(uac_host_device_handle_t uac_dev_handle, ui
  * @brief Get the volume of the UAC device
  * @param[in] uac_dev_handle  UAC device handle
  * @param[out] volume     Pointer to store the volume, 0-100
+ * @note The function can block
+ * @note The function sends a control transfer to the device
  * @return esp_err_t
  * - ESP_OK on success
  * - ESP_ERR_INVALID_STATE if the device is not ready or active
@@ -442,6 +469,8 @@ esp_err_t uac_host_device_get_volume(uac_host_device_handle_t uac_dev_handle, ui
  * @param[in] uac_dev_handle  UAC device handle
  * @param[in] volume_db   Volume to set, with resolution of 1/256 dB,
  * eg.  256 (0x0100) is 1 dB. 32767 (0x7FFF) is 127.996 dB. -32767 (0x8001) is -127.996 dB.
+ * @note The function can block
+ * @note The function sends a control transfer to the device
  * @return esp_err_t
  * - ESP_OK on success
  * - ESP_ERR_INVALID_STATE if the device is not ready or active
@@ -456,6 +485,8 @@ esp_err_t uac_host_device_set_volume_db(uac_host_device_handle_t uac_dev_handle,
  * @param[in] uac_dev_handle  UAC device handle
  * @param[out] volume_db  Pointer to store the volume, with resolution of 1/256 dB,
  * eg.  256 (0x0100) is 1 dB. 32767 (0x7FFF) is 127.996 dB. -32767 (0x8001) is -127.996 dB.
+ * @note The function can block
+ * @note The function sends a control transfer to the device
  * @return esp_err_t
  * - ESP_OK on success
  * - ESP_ERR_INVALID_STATE if the device is not ready or active
