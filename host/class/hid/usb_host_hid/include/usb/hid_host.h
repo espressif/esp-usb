@@ -35,6 +35,11 @@ extern "C" {
 #define HID_HOST_SUSPEND_RESUME_API_SUPPORTED
 #endif
 
+// For backward compatibility with IDF versions which do not have remote wakeup HAL changes
+#ifdef REMOTE_WAKE_HAL_SUPPORTED
+#define HID_HOST_REMOTE_WAKE_SUPPORTED
+#endif
+
 typedef struct hid_interface *hid_host_device_handle_t;    /**< Device Handle. Handle to a particular HID interface */
 
 // ------------------------ USB HID Host events --------------------------------
@@ -196,6 +201,27 @@ esp_err_t hid_host_device_get_raw_input_report_data(hid_host_device_handle_t hid
                                                     uint8_t *data,
                                                     size_t data_length_max,
                                                     size_t *data_length);
+
+#ifdef HID_HOST_REMOTE_WAKE_SUPPORTED
+/**
+ * @brief Enable/Disable remote wakeup on device
+ * @note API availability depends on presence of remote wakeup support in esp-idf HAL
+ *       and is guarded by the HID_HOST_REMOTE_WAKE_SUPPORTED
+ *
+ * @param[in] hid_dev_handle    HID Device handle
+ * @param[in] enable            Enable/Disable remote wakeup
+ * @return
+ *     - ESP_OK:                   Remote wakeup successfully enabled/disabled, or already enabled/disabled on the device
+ *     - ESP_ERR_INVALID_ARG:      Invalid input argument
+ *     - ESP_ERR_NOT_FOUND:        Interface not found in interfaces list
+ *     - ESP_ERR_NOT_SUPPORTED:    Device does not support remote wakeup
+ *     - ESP_ERR_TIMEOUT:          Transfer timed out, or failed to acquire ctr transfer mutex
+ *     - ESP_ERR_INVALID_RESPONSE: Invalid response of the control transfer
+ *     - Errors propagated from caller functions
+ */
+esp_err_t hid_host_device_host_enable_remote_wakeup(hid_host_device_handle_t hid_dev_handle, bool enable);
+
+#endif // HID_HOST_REMOTE_WAKE_SUPPORTED
 
 // ------------------------ USB HID Host driver API ----------------------------
 
