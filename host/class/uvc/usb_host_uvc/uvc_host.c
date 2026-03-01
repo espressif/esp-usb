@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2024-2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2024-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -475,8 +475,9 @@ static esp_err_t uvc_find_and_open_usb_device(uint8_t dev_addr, uint16_t vid, ui
         if ((vid == device_desc->idVendor || vid == UVC_HOST_ANY_VID) &&
                 (pid == device_desc->idProduct || pid == UVC_HOST_ANY_PID) &&
                 (dev_addr == dev_info.dev_addr || dev_addr == UVC_HOST_ANY_DEV_ADDR)) {
-            // Return path 1: t
+            // Return path 1: the device is already opened by this driver
             (*dev)->constant.dev_hdl = uvc_stream->constant.dev_hdl;
+            (*dev)->constant.cfg_desc = uvc_stream->constant.cfg_desc; // Cache config descriptor for faster access
             return ESP_OK;
         }
     }
@@ -513,8 +514,9 @@ static esp_err_t uvc_find_and_open_usb_device(uint8_t dev_addr, uint16_t vid, ui
                 if ((vid == device_desc->idVendor || vid == UVC_HOST_ANY_VID) &&
                         (pid == device_desc->idProduct || pid == UVC_HOST_ANY_PID) &&
                         (dev_addr == dev_addr_list[i] || dev_addr == UVC_HOST_ANY_DEV_ADDR)) {
-                    // Return path 2:
+                    // Return path 2: USB device found and opened by this driver
                     (*dev)->constant.dev_hdl = current_device;
+                    (*dev)->constant.cfg_desc = config_desc; // Cache config descriptor for faster access
                     return ESP_OK;
                 }
             }
@@ -555,8 +557,6 @@ static inline esp_err_t uvc_set_interface(uvc_host_stream_hdl_t stream_hdl, bool
  * @brief Find and claim interface for selected frame format
  *
  * @param[in]  uvc_stream  Pointer to UVC stream
- * @param[in]  uvc_index   Index of UVC function you want to use
- * @param[in]  vs_format   Desired frame format
  * @param[out] ep_desc_ret EP descriptor for this stream
  * @return
  *     - ESP_OK:              Success, interface found and claimed
@@ -564,41 +564,38 @@ static inline esp_err_t uvc_set_interface(uvc_host_stream_hdl_t stream_hdl, bool
  *     - ESP_ERR_NOT_FOUND:   Selected format was not found
  *     - Other:               Error during interface claim
  */
-static esp_err_t uvc_claim_interface(uvc_stream_t *uvc_stream, uint8_t uvc_index, const uvc_host_stream_format_t *vs_format, const usb_ep_desc_t **ep_desc_ret)
+static esp_err_t uvc_claim_interface(uvc_stream_t *uvc_stream, const usb_ep_desc_t **ep_desc_ret)
 {
-    UVC_CHECK(uvc_stream && vs_format && ep_desc_ret, ESP_ERR_INVALID_ARG);
+    UVC_CHECK(uvc_stream && ep_desc_ret, ESP_ERR_INVALID_ARG);
 
-    const usb_config_desc_t *cfg_desc;
     const usb_intf_desc_t *intf_desc;
     const usb_ep_desc_t *ep_desc;
-    ESP_ERROR_CHECK(usb_host_get_active_config_descriptor(uvc_stream->constant.dev_hdl, &cfg_desc));
-
-    // Find UVC USB function with desired index
-    uint16_t bcdUVC = 0;
-    uint8_t bInterfaceNumber = 0;
 
     ESP_RETURN_ON_ERROR(
-        uvc_desc_get_streaming_interface_num(cfg_desc, uvc_index, vs_format, &bcdUVC, &bInterfaceNumber),
-        TAG, "Could not find frame format %dx%d@%2.1fFPS",
-        vs_format->h_res, vs_format->v_res, vs_format->fps);
-
-    ESP_RETURN_ON_ERROR(
-        uvc_desc_get_streaming_intf_and_ep(cfg_desc, bInterfaceNumber, MAX_MPS_IN, &intf_desc, &ep_desc),
-        TAG, "Could not find Streaming interface %d", bInterfaceNumber);
+        uvc_desc_get_streaming_intf_and_ep(uvc_stream->constant.cfg_desc, uvc_stream->constant.bInterfaceNumber, MAX_MPS_IN, &intf_desc, &ep_desc),
+        TAG, "Could not find Streaming interface %d", uvc_stream->constant.bInterfaceNumber);
 
     // Save all constant information about the UVC stream
-    uvc_stream->constant.bInterfaceNumber  = bInterfaceNumber;
-    uvc_stream->constant.bcdUVC            = bcdUVC;
     uvc_stream->constant.bAlternateSetting = intf_desc->bAlternateSetting;
     uvc_stream->constant.bEndpointAddress  = ep_desc->bEndpointAddress;
     *ep_desc_ret                           = ep_desc;
 
     // Claim the interface in USB Host Lib
-    return usb_host_interface_claim(
-               p_uvc_host_driver->usb_client_hdl,
-               uvc_stream->constant.dev_hdl,
-               intf_desc->bInterfaceNumber,
-               intf_desc->bAlternateSetting);
+    esp_err_t ret = usb_host_interface_claim(
+                        p_uvc_host_driver->usb_client_hdl,
+                        uvc_stream->constant.dev_hdl,
+                        intf_desc->bInterfaceNumber,
+                        intf_desc->bAlternateSetting);
+
+    /* Although not strictly required by the UVC specification, some UVC ISOC
+     * cameras require explicitly entering the NOT STREAMING state by setting
+     * the interface's Alternate Setting to 0.
+     */
+    if (ret == ESP_OK && uvc_stream->constant.bAlternateSetting != 0) {
+        // We do not check return code here on purpose. We can silently continue
+        uvc_set_interface(uvc_stream, false);
+    }
+    return ret;
 }
 
 esp_err_t uvc_host_install(const uvc_host_driver_config_t *driver_config)
@@ -774,8 +771,34 @@ static void uvc_format_save(uvc_stream_t *uvc_stream, const uvc_host_stream_form
     assert(uvc_frame_are_all_returned(uvc_stream));
     uvc_frame_format_update(uvc_stream, vs_format);
 }
+
 esp_err_t uvc_host_stream_open(const uvc_host_stream_config_t *stream_config, int timeout, uvc_host_stream_hdl_t *stream_hdl_ret)
 {
+    /* Open a UVC stream (high-level steps):
+     * 1. Locate and open the underlying USB device and cache its active configuration descriptor.
+     *    - If the device is already opened by this driver, reuse the existing device handle and cached descriptor.
+     * 2. Locate the streaming interface that matches the requested video format.
+     *    - Determine bInterfaceNumber (used for subsequent control requests) and UVC version (bcdUVC).
+     * 3. Negotiate the video format with the device (PROBE). The negotiation result provides
+     *    parameters such as dwMaxVideoFrameSize which are required to size frame buffers and
+     *    to select proper bandwidth/alternate settings for isochronous endpoints.
+     *    - Note: the selected format is not committed on the device until uvc_host_stream_start()
+     *      performs the COMMIT operation.
+     * 4. Allocate frame buffers based on the negotiated maximum frame size or on a user-provided
+     *    frame_size. Buffers must match the negotiated sizing to avoid truncation or overruns.
+     * 5. Find a suitable streaming endpoint and claim the streaming interface (including the
+     *    correct alternate setting). The endpoint descriptor (MPS, transfer type and MULT)
+     *    is needed to compute transfer sizes and isochronous packet layout.
+     * 6. Allocate USB transfers (URBs). Transfer sizes are rounded up to an integer multiple of
+     *    the Max Packet Size (MPS) and isochronous transfers must be split into per-packet descriptors.
+     *
+     * Notes:
+     *  - The function takes the driver's open/close mutex to protect modifications to the
+     *    driver's list of opened streams/devices.
+     *  - On any failure the function cleans up partially allocated resources (frames, transfers,
+     *    claimed interfaces and opened device handles) before returning an error.
+     */
+
     esp_err_t ret;
     UVC_CHECK(UVC_ATOMIC_LOAD(p_uvc_host_driver), ESP_ERR_INVALID_STATE);
     UVC_CHECK(stream_config, ESP_ERR_INVALID_ARG);
@@ -803,30 +826,36 @@ esp_err_t uvc_host_stream_open(const uvc_host_stream_config_t *stream_config, in
         goto not_found;
     }
 
-    // Find the streaming interface and endpoint and claim it
-    const usb_ep_desc_t *ep_desc;
-    ESP_GOTO_ON_ERROR(
-        uvc_claim_interface(uvc_stream, stream_config->usb.uvc_stream_index, &stream_config->vs_format, &ep_desc),
-        claim_err, TAG, "Could not find/claim streaming interface");
-    ESP_LOGD(TAG, "Claimed interface index %d with MPS %d", uvc_stream->constant.bInterfaceNumber, USB_EP_DESC_GET_MPS(ep_desc));
+    // Find UVC USB function with desired index
+    uint16_t bcdUVC = 0;
+    uint8_t bInterfaceNumber = 0;
 
-    /*
-    * Although not strictly required by the UVC specification, some UVC ISOC
-    * cameras require explicitly entering the NOT STREAMING state by setting
-    * the interface's Alternate Setting to 0.
-    */
-    if (uvc_stream->constant.bAlternateSetting != 0) {
-        // We do not check return code here on purpose. We can silently continue
-        uvc_set_interface(uvc_stream, false);
-    }
+    ESP_RETURN_ON_ERROR(
+        uvc_desc_get_streaming_interface_num(uvc_stream->constant.cfg_desc, stream_config->usb.uvc_stream_index, &stream_config->vs_format, &bcdUVC, &bInterfaceNumber),
+        TAG, "Could not find frame format %dx%d@%2.1fFPS",
+        stream_config->vs_format.h_res, stream_config->vs_format.v_res, stream_config->vs_format.fps);
 
-    // Note: The maximum frame size (dwMaxVideoFrameSize) is not provided in the device descriptors.
-    // Instead, it is retrieved via a negotiation process that involves:
-    //   1. Setting the desired video format on the camera.
-    //   2. Receiving the negotiation result, which includes the maximum supported frame size (dwMaxVideoFrameSize).
+    uvc_stream->constant.bInterfaceNumber  = bInterfaceNumber; // Note: Alternate setting is set when claiming the interface
+    uvc_stream->constant.bcdUVC            = bcdUVC;
+    uvc_stream->constant.stream_cb         = stream_config->event_cb;
+    uvc_stream->constant.frame_cb          = stream_config->frame_cb;
+    uvc_stream->constant.cb_arg            = stream_config->user_ctx;
+
+    // Note: The maximum frame size (dwMaxVideoFrameSize) is not available in the static USB descriptors.
+    // It is obtained via the UVC probe/commit negotiation sequence:
+    //   - PROBE: the host proposes desired parameters (format, resolution, frame interval, etc.) and
+    //     the device returns negotiated parameters. The PROBE result contains values such as
+    //     dwMaxVideoFrameSize which are required to size frame buffers and to choose appropriate
+    //     bandwidth/alternate settings for isochronous endpoints.
+    //   - COMMIT: the host asks the device to commit the negotiated parameters. Only after COMMIT
+    //     the device will start streaming with the selected parameters.
     //
-    // Important: This negotiation only computes the potential maximum frame size.
-    // The selected video frame format is not committed until uvc_host_stream_start() is executed.
+    // Important: PROBE only negotiates potential parameters and does not enable streaming or
+    // permanently change the device state. The COMMIT operation (performed in
+    // uvc_host_stream_start()) is required to apply the format on the device. Some cameras may
+    // also require a short delay between COMMIT and selecting the streaming alternate interface;
+    // the implementation includes a small vTaskDelay after COMMIT to accommodate such devices.
+
     // Negotiate the frame format
     uvc_vs_ctrl_t vs_result;
     uvc_host_stream_format_t real_format;
@@ -835,28 +864,30 @@ esp_err_t uvc_host_stream_open(const uvc_host_stream_config_t *stream_config, in
         uvc_host_stream_control_probe(uvc_stream, &real_format, &vs_result),
         err, TAG, "Failed to negotiate requested Video Stream format");
 
-    // check if the urb_size is smaller than the maximum payload transfer size
-    size_t urb_size = stream_config->advanced.urb_size > vs_result.dwMaxPayloadTransferSize ?
-                      vs_result.dwMaxPayloadTransferSize : stream_config->advanced.urb_size;
-    // Allocate USB transfers
-    ESP_GOTO_ON_ERROR(
-        uvc_transfers_allocate(uvc_stream, stream_config->advanced.number_of_urbs, urb_size, ep_desc),
-        err, TAG,);
-    // Allocate Frame buffers
+    // Allocate Frame buffers: if frame_size is 0, we allocate buffers of size dwMaxVideoFrameSize negotiated above
     ESP_GOTO_ON_ERROR(
         uvc_frame_allocate(
             uvc_stream,
             stream_config->advanced.number_of_frame_buffers,
-            stream_config->advanced.frame_size ? stream_config->advanced.frame_size : vs_result.dwMaxVideoFrameSize,
+            stream_config->advanced.frame_size,
             stream_config->advanced.frame_heap_caps,
             stream_config->advanced.user_frame_buffers),
         err, TAG,);
 
-    // Save info
+    // Save the negotiated format to stream handle and all its frame buffers
     uvc_format_save(uvc_stream, &real_format, vs_result.dwMaxVideoFrameSize);
-    uvc_stream->constant.stream_cb = stream_config->event_cb;
-    uvc_stream->constant.frame_cb = stream_config->frame_cb;
-    uvc_stream->constant.cb_arg = stream_config->user_ctx;
+
+    // Find the streaming interface and endpoint and claim it
+    const usb_ep_desc_t *ep_desc;
+    ESP_GOTO_ON_ERROR(
+        uvc_claim_interface(uvc_stream, &ep_desc),
+        err, TAG, "Could not find/claim streaming interface");
+    ESP_LOGD(TAG, "Claimed interface index %d with MPS %d", uvc_stream->constant.bInterfaceNumber, USB_EP_DESC_GET_MPS(ep_desc));
+
+    // Allocate USB transfers
+    ESP_GOTO_ON_ERROR(
+        uvc_transfers_allocate(uvc_stream, stream_config->advanced.number_of_urbs, stream_config->advanced.urb_size, ep_desc),
+        transfers_err, TAG,);
 
     // Everything OK, add the device into list
     UVC_ENTER_CRITICAL();
@@ -866,9 +897,9 @@ esp_err_t uvc_host_stream_open(const uvc_host_stream_config_t *stream_config, in
     xSemaphoreGive(p_uvc_host_driver->open_close_mutex);
     return ESP_OK;
 
-err:
+transfers_err:
     usb_host_interface_release(p_uvc_host_driver->usb_client_hdl, uvc_stream->constant.dev_hdl, uvc_stream->constant.bInterfaceNumber);
-claim_err:
+err:
     uvc_device_remove(uvc_stream); // Including transfers and frames free
 not_found:
     xSemaphoreGive(p_uvc_host_driver->open_close_mutex);

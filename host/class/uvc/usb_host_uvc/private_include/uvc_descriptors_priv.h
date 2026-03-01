@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2024-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -38,9 +38,8 @@ esp_err_t uvc_desc_get_streaming_interface_num(
 /**
  * @brief Get Streaming Interface and Endpoint descriptors
  *
- * We go through all alternate interfaces and pick the one that offers endpoint with MPS that:
- * * Is lower than or equal to dwMaxPayloadTransferSize
- * * Has as few as possible extra transactions per microframe (HS only)
+ * We go through all alternate interfaces and pick the one that offers endpoint with MPS
+ * that is lower than or equal to dwMaxPayloadTransferSize
  *
  * @note The caller is responsible for dwMaxPayloadTransferSize fitting in the IN FIFO
  *

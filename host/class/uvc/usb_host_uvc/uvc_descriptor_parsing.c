@@ -73,6 +73,10 @@ esp_err_t uvc_desc_get_streaming_intf_and_ep(
     const uint8_t num_of_alternate = usb_parse_interface_number_of_alternate(cfg_desc, bInterfaceNumber);
     uint16_t last_mps = 0; // Looking for maximum MPS: init to zero
     uint8_t last_mult = UINT8_MAX; // Looking for minimum: init to max
+
+    /* Number of alternate interfaces will be 0 for BULK cameras
+     * that is why in the for loop below we go from 0 to num_of_alternate **inclusive**
+     */
     for (int i = 0; i <= num_of_alternate; i++) {
         // Check Interface desc
         intf_desc = usb_parse_interface_descriptor(cfg_desc, bInterfaceNumber, i, &offset);

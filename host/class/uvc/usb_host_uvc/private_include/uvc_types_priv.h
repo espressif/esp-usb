@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2024-2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2024-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -44,6 +44,7 @@ struct uvc_host_stream_s {
         uint8_t  bInterfaceNumber;            // USB Video Streaming interface claimed by this stream. Needed for ISOC Stream start and CTRL transfers
         uint8_t  bAlternateSetting;           // Alternate setting for selected interface. Needed for ISOC Stream start
         uint8_t  bEndpointAddress;            // Streaming endpoint address. Needed for BULK Stream stop
+        const usb_config_desc_t *cfg_desc;    // Configuration descriptor of the device. Cached for faster access
 
         // USB host related members
         usb_device_handle_t dev_hdl;          // USB device handle
