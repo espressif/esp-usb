@@ -32,7 +32,7 @@ static portMUX_TYPE hid_lock = portMUX_INITIALIZER_UNLOCKED;
 // HID verification macros
 #define HID_GOTO_ON_FALSE_CRITICAL(exp, err)    \
     do {                                        \
-        if(!(exp)) {                            \
+        if (unlikely(!(exp))) {                 \
             HID_EXIT_CRITICAL();                \
             ret = err;                          \
             goto fail;                          \
@@ -41,7 +41,7 @@ static portMUX_TYPE hid_lock = portMUX_INITIALIZER_UNLOCKED;
 
 #define HID_RETURN_ON_FALSE_CRITICAL(exp, err)  \
     do {                                        \
-        if(!(exp)) {                            \
+        if (unlikely(!(exp))) {                 \
             HID_EXIT_CRITICAL();                \
             return err;                         \
         }                                       \
@@ -981,11 +981,6 @@ static esp_err_t usb_class_request_get_descriptor(hid_device_t *hid_device, cons
     HID_RETURN_ON_INVALID_ARG(req);
     HID_RETURN_ON_INVALID_ARG(req->data);
 
-    if (req->wLength > HID_MAX_REPORT_DESC_LEN) {
-        ESP_LOGE(TAG, "Requested descriptor size exceeds maximum");
-        return ESP_ERR_INVALID_SIZE;
-    }
-
     HID_RETURN_ON_ERROR( hid_device_try_lock(hid_device, DEFAULT_TIMEOUT_MS),
                          "HID Device is busy by other task");
 
@@ -1058,6 +1053,11 @@ static esp_err_t hid_class_request_report_descriptor(hid_iface_t *iface)
                         ESP_ERR_INVALID_STATE,
                         "Unable to request report descriptor. Interface is not ready");
 
+    // Check if the report descriptor size is within the maximum allowed size before allocating memory
+    HID_RETURN_ON_FALSE(iface->report_desc_size <= HID_MAX_REPORT_DESC_LEN,
+                        ESP_ERR_INVALID_SIZE,
+                        "Requested descriptor size exceeds maximum");
+
     iface->report_desc = malloc(iface->report_desc_size);
     HID_RETURN_ON_FALSE(iface->report_desc,
                         ESP_ERR_NO_MEM,
@@ -1071,7 +1071,13 @@ static esp_err_t hid_class_request_report_descriptor(hid_iface_t *iface)
         .data = iface->report_desc
     };
 
-    return usb_class_request_get_descriptor(iface->parent, &get_desc);
+    const esp_err_t ret = usb_class_request_get_descriptor(iface->parent, &get_desc);
+
+    if (ret != ESP_OK) {
+        free(iface->report_desc);
+        iface->report_desc = NULL;
+    }
+    return ret;
 }
 
 /**
