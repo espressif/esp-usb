@@ -27,6 +27,8 @@ def test_usb_host_cdc(dut: Tuple[IdfDut, IdfDut]) -> None:
         ("dual_iface",        "cdc_acm"),
         ("suspend_dconn",     "host_suspend_dconn"),
         ("resume_dconn",      "host_resume_dconn"),
+        ("remote_wake",       "host_remote_wake"),
+        ("remote_wake_dconn", "host_remote_wake_dconn"),
     ]
 
     for dev_test_mode, host_test_case_group in tests:

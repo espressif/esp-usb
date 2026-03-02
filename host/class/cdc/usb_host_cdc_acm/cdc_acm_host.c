@@ -27,7 +27,12 @@ static const char *TAG = "cdc_acm";
 
 // Control transfer constants
 #define CDC_ACM_CTRL_TRANSFER_SIZE (64)   // All standard CTRL requests and responses fit in this size
+
+#if CONFIG_IDF_TARGET_LINUX
+#define CDC_ACM_CTRL_TIMEOUT_MS    (1000) // To shorten transfer timeout errors on the linux target
+#else
 #define CDC_ACM_CTRL_TIMEOUT_MS    (5000) // Every CDC device should be able to respond to CTRL transfer in 5 seconds
+#endif // CONFIG_IDF_TARGET_LINUX
 
 // CDC-ACM spinlock
 static portMUX_TYPE cdc_acm_lock = portMUX_INITIALIZER_UNLOCKED;
@@ -1115,3 +1120,98 @@ esp_err_t cdc_acm_host_cdc_desc_get(cdc_acm_dev_hdl_t cdc_hdl, cdc_desc_subtype_
     }
     return ret;
 }
+
+#ifdef CDC_HOST_REMOTE_WAKE_SUPPORTED
+
+esp_err_t cdc_acm_host_enable_remote_wakeup(cdc_acm_dev_hdl_t cdc_hdl, bool enable)
+{
+    esp_err_t ret;
+    CDC_ACM_CHECK(p_cdc_acm_obj, ESP_ERR_INVALID_STATE);
+    CDC_ACM_CHECK(cdc_hdl, ESP_ERR_INVALID_ARG);
+    cdc_dev_t *this_cdc_dev = (cdc_dev_t *)cdc_hdl;
+
+    // Make sure that the device is in the devices list (that it is not already closed)
+    cdc_dev_t *cdc_dev;
+    bool device_found = false;
+    CDC_ACM_ENTER_CRITICAL();
+    SLIST_FOREACH(cdc_dev, &p_cdc_acm_obj->cdc_devices_list, list_entry) {
+        if (cdc_dev == this_cdc_dev) {
+            device_found = true;
+            break;
+        }
+    }
+    CDC_ACM_EXIT_CRITICAL();
+    ESP_RETURN_ON_FALSE(device_found, ESP_ERR_NOT_FOUND, TAG, "Device not found in device list");
+
+    // Get device's config descriptor
+    const usb_config_desc_t *config_desc;
+    ESP_RETURN_ON_ERROR(
+        usb_host_get_active_config_descriptor(this_cdc_dev->dev_hdl, &config_desc), TAG, "Unable to get configuration descriptor");
+
+    // Check if the device reports remote wakeup feature in it's configuration descriptor
+    ESP_RETURN_ON_FALSE(
+        (config_desc->bmAttributes & USB_BM_ATTRIBUTES_WAKEUP), ESP_ERR_NOT_SUPPORTED, TAG, "Device does not support remote wakeup");
+
+    // Go through all pseudo devices and find out whether current physical USB Device has remote wakeup enabled/disabled
+    bool remote_wake_enabled = false;       // Disabled by default (if supported) after reset
+    CDC_ACM_ENTER_CRITICAL();
+    SLIST_FOREACH(cdc_dev, &p_cdc_acm_obj->cdc_devices_list, list_entry) {
+        if ((cdc_dev->dev_hdl == this_cdc_dev->dev_hdl) && cdc_dev->remote_wakeup_enabled) {
+            remote_wake_enabled = true;
+            break;
+        }
+    }
+    CDC_ACM_EXIT_CRITICAL();
+
+    // Check current remote wakeup status,
+    // If user wants to enable it and is already enabled (or vice versa) return early, otherwise proceed to ctrl transfer
+    if (remote_wake_enabled == enable) {
+        ESP_LOGD(TAG, "Remote wakeup already %s on this device", (enable) ? "enabled" : "disabled");
+        return ESP_OK;
+    }
+
+    // Take Mutex and fill the CTRL request
+    BaseType_t taken = xSemaphoreTake(this_cdc_dev->ctrl_mux, pdMS_TO_TICKS(CDC_ACM_CTRL_TIMEOUT_MS));
+    if (!taken) {
+        return ESP_ERR_TIMEOUT;
+    }
+
+    usb_setup_packet_t *req = (usb_setup_packet_t *)(this_cdc_dev->ctrl_transfer->data_buffer);
+    if (enable) {
+        USB_SETUP_PACKET_INIT_SET_FEATURE(req, DEVICE_REMOTE_WAKEUP);
+        ESP_LOGI(TAG, "Enabling remote wakeup on device");
+    } else {
+        USB_SETUP_PACKET_INIT_CLEAR_FEATURE(req, DEVICE_REMOTE_WAKEUP);
+        ESP_LOGI(TAG, "Disabling remote wakeup on device");
+    }
+    this_cdc_dev->ctrl_transfer->num_bytes = sizeof(usb_setup_packet_t);
+
+    ESP_GOTO_ON_ERROR(
+        usb_host_transfer_submit_control(p_cdc_acm_obj->cdc_acm_client_hdl, this_cdc_dev->ctrl_transfer),
+        unlock_ctrl_mux, TAG, "CTRL transfer failed");
+
+    taken = xSemaphoreTake((SemaphoreHandle_t)this_cdc_dev->ctrl_transfer->context, pdMS_TO_TICKS(CDC_ACM_CTRL_TIMEOUT_MS));
+    if (!taken) {
+        // Transfer was not finished, error in USB LIB
+        ret = ESP_ERR_TIMEOUT;
+        goto unlock_ctrl_mux;
+    }
+
+    ESP_GOTO_ON_FALSE(this_cdc_dev->ctrl_transfer->status == USB_TRANSFER_STATUS_COMPLETED, ESP_ERR_INVALID_RESPONSE, unlock_ctrl_mux, TAG, "Control transfer error");
+    ESP_GOTO_ON_FALSE(this_cdc_dev->ctrl_transfer->actual_num_bytes == this_cdc_dev->ctrl_transfer->num_bytes, ESP_ERR_INVALID_RESPONSE, unlock_ctrl_mux, TAG, "Incorrect number of bytes transferred");
+    ret = ESP_OK;
+
+    // Remote wakeup status has changed, update all pseudo-devices statuses about remote wakeup
+    CDC_ACM_ENTER_CRITICAL();
+    SLIST_FOREACH(cdc_dev, &p_cdc_acm_obj->cdc_devices_list, list_entry) {
+        if (cdc_dev->dev_hdl == this_cdc_dev->dev_hdl) {
+            cdc_dev->remote_wakeup_enabled = enable;
+        }
+    }
+    CDC_ACM_EXIT_CRITICAL();
+
+unlock_ctrl_mux:
+    xSemaphoreGive(this_cdc_dev->ctrl_mux);
+    return ret;
+}
+#endif // CDC_HOST_REMOTE_WAKE_SUPPORTED
