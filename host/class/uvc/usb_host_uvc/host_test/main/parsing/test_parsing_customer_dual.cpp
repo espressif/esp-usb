@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2024-2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2024-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -61,7 +61,7 @@ SCENARIO("Camera descriptor parsing: Customer dual", "[customer][dual]")
                 REQUIRE(bInterfaceNumber == 3);
                 const usb_intf_desc_t *intf_desc = nullptr;
                 const usb_ep_desc_t *ep_desc = nullptr;
-                REQUIRE(ESP_OK == uvc_desc_get_streaming_intf_and_ep(cfg, bInterfaceNumber, 1024, &intf_desc, &ep_desc));
+                REQUIRE(ESP_OK == uvc_desc_get_streaming_intf_and_ep(cfg, bInterfaceNumber, MAX_MPS_IN, &intf_desc, &ep_desc));
                 REQUIRE(intf_desc != nullptr);
                 REQUIRE(ep_desc != nullptr);
                 const uvc_format_desc_t *format_desc = nullptr;

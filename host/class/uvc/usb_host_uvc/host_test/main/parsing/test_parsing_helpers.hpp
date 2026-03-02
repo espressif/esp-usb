@@ -1,10 +1,12 @@
 /*
- * SPDX-FileCopyrightText: 2024-2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2024-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
 
 #pragma once
+
+#include "uvc_idf_version_priv.h"
 
 /**
  * @brief Define MJPEG formats with FPS 30-5 and 0 (default)
@@ -114,7 +116,7 @@
         REQUIRE(bInterfaceNumber == expected_intf_num);                                                                    \
         const usb_intf_desc_t *intf_desc = nullptr;                                                                        \
         const usb_ep_desc_t *ep_desc = nullptr;                                                                            \
-        REQUIRE(ESP_OK == uvc_desc_get_streaming_intf_and_ep(cfg, bInterfaceNumber, 1024, &intf_desc, &ep_desc));          \
+        REQUIRE(ESP_OK == uvc_desc_get_streaming_intf_and_ep(cfg, bInterfaceNumber, MAX_MPS_IN, &intf_desc, &ep_desc));    \
         REQUIRE(intf_desc != nullptr);                                                                                     \
         REQUIRE(ep_desc != nullptr);                                                                                       \
         const uvc_format_desc_t *format_desc = nullptr;                                                                    \
@@ -147,7 +149,21 @@
         REQUIRE(bInterfaceNumber == expected_intf_num);                                                                    \
         const usb_intf_desc_t *intf_desc = nullptr;                                                                        \
         const usb_ep_desc_t *ep_desc = nullptr;                                                                            \
-        REQUIRE(ESP_OK == uvc_desc_get_streaming_intf_and_ep(cfg, bInterfaceNumber, 1024, &intf_desc, &ep_desc));          \
+        REQUIRE(ESP_OK == uvc_desc_get_streaming_intf_and_ep(cfg, bInterfaceNumber, MAX_MPS_IN, &intf_desc, &ep_desc));    \
         REQUIRE(intf_desc != nullptr);                                                                                     \
         REQUIRE(ep_desc != nullptr);                                                                                       \
+    } while (0)
+
+/**
+ * @brief Helper that requires streaming interface and EP for given MPS and checks alternate setting and effective MPS.
+ */
+#define REQUIRE_STREAMING_INTF_AND_EP(cfg, intf_num, requested_mps, expected_alt_setting, expected_effective_mps) \
+    do {                                                                                                                   \
+        const usb_intf_desc_t *intf_desc = nullptr;                                                                        \
+        const usb_ep_desc_t *ep_desc = nullptr;                                                                            \
+        REQUIRE(ESP_OK == uvc_desc_get_streaming_intf_and_ep(cfg, intf_num, requested_mps, &intf_desc, &ep_desc));         \
+        REQUIRE(intf_desc != nullptr);                                                                                     \
+        REQUIRE(ep_desc != nullptr);                                                                                       \
+        REQUIRE(intf_desc->bAlternateSetting == (expected_alt_setting));                                                   \
+        REQUIRE(USB_EP_DESC_GET_MPS(ep_desc) * (USB_EP_DESC_GET_MULT(ep_desc) + 1) == (expected_effective_mps));           \
     } while (0)
