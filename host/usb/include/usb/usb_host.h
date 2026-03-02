@@ -662,6 +662,11 @@ esp_err_t usb_host_endpoint_clear(usb_device_handle_t dev_hdl, uint8_t bEndpoint
  * - A transfer object can be re-used indefinitely
  * - A transfer can be submitted using usb_host_transfer_submit() or usb_host_transfer_submit_control()
  *
+ * @note Maximum transfer size depends on hardware configuration and endpoint bMaxPacketSize, thus it is not checked on allocation.
+ *       Maximum transfer size is determined as follows:
+ *       - ESP32-S2, S3, H4, P4-OTG1.1 and P4-OTG2.0 revision < 3 = MIN(65535,   127 * bMaxPacketSize)
+ *       - ESP32-P4-OTG2.0 revision >= 3                          = MIN(524287, 1023 * bMaxPacketSize)
+ *
  * @param[in] data_buffer_size Size of the transfer's data buffer
  * @param[in] num_isoc_packets Number of isochronous packets in transfer (set to 0 for non-isochronous transfers)
  * @param[out] transfer Transfer object
