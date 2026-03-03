@@ -215,6 +215,7 @@ esp_err_t uac_host_uninstall(void);
  *  - ESP_ERR_INVALID_ARG if the configuration is invalid
  *  - ESP_ERR_NO_MEM if memory allocation failed
  *  - ESP_ERR_NOT_SUPPORTED if the UAC version is not supported
+ *  - ESP_ERR_INVALID_SIZE if the calculated packet size does not fit endpoint's max packet size
  */
 esp_err_t uac_host_device_open(const uac_host_device_config_t *config, uac_host_device_handle_t *uac_dev_handle);
 
@@ -235,6 +236,7 @@ esp_err_t uac_host_device_open(const uac_host_device_config_t *config, uac_host_
  * - ESP_ERR_NO_MEM if memory allocation failed
  * - ESP_ERR_NOT_SUPPORTED if the UAC version is not supported
  * - ESP_ERR_NOT_FOUND if the device is not found
+ * - ESP_ERR_INVALID_SIZE if the calculated packet size does not fit endpoint's max packet size
  */
 esp_err_t uac_host_device_open_with_vid_pid(uint16_t vid, uint16_t pid, const uac_host_device_config_t *config,
                                             uac_host_device_handle_t *uac_dev_handle);
@@ -314,6 +316,7 @@ esp_err_t uac_host_handle_events(TickType_t timeout);
  * - ESP_ERR_INVALID_STATE if the device is not in the right state
  * - ESP_ERR_NO_MEM if memory allocation failed
  * - ESP_ERR_TIMEOUT if the control transfer timeout
+ * - ESP_ERR_INVALID_SIZE if the calculated packet size does not fit endpoint's max packet size
  */
 esp_err_t uac_host_device_start(uac_host_device_handle_t uac_dev_handle, const uac_host_stream_config_t *stream_config);
 
