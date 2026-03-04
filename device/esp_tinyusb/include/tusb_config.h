@@ -1,6 +1,6 @@
 /*
  * SPDX-FileCopyrightText: 2019 Ha Thach (tinyusb.org),
- * SPDX-FileContributor: 2020-2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileContributor: 2020-2026 Espressif Systems (Shanghai) CO LTD
  * SPDX-License-Identifier: MIT
  *
  * Copyright (c) 2019 Ha Thach (tinyusb.org),
@@ -30,6 +30,7 @@
 
 #include "tusb_option.h"
 #include "sdkconfig.h"
+#include "esp_assert.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -156,8 +157,24 @@ extern "C" {
 #define CFG_TUD_MIDI_TX_BUFSIZE     64
 
 // Vendor FIFO size of TX and RX
-#define CFG_TUD_VENDOR_RX_BUFSIZE (TUD_OPT_HIGH_SPEED ? 512 : 64)
-#define CFG_TUD_VENDOR_TX_BUFSIZE (TUD_OPT_HIGH_SPEED ? 512 : 64)
+#define CFG_TUD_VENDOR_RX_BUFSIZE   CONFIG_TINYUSB_VENDOR_RX_BUFSIZE
+#define CFG_TUD_VENDOR_TX_BUFSIZE   CONFIG_TINYUSB_VENDOR_TX_BUFSIZE
+#define CFG_TUD_VENDOR_EPSIZE       CONFIG_TINYUSB_VENDOR_EPSIZE
+
+#if (CFG_TUD_VENDOR > 0)
+#if (CFG_TUD_MAX_SPEED == OPT_MODE_HIGH_SPEED)
+#define EP_SIZE_VENDOR   512
+#else
+#define EP_SIZE_VENDOR   64
+#endif
+ESP_STATIC_ASSERT(CFG_TUD_VENDOR_EPSIZE >= EP_SIZE_VENDOR, "Vendor EP size must be at least 64 for FS and 512 for HS");
+#if (CFG_TUD_VENDOR_RX_BUFSIZE > 0)
+ESP_STATIC_ASSERT(CFG_TUD_VENDOR_RX_BUFSIZE >= EP_SIZE_VENDOR, "Vendor RX buffer size must be at least equal to EP size");
+#endif
+#if (CFG_TUD_VENDOR_TX_BUFSIZE > 0)
+ESP_STATIC_ASSERT(CFG_TUD_VENDOR_TX_BUFSIZE >= EP_SIZE_VENDOR, "Vendor TX buffer size must be at least equal to EP size");
+#endif
+#endif
 
 // DFU macros
 #define CFG_TUD_DFU_XFER_BUFSIZE    CONFIG_TINYUSB_DFU_BUFSIZE

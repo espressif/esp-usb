@@ -318,5 +318,41 @@ menu "TinyUSB Stack"
             range 0 2
             help
                 Setting value greater than 0 will enable TinyUSB Vendor specific feature.
+
+        config TINYUSB_VENDOR_RX_BUFSIZE
+            depends on (TINYUSB_VENDOR_COUNT > 0)
+            int "Vendor specific FIFO size of RX channel"
+            default 512 if IDF_TARGET_ESP32P4
+            default 64
+            range 0 32768
+            help
+                This buffer size defines maximum data length in bytes that you can receive at once.
+
+                Note: Unlike other USB classes, the vendor class supports setting buffer sizes to 0
+                to disable internal buffering. When disabled, RX data goes directly to tud_vendor_rx_cb(),
+                the tud_vendor_read() function is not available and application must handle data in the callback.
+
+        config TINYUSB_VENDOR_TX_BUFSIZE
+            depends on (TINYUSB_VENDOR_COUNT > 0)
+            int "Vendor specific FIFO size of TX channel"
+            default 512 if IDF_TARGET_ESP32P4
+            default 64
+            range 0 32768
+            help
+                This buffer size defines maximum data length in bytes that you can transmit at once.
+
+                Note: Unlike other USB classes, the vendor class supports setting buffer sizes to 0
+                to disable internal buffering. When disabled, tud_vendor_write() bypasses internal software FIFO.
+
+        config TINYUSB_VENDOR_EPSIZE
+            depends on (TINYUSB_VENDOR_COUNT > 0)
+            int "Vendor specific Endpoint buffer size"
+            default 512 if IDF_TARGET_ESP32P4
+            default 64
+            range 64 32768
+            help
+                This low layer buffer has the most significant impact on performance. Set to 8192 for best performance.
+                Sizes above 8192 bytes bring only little performance improvement.
+
     endmenu # "Vendor Specific Interface"
 endmenu # "TinyUSB Stack"

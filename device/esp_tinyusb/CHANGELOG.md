@@ -1,6 +1,7 @@
 ## [Unreleased]
 
 - esp_tinyusb: Fixed VBUS monitoring feature on ESP32-P4 USB OTG 2.0 (HS)
+- Vendor class: Add configuration options for TX/RX buffers
 
 ## 2.1.0
 
