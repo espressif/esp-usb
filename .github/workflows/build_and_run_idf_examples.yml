@@ -199,23 +199,25 @@ jobs:
     env:
       EXAMPLES_PATH: ${{ github.workspace }}
     steps:
+      - uses: actions/checkout@v5
       - name: ⚙️ Install System tools
         run: |
           apt-get update -y
           apt-get install -y --no-install-recommends net-tools
+      - name: ⚙️ Install Python packages
+        env:
+          PIP_EXTRA_INDEX_URL: "https://dl.espressif.com/pypi/"
+        run: pip install --no-cache-dir --only-binary cryptography pytest-embedded pytest-embedded-serial-esp pytest-embedded-idf pyserial pyusb netifaces idf-ci pytest-ignore-test-results
       - name: Setup IDF Examples path
       # Create matrix-specific directory name and save it's path to the EXAMPLES_PATH variable
         run: |
           EXAMPLES_DIR="idf_examples_${{ matrix.idf_ver }}_${{ matrix.idf_target }}_${{ matrix.runner_tag }}"
           mkdir -p "$EXAMPLES_DIR" && cd "$EXAMPLES_DIR" && pwd
           echo "EXAMPLES_PATH=$(pwd)" >> "$GITHUB_ENV"
-      - name: ⚙️ Install Python packages
-        env:
-          PIP_EXTRA_INDEX_URL: "https://dl.espressif.com/pypi/"
-        run: pip install --no-cache-dir --only-binary cryptography pytest-embedded pytest-embedded-serial-esp pytest-embedded-idf pyserial pyusb netifaces idf-ci pytest-ignore-test-results
       - uses: actions/download-artifact@v7
         with:
           name: usb_examples_bin_${{ matrix.idf_ver }}
           path: ${{ env.EXAMPLES_PATH }}
       - name: Run USB Test App on target
-        run: pytest ${{ env.EXAMPLES_PATH }}/${{ matrix.example }} --target ${{ matrix.idf_target }} -m ${{ matrix.runner_tag }} --ignore-result-cases="*ncm_example*" --ignore-no-tests-collected-error
+        run: |
+          pytest ${{ env.EXAMPLES_PATH }}/${{ matrix.example }} --target ${{ matrix.idf_target }} -m ${{ matrix.runner_tag }} --ignore-result-cases="*ncm_example*"
