@@ -1,7 +1,8 @@
-## [Unreleased]
+## 2.1.1
 
 - esp_tinyusb: Fixed VBUS monitoring feature on ESP32-P4 USB OTG 2.0 (HS)
 - Vendor class: Add configuration options for TX/RX buffers
+- NCM: Fixed compatibility with iOS
 
 ## 2.1.0
 
