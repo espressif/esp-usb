@@ -7,8 +7,8 @@ component_mapping_regexes = [
     "/device/(.+)/",
     "/host/(usb)/",
     # Needed for idf-examples pytest run
-    "/idf_examples_[^/]+/device/?$",
-    "/idf_examples_[^/]+/host/?$",
+    "/idf_examples_[^/]+/device/",
+    "/idf_examples_[^/]+/host/",
 ]
 
 component_ignored_file_extensions = [
