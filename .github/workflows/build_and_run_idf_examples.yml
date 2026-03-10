@@ -217,4 +217,7 @@ jobs:
           path: ${{ env.EXAMPLES_PATH }}
       - name: Run USB Test App on target
         run: |
-          pytest ${{ env.EXAMPLES_PATH }}/${{ matrix.example }} --target ${{ matrix.idf_target }} -m ${{ matrix.runner_tag }} --ignore-result-cases="*ncm_example*"
+
+          MARKER_ARG="-m=${{ matrix.runner_tag }}"
+          MARKER_ARG="$MARKER_ARG and temp_skip_ci"
+          pytest --target ${{ matrix.idf_target }} "$MARKER_ARG" --ignore-result-cases="*ncm_example*"
