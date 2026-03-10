@@ -6,6 +6,9 @@ component_mapping_regexes = [
     "/host/class/hid/(.+)/",
     "/device/(.+)/",
     "/host/(usb)/",
+]
+
+exclude_dirs = [
     # Needed for idf-examples pytest run
     "/idf_examples_[^/]+/device/",
     "/idf_examples_[^/]+/host/",
