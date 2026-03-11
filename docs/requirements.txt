@@ -1,3 +1,5 @@
-esp-docs>=2.0.0
-sphinx>=5.0.0
+esp-docs~=2.1.5
+sphinx~=7.1.2
+docutils<0.21
 breathe>=4.35.0
+sphinx-reredirects
