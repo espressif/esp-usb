@@ -1,8 +1,6 @@
 USB Device Stack
 =================
 
-:link_to_translation:`zh_CN:[中文]`
-
 {IDF_TARGET_USB_DP_GPIO_NUM:default="20", esp32h4="22"}
 {IDF_TARGET_USB_DM_GPIO_NUM:default="19", esp32h4="21"}
 {IDF_TARGET_USB_EP_NUM: default="6", esp32p4="15"}
