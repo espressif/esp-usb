@@ -210,7 +210,7 @@ jobs:
       - name: ⚙️ Install Python packages
         env:
           PIP_EXTRA_INDEX_URL: "https://dl.espressif.com/pypi/"
-        run: pip install --no-cache-dir --only-binary cryptography pytest-embedded pytest-embedded-serial-esp pytest-embedded-idf pyserial pyusb netifaces pytest-ignore-test-results
+        run: pip install --no-cache-dir --only-binary cryptography pytest-embedded pytest-embedded-serial-esp pytest-embedded-idf pyserial pyusb netifaces pytest-ignore-test-results idf-ci
       - uses: actions/download-artifact@v4
         with:
           name: usb_examples_bin_${{ matrix.idf_ver }}
