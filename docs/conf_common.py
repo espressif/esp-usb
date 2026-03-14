@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2025 Espressif Systems (Shanghai) CO LTD
+# SPDX-FileCopyrightText: 2025-2026 Espressif Systems (Shanghai) CO LTD
 #
 # SPDX-License-Identifier: Apache-2.0
 
@@ -14,7 +14,7 @@ extensions += [  # Needed as a trigger for running doxygen
                'esp_docs.esp_extensions.run_doxygen',
                ]
 # Languages supported
-languages = ['en', 'zh_CN']
+languages = ['en']
 
 # Project targets (used as URL slugs)
 idf_targets = ['esp32s2', 'esp32s3', 'esp32p4', 'esp32h4']

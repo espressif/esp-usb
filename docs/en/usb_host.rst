@@ -1,8 +1,6 @@
 USB Host
 ========
 
-:link_to_translation:`zh_CN:[中文]`
-
 {IDF_TARGET_OTG_NUM_HOST_CHAN: default="8", esp32p4="16"}
 
 The document provides information regarding the USB Host Library. This document is split into the following sections:
