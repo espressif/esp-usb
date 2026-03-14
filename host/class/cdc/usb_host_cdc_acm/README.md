@@ -47,6 +47,5 @@ Use `CDC_HOST_ANY_*` macros to signal to `cdc_acm_host_open()` function that you
 
 ## Examples
 
-- For an example with a CDC-ACM device, refer to [cdc_acm_host](https://github.com/espressif/esp-idf/tree/master/examples/peripherals/usb/host/cdc/cdc_acm_host)
-- For an example with Virtual COM devices, refer to [cdc_acm_vcp](https://github.com/espressif/esp-idf/tree/master/examples/peripherals/usb/host/cdc/cdc_acm_vcp)
+- For an example with a CDC-ACM device, or Virtual COM Port device refer to [cdc example in esp-idf](https://github.com/espressif/esp-idf/tree/master/examples/peripherals/usb/host/cdc)
 - For examples with [esp_modem](https://components.espressif.com/components/espressif/esp_modem), refer to [esp_modem examples](https://github.com/espressif/esp-protocols/tree/master/components/esp_modem/examples)

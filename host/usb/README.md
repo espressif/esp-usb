@@ -62,8 +62,7 @@ usb_host_install(&host_config);
 
 Refer to following examples, using USB Host library from esp-idf:
 
-- [CDC-ACM Host](https://github.com/espressif/esp-idf/tree/master/examples/peripherals/usb/host/cdc/cdc_acm_host)
-- [CDC-ACM VCP](https://github.com/espressif/esp-idf/tree/master/examples/peripherals/usb/host/cdc/cdc_acm_vcp)
+- [CDC Host](https://github.com/espressif/esp-idf/tree/master/examples/peripherals/usb/host/cdc)
 - [HID Host](https://github.com/espressif/esp-idf/tree/master/examples/peripherals/usb/host/hid)
 - [MSC Host](https://github.com/espressif/esp-idf/tree/master/examples/peripherals/usb/host/msc)
 - [USB Host Library](https://github.com/espressif/esp-idf/tree/master/examples/peripherals/usb/host/usb_host_lib)
