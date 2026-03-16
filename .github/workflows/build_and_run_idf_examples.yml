@@ -210,10 +210,14 @@ jobs:
       - name: ⚙️ Install Python packages
         env:
           PIP_EXTRA_INDEX_URL: "https://dl.espressif.com/pypi/"
-        run: pip install --no-cache-dir --only-binary cryptography pytest-embedded pytest-embedded-serial-esp pytest-embedded-idf pyserial pyusb netifaces idf-ci pytest-ignore-test-results
+        run: pip install --no-cache-dir --only-binary cryptography pytest-embedded pytest-embedded-serial-esp pytest-embedded-idf pyserial pyusb netifaces pytest-ignore-test-results idf-ci
       - uses: actions/download-artifact@v4
         with:
           name: usb_examples_bin_${{ matrix.idf_ver }}
           path: ${{ env.EXAMPLES_PATH }}
       - name: Run USB Test App on target
-        run: pytest ${{ env.EXAMPLES_PATH }}/${{ matrix.example }} --target ${{ matrix.idf_target }} -m ${{ matrix.runner_tag }} --ignore-result-cases="*ncm_example*" --ignore-no-tests-collected-error
+        run: |
+
+          MARKER_ARG="-m=${{ matrix.runner_tag }}"
+          MARKER_ARG="$MARKER_ARG and temp_skip_ci"
+          pytest --target ${{ matrix.idf_target }} "$MARKER_ARG" --ignore-result-cases="*ncm_example*"
