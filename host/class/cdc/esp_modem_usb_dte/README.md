@@ -1,8 +1,6 @@
 # USB DTE plugin for esp_modem
 
-[![Component Registry](https://components.espressif.com/components/espressif/esp_modem_usb_dte/badge.svg)](https://components.espressif.com/components/espressif/esp_modem_usb_dte) ![maintenance-status](https://img.shields.io/badge/maintenance-experimental-blue.svg) ![changelog](https://img.shields.io/badge/Keep_a_Changelog-blue?logo=keepachangelog&logoColor=E05735)
-
-> :warning: **Experimental feature**: USB DTE is under development!
+[![Component Registry](https://components.espressif.com/components/espressif/esp_modem_usb_dte/badge.svg)](https://components.espressif.com/components/espressif/esp_modem_usb_dte) ![maintenance-status](https://img.shields.io/badge/maintenance-passively--maintained-yellowgreen.svg) ![changelog](https://img.shields.io/badge/Keep_a_Changelog-blue?logo=keepachangelog&logoColor=E05735)
 
 This component extends [esp_modem](https://components.espressif.com/component/espressif/esp_modem) with USB DTE.
 
@@ -53,11 +51,11 @@ For simple cases with one AT port, you should be able to open communication with
 1. **USB VID and PID:** This can be found by plugging the modem to a PC and running `lsusb -v` on Linux or by [USB Device Tree Viewer](https://www.uwe-sieber.de/usbtreeview_e.html) on Windows.
 2. **AT port interface number:** USB modems have usually multiple CDC-ACM-like ports. One (or two) is dedicated for AT commands. You can find the correct interface number based on its string descriptor (using methods from point 1), from the modem's datasheet or by trial and error.
 
-Then, you can pass these constants to [ESP_MODEM_DEFAULT_USB_CONFIG](https://github.com/espressif/idf-extra-components/blob/master/usb/esp_modem_usb_dte/include/esp_modem_usb_config.h#L47) macro and start testing AT commands.
+Then, you can pass these constants to [ESP_MODEM_DEFAULT_USB_CONFIG](https://github.com/espressif/esp-usb/blob/master/host/class/cdc/esp_modem_usb_dte/include/esp_modem_usb_config.h#L60) macro and start testing AT commands.
 
 ## List of tested modems
 
-The following modems were tested with this component, their configurations can be found in [esp_modem_usb_config.h](https://github.com/espressif/idf-extra-components/blob/master/usb/esp_modem_usb_dte/include/esp_modem_usb_config.h):
+The following modems were tested with this component, their configurations can be found in [esp_modem_usb_config.h](https://github.com/espressif/esp-usb/blob/master/host/class/cdc/esp_modem_usb_dte/include/esp_modem_usb_config.h):
 
 - Quectel BG96
 - Quectel EC20
