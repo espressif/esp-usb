@@ -129,8 +129,9 @@ esp_err_t test_cdc_acm_reset_transfer_endpoint(uint8_t ep_address);
  * Call a set of mocked functions to simplify interface claim
  *
  * @param interface_index[in] Interface index
+ * @param has_separate_notification_interface[in] If true, notification interface is on a different interface than data (matches descriptor layout)
  *
  * @return:
  *   - ESP_OK: Interface claim successful
  */
-esp_err_t test_usb_host_interface_claim(uint8_t interface_index);
+esp_err_t test_usb_host_interface_claim(uint8_t interface_index, bool has_separate_notification_interface = false);
