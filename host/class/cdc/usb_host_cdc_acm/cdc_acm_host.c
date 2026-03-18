@@ -826,7 +826,7 @@ static void in_xfer_cb(usb_transfer_t *transfer)
 #else
             // For targets that must sync internal memory through L1CACHE, we cannot change the data_buffer
             // because it would lead to unaligned cache sync, which is not allowed
-            ESP_LOGW(TAG, "RX buffer append is not yet supported on ESP32-P4!");
+            ESP_LOGW(TAG, "RX buffer append is not supported on this target!");
 #endif
         } else {
             cdc_acm_reset_in_transfer(cdc_dev);
