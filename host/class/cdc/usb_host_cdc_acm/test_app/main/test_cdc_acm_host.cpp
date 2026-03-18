@@ -722,7 +722,7 @@ TEST_CASE("rx_buffer", "[cdc_acm]")
     TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_data_tx_blocking(cdc_dev, tx_data, sizeof(tx_data), 1000));
     vTaskDelay(5);
 
-#ifdef CONFIG_IDF_TARGET_ESP32P4    // RX buffer append is not yet supported on ESP32-P4
+#if SOC_CACHE_INTERNAL_MEM_VIA_L1CACHE
     TEST_ASSERT_FALSE_MESSAGE(rx_overflow, "RX overflow");
 #else
     TEST_ASSERT_TRUE_MESSAGE(rx_overflow, "RX did not overflow");
