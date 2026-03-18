@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2022-2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2022-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -137,11 +137,11 @@ private:
         ESP_LOG_BUFFER_HEXDUMP(TAG, data, data_len, ESP_LOG_DEBUG);
         auto *this_terminal = static_cast<UsbTerminal *>(user_arg);
         if (data_len > 0 && this_terminal->on_read) {
-            return this_terminal->on_read((uint8_t *)data, data_len);
+            this_terminal->on_read((uint8_t *)data, data_len);
         } else {
             ESP_LOGD(TAG, "Unhandled RX data");
-            return true;
         }
+        return true;
     }
 
     static void handle_notif(const cdc_acm_host_dev_event_data_t *event, void *user_ctx)
