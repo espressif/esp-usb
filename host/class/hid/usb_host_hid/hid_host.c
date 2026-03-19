@@ -187,7 +187,7 @@ static void event_handler_task(void *arg)
 /**
  * @brief Return HID device in devices list by USB device handle
  *
- * @param[in] usb_device_handle_t   USB device handle
+ * @param[in] usb_handle   USB device handle
  * @return hid_device_t Pointer to device, NULL if device not present
  */
 static hid_device_t *get_hid_device_by_handle(usb_device_handle_t usb_handle)
@@ -285,7 +285,9 @@ static inline const usb_ep_desc_t *get_iface_ep_in(const usb_intf_desc_t *iface_
  * @brief Check HID interface descriptor present
  *
  * @param[in] config_desc  Pointer to Configuration Descriptor
- * @return esp_err_t
+ * @return
+ *  - true if HID interface descriptor is present
+ *  - false if HID interface descriptor is not present
  */
 static bool hid_interface_present(const usb_config_desc_t *config_desc)
 {
@@ -348,7 +350,7 @@ static inline void hid_host_user_device_callback(hid_iface_t *iface,
  * @param[in] hid_device    HID device handle
  * @param[in] iface_desc  Pointer to an Interface descriptor
  * @param[in] hid_desc    Pointer to an HID device descriptor
- * @param[in] ep_desc     Pointer to an EP descriptor
+ * @param[in] ep_in_desc  Pointer to an EP descriptor
  * @return esp_err_t
  */
 static esp_err_t hid_host_add_interface(hid_device_t *hid_device,
@@ -445,8 +447,7 @@ static void hid_host_notify_interface_connected(hid_device_t *hid_device)
  * @brief Create a list of available interfaces in RAM
  *
  * @param[in] hid_device  Pointer to HID device structure
- * @param[in] dev_addr    USB device physical address
- * @param[in] sub_class   USB HID SubClass value
+ * @param[in] config_desc Pointer to USB configuration descriptor
  * @return esp_err_t
  */
 static esp_err_t hid_host_interface_list_create(hid_device_t *hid_device,
@@ -854,7 +855,7 @@ static esp_err_t hid_host_disable_interface(hid_iface_t *iface)
 /**
  * @brief HID IN Transfer complete callback
  *
- * @param[in] transfer  Pointer to transfer data structure
+ * @param[in] in_xfer  Pointer to transfer data structure
  */
 static void in_xfer_done(usb_transfer_t *in_xfer)
 {
@@ -903,7 +904,6 @@ static inline esp_err_t hid_device_try_lock(hid_device_t *hid_device, uint32_t t
 /** Unlock HID device from other task
  *
  * @param[in] hid_device    Pointer to HID device structure
- * @param[in] timeout_ms    Timeout of trying to take the mutex
  */
 static inline void hid_device_unlock(hid_device_t *hid_device)
 {
@@ -925,15 +925,13 @@ static void ctrl_xfer_done(usb_transfer_t *ctrl_xfer)
 /**
  * @brief HID control transfer synchronous.
  *
- * @note  Passes interface and endpoint descriptors to obtain:
-
- *        - interface number, IN endpoint, OUT endpoint, max. packet size
- *
  * @param[in] hid_device  Pointer to HID device structure
- * @param[in] ctrl_xfer   Pointer to the Transfer structure
  * @param[in] len         Number of bytes to transfer
  * @param[in] timeout_ms  Timeout in ms
- * @return esp_err_t
+ * @return
+ *   - ESP_OK if the transfer was successful
+ *   - ESP_ERR_TIMEOUT if the transfer was not completed within the specified timeout
+ *   - ESP_ERR_INVALID_RESPONSE if the transfer completed with an error status or incorrect number of bytes transferred
  */
 static esp_err_t hid_control_transfer(hid_device_t *hid_device,
                                       size_t len,
@@ -954,17 +952,11 @@ static esp_err_t hid_control_transfer(hid_device_t *hid_device,
 
     BaseType_t received = xSemaphoreTake(hid_device->ctrl_xfer_done, pdMS_TO_TICKS(ctrl_xfer->timeout_ms));
 
-    if (received != pdTRUE) {
-        // Transfer was not finished, error in USB LIB. Reset the endpoint
-        ESP_LOGE(TAG, "Control Transfer Timeout");
-
-        HID_RETURN_ON_ERROR( usb_host_endpoint_halt(hid_device->dev_hdl, ctrl_xfer->bEndpointAddress),
-                             "Unable to HALT EP");
-        HID_RETURN_ON_ERROR( usb_host_endpoint_flush(hid_device->dev_hdl, ctrl_xfer->bEndpointAddress),
-                             "Unable to FLUSH EP");
-        usb_host_endpoint_clear(hid_device->dev_hdl, ctrl_xfer->bEndpointAddress);
-        return ESP_ERR_TIMEOUT;
-    }
+    // In case transfer was not finished, error in USB LIB. This is EP0, USBH will reset the endpoint.
+    HID_RETURN_ON_FALSE(received == pdTRUE, ESP_ERR_TIMEOUT, "Control transfer timeout");
+    // Check transfer status
+    // Device can return less data than requested, but it must not return more data than requested
+    HID_RETURN_ON_FALSE(ctrl_xfer->actual_num_bytes <= ctrl_xfer->num_bytes, ESP_ERR_INVALID_RESPONSE, "Incorrect number of bytes transferred");
 
     ESP_LOG_BUFFER_HEXDUMP(TAG, ctrl_xfer->data_buffer, ctrl_xfer->actual_num_bytes, ESP_LOG_DEBUG);
 
