@@ -439,6 +439,37 @@ TEST_CASE("USB Helpers descriptor parsing", "[helpers]")
     test_parse_ep_by_address(config_desc);
 }
 
+TEST_CASE("USB parse_next_descriptor rejects trailing fragment smaller than usb_standard_desc_t", "[helpers]")
+{
+    /*
+     * wTotalLength = 13: config (9) + 3-byte descriptor fills bytes 0..11; only 1 byte remains at offset 12.
+     * Old logic allowed returning a "next" pointer at 12 while callers read 2 bytes (OOB read).
+     * Expect NULL on the second step so the next descriptor always has room for at least USB_STANDARD_DESC_SIZE bytes.
+     */
+    constexpr uint8_t wTotalLength = 13;
+    static const uint8_t tight_config_desc_bytes[] = {
+        0x09, 0x02, wTotalLength, 0x00, 0x01, 0x01, 0x00, 0x80, 0x32, // configuration descriptor, wTotalLength = wTotalLength
+        0x03, 0x24, 0x00,                                             // 3-byte class-specific stub (bytes 9..11)
+        0x01,                                                         // byte 12 is sole trailing byte (insufficient for next header)
+    };
+    static_assert(sizeof(tight_config_desc_bytes) == wTotalLength, "Descriptor layout must match wTotalLength");
+
+    const auto *config_desc = reinterpret_cast<const usb_config_desc_t *>(tight_config_desc_bytes);
+    REQUIRE(config_desc->wTotalLength == wTotalLength);
+
+    int offset = 0;
+    // Get first descriptor after configuration descriptor
+    const auto *cur = reinterpret_cast<const usb_standard_desc_t *>(config_desc);
+    cur = usb_parse_next_descriptor(cur, config_desc->wTotalLength, &offset);
+    REQUIRE(cur != nullptr);
+    REQUIRE(offset == 9);
+
+    // Getting second descriptor should return NULL
+    cur = usb_parse_next_descriptor(cur, config_desc->wTotalLength, &offset);
+    REQUIRE(cur == nullptr);
+    REQUIRE(offset == 9); // failure: offset must not advance past a non-existent next descriptor
+}
+
 TEST_CASE("USB descriptor parsing with bLength=0", "[helpers]")
 {
     // Minimal config descriptor containing a descriptor with bLength=0
