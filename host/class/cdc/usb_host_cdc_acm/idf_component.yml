@@ -1,5 +1,5 @@
 ## IDF Component Manager Manifest File
-version: "2.3.0"
+version: "2.4.0"
 description: USB Host CDC-ACM driver
 tags:
   - usb
@@ -24,6 +24,7 @@ targets:
   - esp32s3
   - esp32p4
   - esp32h4
+  - esp32s31
   - linux
 files:
   exclude:
