@@ -39,6 +39,10 @@ Warning: The USB Host Library API is still a beta version and may be subject to 
 #endif
 #endif // SOC_USB_OTG_SUPPORTED
 
+#ifdef CONFIG_ESP_SLEEP_EVENT_CALLBACKS
+#include "esp_private/sleep_event.h"
+#endif // CONFIG_ESP_SLEEP_EVENT_CALLBACKS
+
 DEFINE_CRIT_SECTION_LOCK_STATIC(host_lock);
 #define HOST_ENTER_CRITICAL_ISR()       esp_os_enter_critical_isr(&host_lock)
 #define HOST_EXIT_CRITICAL_ISR()        esp_os_exit_critical_isr(&host_lock)
@@ -492,6 +496,8 @@ static void get_config_desc_transfer_cb(usb_transfer_t *transfer)
     xSemaphoreGive(transfer_done);
 }
 
+// ------------------- Power management Related ----------------------
+
 /**
  * @brief Automatic suspend timer timer callback
  *
@@ -524,6 +530,75 @@ static void auto_suspend_timer_cb(TimerHandle_t xTimer)
     _unblock_lib(false);
     HOST_EXIT_CRITICAL();
 }
+
+#ifdef CONFIG_ESP_SLEEP_EVENT_CALLBACKS
+
+/** Max time to wait for async root-port suspend (EP idle → HCD suspend) before light sleep */
+#define USB_HOST_LIGHT_SLEEP_SUSPEND_WAIT_MS    500
+
+/**
+ * @brief Block until hub reports root port suspended, yielding so USB host/hub processing can run.
+ *
+ * usb_host_lib_root_port_suspend() only starts the suspend pipeline; root_port_suspended becomes
+ * true after HCD_PORT_CMD_SUSPEND completes (see hub root_port_req PORT_REQ_SUSPEND).
+ */
+static esp_err_t wait_until_root_port_suspended(TickType_t timeout_ticks)
+{
+    const TickType_t start = xTaskGetTickCount();
+
+    while (1) {
+        if (hub_root_is_suspended()) {
+            return ESP_OK;
+        }
+        if ((xTaskGetTickCount() - start) >= timeout_ticks) {
+            ESP_LOGE(USB_HOST_TAG, "Timed out waiting for root port suspend before light sleep");
+            return ESP_ERR_TIMEOUT;
+        }
+        vTaskDelay(10);
+    }
+}
+
+/**
+ * @brief Callback function to enter light sleep event
+ */
+static esp_err_t enter_light_sleep(void *user_arg, void *ext_arg)
+{
+    ESP_EARLY_LOGD(USB_HOST_TAG, "Enter light sleep cb");
+    ESP_ERROR_CHECK(usb_host_lib_root_port_suspend());
+    return wait_until_root_port_suspended(pdMS_TO_TICKS(USB_HOST_LIGHT_SLEEP_SUSPEND_WAIT_MS));
+}
+
+/**
+ * @brief Callback function for exit light sleep event
+ */
+static esp_err_t exit_light_sleep(void *user_arg, void *ext_arg)
+{
+    ESP_EARLY_LOGD(USB_HOST_TAG, "Exit light sleep cb");
+    ESP_ERROR_CHECK(usb_host_lib_root_port_resume());
+    return ESP_OK;
+}
+
+/**
+ * @brief Callback configuration for enter light sleep event
+ */
+static const esp_sleep_event_cb_config_t enter_light_sleep_cb = {
+    .cb = enter_light_sleep,
+    .user_arg = NULL,
+    .prior = 2,
+    .next = NULL,
+};
+
+/**
+ * @brief Callback configuration for exit light sleep event
+ */
+static const esp_sleep_event_cb_config_t exit_light_sleep_cb = {
+    .cb = exit_light_sleep,
+    .user_arg = NULL,
+    .prior = 2,
+    .next = NULL,
+};
+
+#endif // CONFIG_ESP_SLEEP_EVENT_CALLBACKS
 
 // ------------------------------------------------ Library Functions --------------------------------------------------
 
@@ -686,6 +761,12 @@ esp_err_t usb_host_install(const usb_host_config_t *config)
         ESP_ERROR_CHECK(hub_root_start());
     }
 
+    // Register light sleep callbacks to automatically suspend/resume the root hub when light sleep is entered/exited
+#ifdef CONFIG_ESP_SLEEP_EVENT_CALLBACKS
+    ESP_ERROR_CHECK(esp_sleep_register_event_callback(SLEEP_EVENT_SW_GOTO_SLEEP, &enter_light_sleep_cb));
+    ESP_ERROR_CHECK(esp_sleep_register_event_callback(SLEEP_EVENT_SW_EXIT_SLEEP, &exit_light_sleep_cb));
+#endif // CONFIG_ESP_SLEEP_EVENT_CALLBACKS
+
     ret = ESP_OK;
     return ret;
 
@@ -726,6 +807,11 @@ esp_err_t usb_host_uninstall(void)
                          p_host_lib_obj->dynamic.flags.val == 0,
                          ESP_ERR_INVALID_STATE);
     HOST_EXIT_CRITICAL();
+
+#ifdef CONFIG_ESP_SLEEP_EVENT_CALLBACKS
+    ESP_ERROR_CHECK(esp_sleep_unregister_event_callback(SLEEP_EVENT_SW_GOTO_SLEEP, &enter_light_sleep));
+    ESP_ERROR_CHECK(esp_sleep_unregister_event_callback(SLEEP_EVENT_SW_EXIT_SLEEP, &exit_light_sleep));
+#endif // CONFIG_ESP_SLEEP_EVENT_CALLBACKS
 
     // Stop the root hub
     ESP_ERROR_CHECK(hub_root_stop());
@@ -935,6 +1021,8 @@ esp_err_t usb_host_lib_root_port_resume(void)
 exit:
     return ret;
 }
+
+
 
 esp_err_t usb_host_lib_set_auto_suspend(usb_host_lib_auto_suspend_tmr_t timer_type, size_t timer_interval_ms)
 {
