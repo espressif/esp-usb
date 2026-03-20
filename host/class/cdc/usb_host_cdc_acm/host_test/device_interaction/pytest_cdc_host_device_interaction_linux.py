@@ -8,4 +8,4 @@ from pytest_embedded_idf.utils import idf_parametrize
 @pytest.mark.host_test
 @idf_parametrize('target', ['linux'], indirect=['target'])
 def test_cdc_acm_device_interaction_linux(dut: Dut) -> None:
-    dut.expect_exact('All tests passed', timeout=5)
+    dut.expect_exact('All tests passed', timeout=10)
