@@ -168,49 +168,47 @@ Multiple aspects of the Device Stack can be configured using menuconfig. These i
 - Default device/string descriptor options
 - Class specific options
 
+The generated Kconfig reference for the available ``CONFIG_TINYUSB_*`` options is provided at the end of this document.
+
 .. _descriptors-configuration:
 
 Descriptor Configuration
 ^^^^^^^^^^^^^^^^^^^^^^^^
 
-The :cpp:type:`tinyusb_config_t` structure provides USB descriptor related fields that should be initialized.
+The :cpp:type:`tinyusb_config_t` structure exposes USB descriptor settings through :cpp:member:`tinyusb_config_t::descriptor`, which is a :cpp:type:`tinyusb_desc_config_t`.
 
 The following descriptors should be initialized for both full-speed and high-speed devices:
 
-- :cpp:member:`device_descriptor`
-- :cpp:member:`string_descriptor`
+- :cpp:member:`tinyusb_desc_config_t::device`
+- :cpp:member:`tinyusb_desc_config_t::string`
 
 Full-speed devices should initialize the following field to provide their configuration descriptor:
 
-- :cpp:member:`configuration_descriptor`
+- :cpp:member:`tinyusb_desc_config_t::full_speed_config`
 
 .. only:: esp32p4
 
     High-speed devices should initialize the following fields to provide configuration descriptors at each speed:
 
-    - :cpp:member:`fs_configuration_descriptor`
-    - :cpp:member:`hs_configuration_descriptor`
-    - :cpp:member:`qualifier_descriptor`
+    - :cpp:member:`tinyusb_desc_config_t::full_speed_config`
+    - :cpp:member:`tinyusb_desc_config_t::high_speed_config`
+    - :cpp:member:`tinyusb_desc_config_t::qualifier`
 
     .. note::
 
-        Both :cpp:member:`fs_configuration_descriptor` and :cpp:member:`hs_configuration_descriptor` must be present to comply with USB 2.0 specification.
+        Both :cpp:member:`tinyusb_desc_config_t::full_speed_config` and :cpp:member:`tinyusb_desc_config_t::high_speed_config` must be present to comply with the USB 2.0 specification.
 
 The Device Stack will instantiate a USB device based on the descriptors provided in the fields described above when :cpp:func:`tinyusb_driver_install` is called.
 
-The Device Stack also provides default descriptors that can be installed by setting the corresponding field in :cpp:func:`tinyusb_driver_install` to ``NULL``. Default descriptors include:
+The Device Stack also provides default descriptors when the corresponding fields in :cpp:type:`tinyusb_desc_config_t` are set to ``NULL``. Their values come from menuconfig options such as ``CONFIG_TINYUSB_DESC_*``. Default descriptors include:
 
-- Default device descriptor: Enabled by setting :cpp:member:`device_descriptor` to ``NULL``. Default device descriptor will use the values set by the corresponding menuconfig options (e.g., PID, VID, bcdDevice etc).
-- Default string descriptor: Enabled by setting :cpp:member:`string_descriptor` to ``NULL``. Default string descriptors will use the value set by corresponding menuconfig options (e.g., manufacturer, product, and serial string descriptor options).
-- Default configuration descriptor. Some classes that rarely require custom configuration (such as CDC and MSC) will provide default configuration descriptors. These can be enabled by setting associated configuration descriptor field to ``NULL``:
+- Default device descriptor: set :cpp:member:`tinyusb_desc_config_t::device` to ``NULL``.
+- Default string descriptor: set :cpp:member:`tinyusb_desc_config_t::string` to ``NULL``.
+- Default qualifier descriptor: set :cpp:member:`tinyusb_desc_config_t::qualifier` to ``NULL`` on high-speed-capable devices.
+- Default configuration descriptors. Some classes that rarely require custom configuration (such as CDC, MSC, and NCM) provide default configuration descriptors. These can be enabled by setting the associated field to ``NULL``:
 
-    - :cpp:member:`configuration_descriptor`: full-speed descriptor for full-speed devices only
-    - :cpp:member:`fs_configuration_descriptor`: full-speed descriptor for high-speed devices
-    - :cpp:member:`hs_configuration_descriptor`: high-speed descriptor for high-speed devices
-
-.. note::
-
-    For backward compatibility, when Device Stack supports high-speed, the field :cpp:member:`configuration_descriptor` could be used instead of :cpp:member:`fs_configuration_descriptor` for full-speed configuration descriptor.
+    - :cpp:member:`tinyusb_desc_config_t::full_speed_config`: full-speed descriptor
+    - :cpp:member:`tinyusb_desc_config_t::high_speed_config`: high-speed descriptor on high-speed-capable devices
 
 Installation
 ------------
@@ -219,23 +217,22 @@ To install the Device Stack, please call :cpp:func:`tinyusb_driver_install`. The
 
 .. note::
 
-    The :cpp:type:`tinyusb_config_t` structure can be zero-initialized (e.g., ``const tinyusb_config_t tusb_cfg = { 0 };``) or partially (as shown below). For any member that is initialized to ``0`` or ``NULL``, the stack uses its default configuration values for that member, see example below.
+    Initialize :cpp:type:`tinyusb_config_t` with ``TINYUSB_DEFAULT_CONFIG()`` and then override only the fields you need. Descriptor pointers left as ``NULL`` use the default descriptor values when available.
 
 .. code-block:: c
 
-    const tinyusb_config_t partial_init = {
-        .device_descriptor = NULL,  // Use the default device descriptor specified in Menuconfig
-        .string_descriptor = NULL,  // Use the default string descriptors specified in Menuconfig
-        .external_phy = false,      // Use internal PHY
-    #if (TUD_OPT_HIGH_SPEED)
-        .fs_configuration_descriptor = NULL, // Use the default full-speed configuration descriptor according to settings in Menuconfig
-        .hs_configuration_descriptor = NULL, // Use the default high-speed configuration descriptor according to settings in Menuconfig
-        .qualifier_descriptor = NULL,  // Use the default qualifier descriptor, with values from default device descriptor
-    #else
-        .configuration_descriptor = NULL,   // Use the default configuration descriptor according to settings in Menuconfig
-    #endif // TUD_OPT_HIGH_SPEED
+    #include "tinyusb_default_config.h"
 
-    };
+    tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG();
+    tusb_cfg.descriptor.device = NULL;
+    tusb_cfg.descriptor.string = NULL;
+    tusb_cfg.descriptor.full_speed_config = NULL;
+    #if (SOC_USB_OTG_PERIPH_NUM > 1)
+        tusb_cfg.descriptor.high_speed_config = NULL;
+        tusb_cfg.descriptor.qualifier = NULL;
+    #endif
+
+    ESP_ERROR_CHECK(tinyusb_driver_install(&tusb_cfg));
 
 .. _self-powered-device:
 
@@ -260,25 +257,23 @@ On the {IDF_TARGET_NAME}, this will require using a GPIO to act as a voltage sen
 
     Simple voltage divider for VBUS monitoring
 
-To use this feature, in :cpp:type:`tinyusb_config_t`, you must set :cpp:member:`self_powered` to ``true`` and :cpp:member:`vbus_monitor_io` to GPIO number that is used for VBUS monitoring.
+To use this feature, set :cpp:member:`tinyusb_phy_config_t::self_powered` to ``true`` and :cpp:member:`tinyusb_phy_config_t::vbus_monitor_io` to the GPIO used for VBUS monitoring through :cpp:member:`tinyusb_config_t::phy`.
 
 USB Serial Device (CDC-ACM)
 ---------------------------
 
-If the CDC option is enabled in Menuconfig, the USB Serial Device can be initialized with :cpp:func:`tusb_cdc_acm_init` according to the settings from :cpp:type:`tinyusb_config_cdcacm_t`, see example below.
+If :ref:`CONFIG_TINYUSB_CDC_ENABLED` is enabled in menuconfig, the USB Serial Device can be initialized with :cpp:func:`tinyusb_cdcacm_init` according to the settings from :cpp:type:`tinyusb_config_cdcacm_t`, see the example below.
 
 .. code-block:: c
 
     const tinyusb_config_cdcacm_t acm_cfg = {
-        .usb_dev = TINYUSB_USBDEV_0,
         .cdc_port = TINYUSB_CDC_ACM_0,
-        .rx_unread_buf_sz = 64,
         .callback_rx = NULL,
         .callback_rx_wanted_char = NULL,
         .callback_line_state_changed = NULL,
         .callback_line_coding_changed = NULL
     };
-    tusb_cdc_acm_init(&acm_cfg);
+    ESP_ERROR_CHECK(tinyusb_cdcacm_init(&acm_cfg));
 
 To specify callbacks, you can either set the pointer to your :cpp:type:`tusb_cdcacm_callback_t` function in the configuration structure or call :cpp:func:`tinyusb_cdcacm_register_callback` after initialization.
 
@@ -287,12 +282,12 @@ USB Serial Console
 
 The USB Serial Device allows the redirection of all standard input/output streams (stdin, stdout, stderr) to USB. Thus, calling standard library input/output functions such as ``printf()`` will result into the data being sent/received over USB instead of UART.
 
-Users should call :cpp:func:`esp_tusb_init_console` to switch the standard input/output streams to USB, and :cpp:func:`esp_tusb_deinit_console` to switch them back to UART.
+Users should call :cpp:func:`tinyusb_console_init` with the CDC interface number to switch the standard input/output streams to USB, and :cpp:func:`tinyusb_console_deinit` to switch them back to UART.
 
 USB Mass Storage Device (MSC)
 -----------------------------
 
-If the MSC ``CONFIG_TINYUSB_MSC_ENABLED`` option is enabled in Menuconfig, the ESP Chip can be used as USB MSC Device. The storage media (SPI-Flash or SD-Card) can be initialized as shown below.
+If :ref:`CONFIG_TINYUSB_MSC_ENABLED` is enabled in menuconfig, the ESP chip can be used as a USB MSC device. The storage media (SPI flash or SD card) can be initialized as shown below.
 
 - SPI-Flash
 
@@ -308,10 +303,11 @@ If the MSC ``CONFIG_TINYUSB_MSC_ENABLED`` option is enabled in Menuconfig, the E
     }
     storage_init_spiflash(&wl_handle);
 
-    const tinyusb_msc_spiflash_config_t config_spi = {
-        .wl_handle = wl_handle
+    tinyusb_msc_storage_handle_t storage_hdl;
+    const tinyusb_msc_storage_config_t config_spi = {
+        .medium.wl_handle = wl_handle,
     };
-    tinyusb_msc_storage_init_spiflash(&config_spi);
+    ESP_ERROR_CHECK(tinyusb_msc_new_storage_spiflash(&config_spi, &storage_hdl));
 
 
 - SD-Card
@@ -334,18 +330,20 @@ If the MSC ``CONFIG_TINYUSB_MSC_ENABLED`` option is enabled in Menuconfig, the E
         slot_config.d3 = CONFIG_EXAMPLE_PIN_D3;
         slot_config.flags |= SDMMC_SLOT_FLAG_INTERNAL_PULLUP;
 
-        sd_card = (sdmmc_card_t *)malloc(sizeof(sdmmc_card_t));
-        (*host.init)();
-        sdmmc_host_init_slot(host.slot, (const sdmmc_slot_config_t *) &slot_config);
-        sdmmc_card_init(&host, sd_card);
+        *card = calloc(1, sizeof(sdmmc_card_t));
+        ESP_ERROR_CHECK(sdmmc_host_init());
+        ESP_ERROR_CHECK(sdmmc_host_init_slot(host.slot, &slot_config));
+        ESP_ERROR_CHECK(sdmmc_card_init(&host, *card));
         ***
     }
+    sdmmc_card_t *card = NULL;
     storage_init_sdmmc(&card);
 
-    const tinyusb_msc_sdmmc_config_t config_sdmmc = {
-        .card = card
+    tinyusb_msc_storage_handle_t storage_hdl;
+    const tinyusb_msc_storage_config_t config_sdmmc = {
+        .medium.card = card,
     };
-    tinyusb_msc_storage_init_sdmmc(&config_sdmmc);
+    ESP_ERROR_CHECK(tinyusb_msc_new_storage_sdmmc(&config_sdmmc, &storage_hdl));
 
 MSC Performance Optimization
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -354,7 +352,7 @@ MSC Performance Optimization
 
 The single-buffer approach improves performance by using a dedicated buffer to temporarily store incoming write data instead of processing it immediately in the callback.
 
-- **Configurable buffer size**: The buffer size is set via ``CONFIG_TINYUSB_MSC_BUFSIZE``, allowing users to balance performance and memory usage.
+- **Configurable buffer size**: The buffer size is set via :ref:`CONFIG_TINYUSB_MSC_BUFSIZE`, allowing users to balance performance and memory usage.
 
 This approach ensures that USB transactions remain fast while avoiding potential delays caused by storage operations.
 
@@ -466,3 +464,27 @@ For better visibility, the examples can be found in ESP-IDF's GitHub repository 
 .. only:: not esp32p4 and not esp32h4
 
   - `tusb_ncm <https://github.com/espressif/esp-idf/tree/master/examples/peripherals/usb/device/tusb_ncm>`__ demonstrates how to transmit Wi-Fi data to a Linux or Windows host via USB using the Network Control Model (NCM), a sub-class of Communication Device Class (CDC) USB Device for Ethernet-over-USB applications, with the help of a TinyUSB component.
+
+API Reference
+-------------
+
+.. include-build-file:: inc/tinyusb.inc
+
+.. include-build-file:: inc/tinyusb_default_config.inc
+
+.. include-build-file:: inc/tinyusb_cdc_acm.inc
+
+.. include-build-file:: inc/tinyusb_console.inc
+
+.. include-build-file:: inc/tinyusb_msc.inc
+
+.. include-build-file:: inc/tinyusb_net.inc
+
+.. include-build-file:: inc/vfs_tinyusb.inc
+
+Kconfig Reference
+-----------------
+
+The generated Kconfig reference below documents the available ``CONFIG_TINYUSB_*`` options for esp_tinyusb, including descriptor defaults and class-specific settings.
+
+.. include-build-file:: inc/usb_device_kconfig.inc

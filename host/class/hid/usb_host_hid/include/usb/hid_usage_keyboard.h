@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2022-2023 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2022-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -12,10 +12,9 @@
 extern "C" {
 #endif
 
-//------------------------------------------ HID usage keys ---------------------------------------------------------------
+// ----------------------------- HID usage keys -----------------------------
 /**
- * @brief HID Keys
- *
+ * @brief HID keyboard usage IDs.
  */
 typedef enum {
     HID_KEY_NO_PRESS                                                              = 0x00,
@@ -239,14 +238,37 @@ typedef enum {
     HID_KEY_RIGHT_GUI                                                             = 0xE3
 } __attribute__((packed)) hid_key_t;
 
-// Modifier bit mask
+/**
+ * @brief Bit mask for the left Control modifier in a boot keyboard report.
+ */
 #define HID_LEFT_CONTROL                                                                (1 << 0)
+/**
+ * @brief Bit mask for the left Shift modifier in a boot keyboard report.
+ */
 #define HID_LEFT_SHIFT                                                                  (1 << 1)
+/**
+ * @brief Bit mask for the left Alt modifier in a boot keyboard report.
+ */
 #define HID_LEFT_ALT                                                                    (1 << 2)
+/**
+ * @brief Bit mask for the left GUI modifier in a boot keyboard report.
+ */
 #define HID_LEFT_GUI                                                                    (1 << 3)
+/**
+ * @brief Bit mask for the right Control modifier in a boot keyboard report.
+ */
 #define HID_RIGHT_CONTROL                                                               (1 << 4)
+/**
+ * @brief Bit mask for the right Shift modifier in a boot keyboard report.
+ */
 #define HID_RIGHT_SHIFT                                                                 (1 << 5)
+/**
+ * @brief Bit mask for the right Alt modifier in a boot keyboard report.
+ */
 #define HID_RIGHT_ALT                                                                   (1 << 6)
+/**
+ * @brief Bit mask for the right GUI modifier in a boot keyboard report.
+ */
 #define HID_RIGHT_GUI                                                                   (1 << 7)
 
 /**
@@ -255,13 +277,13 @@ typedef enum {
  * @see B.1, p.60 of Device Class Definition for Human Interface Devices (HID) Version 1.11
  */
 typedef enum {
-    HID_KEYBOARD_KEY_NUMBER0 = 0,
-    HID_KEYBOARD_KEY_NUMBER1,
-    HID_KEYBOARD_KEY_NUMBER2,
-    HID_KEYBOARD_KEY_NUMBER3,
-    HID_KEYBOARD_KEY_NUMBER4,
-    HID_KEYBOARD_KEY_NUMBER5,
-    HID_KEYBOARD_KEY_MAX,
+    HID_KEYBOARD_KEY_NUMBER0 = 0, /*!< First boot protocol key slot. */
+    HID_KEYBOARD_KEY_NUMBER1,     /*!< Second boot protocol key slot. */
+    HID_KEYBOARD_KEY_NUMBER2,     /*!< Third boot protocol key slot. */
+    HID_KEYBOARD_KEY_NUMBER3,     /*!< Fourth boot protocol key slot. */
+    HID_KEYBOARD_KEY_NUMBER4,     /*!< Fifth boot protocol key slot. */
+    HID_KEYBOARD_KEY_NUMBER5,     /*!< Sixth boot protocol key slot. */
+    HID_KEYBOARD_KEY_MAX,         /*!< Number of boot protocol key slots. */
 } hid_keyboard_key_number_t;
 
 /**
@@ -272,19 +294,19 @@ typedef enum {
 typedef struct {
     union {
         struct {
-            uint8_t left_ctr:    1;
-            uint8_t left_shift:  1;
-            uint8_t left_alt:    1;
-            uint8_t left_gui:    1;
-            uint8_t rigth_ctr:   1;
-            uint8_t right_shift: 1;
-            uint8_t right_alt:   1;
-            uint8_t right_gui:   1;
+            uint8_t left_ctr: 1;    /*!< Left Control modifier state. */
+            uint8_t left_shift: 1;  /*!< Left Shift modifier state. */
+            uint8_t left_alt: 1;    /*!< Left Alt modifier state. */
+            uint8_t left_gui: 1;    /*!< Left GUI modifier state. */
+            uint8_t rigth_ctr: 1;   /*!< Right Control modifier state. */
+            uint8_t right_shift: 1; /*!< Right Shift modifier state. */
+            uint8_t right_alt: 1;   /*!< Right Alt modifier state. */
+            uint8_t right_gui: 1;   /*!< Right GUI modifier state. */
         };
-        uint8_t val;
-    } modifier;
-    uint8_t reserved;
-    uint8_t key[HID_KEYBOARD_KEY_MAX];
+        uint8_t val;                /*!< Full modifier bit mask. */
+    } modifier;                     /*!< Modifier key state. */
+    uint8_t reserved;               /*!< Reserved byte defined by the boot protocol. */
+    uint8_t key[HID_KEYBOARD_KEY_MAX]; /*!< Up to six simultaneous key usages. */
 } __attribute__((packed)) hid_keyboard_input_report_boot_t;
 
 #ifdef __cplusplus

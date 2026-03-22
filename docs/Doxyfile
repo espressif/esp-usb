@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2025 Espressif Systems (Shanghai) CO LTD
+# SPDX-FileCopyrightText: 2025-2026 Espressif Systems (Shanghai) CO LTD
 #
 # SPDX-License-Identifier: Apache-2.0
 
@@ -17,7 +17,31 @@ INPUT                  = \
     $(PROJECT_PATH)/host/usb/include/usb/usb_types_stack.h \
     $(PROJECT_PATH)/host/usb/include/usb/usb_types_ch9.h \
     $(PROJECT_PATH)/host/usb/include/usb/usb_types_ch11.h \
-    $(PROJECT_PATH)/device/esp_tinyusb/include/tinyusb.h
+    $(PROJECT_PATH)/device/esp_tinyusb/include/tinyusb.h \
+    $(PROJECT_PATH)/device/esp_tinyusb/include/tinyusb_default_config.h \
+    $(PROJECT_PATH)/device/esp_tinyusb/include/tinyusb_cdc_acm.h \
+    $(PROJECT_PATH)/device/esp_tinyusb/include/tinyusb_console.h \
+    $(PROJECT_PATH)/device/esp_tinyusb/include/tinyusb_msc.h \
+    $(PROJECT_PATH)/device/esp_tinyusb/include/tinyusb_net.h \
+    $(PROJECT_PATH)/device/esp_tinyusb/include/vfs_tinyusb.h \
+    $(PROJECT_PATH)/host/class/cdc/usb_host_cdc_acm/include/usb/cdc_acm_host.h \
+    $(PROJECT_PATH)/host/class/cdc/usb_host_cdc_acm/include/usb/cdc_acm_host_ops.h \
+    $(PROJECT_PATH)/host/class/cdc/usb_host_cdc_acm/include/usb/cdc_host_types.h \
+    $(PROJECT_PATH)/host/class/cdc/usb_host_cdc_acm/include/usb/usb_types_cdc.h \
+    $(PROJECT_PATH)/host/class/cdc/usb_host_ch34x_vcp/include/usb/vcp_ch34x.h \
+    $(PROJECT_PATH)/host/class/cdc/usb_host_cp210x_vcp/include/usb/vcp_cp210x.h \
+    $(PROJECT_PATH)/host/class/cdc/usb_host_ftdi_vcp/include/usb/vcp_ftdi.h \
+    $(PROJECT_PATH)/host/class/cdc/esp_modem_usb_dte/include/esp_modem_usb_c_api.h \
+    $(PROJECT_PATH)/host/class/cdc/esp_modem_usb_dte/include/esp_modem_usb_config.h \
+    $(PROJECT_PATH)/host/class/hid/usb_host_hid/include/usb/hid_host.h \
+    $(PROJECT_PATH)/host/class/hid/usb_host_hid/include/usb/hid.h \
+    $(PROJECT_PATH)/host/class/hid/usb_host_hid/include/usb/hid_usage_keyboard.h \
+    $(PROJECT_PATH)/host/class/hid/usb_host_hid/include/usb/hid_usage_mouse.h \
+    $(PROJECT_PATH)/host/class/msc/usb_host_msc/include/usb/msc_host.h \
+    $(PROJECT_PATH)/host/class/msc/usb_host_msc/include/usb/msc_host_vfs.h \
+    $(PROJECT_PATH)/host/class/uac/usb_host_uac/include/usb/uac_host.h \
+    $(PROJECT_PATH)/host/class/uac/usb_host_uac/include/usb/uac.h \
+    $(PROJECT_PATH)/host/class/uvc/usb_host_uvc/include/usb/uvc_host.h
 
 WARN_NO_PARAMDOC = YES
 
@@ -30,7 +54,11 @@ PREDEFINED             = \
     $(ENV_DOXYGEN_DEFINES) \
     __DOXYGEN__=1 \
     __attribute__(x)= \
-    ESP_STATIC_ASSERT()=
+    ESP_STATIC_ASSERT()= \
+    CONFIG_TINYUSB_CDC_ENABLED=1 \
+    CONFIG_TINYUSB_NET_MODE_NONE=0 \
+    CONFIG_UAC_FREQ_NUM_MAX=4 \
+    CONFIG_UVC_INTERVAL_ARRAY_SIZE=3
 
 ## Do not complain about not having dot
 ##

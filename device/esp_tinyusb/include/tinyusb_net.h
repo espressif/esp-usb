@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2023-2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2023-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -17,81 +17,98 @@ extern "C" {
 #endif
 
 /**
- * @brief On receive callback type
+ * @brief TinyUSB NET receive callback type.
+ *
+ * @param[in] buffer Pointer to the received packet payload.
+ * @param[in] len Packet length in bytes.
+ * @param[in] ctx User context from tinyusb_net_config_t.user_context.
+ *
+ * @return The return value is currently ignored by esp_tinyusb.
  */
 typedef esp_err_t (*tusb_net_rx_cb_t)(void *buffer, uint16_t len, void *ctx);
 
 /**
- * @brief Free Tx buffer callback type
+ * @brief TinyUSB NET TX buffer release callback type.
+ *
+ * @param[in] buffer User token passed as `buff_free_arg` to the send function.
+ * @param[in] ctx User context from tinyusb_net_config_t.user_context.
  */
 typedef void (*tusb_net_free_tx_cb_t)(void *buffer, void *ctx);
 
 /**
- * @brief On init callback type
+ * @brief TinyUSB NET initialization callback type.
+ *
+ * @param[in] ctx User context from tinyusb_net_config_t.user_context.
  */
 typedef void (*tusb_net_init_cb_t)(void *ctx);
 
 /**
- * @brief ESP TinyUSB NCM driver configuration structure
+ * @brief TinyUSB NET driver configuration.
  */
 typedef struct {
-    uint8_t mac_addr[6];                      /*!< MAC address. Must be 6 bytes long. */
-    tusb_net_rx_cb_t on_recv_callback;        /*!< TinyUSB receive data callbeck */
-    tusb_net_free_tx_cb_t free_tx_buffer;     /*!< User function for freeing the Tx buffer.
-                                               *    - could be NULL, if user app is responsible for freeing the buffer
-                                               *    - must be used in asynchronous send mode
-                                               *    - is only called if the used tinyusb_net_send...() function returns ESP_OK
-                                               *        - in sync mode means that the packet was accepted by TinyUSB
-                                               *        - in async mode means that the packet was queued to be processed in TinyUSB task
-                                               */
-    tusb_net_init_cb_t on_init_callback;      /*!< TinyUSB init network callback */
-    void *user_context;                       /*!< User context to be passed to any of the callback */
+    uint8_t mac_addr[6];                      /*!< Device MAC address. */
+    tusb_net_rx_cb_t on_recv_callback;        /*!< Optional receive callback. */
+    tusb_net_free_tx_cb_t free_tx_buffer;     /*!< Optional callback used to release TX buffers or user tokens.
+                                                   Required when the application needs asynchronous send cleanup. */
+    tusb_net_init_cb_t on_init_callback;      /*!< Optional callback invoked from tud_network_init_cb(). */
+    void *user_context;                       /*!< User context passed to every callback. */
 } tinyusb_net_config_t;
 
 /**
- * @brief Initialize TinyUSB NET driver
+ * @brief Initialize the TinyUSB NET driver.
  *
- * @param[in] cfg     Configuration of the driver
- * @return esp_err_t
+ * @param[in] cfg Driver configuration. Must not be NULL.
+ *
+ * @return
+ *      - ESP_OK on success
+ *      - ESP_ERR_INVALID_STATE if the TinyUSB NET driver is already initialized
  */
 esp_err_t tinyusb_net_init(const tinyusb_net_config_t *cfg);
 
 /**
- * @brief Deinitialize TinyUSB NET driver
+ * @brief Deinitialize the TinyUSB NET driver.
  */
 void tinyusb_net_deinit(void);
 
 /**
- * @brief TinyUSB NET driver send data synchronously
+ * @brief Send a packet synchronously through the TinyUSB NET interface.
  *
- * @note It is possible to use sync and async send interchangeably.
- * This function needs some synchronization primitives, so using sync mode (even once) uses more heap
+ * @note Synchronous and asynchronous sends can be mixed.
+ * @note The first synchronous send allocates synchronization primitives, which
+ *       increases heap usage.
  *
- * @param[in] buffer            USB send data
- * @param[in] len               Send data len
- * @param[in] buff_free_arg     Pointer to be passed to the free_tx_buffer() callback
- * @param[in] timeout           Send data len
- * @return  ESP_OK on success == packet has been consumed by tusb and would be eventually freed
- *                              by free_tx_buffer() callback (if non null)
- *          ESP_ERR_TIMEOUT on timeout
- *          ESP_ERR_INVALID_STATE if tusb not initialized, ESP_ERR_NO_MEM on alloc failure
+ * @param[in] buffer Packet payload buffer.
+ * @param[in] len Packet length in bytes.
+ * @param[in] buff_free_arg User token passed to `free_tx_buffer`, typically the
+ *                          packet buffer pointer.
+ * @param[in] timeout Timeout in RTOS ticks.
+ *
+ * @return
+ *      - ESP_OK if the packet is accepted by TinyUSB for transmission
+ *      - ESP_FAIL if the USB interface cannot accept the packet
+ *      - ESP_ERR_TIMEOUT if the transmission does not complete before `timeout`
+ *      - ESP_ERR_INVALID_STATE if the TinyUSB NET interface is not mounted
+ *      - ESP_ERR_NO_MEM if internal synchronization objects cannot be allocated
  */
 esp_err_t tinyusb_net_send_sync(void *buffer, uint16_t len, void *buff_free_arg, TickType_t  timeout);
 
 /**
- * @brief TinyUSB NET driver send data asynchronously
+ * @brief Queue a packet for asynchronous transmission through the TinyUSB NET interface.
  *
- * @note If using asynchronous sends, you must free the buffer using free_tx_buffer() callback.
- * @note It is possible to use sync and async send interchangeably.
- * @note Async flavor of the send is useful when the USB stack runs faster than the caller,
- * since we have no control over the transmitted packets, if they get accepted or discarded.
+ * @note When using asynchronous sends, free the packet through
+ *       `free_tx_buffer` or another application-managed path.
+ * @note Synchronous and asynchronous sends can be mixed.
+ * @note `ESP_OK` means the packet was queued for processing in the TinyUSB task.
+ *       It does not guarantee that the USB interface accepted the packet.
  *
- * @param[in] buffer            USB send data
- * @param[in] len               Send data len
- * @param[in] buff_free_arg     Pointer to be passed to the free_tx_buffer() callback
- * @return  ESP_OK on success == packet has been consumed by tusb and will be freed
- *                              by free_tx_buffer() callback (if non null)
- *          ESP_ERR_INVALID_STATE if tusb not initialized
+ * @param[in] buffer Packet payload buffer.
+ * @param[in] len Packet length in bytes.
+ * @param[in] buff_free_arg User token passed to `free_tx_buffer`, typically the
+ *                          packet buffer pointer.
+ *
+ * @return
+ *      - ESP_OK if the packet is queued for deferred processing
+ *      - ESP_ERR_INVALID_STATE if the TinyUSB NET interface is not mounted
  */
 esp_err_t tinyusb_net_send_async(void *buffer, uint16_t len, void *buff_free_arg);
 

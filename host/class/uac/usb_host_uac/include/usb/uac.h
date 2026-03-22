@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2024-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -35,7 +35,7 @@ typedef enum {
  */
 typedef enum {
     UAC_PROTOCOL_UNDEFINED                            = 0x00,
-    UAC_PROTOCOL_v20                                  = 0x20,     // refer UAC v2.0
+    UAC_PROTOCOL_v20                                  = 0x20,     /*!< UAC 2.0 protocol. */
 } uac_protocol_t;
 
 /**
@@ -350,13 +350,12 @@ typedef enum {
 } uac_format_type_t;
 
 /**
- * @brief Audio Class-Specific Interface Descriptor Common Header
- *
+ * @brief Audio class-specific interface descriptor common header.
  */
 typedef struct {
-    uint8_t bLength;
-    uint8_t bDescriptorType;
-    uint8_t bDescriptorSubtype;
+    uint8_t bLength;            /*!< Total size of this descriptor in bytes. */
+    uint8_t bDescriptorType;    /*!< Descriptor type. */
+    uint8_t bDescriptorSubtype; /*!< Descriptor subtype. */
 } __attribute__((packed)) uac_desc_header_t;
 
 /**
@@ -365,13 +364,13 @@ typedef struct {
  * @see Table 4-2 of audio10.pdf
  */
 typedef struct {
-    uint8_t bLength;
-    uint8_t bDescriptorType;
-    uint8_t bDescriptorSubtype;
-    uint16_t bcdADC;
-    uint16_t wTotalLength;
-    uint8_t bInCollection;
-    uint8_t baInterfaceNr[2];
+    uint8_t bLength;            /*!< Total size of this descriptor in bytes. */
+    uint8_t bDescriptorType;    /*!< Descriptor type. */
+    uint8_t bDescriptorSubtype; /*!< Descriptor subtype. */
+    uint16_t bcdADC;            /*!< Audio Device Class specification release number. */
+    uint16_t wTotalLength;      /*!< Total size of the class-specific AC interface descriptors. */
+    uint8_t bInCollection;      /*!< Number of associated streaming interfaces. */
+    uint8_t baInterfaceNr[2];   /*!< Associated streaming interface numbers. */
 } __attribute__((packed)) uac_ac_header_desc_t;
 
 /**
@@ -380,16 +379,16 @@ typedef struct {
  * @see Table 4-3 of audio10.pdf
  */
 typedef struct {
-    uint8_t bLength;
-    uint8_t bDescriptorType;
-    uint8_t bDescriptorSubtype;
-    uint8_t bTerminalID;
-    uint16_t wTerminalType;
-    uint8_t bAssocTerminal;
-    uint8_t bNrChannels;
-    uint16_t wChannelConfig;
-    uint8_t iChannelNames;
-    uint8_t iTerminal;
+    uint8_t bLength;            /*!< Total size of this descriptor in bytes. */
+    uint8_t bDescriptorType;    /*!< Descriptor type. */
+    uint8_t bDescriptorSubtype; /*!< Descriptor subtype. */
+    uint8_t bTerminalID;        /*!< Unique identifier of the terminal. */
+    uint16_t wTerminalType;     /*!< Terminal type code. */
+    uint8_t bAssocTerminal;     /*!< ID of the associated output terminal, or 0 if none. */
+    uint8_t bNrChannels;        /*!< Number of logical output channels. */
+    uint16_t wChannelConfig;    /*!< Spatial location of logical channels. */
+    uint8_t iChannelNames;      /*!< String descriptor index for the channel names. */
+    uint8_t iTerminal;          /*!< String descriptor index for the terminal. */
 } __attribute__((packed)) uac_ac_input_terminal_desc_t;
 
 /**
@@ -398,14 +397,14 @@ typedef struct {
  * @see Table 4-4 of audio10.pdf
  */
 typedef struct {
-    uint8_t bLength;
-    uint8_t bDescriptorType;
-    uint8_t bDescriptorSubtype;
-    uint8_t bTerminalID;
-    uint16_t wTerminalType;
-    uint8_t bAssocTerminal;
-    uint8_t bSourceID;
-    uint8_t iTerminal;
+    uint8_t bLength;            /*!< Total size of this descriptor in bytes. */
+    uint8_t bDescriptorType;    /*!< Descriptor type. */
+    uint8_t bDescriptorSubtype; /*!< Descriptor subtype. */
+    uint8_t bTerminalID;        /*!< Unique identifier of the terminal. */
+    uint16_t wTerminalType;     /*!< Terminal type code. */
+    uint8_t bAssocTerminal;     /*!< ID of the associated input terminal, or 0 if none. */
+    uint8_t bSourceID;          /*!< ID of the connected source unit or terminal. */
+    uint8_t iTerminal;          /*!< String descriptor index for the terminal. */
 } __attribute__((packed)) uac_ac_output_terminal_desc_t;
 
 /**
@@ -414,17 +413,17 @@ typedef struct {
  * @see Table 4-5 of audio10.pdf
  */
 typedef struct {
-    uint8_t bLength;
-    uint8_t bDescriptorType;
-    uint8_t bDescriptorSubtype;
-    uint8_t bUnitID;
-    uint8_t bNrInPins;
-    uint8_t baSourceID[2];
-    uint8_t bNrChannels;
-    uint16_t wChannelConfig;
-    uint8_t iChannelNames;
-    uint8_t bmControls;
-    uint8_t iMixer;
+    uint8_t bLength;            /*!< Total size of this descriptor in bytes. */
+    uint8_t bDescriptorType;    /*!< Descriptor type. */
+    uint8_t bDescriptorSubtype; /*!< Descriptor subtype. */
+    uint8_t bUnitID;            /*!< Unique identifier of the mixer unit. */
+    uint8_t bNrInPins;          /*!< Number of input pins. */
+    uint8_t baSourceID[2];      /*!< Source IDs connected to the mixer unit. */
+    uint8_t bNrChannels;        /*!< Number of logical output channels. */
+    uint16_t wChannelConfig;    /*!< Spatial location of logical channels. */
+    uint8_t iChannelNames;      /*!< String descriptor index for the channel names. */
+    uint8_t bmControls;         /*!< Bitmap of supported mixer controls. */
+    uint8_t iMixer;             /*!< String descriptor index for the mixer unit. */
 } __attribute__((packed)) uac_ac_mixer_unit_desc_t;
 
 /**
@@ -433,13 +432,13 @@ typedef struct {
  * @see Table 4-6 of audio10.pdf
  */
 typedef struct {
-    uint8_t bLength;
-    uint8_t bDescriptorType;
-    uint8_t bDescriptorSubtype;
-    uint8_t bUnitID;
-    uint8_t bNrInPins;
-    uint8_t baSourceID[2];
-    uint8_t iSelector;
+    uint8_t bLength;            /*!< Total size of this descriptor in bytes. */
+    uint8_t bDescriptorType;    /*!< Descriptor type. */
+    uint8_t bDescriptorSubtype; /*!< Descriptor subtype. */
+    uint8_t bUnitID;            /*!< Unique identifier of the selector unit. */
+    uint8_t bNrInPins;          /*!< Number of input pins. */
+    uint8_t baSourceID[2];      /*!< Source IDs connected to the selector unit. */
+    uint8_t iSelector;          /*!< String descriptor index for the selector unit. */
 } __attribute__((packed)) uac_ac_selector_unit_desc_t;
 
 /**
@@ -448,14 +447,14 @@ typedef struct {
  * @see Table 4-7 of audio10.pdf
  */
 typedef struct {
-    uint8_t bLength;
-    uint8_t bDescriptorType;
-    uint8_t bDescriptorSubtype;
-    uint8_t bUnitID;
-    uint8_t bSourceID;
-    uint8_t bControlSize;
-    uint8_t bmaControls[3 * 2]; // 2 channels + channel 0, 2 bytes each
-    uint8_t iFeature;
+    uint8_t bLength;               /*!< Total size of this descriptor in bytes. */
+    uint8_t bDescriptorType;       /*!< Descriptor type. */
+    uint8_t bDescriptorSubtype;    /*!< Descriptor subtype. */
+    uint8_t bUnitID;               /*!< Unique identifier of the feature unit. */
+    uint8_t bSourceID;             /*!< Source ID connected to the feature unit. */
+    uint8_t bControlSize;          /*!< Size in bytes of each bmaControls element. */
+    uint8_t bmaControls[3 * 2];    /*!< Controls for channel 0 and two logical channels. */
+    uint8_t iFeature;              /*!< String descriptor index for the feature unit. */
 } __attribute__((packed)) uac_ac_feature_unit_desc_t;
 
 /**
@@ -464,14 +463,15 @@ typedef struct {
  * @see Table 4-19 of audio10.pdf
  */
 typedef struct {
-    uint8_t bLength;
-    uint8_t bDescriptorType;
-    uint8_t bDescriptorSubtype;
-    uint8_t bTerminalLink;
-    uint8_t bDelay;
-    uint16_t wFormatTag;
+    uint8_t bLength;            /*!< Total size of this descriptor in bytes. */
+    uint8_t bDescriptorType;    /*!< Descriptor type. */
+    uint8_t bDescriptorSubtype; /*!< Descriptor subtype. */
+    uint8_t bTerminalLink;      /*!< Terminal ID of the linked terminal. */
+    uint8_t bDelay;             /*!< Interface delay in frames. */
+    uint16_t wFormatTag;        /*!< Audio data format tag. */
 } __attribute__((packed)) uac_as_general_desc_t;
 
+/** @brief Maximum number of sample frequencies stored in uac_as_type_I_format_desc_t. */
 #define UAC_FREQ_NUM_MAX           CONFIG_UAC_FREQ_NUM_MAX
 /**
  * @brief Audio Class-Specific AS Type I Format Type Descriptor
@@ -479,15 +479,15 @@ typedef struct {
  * @see Table 2-1 of frmts10.pdf
  */
 typedef struct {
-    uint8_t bLength;
-    uint8_t bDescriptorType;
-    uint8_t bDescriptorSubtype;
-    uint8_t bFormatType;
-    uint8_t bNrChannels;
-    uint8_t bSubframeSize;
-    uint8_t bBitResolution;
-    uint8_t bSamFreqType;
-    uint8_t tSamFreq[3 * UAC_FREQ_NUM_MAX];
+    uint8_t bLength;                    /*!< Total size of this descriptor in bytes. */
+    uint8_t bDescriptorType;            /*!< Descriptor type. */
+    uint8_t bDescriptorSubtype;         /*!< Descriptor subtype. */
+    uint8_t bFormatType;                /*!< Format type code. */
+    uint8_t bNrChannels;                /*!< Number of channels in the audio stream. */
+    uint8_t bSubframeSize;              /*!< Number of bytes per audio subframe. */
+    uint8_t bBitResolution;             /*!< Number of effectively used bits per audio sample. */
+    uint8_t bSamFreqType;               /*!< 0 for continuous frequencies, non-zero for discrete frequencies. */
+    uint8_t tSamFreq[3 * UAC_FREQ_NUM_MAX]; /*!< Encoded sample frequencies, sized by CONFIG_UAC_FREQ_NUM_MAX. */
 } __attribute__((packed)) uac_as_type_I_format_desc_t;
 
 /**
@@ -496,18 +496,18 @@ typedef struct {
  * @see Table 4-21 of audio10.pdf
  */
 typedef struct {
-    uint8_t bLength;
-    uint8_t bDescriptorType;
-    uint8_t bDescriptorSubtype;
-    uint8_t bmAttributes;
-    uint8_t bLockDelayUnits;
-    uint16_t wLockDelay;
+    uint8_t bLength;            /*!< Total size of this descriptor in bytes. */
+    uint8_t bDescriptorType;    /*!< Descriptor type. */
+    uint8_t bDescriptorSubtype; /*!< Descriptor subtype. */
+    uint8_t bmAttributes;       /*!< Endpoint attributes. */
+    uint8_t bLockDelayUnits;    /*!< Units for wLockDelay. */
+    uint16_t wLockDelay;        /*!< Lock delay for the endpoint. */
 } __attribute__((packed)) uac_as_cs_ep_desc_t;
 
 /**
- * @brief Print UAC device full configuration descriptor
+ * @brief Print the full UAC configuration descriptor.
  *
- * @param cfg_desc
+ * @param[in] cfg_desc Pointer to the active USB configuration descriptor.
  */
 void print_uac_descriptors(const usb_config_desc_t *cfg_desc);
 

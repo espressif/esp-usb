@@ -13,8 +13,14 @@
 #include "usb/cdc_acm_host_ops.h"
 #include "usb/cdc_host_types.h"
 
-// Pass these to cdc_acm_host_open() to signal that you don't care about VID/PID of the opened device
+/**
+ * @brief Match any USB vendor ID when opening a CDC device.
+ */
 #define CDC_HOST_ANY_VID (0)
+
+/**
+ * @brief Match any USB product ID when opening a CDC device.
+ */
 #define CDC_HOST_ANY_PID (0)
 
 // For backward compatibility with IDF versions which do not have suspend/resume api
@@ -27,187 +33,266 @@ extern "C" {
 #endif
 
 /**
- * @brief New USB device callback
+ * @brief New USB device callback.
  *
- * Provides already opened usb_dev, that will be closed after this callback returns.
- * This is useful for peeking device's descriptors, e.g. peeking VID/PID and loading proper driver.
+ * Provides an already opened `usb_dev`, which is closed again after this callback
+ * returns. This is useful for inspecting the device descriptors, such as the VID
+ * and PID, before selecting a driver.
  *
- * @attention This callback is called from USB Host context, so the CDC device can't be opened here.
+ * @param[in] usb_dev Open USB device handle valid for the duration of the callback.
+ *
+ * @attention This callback is called from USB Host context, so the CDC device
+ *            cannot be opened here.
  */
 typedef void (*cdc_acm_new_dev_callback_t)(usb_device_handle_t usb_dev);
 
 /**
- * @brief Configuration structure of USB Host CDC-ACM driver
- *
+ * @brief CDC-ACM host driver configuration.
  */
 typedef struct {
     size_t driver_task_stack_size;         /**< Stack size of the driver's task */
-    unsigned driver_task_priority;         /**< Priority of the driver's task. Should be higher than priority of application task using this driver */
+    unsigned driver_task_priority;         /**< Driver task priority. This should be higher than the priority of the
+                                                application task using the driver. */
     int  xCoreID;                          /**< Core affinity of the driver's task */
     cdc_acm_new_dev_callback_t new_dev_cb; /**< New USB device connected callback. Can be NULL. */
 } cdc_acm_host_driver_config_t;
 
 /**
- * @brief Install CDC-ACM driver
+ * @brief Install the CDC-ACM host driver.
  *
- * - USB Host Library must already be installed before calling this function (via usb_host_install())
- * - This function should be called before calling any other CDC driver functions
+ * - The USB Host Library must already be installed with `usb_host_install()`.
+ * - Call this function before any other CDC-ACM host API.
  *
- * @param[in] driver_config Driver configuration structure. If set to NULL, a default configuration will be used.
+ * @param[in] driver_config Driver configuration. If set to NULL, the default
+ *                          configuration is used.
+ *
  * @return
- *   - ESP_OK: Success
- *   - ESP_ERR_INVALID_STATE: The CDC driver is already installed or USB host library is not installed
- *   - ESP_ERR_NO_MEM: Not enough memory for installing the driver
+ *      - ESP_OK on success
+ *      - ESP_ERR_INVALID_STATE if the driver is already installed or the USB Host
+ *        Library is not ready
+ *      - ESP_ERR_NO_MEM if there is not enough memory to install the driver
+ *      - Other error codes from USB Host client registration
  */
 esp_err_t cdc_acm_host_install(const cdc_acm_host_driver_config_t *driver_config);
 
 /**
- * @brief Uninstall CDC-ACM driver
+ * @brief Uninstall the CDC-ACM host driver.
  *
- * - Users must ensure that all CDC devices must be closed via cdc_acm_host_close() before calling this function
+ * All CDC devices must be closed with `cdc_acm_host_close()` before calling
+ * this function.
  *
  * @return
- *   - ESP_OK: Success
- *   - ESP_ERR_INVALID_STATE: The CDC driver is not installed or not all CDC devices are closed
- *   - ESP_ERR_NOT_FINISHED: The CDC driver failed to uninstall completely
+ *      - ESP_OK on success
+ *      - ESP_ERR_INVALID_STATE if the driver is not installed or if any CDC
+ *        device is still open
+ *      - ESP_ERR_NOT_FINISHED if the driver teardown does not complete
  */
 esp_err_t cdc_acm_host_uninstall(void);
 
 /**
- * @brief Register new USB device callback
+ * @brief Register a callback for new USB devices.
  *
- * The callback will be called for every new USB device, not just CDC-ACM class.
+ * The callback is invoked for every new USB device, not only CDC-ACM devices.
  *
- * @param[in] new_dev_cb New device callback function
+ * @note The CDC-ACM host driver must already be installed.
+ *
+ * @param[in] new_dev_cb Callback function to register. Set to NULL to disable
+ *                       the notification.
+ *
  * @return
- *   - ESP_OK: Success
+ *      - ESP_OK on success
  */
 esp_err_t cdc_acm_host_register_new_dev_callback(cdc_acm_new_dev_callback_t new_dev_cb);
 
 /**
- * @brief Open CDC-ACM device
+ * @brief Open a CDC-ACM device.
  *
- * The driver first looks for CDC compliant descriptor, if it is not found the driver checks if the interface has 2 Bulk endpoints that can be used for data
+ * The driver first looks for CDC-compliant descriptors. If none are found, it
+ * falls back to interfaces that expose two bulk endpoints suitable for data
+ * transfers.
  *
- * Use CDC_HOST_ANY_* macros to signal that you don't care about the device's VID and PID. In this case, first USB device will be opened.
- * It is recommended to use this feature if only one device can ever be in the system (there is no USB HUB connected).
+ * Use `CDC_HOST_ANY_VID` and `CDC_HOST_ANY_PID` when the vendor or product ID
+ * does not matter. In that case, the first matching USB device is opened. This
+ * is recommended only when at most one USB device can be present.
  *
- * @param[in] vid           Device's Vendor ID, set to CDC_HOST_ANY_VID for any
- * @param[in] pid           Device's Product ID, set to CDC_HOST_ANY_PID for any
- * @param[in] interface_idx Index of device's interface used for CDC-ACM communication
- * @param[in] dev_config    Configuration structure of the device
- * @param[out] cdc_hdl_ret  CDC device handle
+ * @param[in] vid Device vendor ID, or `CDC_HOST_ANY_VID` to match any vendor ID.
+ * @param[in] pid Device product ID, or `CDC_HOST_ANY_PID` to match any
+ *                product ID.
+ * @param[in] interface_idx Device interface index used for CDC-ACM
+ *                          communication.
+ * @param[in] dev_config Device configuration structure.
+ * @param[out] cdc_hdl_ret Returned CDC device handle.
+ *
  * @return
- *   - ESP_OK: Success
- *   - ESP_ERR_INVALID_STATE: The CDC driver is not installed
- *   - ESP_ERR_INVALID_ARG: dev_config or cdc_hdl_ret is NULL
- *   - ESP_ERR_NO_MEM: Not enough memory for opening the device
- *   - ESP_ERR_NOT_FOUND: USB device with specified VID/PID is not connected or does not have specified interface
+ *      - ESP_OK on success
+ *      - ESP_ERR_INVALID_STATE if the CDC-ACM host driver is not installed
+ *      - ESP_ERR_INVALID_ARG if `dev_config` or `cdc_hdl_ret` is NULL
+ *      - ESP_ERR_NO_MEM if there is not enough memory to open the device
+ *      - ESP_ERR_NOT_FOUND if no matching USB device or interface is found
+ *      - Other error codes from interface parsing or device initialization
  */
-esp_err_t cdc_acm_host_open(uint16_t vid, uint16_t pid, uint8_t interface_idx, const cdc_acm_host_device_config_t *dev_config, cdc_acm_dev_hdl_t *cdc_hdl_ret);
+esp_err_t cdc_acm_host_open(uint16_t vid, uint16_t pid, uint8_t interface_idx,
+                            const cdc_acm_host_device_config_t *dev_config,
+                            cdc_acm_dev_hdl_t *cdc_hdl_ret);
 
-// This function is deprecated, please use cdc_acm_host_open()
-static inline esp_err_t cdc_acm_host_open_vendor_specific(uint16_t vid, uint16_t pid, uint8_t interface_num, const cdc_acm_host_device_config_t *dev_config, cdc_acm_dev_hdl_t *cdc_hdl_ret)
+/**
+ * @brief Backward-compatible alias for cdc_acm_host_open().
+ *
+ * @deprecated Use cdc_acm_host_open() instead.
+ *
+ * @param[in] vid Device vendor ID.
+ * @param[in] pid Device product ID.
+ * @param[in] interface_num Device interface index.
+ * @param[in] dev_config Device configuration structure.
+ * @param[out] cdc_hdl_ret Returned CDC device handle.
+ *
+ * @return
+ *      - ESP_OK on success
+ *      - ESP_ERR_INVALID_STATE if the CDC-ACM host driver is not installed
+ *      - ESP_ERR_INVALID_ARG if `dev_config` or `cdc_hdl_ret` is NULL
+ *      - ESP_ERR_NO_MEM if there is not enough memory to open the device
+ *      - ESP_ERR_NOT_FOUND if no matching USB device or interface is found
+ *      - Other error codes from interface parsing or device initialization
+ */
+static inline esp_err_t cdc_acm_host_open_vendor_specific(uint16_t vid, uint16_t pid,
+                                                          uint8_t interface_num,
+                                                          const cdc_acm_host_device_config_t *dev_config,
+                                                          cdc_acm_dev_hdl_t *cdc_hdl_ret)
 {
     return cdc_acm_host_open(vid, pid, interface_num, dev_config, cdc_hdl_ret);
 }
 
 /**
- * @brief Close CDC device and release its resources
+ * @brief Close a CDC device and release its resources.
  *
- * @note All in-flight transfers will be prematurely canceled.
- * @param[in] cdc_hdl CDC handle obtained from cdc_acm_host_open()
+ * @note All in-flight transfers are cancelled before the device is closed.
+ *
+ * @param[in] cdc_hdl CDC handle obtained from cdc_acm_host_open().
+ *
  * @return
- *   - ESP_OK: Success - device closed
- *   - ESP_ERR_INVALID_STATE: cdc_hdl is NULL or the CDC driver is not installed
+ *      - ESP_OK on success
+ *      - ESP_ERR_INVALID_ARG if `cdc_hdl` is NULL
+ *      - ESP_ERR_INVALID_STATE if the CDC-ACM host driver is not installed
  */
 esp_err_t cdc_acm_host_close(cdc_acm_dev_hdl_t cdc_hdl);
 
 /**
- * @brief Transmit data - blocking mode
+ * @brief Transmit data in blocking mode.
  *
- * @param cdc_hdl CDC handle obtained from cdc_acm_host_open()
- * @param[in] data       Data to be sent
- * @param[in] data_len   Data length
- * @param[in] timeout_ms Timeout in [ms]
+ * @param[in] cdc_hdl CDC handle obtained from cdc_acm_host_open().
+ * @param[in] data Data to send.
+ * @param[in] data_len Length of `data` in bytes.
+ * @param[in] timeout_ms Timeout in milliseconds.
+ *
  * @return
- *   - ESP_OK: Success - all data sent
- *   - ESP_ERR_INVALID_ARG: Invalid device or data pointer
- *   - ESP_ERR_NOT_SUPPORTED: Device was opened as read-only
- *   - ESP_ERR_TIMEOUT: Data could not be sent within the timeout
- *   - ESP_ERR_INVALID_RESPONSE: Error during data transmission
+ *      - ESP_OK on success
+ *      - ESP_ERR_INVALID_ARG if `cdc_hdl` is NULL, or if `data` is NULL or
+ *        `data_len` is zero
+ *      - ESP_ERR_NOT_SUPPORTED if the device was opened as read-only
+ *      - ESP_ERR_TIMEOUT if the transfer does not complete before the timeout
+ *      - ESP_ERR_INVALID_RESPONSE if the USB transfer completes with an invalid
+ *        response
+ *      - Other error codes from USB transfer submission
  */
-esp_err_t cdc_acm_host_data_tx_blocking(cdc_acm_dev_hdl_t cdc_hdl, const uint8_t *data, size_t data_len, uint32_t timeout_ms);
+esp_err_t cdc_acm_host_data_tx_blocking(cdc_acm_dev_hdl_t cdc_hdl, const uint8_t *data,
+                                        size_t data_len, uint32_t timeout_ms);
 
 /**
- * @brief Print device's descriptors
+ * @brief Print the device descriptors.
  *
- * Device and full Configuration descriptors are printed in human readable format to stdout.
+ * Prints the device descriptor and the full active configuration descriptor in a
+ * human-readable format to stdout.
  *
- * @param cdc_hdl CDC handle obtained from cdc_acm_host_open()
+ * @param[in] cdc_hdl CDC handle obtained from cdc_acm_host_open().
  */
 void cdc_acm_host_desc_print(cdc_acm_dev_hdl_t cdc_hdl);
 
 /**
- * @brief Get protocols defined in USB-CDC interface descriptors
+ * @brief Get the protocols reported by the CDC interface descriptors.
  *
- * @param cdc_hdl   CDC handle obtained from cdc_acm_host_open()
- * @param[out] comm Communication protocol
- * @param[out] data Data protocol
+ * Either output pointer may be NULL if that protocol value is not needed.
+ *
+ * @param[in] cdc_hdl CDC handle obtained from cdc_acm_host_open().
+ * @param[out] comm Returned communication protocol, or NULL to ignore it.
+ * @param[out] data Returned data protocol, or NULL to ignore it.
+ *
  * @return
- *   - ESP_OK: Success
- *   - ESP_ERR_INVALID_ARG: Invalid device
+ *      - ESP_OK on success
+ *      - ESP_ERR_INVALID_ARG if `cdc_hdl` is NULL
  */
 esp_err_t cdc_acm_host_protocols_get(cdc_acm_dev_hdl_t cdc_hdl, cdc_comm_protocol_t *comm, cdc_data_protocol_t *data);
 
 /**
- * @brief Get CDC functional descriptor
+ * @brief Get a CDC functional descriptor.
  *
- * @param cdc_hdl       CDC handle obtained from cdc_acm_host_open()
- * @param[in] desc_type Type of functional descriptor
- * @param[out] desc_out Pointer to the required descriptor
+ * @param[in] cdc_hdl CDC handle obtained from cdc_acm_host_open().
+ * @param[in] desc_type Functional descriptor subtype to retrieve.
+ * @param[out] desc_out Returned descriptor pointer. This pointer must not be
+ *                      NULL.
+ *
  * @return
- *   - ESP_OK: Success
- *   - ESP_ERR_INVALID_ARG: Invalid device or descriptor type
- *   - ESP_ERR_NOT_FOUND: The required descriptor is not present in the device
+ *      - ESP_OK on success
+ *      - ESP_ERR_INVALID_ARG if `cdc_hdl` is NULL or `desc_type` is invalid
+ *      - ESP_ERR_NOT_FOUND if the requested descriptor is not present
  */
-esp_err_t cdc_acm_host_cdc_desc_get(cdc_acm_dev_hdl_t cdc_hdl, cdc_desc_subtype_t desc_type, const usb_standard_desc_t **desc_out);
+esp_err_t cdc_acm_host_cdc_desc_get(cdc_acm_dev_hdl_t cdc_hdl, cdc_desc_subtype_t desc_type,
+                                    const usb_standard_desc_t **desc_out);
 
 /**
- * @brief Send command to CTRL endpoint
+ * @brief Send a control request to the device.
  *
- * Sends Control transfer as described in USB specification chapter 9.
- * This function can be used by device drivers that use custom/vendor specific commands.
- * These commands can either extend or replace commands defined in USB CDC-PSTN specification rev. 1.2.
+ * Sends a control transfer as described in chapter 9 of the USB specification.
+ * This function is intended for device drivers that use custom or vendor-specific
+ * requests in addition to, or instead of, the requests defined by the USB
+ * CDC-PSTN specification rev. 1.2.
  *
- * @param        cdc_hdl       CDC handle obtained from cdc_acm_host_open()
- * @param[in]    bmRequestType Field of USB control request
- * @param[in]    bRequest      Field of USB control request
- * @param[in]    wValue        Field of USB control request
- * @param[in]    wIndex        Field of USB control request
- * @param[in]    wLength       Field of USB control request
- * @param[inout] data          Field of USB control request
- * @return esp_err_t
+ * For OUT requests, `data` provides the payload to send. For IN requests, the
+ * received payload is copied into `data`.
+ *
+ * @param[in] cdc_hdl CDC handle obtained from cdc_acm_host_open().
+ * @param[in] bmRequestType `bmRequestType` field of the USB setup packet.
+ * @param[in] bRequest `bRequest` field of the USB setup packet.
+ * @param[in] wValue `wValue` field of the USB setup packet.
+ * @param[in] wIndex `wIndex` field of the USB setup packet.
+ * @param[in] wLength Payload length in bytes.
+ * @param[inout] data Transfer payload buffer. Must not be NULL when `wLength`
+ *                    is greater than 0.
+ *
+ * @return
+ *      - ESP_OK on success
+ *      - ESP_ERR_INVALID_ARG if `cdc_hdl` is NULL, or if `data` is NULL while
+ *        `wLength` is greater than 0
+ *      - ESP_ERR_INVALID_SIZE if the request payload does not fit into the
+ *        internal control buffer
+ *      - ESP_ERR_TIMEOUT if the control transfer times out
+ *      - ESP_ERR_INVALID_RESPONSE if the device returns an invalid response
+ *      - Other error codes from USB control transfer submission
  */
-esp_err_t cdc_acm_host_send_custom_request(cdc_acm_dev_hdl_t cdc_hdl, uint8_t bmRequestType, uint8_t bRequest, uint16_t wValue, uint16_t wIndex, uint16_t wLength, uint8_t *data);
+esp_err_t cdc_acm_host_send_custom_request(cdc_acm_dev_hdl_t cdc_hdl, uint8_t bmRequestType,
+                                           uint8_t bRequest, uint16_t wValue,
+                                           uint16_t wIndex, uint16_t wLength, uint8_t *data);
 
 #ifdef CDC_HOST_REMOTE_WAKE_SUPPORTED
 /**
- * @brief Enable/Disable remote wakeup on device
- * @note API availability depends on presence of remote wakeup support in esp-idf HAL
- *       and is guarded by the CDC_HOST_REMOTE_WAKE_SUPPORTED
+ * @brief Enable or disable device remote wakeup.
  *
- * @param[in] cdc_hdl       CDC device handle
- * @param[in] enable        Enable/Disable remote wakeup
+ * @note This API is available only when the underlying ESP-IDF exposes remote
+ *       wakeup support, and is guarded by `CDC_HOST_REMOTE_WAKE_SUPPORTED`.
+ *
+ * @param[in] cdc_hdl CDC device handle.
+ * @param[in] enable Set to true to enable remote wakeup, or false to disable it.
+ *
  * @return
- *     - ESP_OK:                   Remote wakeup successfully enabled/disabled, or already enabled/disabled on the device
- *     - ESP_ERR_INVALID_ARG:      Invalid input argument
- *     - ESP_ERR_INVALID_STATE     CDC driver is not installed
- *     - ESP_ERR_NOT_FOUND:        Device not found in device list (probably already closed)
- *     - ESP_ERR_NOT_SUPPORTED:    Device does not support remote wakeup
- *     - ESP_ERR_TIMEOUT:          Transfer timed out, or failed to acquire ctr transfer mutex
- *     - ESP_ERR_INVALID_RESPONSE: Invalid response of the control transfer
- *     - Errors propagated from caller functions
+ *      - ESP_OK on success, or if the requested state is already configured
+ *      - ESP_ERR_INVALID_ARG if `cdc_hdl` is invalid
+ *      - ESP_ERR_INVALID_STATE if the CDC-ACM host driver is not installed
+ *      - ESP_ERR_NOT_FOUND if the device is no longer tracked by the driver
+ *      - ESP_ERR_NOT_SUPPORTED if the device does not support remote wakeup
+ *      - ESP_ERR_TIMEOUT if the control transfer times out or the control mutex
+ *        cannot be acquired
+ *      - ESP_ERR_INVALID_RESPONSE if the control transfer completes with an
+ *        invalid response
+ *      - Other error codes from USB descriptor queries or control requests
  */
 esp_err_t cdc_acm_host_enable_remote_wakeup(cdc_acm_dev_hdl_t cdc_hdl, bool enable);
 #endif // CDC_HOST_REMOTE_WAKE_SUPPORTED
