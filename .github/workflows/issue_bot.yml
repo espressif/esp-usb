@@ -8,6 +8,9 @@ jobs:
   docs_bot:
     name: Generate automated response by docs bot
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
     steps:
       - name: Docs bot action
         if: ${{ github.repository_owner == 'espressif' }}
