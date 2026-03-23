@@ -18,6 +18,8 @@ concurrency:
 jobs:
   check-label:
     runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
     outputs:
       has_label: ${{ steps.check.outputs.has_label }}
     steps:
