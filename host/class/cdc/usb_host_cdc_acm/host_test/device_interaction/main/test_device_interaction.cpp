@@ -54,6 +54,10 @@ static void _add_mocked_devices(void)
     // tusb_serial_device (HS descriptor)
     REQUIRE(ESP_OK == usb_host_mock_add_device(5, (const usb_device_desc_t *)tusb_serial_device_device_desc_fs_hs,
                                                (const usb_config_desc_t *)tusb_serial_device_config_desc_hs, USB_SPEED_HIGH));
+
+    // tusb_serial_dual_device (HS descriptor)
+    REQUIRE(ESP_OK == usb_host_mock_add_device(6, (const usb_device_desc_t *)tusb_serial_device_dual_device_desc_fs_hs,
+                                               (const usb_config_desc_t *)tusb_serial_device_dual_config_desc_hs, USB_SPEED_HIGH));
 }
 
 /**
@@ -380,6 +384,36 @@ SCENARIO("Interact with mocked USB devices")
 
             // Close the device
             REQUIRE(ESP_OK == test_cdc_acm_host_close(&dev, interface_index));
+        }
+
+        SECTION("Interact with device: TinyUSB serial dual device") {
+
+            // Open both interfaces of the device
+            const uint16_t vid = 0x303A, pid = 0x4002;
+            const uint8_t device_address = 6, interface_index1 = 0, interface_index2 = 2;
+            cdc_acm_dev_hdl_t dev1 = nullptr, dev2 = nullptr;
+
+            // Open two devices
+            REQUIRE(ESP_OK == test_cdc_acm_host_open(device_address, vid, pid, interface_index1, &dev_config, &dev1));
+            REQUIRE(dev1 != nullptr);
+            REQUIRE(ESP_OK == test_cdc_acm_host_open(device_address, vid, pid, interface_index2, &dev_config, &dev2));
+            REQUIRE(dev2 != nullptr);
+
+            // Interact with the devices - set remote wakeup
+            _set_remote_wakeup(&dev1, device_address);
+            _set_remote_wakeup(&dev2, device_address);
+
+            // Interact with the device - submit mocked transfers
+            _submit_mock_transfer(&dev1);
+            _submit_mock_transfer(&dev2);
+
+            // Interact with device - set cdc-acm specific requests
+            _set_cdc_acm_specific_requests(&dev1, device_address);
+            _set_cdc_acm_specific_requests(&dev2, device_address);
+
+            // Close the devices
+            REQUIRE(ESP_OK == test_cdc_acm_host_close(&dev1, interface_index1));
+            REQUIRE(ESP_OK == test_cdc_acm_host_close(&dev2, interface_index2));
         }
 
         // Uninstall CDC-ACM driver

@@ -6,6 +6,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <unordered_map>
 #include <catch2/catch_test_macros.hpp>
 #include "usb/cdc_acm_host.h"
 #include "mock_add_usb_device.h"
@@ -40,7 +41,50 @@ typedef struct {
     } notif;
 } cdc_dev_expects_t;
 
-static cdc_dev_expects_t *p_cdc_dev_expects = nullptr;
+/** Per-device CMock state keyed by CDC handle (supports multiple open devices). */
+static std::unordered_map<cdc_acm_dev_hdl_t, cdc_dev_expects_t *> s_cdc_dev_expects_by_hdl;
+
+/**
+ * @brief Lookup table with CMock expectations for current device
+ *
+ * The function goes through the lookup table to find the CMock expectations for the current device
+ * based on the device handle (CDC handle) and returns a pointer to the expectations of that device
+ *
+ * @param dev_hdl Device handle
+ * @return pointer to cmock expectations for this device, or nullptr if not found
+ */
+static cdc_dev_expects_t *_test_cdc_expects_lookup(cdc_acm_dev_hdl_t dev_hdl)
+{
+    auto it = s_cdc_dev_expects_by_hdl.find(dev_hdl);
+    return (it != s_cdc_dev_expects_by_hdl.end()) ? it->second : nullptr;
+}
+
+/**
+ * @brief Free all CMock expectations and clear the lookup table
+ */
+static void _test_cdc_expects_free_all(void)
+{
+    for (auto &kv : s_cdc_dev_expects_by_hdl) {
+        free(kv.second);
+    }
+    s_cdc_dev_expects_by_hdl.clear();
+}
+
+/**
+ * @brief Free CMock expectations for a specific device and remove it from the lookup table
+ *
+ * The function goes through the lookup table to find the CMock expectations for the current device based on the device handle (CDC handle).
+ *
+ * @param dev_hdl Device handle to be freed
+ */
+static void _test_cdc_expects_free(cdc_acm_dev_hdl_t dev_hdl)
+{
+    auto dev_hdl_found = s_cdc_dev_expects_by_hdl.find(dev_hdl);
+    if (dev_hdl_found != s_cdc_dev_expects_by_hdl.end()) {
+        free(dev_hdl_found->second);
+        s_cdc_dev_expects_by_hdl.erase(dev_hdl_found);
+    }
+}
 
 /**
  * @brief Create CMock expectations for current device
@@ -50,17 +94,20 @@ static cdc_dev_expects_t *p_cdc_dev_expects = nullptr;
  * @param[in] dev_address Device address
  * @param[in] interface_index Interface index to be used
  * @param[in] dev_config CDC-ACM Host device config struct
+ * @param[out] out_expects Allocated expectations for this open (caller registers on success)
  *
  * @return
  *   - ESP_OK: Mock expectations created successfully
  *   - ESP_ERR_NO_MEM: Not enough memory
  */
-static esp_err_t _test_create_cmock_expectations(uint8_t dev_address, uint8_t interface_index, const cdc_acm_host_device_config_t *dev_config)
+static esp_err_t _test_create_cmock_expectations(uint8_t dev_address, uint8_t interface_index, const cdc_acm_host_device_config_t *dev_config,
+                                                 cdc_dev_expects_t **out_expects)
 {
     cdc_dev_expects_t *cdc_dev_expects = (cdc_dev_expects_t *)calloc(1, sizeof(cdc_dev_expects_t));
     if (cdc_dev_expects == nullptr) {
         return ESP_ERR_NO_MEM;
     }
+    *out_expects = cdc_dev_expects;
 
     int notif_xfer, data_in_xfer, data_out_xfer;
     const usb_config_desc_t *config_desc;
@@ -100,17 +147,7 @@ static esp_err_t _test_create_cmock_expectations(uint8_t dev_address, uint8_t in
         cdc_dev_expects->data.out_xfer = nullptr;
     }
 
-    p_cdc_dev_expects = cdc_dev_expects;
     return ESP_OK;
-}
-
-/**
- * @brief free space allocated for p_cdc_dev_expects
- */
-static void _test_delete_cmock_expectations(void)
-{
-    free(p_cdc_dev_expects);
-    p_cdc_dev_expects = nullptr;
 }
 
 esp_err_t test_cdc_acm_host_install(const cdc_acm_host_driver_config_t *driver_config)
@@ -133,7 +170,7 @@ esp_err_t test_cdc_acm_host_uninstall(void)
     usb_host_client_deregister_ExpectAnyArgsAndReturn(ESP_OK);
     usb_host_client_deregister_AddCallback(usb_host_client_deregister_mock_callback);
 
-    _test_delete_cmock_expectations();
+    _test_cdc_expects_free_all();
 
     // Call the real function, cdc_acm_host_uninstall()
     return cdc_acm_host_uninstall();
@@ -141,7 +178,8 @@ esp_err_t test_cdc_acm_host_uninstall(void)
 
 esp_err_t test_cdc_acm_host_open(uint8_t dev_address, uint16_t vid, uint16_t pid, uint8_t interface_index, const cdc_acm_host_device_config_t *dev_config, cdc_acm_dev_hdl_t *cdc_hdl_ret)
 {
-    esp_err_t ret = _test_create_cmock_expectations(dev_address, interface_index, dev_config);
+    cdc_dev_expects_t *cdc_dev_expects = nullptr;
+    esp_err_t ret = _test_create_cmock_expectations(dev_address, interface_index, dev_config, &cdc_dev_expects);
     if (ret != ESP_OK) {
         return ret;      // ESP_ERR_NO_MEM
     }
@@ -174,7 +212,7 @@ esp_err_t test_cdc_acm_host_open(uint8_t dev_address, uint16_t vid, uint16_t pid
     usb_host_transfer_alloc_ExpectAnyArgsAndReturn(ESP_OK);
 
     // Setup Notif transfer
-    if (p_cdc_dev_expects->notif.xfer) {
+    if (cdc_dev_expects->notif.xfer) {
         usb_host_transfer_alloc_ExpectAnyArgsAndReturn(ESP_OK);
     }
 
@@ -195,12 +233,13 @@ esp_err_t test_cdc_acm_host_open(uint8_t dev_address, uint16_t vid, uint16_t pid
 
     // Claim 1st interface
     // Make sure that the interface_index has been claimed
-    test_usb_host_interface_claim(interface_index);
+    const bool sep_notif = cdc_dev_expects->notif.has_separate_interface;
+    test_usb_host_interface_claim(interface_index, sep_notif);
 
     // Claim 2nd interface (if supported)
-    if (p_cdc_dev_expects->notif.has_separate_interface) {
-        test_usb_host_interface_claim(interface_index + 1);
-    } else if (p_cdc_dev_expects->notif.xfer) {
+    if (cdc_dev_expects->notif.has_separate_interface) {
+        test_usb_host_interface_claim(interface_index + 1, sep_notif);
+    } else if (cdc_dev_expects->notif.xfer) {
         // If the device has no separate interface, but has notification endpoint
         usb_host_transfer_submit_ExpectAnyArgsAndReturn(ESP_OK);
     }
@@ -211,23 +250,31 @@ esp_err_t test_cdc_acm_host_open(uint8_t dev_address, uint16_t vid, uint16_t pid
 
     // If the cdc_acm_host_open() fails, delete the created cdc_device
     if (ret != ESP_OK) {
-        _test_delete_cmock_expectations();
+        free(cdc_dev_expects);
+    } else {
+        s_cdc_dev_expects_by_hdl[*cdc_hdl_ret] = cdc_dev_expects;
     }
     return ret;
 }
 
 esp_err_t test_cdc_acm_host_close(cdc_acm_dev_hdl_t *cdc_hdl, uint8_t interface_index)
 {
+    cdc_acm_dev_hdl_t hdl = *cdc_hdl;
+    cdc_dev_expects_t *exp = _test_cdc_expects_lookup(hdl);
+    if (exp == nullptr) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
     // Cancel pooling of IN endpoint -> halt, flush, clear
-    test_cdc_acm_reset_transfer_endpoint(p_cdc_dev_expects->data.in_bEndpointAddress);
+    test_cdc_acm_reset_transfer_endpoint(exp->data.in_bEndpointAddress);
 
     // Cancel pooling of Notification endpoint -> halt, flush, clear
-    if (p_cdc_dev_expects->notif.xfer) {
-        test_cdc_acm_reset_transfer_endpoint(p_cdc_dev_expects->notif.bEndpointAddress);
+    if (exp->notif.xfer) {
+        test_cdc_acm_reset_transfer_endpoint(exp->notif.bEndpointAddress);
     }
 
     // Release data interface
-    if (p_cdc_dev_expects->notif.has_separate_interface) {
+    if (exp->notif.has_separate_interface) {
         usb_host_interface_release_ExpectAnyArgsAndReturn(ESP_OK);
         usb_host_interface_release_ExpectAnyArgsAndReturn(ESP_OK);
     } else {
@@ -238,21 +285,18 @@ esp_err_t test_cdc_acm_host_close(cdc_acm_dev_hdl_t *cdc_hdl, uint8_t interface_
 
 
     // Free notif transfer
-    if (p_cdc_dev_expects->notif.xfer) {
+    if (exp->notif.xfer) {
         usb_host_transfer_free_ExpectAnyArgsAndReturn(ESP_OK);
-        p_cdc_dev_expects->notif.xfer = nullptr;
     }
 
     // Free in transfer
-    if (p_cdc_dev_expects->data.in_xfer) {
+    if (exp->data.in_xfer) {
         usb_host_transfer_free_ExpectAnyArgsAndReturn(ESP_OK);
-        p_cdc_dev_expects->data.in_xfer = nullptr;
     }
 
     // Free out transfer
-    if (p_cdc_dev_expects->data.out_xfer) {
+    if (exp->data.out_xfer) {
         usb_host_transfer_free_ExpectAnyArgsAndReturn(ESP_OK);
-        p_cdc_dev_expects->data.out_xfer = nullptr;
     }
 
     // Call cdc_acm_device_remove
@@ -263,11 +307,20 @@ esp_err_t test_cdc_acm_host_close(cdc_acm_dev_hdl_t *cdc_hdl, uint8_t interface_
     usb_host_device_close_ExpectAnyArgsAndReturn(ESP_OK);
 
     // Call the real function cdc_acm_host_close
-    return cdc_acm_host_close(*cdc_hdl);
+    esp_err_t ret = cdc_acm_host_close(*cdc_hdl);
+    if (ret == ESP_OK) {
+        _test_cdc_expects_free(hdl);
+    }
+    return ret;
 }
 
 esp_err_t test_cdc_acm_host_data_tx_blocking(cdc_acm_dev_hdl_t cdc_hdl, const uint8_t *data, size_t data_len, uint32_t timeout_ms, mock_usb_transfer_response_t transfer_response)
 {
+    cdc_dev_expects_t *exp = _test_cdc_expects_lookup(cdc_hdl);
+    if (exp == nullptr) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
     usb_host_transfer_submit_ExpectAnyArgsAndReturn(ESP_OK);
 
     switch (transfer_response) {
@@ -285,7 +338,7 @@ esp_err_t test_cdc_acm_host_data_tx_blocking(cdc_acm_dev_hdl_t cdc_hdl, const ui
         // Make the submitted transfer to be timed out
         usb_host_transfer_submit_AddCallback(usb_host_transfer_submit_timeout_mock_callback);
         // Reset out endpoint
-        test_cdc_acm_reset_transfer_endpoint(p_cdc_dev_expects->data.out_bEndpointAddress);
+        test_cdc_acm_reset_transfer_endpoint(exp->data.out_bEndpointAddress);
         break;
     }
     default:
@@ -311,10 +364,10 @@ esp_err_t test_cdc_acm_reset_transfer_endpoint(uint8_t ep_address)
     return ESP_OK;
 }
 
-esp_err_t test_usb_host_interface_claim(uint8_t interface_index)
+esp_err_t test_usb_host_interface_claim(uint8_t interface_index, bool has_separate_notification_interface)
 {
     usb_host_interface_claim_ExpectAndReturn(nullptr, nullptr, interface_index, 0, ESP_OK);
-    if (p_cdc_dev_expects && p_cdc_dev_expects->notif.has_separate_interface) {
+    if (has_separate_notification_interface) {
         usb_host_interface_claim_IgnoreArg_bInterfaceNumber();
     }
     usb_host_interface_claim_IgnoreArg_client_hdl();        // Ignore all function parameters, except interface_index
