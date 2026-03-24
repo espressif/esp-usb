@@ -12,7 +12,9 @@ jobs:
     runs-on: ubuntu-latest
     container: espressif/idf:latest
     permissions:
-      security-events: read
+      contents: read
+      security-events: write
+      actions: read
     steps:
       - uses: actions/checkout@v4
         with:
