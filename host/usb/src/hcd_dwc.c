@@ -933,6 +933,10 @@ static hcd_pipe_event_t _intr_hdlr_chan(pipe_t *pipe, usb_dwc_hal_chan_t *chan_o
         _buffer_done(pipe, stop_idx, pipe->last_event, false);
         // Parse the buffer
         _buffer_parse(pipe);
+        if (pipe->cs_flags.waiting_halt) {
+            pipe->cs_flags.waiting_halt = 0;
+            *yield |= _internal_pipe_event_notify(pipe, true);
+        }
         break;
     }
     case USB_DWC_HAL_CHAN_EVENT_HALT_REQ: {
@@ -946,6 +950,7 @@ static hcd_pipe_event_t _intr_hdlr_chan(pipe_t *pipe, usb_dwc_hal_chan_t *chan_o
         _buffer_done(pipe, stop_idx, HCD_PIPE_EVENT_NONE, true);
         // Parse the buffer
         _buffer_parse(pipe);
+        pipe->cs_flags.waiting_halt = 0;
         // Notify the task waiting for the pipe halt
         *yield |= _internal_pipe_event_notify(pipe, true);
         break;
@@ -1759,8 +1764,14 @@ static dma_buffer_block_t *buffer_block_alloc(usb_transfer_type_t type)
         return NULL;
     }
 
-    // Transfer descriptor list: Must be 512 aligned and DMA capable (USB-DWC requirement) and its size must be cache aligned
-    void *xfer_desc_list = heap_caps_aligned_calloc(USB_DWC_QTD_LIST_MEM_ALIGN, desc_list_len * sizeof(usb_dwc_ll_dma_qtd_t), 1, XFER_DESC_LIST_CAPS);
+    // Transfer descriptor list: Must be 512 aligned and DMA capable (USB-DWC requirement) and its size must be cache aligned.
+    // Allocate xfer_desc_list_len_bytes (not merely the raw QTD array size): on SoCs with L1-cached internal RAM,
+    // cache_sync_xfer_descriptor_list() msyncs that many bytes; msync past the allocation corrupts adjacent heap blocks.
+    size_t qtd_array_bytes = desc_list_len * sizeof(usb_dwc_ll_dma_qtd_t);
+    size_t cache_align = 0;
+    esp_cache_get_alignment(XFER_DESC_LIST_CAPS, &cache_align);
+    size_t xfer_list_alloc_bytes = ALIGN_UP(qtd_array_bytes, cache_align);
+    void *xfer_desc_list = heap_caps_aligned_calloc(USB_DWC_QTD_LIST_MEM_ALIGN, 1, xfer_list_alloc_bytes, XFER_DESC_LIST_CAPS);
 
     if ((xfer_desc_list == NULL) || ((uintptr_t)xfer_desc_list & (USB_DWC_QTD_LIST_MEM_ALIGN - 1))) {
         free(buffer);
@@ -1768,11 +1779,7 @@ static dma_buffer_block_t *buffer_block_alloc(usb_transfer_type_t type)
         return NULL;
     }
     buffer->xfer_desc_list = xfer_desc_list;
-
-    // Note for developers: We do not use heap_caps_get_allocated_size() because it is broken with HEAP_POISONING=COMPREHENSIVE
-    size_t cache_align = 0;
-    esp_cache_get_alignment(XFER_DESC_LIST_CAPS, &cache_align);
-    buffer->xfer_desc_list_len_bytes = ALIGN_UP(desc_list_len * sizeof(usb_dwc_ll_dma_qtd_t), cache_align);
+    buffer->xfer_desc_list_len_bytes = xfer_list_alloc_bytes;
     return buffer;
 }
 
