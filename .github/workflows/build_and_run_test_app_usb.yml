@@ -111,7 +111,7 @@ jobs:
     if: ${{ github.repository_owner == 'espressif' }}
     needs: build
     strategy:
-      fail-fast: true
+      fail-fast: false
       matrix:
         idf_ver: ${{ fromJson(inputs.idf_releases) }}
         idf_target: ${{ fromJson(inputs.idf_targets) }}
