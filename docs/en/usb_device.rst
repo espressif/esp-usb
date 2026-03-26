@@ -1,11 +1,8 @@
 USB Device Stack
 =================
 
-{IDF_TARGET_USB_DP_GPIO_NUM:default="20", esp32h4="22"}
-{IDF_TARGET_USB_DM_GPIO_NUM:default="19", esp32h4="21"}
-{IDF_TARGET_USB_EP_NUM: default="6", esp32p4="15"}
-{IDF_TARGET_USB_EP_NUM_INOUT:default="5", esp32p4="8"}
-{IDF_TARGET_USB_EP_NUM_IN:default="1", esp32p4="7"}
+{IDF_TARGET_USB_DP_GPIO_NUM:default="20", esp32h4="22", esp32p4="27"}
+{IDF_TARGET_USB_DM_GPIO_NUM:default="19", esp32h4="21", esp32p4="26"}
 
 Overview
 --------
@@ -17,28 +14,32 @@ The Device Stack is built around the TinyUSB stack, but extends TinyUSB with som
 Features
 --------
 
-- Multiple supported device classes (CDC, HID, MIDI, MSC)
-- Composite devices
-- Vendor specific classes
-- Maximum of {IDF_TARGET_USB_EP_NUM} endpoints
+.. list::
 
-    - {IDF_TARGET_USB_EP_NUM_INOUT} IN/OUT endpoints
-    - {IDF_TARGET_USB_EP_NUM_IN} IN endpoints
+    .. only:: esp32p4
 
-- VBUS monitoring for self-powered devices
+        - 1 USB High-Speed (USB 2.0) peripheral with internal PHY
+            - Endpoint 0 and 15 additional endpoints configurable as IN or OUT
+            - Up to 8 IN endpoints (including Endpoint 0) concurrently active.
+
+    - 1 USB Full-Speed (USB 1.1) peripheral with internal PHY
+        - Endpoint 0 and 6 additional endpoints configurable as IN or OUT
+        - Up to 5 IN endpoints (including Endpoint 0) concurrently active.
+    - Multiple supported device classes (CDC, HID, MIDI, MSC...)
+    - Vendor specific class
+    - Composite devices
+    - VBUS monitoring for self-powered devices
 
 .. Todo: Refactor USB hardware connect into a separate guide
 
 Hardware Connection
 -------------------
 
-.. only:: esp32s2 or esp32s3 or esp32h4
-
-    The {IDF_TARGET_NAME} routes the USB D+ and D- signals to GPIOs {IDF_TARGET_USB_DP_GPIO_NUM} and {IDF_TARGET_USB_DM_GPIO_NUM} respectively. For USB device functionality, these GPIOs should be connected to the bus in some way (e.g., via a Micro-B port, USB-C port, or directly to standard-A plug).
-
 .. only:: esp32p4
 
-    The {IDF_TARGET_NAME} routes the USB D+ and D- signals to their dedicated pins. For USB device functionality, these pins should be connected to the bus in some way (e.g., via a Micro-B port, USB-C port, or directly to standard-A plug).
+    The {IDF_TARGET_NAME} routes the **USB 2.0 peripheral** D+ and D- signals to their dedicated pins. For USB device functionality, these pins must be connected to the bus (e.g., via a Micro-B port, USB-C port, or directly to standard-A plug).
+
+The {IDF_TARGET_NAME} routes the **USB 1.1 peripheral** D+ and D- signals to GPIOs {IDF_TARGET_USB_DP_GPIO_NUM} and {IDF_TARGET_USB_DM_GPIO_NUM} respectively. For USB device functionality, these GPIOs must be connected to the bus (e.g., via a Micro-B port, USB-C port, or directly to standard-A plug).
 
 .. figure:: ../_static/usb_device/usb-board-connection.png
     :align: center
