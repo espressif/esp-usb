@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2021-2026 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2021-2025 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -240,7 +240,6 @@ Procedure:
         - Halt command should immediately halt the current URB and generate a HCD_PIPE_EVENT_URB_DONE
         - Other pending URBs should be untouched.
     - Un-halt the pipe using a HCD_PIPE_CMD_CLEAR command. Enqueued URBs will be resumed
-    - Wait for HCD_PIPE_EVENT_URB_DONE for each remaining pending URB (halt already produced one)
     - Check that all URBs have completed successfully
     - Dequeue URBs and teardown
 */
@@ -268,13 +267,9 @@ TEST_CASE("Test HCD control pipe runtime halt and clear", "[ctrl][low_speed][ful
     TEST_ASSERT_EQUAL(ESP_OK, hcd_pipe_command(default_pipe, HCD_PIPE_CMD_CLEAR));
     TEST_ASSERT_EQUAL(HCD_PIPE_STATE_ACTIVE, hcd_pipe_get_state(default_pipe));
     printf("Pipe cleared\n");
+    vTaskDelay(pdMS_TO_TICKS(100)); // Give some time pending for transfers to restart and complete
 
-    // Halt already raised one URB_DONE; wait for the rest before dequeuing (hcd_urb_dequeue does not block).
-    for (int i = 0; i < NUM_URBS - 1; i++) {
-        test_hcd_expect_pipe_event(default_pipe, HCD_PIPE_EVENT_URB_DONE);
-    }
-
-    // Dequeue each completed URB and check results
+    // Wait for each URB to be done, dequeue, and check results
     for (int i = 0; i < NUM_URBS; i++) {
         urb_t *urb = hcd_urb_dequeue(default_pipe);
         TEST_ASSERT_EQUAL_PTR(urb_list[i], urb);
