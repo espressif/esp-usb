@@ -836,7 +836,7 @@ esp_err_t uvc_host_stream_open(const uvc_host_stream_config_t *stream_config, in
         err, TAG, "Failed to negotiate requested Video Stream format");
 
     // check if the urb_size is smaller than the maximum payload transfer size
-    size_t urb_size = stream_config->advanced.urb_size > vs_result.dwMaxPayloadTransferSize ?
+    size_t urb_size = stream_config->advanced.urb_size < vs_result.dwMaxPayloadTransferSize ?
                       vs_result.dwMaxPayloadTransferSize : stream_config->advanced.urb_size;
     // Allocate USB transfers
     ESP_GOTO_ON_ERROR(
