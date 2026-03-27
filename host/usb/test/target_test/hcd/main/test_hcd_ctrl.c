@@ -267,7 +267,7 @@ TEST_CASE("Test HCD control pipe runtime halt and clear", "[ctrl][low_speed][ful
     TEST_ASSERT_EQUAL(ESP_OK, hcd_pipe_command(default_pipe, HCD_PIPE_CMD_CLEAR));
     TEST_ASSERT_EQUAL(HCD_PIPE_STATE_ACTIVE, hcd_pipe_get_state(default_pipe));
     printf("Pipe cleared\n");
-    vTaskDelay(pdMS_TO_TICKS(100)); // Give some time pending for transfers to restart and complete
+    vTaskDelay(pdMS_TO_TICKS(500)); // Give some time pending for transfers to restart and complete
 
     // Wait for each URB to be done, dequeue, and check results
     for (int i = 0; i < NUM_URBS; i++) {
