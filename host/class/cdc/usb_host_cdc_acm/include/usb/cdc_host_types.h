@@ -11,72 +11,85 @@
 #include "usb/usb_types_cdc.h"
 #include "usb/usb_host.h"               // For USB Host suspend/resume API
 
-// For backward compatibility with IDF versions which do not have suspend/resume api
 #ifdef USB_HOST_LIB_EVENT_FLAGS_AUTO_SUSPEND
+/**
+ * @brief Defined when the underlying ESP-IDF exposes USB Host suspend and
+ *        resume support.
+ */
 #define CDC_HOST_SUSPEND_RESUME_API_SUPPORTED
 #endif
 
-// For backward compatibility with IDF versions which do not have remote wakeup HAL changes
 #ifdef REMOTE_WAKE_HAL_SUPPORTED
+/**
+ * @brief Defined when the underlying ESP-IDF exposes remote wakeup support for
+ *        USB host devices.
+ */
 #define CDC_HOST_REMOTE_WAKE_SUPPORTED
 #endif
 
+/**
+ * @brief Opaque handle to an opened CDC-ACM device.
+ */
 typedef struct cdc_dev_s *cdc_acm_dev_hdl_t;
 
 /**
- * @brief CDC-ACM Device Event types to upper layer
+ * @brief CDC-ACM device event types reported to the application.
  */
 typedef enum {
-    CDC_ACM_HOST_ERROR,                             /**< An error occurred on the CDC-ACM device */
-    CDC_ACM_HOST_SERIAL_STATE,                      /**< Serial state of the CDC-ACM device has changed */
-    CDC_ACM_HOST_NETWORK_CONNECTION,                /**< CDC-ACM device network connection state has changed */
-    CDC_ACM_HOST_DEVICE_DISCONNECTED,               /**< CDC-ACM device has been disconnected */
+    CDC_ACM_HOST_ERROR,                             /*!< An error occurred on the CDC-ACM device. */
+    CDC_ACM_HOST_SERIAL_STATE,                      /*!< The CDC-ACM serial state changed. */
+    CDC_ACM_HOST_NETWORK_CONNECTION,                /*!< The CDC-ACM network connection state changed. */
+    CDC_ACM_HOST_DEVICE_DISCONNECTED,               /*!< The CDC-ACM device was disconnected. */
 #ifdef CDC_HOST_SUSPEND_RESUME_API_SUPPORTED
-    CDC_ACM_HOST_DEVICE_SUSPENDED,                  /**< CDC-ACM device has been suspended */
-    CDC_ACM_HOST_DEVICE_RESUMED,                    /**< CDC-ACM device has been resumed */
+    CDC_ACM_HOST_DEVICE_SUSPENDED,                  /*!< The CDC-ACM device was suspended. */
+    CDC_ACM_HOST_DEVICE_RESUMED,                    /*!< The CDC-ACM device was resumed. */
 #endif // CDC_HOST_SUSPEND_RESUME_API_SUPPORTED
 } cdc_acm_host_dev_event_t;
 
 /**
- * @brief CDC-ACM Device Event data structure
+ * @brief CDC-ACM device event data.
  */
 typedef struct {
-    cdc_acm_host_dev_event_t type;
+    cdc_acm_host_dev_event_t type; /*!< Event type. */
     union {
-        int error;                         //!< Error code from USB Host
-        cdc_acm_uart_state_t serial_state; //!< Serial (UART) state
-        bool network_connected;            //!< Network connection event
-        cdc_acm_dev_hdl_t cdc_hdl;         //!< Disconnection event
-    } data;
+        int error;                         /*!< USB Host error code. */
+        cdc_acm_uart_state_t serial_state; /*!< Serial state bitmap. */
+        bool network_connected;            /*!< Network connection state. */
+        cdc_acm_dev_hdl_t cdc_hdl;         /*!< Device handle related to the event. */
+    } data;                                /*!< Event-specific payload. */
 } cdc_acm_host_dev_event_data_t;
 
 /**
- * @brief Data receive callback type
+ * @brief Data receive callback type.
  *
- * @param[in] data     Pointer to received data
- * @param[in] data_len Length of received data in bytes
- * @param[in] user_arg User's argument passed to open function
- * @return true        Received data was processed     -> Flush RX buffer
- * @return false       Received data was NOT processed -> Append new data to the buffer
+ * @param[in] data Pointer to the received data.
+ * @param[in] data_len Length of the received data in bytes.
+ * @param[in] user_arg User argument passed to the open function.
+ *
+ * @return true if the data was processed and the RX buffer can be flushed
+ * @return false if the data was not processed and new data should be appended
+ *               to the RX buffer
  */
 typedef bool (*cdc_acm_data_callback_t)(const uint8_t *data, size_t data_len, void *user_arg);
 
 /**
- * @brief Device event callback type
+ * @brief Device event callback type.
  *
- * @param[in] event    Event structure
- * @param[in] user_ctx User's context passed to open function
+ * @param[in] event Event data structure.
+ * @param[in] user_ctx User context passed to the open function.
  */
 typedef void (*cdc_acm_host_dev_callback_t)(const cdc_acm_host_dev_event_data_t *event, void *user_ctx);
 
 /**
- * @brief Configuration structure of CDC-ACM device
+ * @brief CDC-ACM device configuration.
  */
 typedef struct {
-    uint32_t connection_timeout_ms;       /**< Timeout for USB device connection in [ms] */
-    size_t out_buffer_size;               /**< Maximum size of USB bulk out transfer, set to 0 for read-only devices. Larger transfers will be split into multiple transfers */
-    size_t in_buffer_size;                /**< Maximum size of USB bulk in transfer. If set to 0, the MPS of the IN endpoint will be used */
-    cdc_acm_host_dev_callback_t event_cb; /**< Device's event callback function. Can be NULL */
-    cdc_acm_data_callback_t data_cb;      /**< Device's data RX callback function. Can be NULL for write-only devices */
-    void *user_arg;                       /**< User's argument that will be passed to the callbacks */
+    uint32_t connection_timeout_ms;       /*!< Timeout for USB device connection in milliseconds. */
+    size_t out_buffer_size;               /*!< Maximum USB bulk OUT transfer size. Set to 0 for read-only devices.
+                                               Larger writes are split into multiple transfers. */
+    size_t in_buffer_size;                /*!< Maximum USB bulk IN transfer size. If set to 0, the IN endpoint MPS
+                                               is used. */
+    cdc_acm_host_dev_callback_t event_cb; /*!< Device event callback. Can be NULL. */
+    cdc_acm_data_callback_t data_cb;      /*!< Data RX callback. Can be NULL for write-only devices. */
+    void *user_arg;                       /*!< User argument passed to both callbacks. */
 } cdc_acm_host_device_config_t;

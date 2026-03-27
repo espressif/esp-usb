@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2020-2023 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2020-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -13,54 +13,71 @@
 extern "C" {
 #endif
 
+/**
+ * @brief Maximum VFS path length, including the terminating null byte.
+ */
 #define VFS_TUSB_MAX_PATH 16
+
+/**
+ * @brief Default VFS path used for TinyUSB CDC registration.
+ */
 #define VFS_TUSB_PATH_DEFAULT "/dev/tusb_cdc"
 
 /**
- * @brief Register TinyUSB CDC at VFS with path
+ * @brief Register a TinyUSB CDC interface in VFS.
  *
- * Know limitation:
- * In case there are multiple CDC interfaces in the system, only one of them can be registered to VFS.
+ * Only one TinyUSB CDC interface can be registered in VFS at a time.
  *
- * @param[in] cdc_intf Interface number of TinyUSB's CDC
- * @param[in] path     Path where the CDC will be registered, `/dev/tusb_cdc` will be used if left NULL.
- * @return esp_err_t ESP_OK or ESP_FAIL
+ * @param[in] cdc_intf TinyUSB CDC interface number.
+ * @param[in] path VFS path to register. Set to NULL to use
+ *                 VFS_TUSB_PATH_DEFAULT.
+ *
+ * @return
+ *      - ESP_OK on success
+ *      - ESP_ERR_INVALID_STATE if the selected CDC interface is not initialized
+ *      - ESP_ERR_INVALID_ARG if `path` is too long
+ *      - Other error codes from VFS registration
  */
 esp_err_t esp_vfs_tusb_cdc_register(int cdc_intf, char const *path);
 
 /**
- * @brief Unregister TinyUSB CDC from VFS
+ * @brief Unregister a TinyUSB CDC interface from VFS.
  *
- * @param[in] path Path where the CDC will be unregistered if NULL will be used `/dev/tusb_cdc`
- * @return esp_err_t ESP_OK or ESP_FAIL
+ * @param[in] path VFS path to unregister. Set to NULL to use
+ *                 VFS_TUSB_PATH_DEFAULT.
+ *
+ * @return
+ *      - ESP_OK on success
+ *      - ESP_ERR_INVALID_ARG if `path` does not match the registered TinyUSB VFS path
+ *      - Other error codes from VFS unregistration
  */
 esp_err_t esp_vfs_tusb_cdc_unregister(char const *path);
 
 /**
- * @brief Set the line endings to sent
+ * @brief Set the transmitted line ending conversion mode.
  *
- * This specifies the conversion between newlines ('\n', LF) on stdout and line
- * endings sent:
+ * This controls how newline characters (`\n`) written to stdout are converted
+ * before they are sent over the TinyUSB CDC VFS stream:
  *
  * - ESP_LINE_ENDINGS_CRLF: convert LF to CRLF
  * - ESP_LINE_ENDINGS_CR: convert LF to CR
  * - ESP_LINE_ENDINGS_LF: no modification
  *
- * @param[in] mode line endings to send
+ * @param[in] mode Line ending conversion mode.
  */
 void esp_vfs_tusb_cdc_set_tx_line_endings(esp_line_endings_t mode);
 
 /**
- * @brief Set the line endings expected to be received
+ * @brief Set the received line ending conversion mode.
  *
- * This specifies the conversion between line endings received and
- * newlines ('\n', LF) passed into stdin:
+ * This controls how line endings received from the TinyUSB CDC VFS stream are
+ * converted before they are passed to stdin as newline characters (`\n`):
  *
  * - ESP_LINE_ENDINGS_CRLF: convert CRLF to LF
  * - ESP_LINE_ENDINGS_CR: convert CR to LF
  * - ESP_LINE_ENDINGS_LF: no modification
  *
- * @param[in] mode line endings expected
+ * @param[in] mode Line ending conversion mode.
  */
 void esp_vfs_tusb_cdc_set_rx_line_endings(esp_line_endings_t mode);
 

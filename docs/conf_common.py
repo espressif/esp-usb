@@ -13,6 +13,7 @@ from esp_docs.conf_docs import *  # noqa: F403,F401
 extensions += [  # Needed as a trigger for running doxygen
                'esp_docs.esp_extensions.dummy_build_system',
                'esp_docs.esp_extensions.run_doxygen',
+               'kconfig_reference',
                'sphinx_reredirects'
                ]
 # Languages supported

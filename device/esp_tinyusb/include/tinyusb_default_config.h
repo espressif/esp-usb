@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2025-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -14,26 +14,24 @@
 extern "C" {
 #endif
 
+/** @cond INTERNAL */
 #define GET_CONFIG_MACRO(dummy, arg1, arg2, arg3, name, ...)    name
 
-/**
- * @brief Default TinyUSB Driver configuration structure initializer
- *
- * Default port:
- * - ESP32P4:       USB OTG 2.0 (High-speed)
- * - ESP32S2/S3:    USB OTG 1.1 (Full-speed)
- *
- * Default size:
- * - 4096 bytes
- * Default priority:
- * - 5
- *
- * Default task affinity:
- * - Multicore:     CPU1
- * - Unicore:       CPU0
- *
- */
+#define TINYUSB_CONFIG_INVALID(...)              static_assert(false, "Too many arguments for TINYUSB_DEFAULT_CONFIG")
+/** @endcond */
 
+/**
+ * @brief Initialize a TinyUSB driver configuration with target defaults.
+ *
+ * Supported invocations are:
+ * - `TINYUSB_DEFAULT_CONFIG()`
+ * - `TINYUSB_DEFAULT_CONFIG(event_cb)`
+ * - `TINYUSB_DEFAULT_CONFIG(event_cb, event_arg)`
+ *
+ * The default port is `TINYUSB_PORT_HIGH_SPEED_0` on ESP32-P4 and
+ * `TINYUSB_PORT_FULL_SPEED_0` on other supported targets. The default task
+ * settings come from TINYUSB_TASK_DEFAULT().
+ */
 #define TINYUSB_DEFAULT_CONFIG(...)              GET_CONFIG_MACRO(, ##__VA_ARGS__, \
                                                                     TINYUSB_CONFIG_INVALID,    \
                                                                     TINYUSB_CONFIG_EVENT_ARG,  \
@@ -41,8 +39,7 @@ extern "C" {
                                                                     TINYUSB_CONFIG_NO_ARG      \
                                                                 )(__VA_ARGS__)
 
-#define TINYUSB_CONFIG_INVALID(...)              static_assert(false, "Too many arguments for TINYUSB_DEFAULT_CONFIG")
-
+/** @cond INTERNAL */
 #if CONFIG_IDF_TARGET_ESP32P4
 #define TINYUSB_CONFIG_NO_ARG()                  TINYUSB_CONFIG_HIGH_SPEED(NULL, NULL)
 #define TINYUSB_CONFIG_EVENT(event_hdl)          TINYUSB_CONFIG_HIGH_SPEED(event_hdl, NULL)
@@ -52,18 +49,40 @@ extern "C" {
 #define TINYUSB_CONFIG_EVENT(event_hdl)          TINYUSB_CONFIG_FULL_SPEED(event_hdl, NULL)
 #define TINYUSB_CONFIG_EVENT_ARG(event_hdl, arg) TINYUSB_CONFIG_FULL_SPEED(event_hdl, arg)
 #endif
+/** @endcond */
 
+/**
+ * @brief Default TinyUSB task affinity.
+ *
+ * The default task runs on CPU0 in unicore builds and CPU1 in multicore
+ * builds.
+ */
 #if CONFIG_FREERTOS_UNICORE
 #define TINYUSB_DEFAULT_TASK_AFFINITY  (0U)
 #else
 #define TINYUSB_DEFAULT_TASK_AFFINITY  (1U)
 #endif // CONFIG_FREERTOS_UNICORE
 
-// Default size for task stack used in TinyUSB task creation
+/**
+ * @brief Default TinyUSB task stack size in bytes.
+ */
 #define TINYUSB_DEFAULT_TASK_SIZE      4096
-// Default priority for task used in TinyUSB task creation
+
+/**
+ * @brief Default TinyUSB task priority.
+ */
 #define TINYUSB_DEFAULT_TASK_PRIO      5
 
+/**
+ * @brief Initialize a full-speed TinyUSB driver configuration.
+ *
+ * The resulting initializer uses the default PHY settings, default task
+ * settings from TINYUSB_TASK_DEFAULT(), and empty descriptor pointers so the
+ * stack can fall back to built-in defaults when available.
+ *
+ * @param event_hdl Event callback assigned to tinyusb_config_t.event_cb.
+ * @param arg User argument assigned to tinyusb_config_t.event_arg.
+ */
 #define TINYUSB_CONFIG_FULL_SPEED(event_hdl, arg)       \
     (tinyusb_config_t) {                                \
         .port = TINYUSB_PORT_FULL_SPEED_0,              \
@@ -85,6 +104,16 @@ extern "C" {
         .event_arg = (arg),                             \
     }
 
+/**
+ * @brief Initialize a high-speed TinyUSB driver configuration.
+ *
+ * The resulting initializer uses the default PHY settings, default task
+ * settings from TINYUSB_TASK_DEFAULT(), and empty descriptor pointers so the
+ * stack can fall back to built-in defaults when available.
+ *
+ * @param event_hdl Event callback assigned to tinyusb_config_t.event_cb.
+ * @param arg User argument assigned to tinyusb_config_t.event_arg.
+ */
 #define TINYUSB_CONFIG_HIGH_SPEED(event_hdl, arg)       \
     (tinyusb_config_t) {                                \
         .port = TINYUSB_PORT_HIGH_SPEED_0,              \
@@ -106,6 +135,9 @@ extern "C" {
         .event_arg = (arg),                             \
     }
 
+/**
+ * @brief Initialize a TinyUSB task configuration with default values.
+ */
 #define TINYUSB_TASK_DEFAULT()                          \
     (tinyusb_task_config_t) {                           \
         .size = TINYUSB_DEFAULT_TASK_SIZE,              \
@@ -114,13 +146,11 @@ extern "C" {
     }
 
 /**
- * @brief TinyUSB Task configuration structure initializer
+ * @brief Initialize a custom TinyUSB task configuration.
  *
- * This macro is used to create a custom TinyUSB Task configuration structure.
- *
- * @param s Stack size of the task
- * @param p Task priority
- * @param a Task affinity (CPU core)
+ * @param s Task stack size in bytes.
+ * @param p Task priority.
+ * @param a Task affinity.
  */
 #define TINYUSB_TASK_CUSTOM(s, p, a)                    \
     (tinyusb_task_config_t) {                           \

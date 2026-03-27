@@ -35,8 +35,8 @@ The Host Library has the following features:
     - Allows multiple class drivers to run simultaneously, i.e., multiple clients of the Host Library.
     - A single device can be used by multiple clients simultaneously, e.g., composite devices.
     - The Host Library itself and the underlying Host Stack does not internally instantiate any OS tasks. The number of tasks is entirely controlled by how the Host Library interface is used. However, a general rule of thumb regarding the number of tasks is ``(the number of host class drivers running + 1)``.
-    - Allows single Hub support (If option `CONFIG_USB_HOST_HUBS_SUPPORTED` is enabled).
-    - Allows multiple Hubs support (If option `CONFIG_USB_HOST_HUB_MULTI_LEVEL` is enabled).
+    - Allows single Hub support (If option :ref:`CONFIG_USB_HOST_HUBS_SUPPORTED` is enabled).
+    - Allows multiple Hubs support (If option :ref:`CONFIG_USB_HOST_HUB_MULTI_LEVEL` is enabled).
     - Supports global suspend and resume, implemented by suspending or resuming the entire bus.
     - Supports remote wakeup of the USB Host initiated by a USB Device
     - Supports automatic global resume by submitting a transfer.
@@ -105,7 +105,7 @@ Therefore, in addition to the client tasks, the Host Library also requires a tas
 Devices
 ^^^^^^^
 
-The Host Library shields clients from the details of device handling, encompassing details such as connection, memory allocation, and enumeration. The clients are provided only with a list of already connected and enumerated devices to choose from. By default during enumeration, each device is automatically configured to use the first configuration found, namely, the first configuration descriptor returned on a Get Configuration Descriptor request. For most standard devices, the first configuration will have a ``bConfigurationValue`` of ``1``. If option  `CONFIG_USB_HOST_ENABLE_ENUM_FILTER_CALLBACK` is enabled, a different ``bConfigurationValue`` can be selected, see `Multiple Configuration Support`_ for more details.
+The Host Library shields clients from the details of device handling, encompassing details such as connection, memory allocation, and enumeration. The clients are provided only with a list of already connected and enumerated devices to choose from. By default during enumeration, each device is automatically configured to use the first configuration found, namely, the first configuration descriptor returned on a Get Configuration Descriptor request. For most standard devices, the first configuration will have a ``bConfigurationValue`` of ``1``. If option :ref:`CONFIG_USB_HOST_ENABLE_ENUM_FILTER_CALLBACK` is enabled, a different ``bConfigurationValue`` can be selected, see `Multiple Configuration Support`_ for more details.
 
 It is possible for two or more clients to simultaneously communicate with the same device as long as they are not communicating to the same interface. However, multiple clients can simultaneously communicate with the same device's default endpoint (i.e., EP0), which will result in their control transfers being serialized.
 
@@ -660,12 +660,12 @@ The figure above shows all the delay values associated with both turning on port
 
     For more details regarding connection event timings, please refer to `USB 2.0 Specification <https://www.usb.org/document-library/usb-20-specification>`_ > Chapter 7.1.7.3 *Connect and Disconnect Signaling*.
 
-Configurable parameters of the USB host stack can be configured with multiple options via Menuconfig.
+Configurable parameters of the USB host stack can be configured with multiple options via menuconfig.
 
-* For debounce delay, refer to `CONFIG_USB_HOST_DEBOUNCE_DELAY_MS`.
-* For reset hold interval, refer to `CONFIG_USB_HOST_RESET_HOLD_MS`.
-* For reset recovery interval, refer to `CONFIG_USB_HOST_RESET_RECOVERY_MS`.
-* For ``SetAddress()`` recovery interval, refer to `CONFIG_USB_HOST_SET_ADDR_RECOVERY_MS`.
+* For debounce delay, refer to :ref:`CONFIG_USB_HOST_DEBOUNCE_DELAY_MS`.
+* For reset hold interval, refer to :ref:`CONFIG_USB_HOST_RESET_HOLD_MS`.
+* For reset recovery interval, refer to :ref:`CONFIG_USB_HOST_RESET_RECOVERY_MS`.
+* For ``SetAddress()`` recovery interval, refer to :ref:`CONFIG_USB_HOST_SET_ADDR_RECOVERY_MS`.
 
 Downstream Port Configuration
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -678,19 +678,19 @@ Each external Hub has a Hub Descriptor which describes the device characteristic
 
     For detailed information about Hub Descriptor, please refer to `USB 2.0 Specification <https://www.usb.org/document-library/usb-20-specification>`_ > Chapter 11.23.2.1 *Hub Descriptor*.
 
-Configurable parameters of the downstream port can be configured with multiple options via Menuconfig.
+Configurable parameters of the downstream port can be configured with multiple options via menuconfig.
 
-* For custom value to stabilize the power after powering on the port (PwrOn2PwrGood value), refer to `CONFIG_USB_HOST_EXT_PORT_CUSTOM_POWER_ON_DELAY_MS`.
-* For reset recovery interval, refer to `CONFIG_USB_HOST_EXT_PORT_RESET_RECOVERY_DELAY_MS`.
+* For custom value to stabilize the power after powering on the port (PwrOn2PwrGood value), refer to :ref:`CONFIG_USB_HOST_EXT_PORT_CUSTOM_POWER_ON_DELAY_MS`.
+* For reset recovery interval, refer to :ref:`CONFIG_USB_HOST_EXT_PORT_RESET_RECOVERY_DELAY_MS`.
 
 .. note::
 
-    The specification claims, that for a hub with no power switches, PwrOn2PwrGood must be set to zero. Meanwhile, for some devices, this value could be increased to give extra time for device to power-up. To enable this feature, refer to `CONFIG_USB_HOST_EXT_PORT_CUSTOM_POWER_ON_DELAY_ENABLE`.
+    The specification claims, that for a hub with no power switches, PwrOn2PwrGood must be set to zero. Meanwhile, for some devices, this value could be increased to give extra time for device to power-up. To enable this feature, refer to :ref:`CONFIG_USB_HOST_EXT_PORT_CUSTOM_POWER_ON_DELAY_ENABLE`.
 
 Host Channels
 """""""""""""
 
-When external Hubs support feature is enabled (`CONFIG_USB_HOST_HUBS_SUPPORTED`), the amount of Host channels plays important role, as each downstream device requires vacant channel.
+When external Hubs support feature is enabled (:ref:`CONFIG_USB_HOST_HUBS_SUPPORTED`), the amount of Host channels plays an important role, as each downstream device requires a vacant channel.
 
 To handle each attached device, different amount of channels are required. This amount does depend on the device class (EPs number).
 
@@ -716,7 +716,7 @@ The enumeration filter is a callback function of type :cpp:type:`usb_host_enum_f
 * Select the configuration of the USB device.
 * Filter which USB devices should be enumerated.
 
-To use the enumeration filter, users should enable the `CONFIG_USB_HOST_ENABLE_ENUM_FILTER_CALLBACK` option using menuconfig. Users can specify the callback by setting :cpp:member:`usb_host_config_t::enum_filter_cb` which is then passed to the Host Library when calling :cpp:func:`usb_host_install`.
+To use the enumeration filter, enable :ref:`CONFIG_USB_HOST_ENABLE_ENUM_FILTER_CALLBACK` in menuconfig. Users can specify the callback by setting :cpp:member:`usb_host_config_t::enum_filter_cb`, which is then passed to the Host Library when calling :cpp:func:`usb_host_install`.
 
 .. -------------------------------------------------- API Reference ----------------------------------------------------
 
@@ -757,6 +757,13 @@ Header File
 .. code:: bash
 
     idf.py add-dependency usb
+
+Kconfig Reference
+-----------------
+
+The generated Kconfig reference below documents the available host-stack options from ``host/usb/Kconfig``.
+
+.. include-build-file:: inc/usb_host_kconfig.inc
 
 .. ------------------------------------------------ Maintainers Notes --------------------------------------------------
 

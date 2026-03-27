@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2022-2023 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2022-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -13,45 +13,44 @@ extern "C" {
 #endif
 
 /**
- * @brief HID Subclass
+ * @brief HID subclass codes.
  *
  * @see 4.2 Subclass, p.8 of Device Class Definition for Human Interface Devices (HID) Version 1.11
  */
 typedef enum {
-    HID_SUBCLASS_NO_SUBCLASS = 0x00,
-    HID_SUBCLASS_BOOT_INTERFACE = 0x01
+    HID_SUBCLASS_NO_SUBCLASS = 0x00,   /*!< No HID subclass is used. */
+    HID_SUBCLASS_BOOT_INTERFACE = 0x01 /*!< Boot Interface subclass. */
 } __attribute__((packed)) hid_subclass_t;
 
 /**
- * @brief HID Protocols
+ * @brief HID protocol codes.
  *
  * @see 4.3 Protocols, p.9 of Device Class Definition for Human Interface Devices (HID) Version 1.11
  */
 typedef enum {
-    HID_PROTOCOL_NONE = 0x00,
-    HID_PROTOCOL_KEYBOARD = 0x01,
-    HID_PROTOCOL_MOUSE = 0x02,
-    HID_PROTOCOL_MAX
+    HID_PROTOCOL_NONE = 0x00,      /*!< No boot protocol is associated with the interface. */
+    HID_PROTOCOL_KEYBOARD = 0x01,  /*!< Keyboard boot protocol. */
+    HID_PROTOCOL_MOUSE = 0x02,     /*!< Mouse boot protocol. */
+    HID_PROTOCOL_MAX               /*!< Number of supported protocol identifiers. */
 } __attribute__((packed)) hid_protocol_t;
 
 /**
- * @brief HID Descriptor
+ * @brief HID descriptor.
  *
  * @see 6.2.1 HID Descriptor, p.22 of Device Class Definition for Human Interface Devices (HID) Version 1.11
  */
 typedef struct {
-    uint8_t bLength;                        // Numeric expression that is the total size of the HID descriptor
-    uint8_t bDescriptorType;                // Constant name specifying type of HID descriptor
-    uint16_t bcdHID;                        // Numeric expression identifying the HIDClass Specification release
-    uint8_t bCountryCode;                   // Numeric expression identifying country code of the localized hardware
-    uint8_t bNumDescriptors;                // Numeric expression specifying the number of class descriptors (always at least one i.e. Report descriptor.)
-    uint8_t bReportDescriptorType;          // Constant name identifying type of class descriptor. See Section 7.1.2: Set_Descriptor Request for a table of class descriptor constants
-    uint16_t wReportDescriptorLength;       // Numeric expression that is the total size of the Report descriptor
-    // Optional descriptors may follow further
+    uint8_t bLength;                  /*!< Total size of this HID descriptor in bytes. */
+    uint8_t bDescriptorType;          /*!< Descriptor type value for the HID descriptor. */
+    uint16_t bcdHID;                  /*!< HID specification release number in binary-coded decimal. */
+    uint8_t bCountryCode;             /*!< Country code of the localized hardware, if any. */
+    uint8_t bNumDescriptors;          /*!< Number of class descriptors that follow this header. */
+    uint8_t bReportDescriptorType;    /*!< Descriptor type of the first class descriptor. */
+    uint16_t wReportDescriptorLength; /*!< Total size of the report descriptor in bytes. */
 } __attribute__((packed)) hid_descriptor_t;
 
 /**
- * @brief HID Country Codes
+ * @brief HID country codes.
  *
  * @see 6.2.1 HID Descriptor, p.23 of Device Class Definition for Human Interface Devices (HID) Version 1.11
  */
@@ -96,50 +95,50 @@ typedef enum {
 } __attribute__((packed)) hid_country_code_t;
 
 /**
- * @brief HID Class Descriptor Types
+ * @brief HID class descriptor types.
  *
  * @see 7.1, p.49 of Device Class Definition for Human Interface Devices (HID) Version 1.11
  */
 typedef enum {
-    HID_CLASS_DESCRIPTOR_TYPE_HID = 0x21,
-    HID_CLASS_DESCRIPTOR_TYPE_REPORT = 0x22,
-    HID_CLASS_DESCRIPTOR_TYPE_PHYSICAL = 0x23
+    HID_CLASS_DESCRIPTOR_TYPE_HID = 0x21,      /*!< HID descriptor type. */
+    HID_CLASS_DESCRIPTOR_TYPE_REPORT = 0x22,   /*!< Report descriptor type. */
+    HID_CLASS_DESCRIPTOR_TYPE_PHYSICAL = 0x23  /*!< Physical descriptor type. */
 } __attribute__((packed)) hid_class_descritpor_type_t;
 
 /**
- * @brief HID Class-Specific Requests
+ * @brief HID class-specific request codes.
  *
  * @see 7.2, p.50 of Device Class Definition for Human Interface Devices (HID) Version 1.11
  */
 typedef enum {
-    HID_CLASS_SPECIFIC_REQ_GET_REPORT = 0x01,
-    HID_CLASS_SPECIFIC_REQ_GET_IDLE = 0x02,
-    HID_CLASS_SPECIFIC_REQ_GET_PROTOCOL = 0x03,
-    HID_CLASS_SPECIFIC_REQ_SET_REPORT = 0x09,
-    HID_CLASS_SPECIFIC_REQ_SET_IDLE = 0x0A,
-    HID_CLASS_SPECIFIC_REQ_SET_PROTOCOL = 0x0B
+    HID_CLASS_SPECIFIC_REQ_GET_REPORT = 0x01,   /*!< Get_Report request. */
+    HID_CLASS_SPECIFIC_REQ_GET_IDLE = 0x02,     /*!< Get_Idle request. */
+    HID_CLASS_SPECIFIC_REQ_GET_PROTOCOL = 0x03, /*!< Get_Protocol request. */
+    HID_CLASS_SPECIFIC_REQ_SET_REPORT = 0x09,   /*!< Set_Report request. */
+    HID_CLASS_SPECIFIC_REQ_SET_IDLE = 0x0A,     /*!< Set_Idle request. */
+    HID_CLASS_SPECIFIC_REQ_SET_PROTOCOL = 0x0B  /*!< Set_Protocol request. */
 } __attribute__((packed)) hid_class_specific_req_t;
 
 /**
- * @brief HID Report Types
+ * @brief HID report types.
  *
  * @see 7.2.1, p.51 of Device Class Definition for Human Interface Devices (HID) Version 1.11
  */
 typedef enum {
-    HID_REPORT_TYPE_INPUT = 0x01,
-    HID_REPORT_TYPE_OUTPUT = 0x02,
-    HID_REPORT_TYPE_FEATURE = 0x03,
+    HID_REPORT_TYPE_INPUT = 0x01,   /*!< Input report. */
+    HID_REPORT_TYPE_OUTPUT = 0x02,  /*!< Output report. */
+    HID_REPORT_TYPE_FEATURE = 0x03, /*!< Feature report. */
 } __attribute__((packed)) hid_report_type_t;
 
 /**
- * @brief HID Report protocol
+ * @brief HID report protocol selector.
  *
  * @see 7.2.5/7.2.6, p.54 of Device Class Definition for Human Interface Devices (HID) Version 1.11
  */
 typedef enum {
-    HID_REPORT_PROTOCOL_BOOT = 0x00,
-    HID_REPORT_PROTOCOL_REPORT = 0x01,
-    HID_REPORT_PROTOCOL_MAX
+    HID_REPORT_PROTOCOL_BOOT = 0x00,   /*!< Boot protocol. */
+    HID_REPORT_PROTOCOL_REPORT = 0x01, /*!< Report protocol. */
+    HID_REPORT_PROTOCOL_MAX            /*!< Number of supported protocol selectors. */
 } __attribute__((packed)) hid_report_protocol_t;
 
 #ifdef __cplusplus
