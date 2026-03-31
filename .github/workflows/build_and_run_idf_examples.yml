@@ -50,6 +50,8 @@ jobs:
           ]
     runs-on: ubuntu-latest
     container: espressif/idf:${{ matrix.idf_ver }}
+    permissions:
+      pull-requests: read
     env:
       CONFIG_PATH: ${{ github.workspace }}/.github/ci/.idf_build_examples_config.toml
       MANIFEST_PATH: ${{ github.workspace }}/.github/ci/.idf-build-examples-rules.yml
