@@ -164,7 +164,7 @@ jobs:
         - /dev/bus/usb:/dev/bus/usb
     steps:
       - uses: actions/checkout@v5
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         continue-on-error: true
         id: download_artifact
         with:
