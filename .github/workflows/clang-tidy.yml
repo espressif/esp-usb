@@ -47,7 +47,7 @@ jobs:
           export PATH=$PWD:$PATH
           ./clang-tidy-sarif -o results.sarif.raw warnings.txt
           python3 $GITHUB_WORKSPACE/.github/filter_sarif.py -o results.sarif --include-prefix ${GITHUB_WORKSPACE}/ results.sarif.raw
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           path: |
             warnings.txt

@@ -154,7 +154,7 @@ jobs:
           idf-build-apps find --config-file ${CONFIG_PATH} --manifest-file ${MANIFEST_PATH}
           idf-build-apps build --config-file ${CONFIG_PATH} --manifest-file ${MANIFEST_PATH}
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         # Upload build files, pytest files and sdkconfig files
         with:
           name: usb_examples_bin_${{ matrix.idf_ver }}
