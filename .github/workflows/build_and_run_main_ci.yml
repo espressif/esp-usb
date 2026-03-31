@@ -38,7 +38,7 @@ jobs:
     outputs:
       all_changed_files: ${{ steps.set-output.outputs.all_changed_files }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         if: needs.check-label.outputs.has_label != 'true'
       - name: Get changed files
         if: needs.check-label.outputs.has_label != 'true'

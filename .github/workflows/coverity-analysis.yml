@@ -13,7 +13,7 @@ jobs:
     outputs:
       run_analysis: ${{ steps.run_analysis.outputs.run_analysis }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Print latest commit
         run: echo ${{ github.sha }}
 
@@ -39,7 +39,7 @@ jobs:
           apt-get update -y
           apt-get install -y --no-install-recommends file wget curl
       - name: Checkout esp-usb
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Download Coverity
         env:
