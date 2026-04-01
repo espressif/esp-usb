@@ -58,7 +58,7 @@ jobs:
     runs-on: ubuntu-latest
     container: espressif/idf:${{ matrix.idf_ver }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           submodules: 'true'
       - name: Build USB Test Application
@@ -90,7 +90,7 @@ jobs:
           else
             echo "build_artifacts_exist=false" >> $GITHUB_OUTPUT
           fi
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         if: steps.check_build_artifacts.outputs.build_artifacts_exist == 'true'
         with:
           name: usb_${{ matrix.test_app }}_test_app_bin_${{ matrix.idf_ver }}
@@ -163,8 +163,8 @@ jobs:
       volumes:
         - /dev/bus/usb:/dev/bus/usb
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v7
         continue-on-error: true
         id: download_artifact
         with:

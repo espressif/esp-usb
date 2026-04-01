@@ -50,19 +50,21 @@ jobs:
           ]
     runs-on: ubuntu-latest
     container: espressif/idf:${{ matrix.idf_ver }}
+    permissions:
+      pull-requests: read
     env:
       CONFIG_PATH: ${{ github.workspace }}/.github/ci/.idf_build_examples_config.toml
       MANIFEST_PATH: ${{ github.workspace }}/.github/ci/.idf-build-examples-rules.yml
       EXAMPLES_PATH: ${{ github.workspace }}  # Will be set-up in "Setup IDF Examples path" step
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           submodules: "true"
       - name: Install Python deps
         shell: bash
         run: |
           . ${IDF_PATH}/export.sh
-          pip install idf-component-manager>=2.1.2 idf-build-apps==2.13.3 pyyaml --upgrade
+          pip install --no-cache-dir idf-build-apps==2.13.3 pyyaml --upgrade
       - name: Setup IDF Examples path
         run: echo "EXAMPLES_PATH=${IDF_PATH}/examples/peripherals/usb" >> $GITHUB_ENV
       - name: Override device component
@@ -152,7 +154,7 @@ jobs:
           idf-build-apps find --config-file ${CONFIG_PATH} --manifest-file ${MANIFEST_PATH}
           idf-build-apps build --config-file ${CONFIG_PATH} --manifest-file ${MANIFEST_PATH}
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         # Upload build files, pytest files and sdkconfig files
         with:
           name: usb_examples_bin_${{ matrix.idf_ver }}
@@ -211,7 +213,7 @@ jobs:
         env:
           PIP_EXTRA_INDEX_URL: "https://dl.espressif.com/pypi/"
         run: pip install --no-cache-dir --only-binary cryptography pytest-embedded pytest-embedded-serial-esp pytest-embedded-idf pyserial pyusb netifaces idf-ci pytest-ignore-test-results
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           name: usb_examples_bin_${{ matrix.idf_ver }}
           path: ${{ env.EXAMPLES_PATH }}
