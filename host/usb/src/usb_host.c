@@ -541,6 +541,12 @@ static void auto_suspend_timer_cb(TimerHandle_t xTimer)
  *
  * usb_host_lib_root_port_suspend() only starts the suspend pipeline; root_port_suspended becomes
  * true after HCD_PORT_CMD_SUSPEND completes (see hub root_port_req PORT_REQ_SUSPEND).
+ *
+ * @param[in] timeout_ticks Max time to wait for root port to suspend, in FreeRTOS ticks
+ *
+ * @return
+ *    - ESP_OK: Root port is suspended
+ *    - ESP_ERR_TIMEOUT: Timed out waiting for root port to suspend
  */
 static esp_err_t wait_until_root_port_suspended(TickType_t timeout_ticks)
 {
@@ -551,7 +557,6 @@ static esp_err_t wait_until_root_port_suspended(TickType_t timeout_ticks)
             return ESP_OK;
         }
         if ((xTaskGetTickCount() - start) >= timeout_ticks) {
-            ESP_LOGE(USB_HOST_TAG, "Timed out waiting for root port suspend before light sleep");
             return ESP_ERR_TIMEOUT;
         }
         vTaskDelay(10);
@@ -560,21 +565,45 @@ static esp_err_t wait_until_root_port_suspended(TickType_t timeout_ticks)
 
 /**
  * @brief Callback function to enter light sleep event
+ *
+ * - The function is called when the system is about to enter light sleep
+ * - The function suspends the root port and the devices connected to it to lower power consumption during light sleep
+ * - The function waits until the root port is suspended before allowing the system to enter light sleep
+ *
+ * @param[in] user_arg User argument, not used
+ * @param[in] ext_arg External argument, not used
+ * @return
+ *    - ESP_OK: Root port successfully suspended, can enter light sleep
+ *    - ESP_ERR_TIMEOUT: Timed out waiting for root port to suspend
+ *    - Other error codes from usb_host_lib_root_port_suspend()
  */
 static esp_err_t enter_light_sleep(void *user_arg, void *ext_arg)
 {
     ESP_EARLY_LOGD(USB_HOST_TAG, "Enter light sleep cb");
-    ESP_ERROR_CHECK(usb_host_lib_root_port_suspend());
-    return wait_until_root_port_suspended(pdMS_TO_TICKS(USB_HOST_LIGHT_SLEEP_SUSPEND_WAIT_MS));
+    ESP_RETURN_ON_ERROR(usb_host_lib_root_port_suspend(), USB_HOST_TAG, "Failed to suspend root port before light sleep");
+    ESP_RETURN_ON_ERROR(
+        wait_until_root_port_suspended(pdMS_TO_TICKS(USB_HOST_LIGHT_SLEEP_SUSPEND_WAIT_MS)),
+        USB_HOST_TAG, "Timed out waiting for root port suspend before light sleep");
+    return ESP_OK;
 }
 
 /**
  * @brief Callback function for exit light sleep event
+ *
+ * - The function is called when the system wakes up from light sleep
+ * - The function resumes the root port and the devices connected to it
+ *   to restore normal operation after waking up from light sleep
+ *
+ * @param[in] user_arg User argument
+ * @param[in] ext_arg External argument
+ * @return
+ *    - ESP_OK: Root port successfully resumed, normal operation restored after light sleep
+ *    - Other error codes from usb_host_lib_root_port_resume()
  */
 static esp_err_t exit_light_sleep(void *user_arg, void *ext_arg)
 {
     ESP_EARLY_LOGD(USB_HOST_TAG, "Exit light sleep cb");
-    ESP_ERROR_CHECK(usb_host_lib_root_port_resume());
+    ESP_RETURN_ON_ERROR(usb_host_lib_root_port_resume(), USB_HOST_TAG, "Failed to resume root port after light sleep");
     return ESP_OK;
 }
 

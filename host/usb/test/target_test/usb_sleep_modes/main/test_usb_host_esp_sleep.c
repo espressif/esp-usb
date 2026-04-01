@@ -165,6 +165,93 @@ TEST_CASE("Test USB Host light sleep", "[usb_sleep_modes][light_sleep]")
     usb_host_sleep_common(ESP_SLEEP_MODE_LIGHT_SLEEP);
 }
 
+
+static void light_sleep_enter_task_error(void *args)
+{
+    // Configure timer wakeup source
+    TEST_ASSERT_EQUAL(ESP_OK, esp_sleep_enable_timer_wakeup(TIMER_LIGHT_SLEEP_WAKEUP_TIME_US));
+    ESP_LOGI(USB_SLEEP_TAG, "Light sleep timer wakeup source is ready");
+
+    // Wait for the device to be connected
+    TEST_ASSERT_EQUAL_MESSAGE(pdTRUE, ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(2000)), "Device was not connected on time");
+
+    // Device is connected, wait for the enumeration
+    vTaskDelay(10);
+
+    // Manually suspend the root port before entering light sleep to test error handing of the light sleep callbacks
+    TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_root_port_suspend());
+
+    // Wait for the root port suspend procedure to complete before entering light sleep
+    vTaskDelay(100);
+
+    // Get timestamp before entering sleep
+    const int64_t t_before_us = esp_timer_get_time();
+
+    // Enter light sleep mode
+    TEST_ASSERT_EQUAL(ESP_OK, esp_light_sleep_start());
+
+    // Get timestamp after waking up from sleep
+    const int64_t t_after_us = esp_timer_get_time();
+
+    // Determine wake up reason
+    const uint32_t wakeup_cause = esp_sleep_get_wakeup_causes();
+    TEST_ASSERT(wakeup_cause & BIT(ESP_SLEEP_WAKEUP_TIMER));
+    TEST_ASSERT_INT_WITHIN_MESSAGE(
+        TIMER_LIGHT_SLEEP_WAKEUP_TIME_US / 10,
+        TIMER_LIGHT_SLEEP_WAKEUP_TIME_US,
+        t_after_us - t_before_us,
+        "Unexpected light sleep duration");
+    printf("Returned from light sleep, reason: timer, t=%lld ms, slept for %lld ms\n", t_after_us / 1000, (t_after_us - t_before_us) / 1000);
+
+    // Wait for the resume procedure to complete before freeing the device
+    vTaskDelay(100);
+    // Free all devices and finish the test
+    TEST_ASSERT_EQUAL(ESP_ERR_NOT_FINISHED, usb_host_device_free_all());
+    vTaskDelete(NULL);
+}
+
+/*
+Test USB Host light sleep error handling
+
+Purpose:
+- Test light sleep callback error behavior
+
+Procedure:
+    - Manually suspend the root port before entering light sleep
+    - SoC enters light sleep
+    - Root port suspend is called before entering the light sleep, but root port is already suspended
+    - Callback function returns error, but light sleep should still proceed as normal
+    - SoC is woken up by a timer
+    - Root port resume is called after exiting the light sleep
+*/
+TEST_CASE("Test USB Host enter light sleep error handling", "[usb_sleep_modes][light_sleep]")
+{
+    TaskHandle_t sleep_task_hdl = NULL;
+
+    TEST_ASSERT_EQUAL(pdTRUE, xTaskCreate(light_sleep_enter_task_error, "light_sleep_enter_task_error", 4096, NULL, 2, &sleep_task_hdl));
+    TEST_ASSERT_NOT_NULL(sleep_task_hdl);
+
+    // Handle device connection separately
+    uint32_t event_flags_device_conn;
+    TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_handle_events(pdMS_TO_TICKS(2000), &event_flags_device_conn));
+
+    xTaskNotifyGive(sleep_task_hdl);
+
+    while (1) {
+        uint32_t event_flags;
+        usb_host_lib_handle_events(portMAX_DELAY, &event_flags);
+
+        if (event_flags & USB_HOST_LIB_EVENT_FLAGS_NO_CLIENTS) {
+            TEST_FAIL_MESSAGE("No clients for this test");
+        }
+        if (event_flags & USB_HOST_LIB_EVENT_FLAGS_ALL_FREE) {
+            printf("All devices free\n");
+            break;
+        }
+    }
+}
+
+
 /**
  * @brief Deep sleep test case stage 1
  *
