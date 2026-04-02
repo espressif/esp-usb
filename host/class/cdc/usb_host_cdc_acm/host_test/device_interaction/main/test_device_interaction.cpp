@@ -184,6 +184,7 @@ static void _set_remote_wakeup(cdc_acm_dev_hdl_t *dev, uint8_t address)
 
 SCENARIO("Invalid custom command")
 {
+    Mockusb_host_Init();
     _add_mocked_devices();
 
     GIVEN("Mocked device is opened") {
@@ -224,6 +225,7 @@ SCENARIO("Invalid custom command")
 
 SCENARIO("Interact with mocked USB devices")
 {
+    Mockusb_host_Init();
     // We put the device adding to the SECTION, to run it just once, not repeatedly for all the following SECTIONs
     SECTION("Add mocked devices") {
 
@@ -423,6 +425,7 @@ SCENARIO("Interact with mocked USB devices")
 
 SCENARIO("TinyUSB serial")
 {
+    Mockusb_host_Init();
     GIVEN("CDC driver installed") {
         _add_mocked_devices();
         REQUIRE(ESP_OK == test_cdc_acm_host_install(nullptr));
