@@ -91,6 +91,7 @@ static cdc_func_array_t *cdc_parse_functional_descriptors(const usb_intf_desc_t 
         }
         func_desc_cnt++;
     }
+    *desc_cnt = func_desc_cnt;
 
     // Allocate memory for the functional descriptors pointers
     cdc_func_array_t *func_desc = malloc(func_desc_cnt * (sizeof(usb_standard_desc_t *)));
@@ -106,7 +107,6 @@ static cdc_func_array_t *cdc_parse_functional_descriptors(const usb_intf_desc_t 
         cdc_desc = (const usb_standard_desc_t *)usb_parse_next_descriptor(cdc_desc, total_len, &intf_offset);
         (*func_desc)[i] = cdc_desc;
     }
-    *desc_cnt = func_desc_cnt;
     return func_desc;
 }
 
@@ -143,6 +143,10 @@ esp_err_t cdc_parse_interface_descriptor(const usb_device_desc_t *device_desc, c
     if (cdc_compliant) {
         info_ret->notif_intf = first_intf_desc; // We make sure that intf_desc is set for CDC compliant devices that use EP0 as notification element
         info_ret->func = cdc_parse_functional_descriptors(first_intf_desc, config_desc->wTotalLength, desc_offset, &info_ret->func_cnt);
+        if (info_ret->func == NULL && info_ret->func_cnt > 0) {
+            // There are CDC specific descriptors, but we failed to allocate memory for them
+            return ESP_ERR_NO_MEM;
+        }
     }
 
     if (!info_ret->data_intf && cdc_compliant) {
