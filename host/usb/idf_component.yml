@@ -12,6 +12,7 @@ dependencies:
 targets:
   - esp32s2
   - esp32s3
+  - esp32s31
   - esp32p4
   - esp32h4
   - linux

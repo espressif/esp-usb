@@ -89,7 +89,7 @@ Hardware Configuration
 
 The DWC_OTG IP is configurable. The notable host related configurations of the {IDF_TARGET_NAME}'s DWC_OTG are listed below:
 
-.. only:: esp32p4
+.. only:: esp32s31 or esp32p4
 
     .. list-table:: {IDF_TARGET_NAME}'s DWC_OTG Configuration
         :widths: 70 30

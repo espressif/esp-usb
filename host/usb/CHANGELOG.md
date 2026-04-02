@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- Add ESP32-S31 to supported targets
+
 ### Fixed
 
 - Fixed possible out-of-bounds read in `usb_parse_next_descriptor()` in case of malicious Configuration descriptor
