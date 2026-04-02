@@ -16,6 +16,7 @@ from pathlib import Path
 _TARGET_SYMBOLS = {
     'esp32s2': 'IDF_TARGET_ESP32S2',
     'esp32s3': 'IDF_TARGET_ESP32S3',
+    'esp32s31': 'IDF_TARGET_ESP32S31',
     'esp32p4': 'IDF_TARGET_ESP32P4',
     'esp32h4': 'IDF_TARGET_ESP32H4',
 }
@@ -125,7 +126,7 @@ def generate_reference(app, _config):
         extra_symbols={
             'SOC_USB_OTG_SUPPORTED': True,
             'IDF_EXPERIMENTAL_FEATURES': False,
-            'SPIRAM': target == 'esp32p4',
+            'SPIRAM': target in ('esp32p4', 'esp32s31'),
         },
     )
 

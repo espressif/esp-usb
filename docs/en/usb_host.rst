@@ -1,7 +1,7 @@
 USB Host
 ========
 
-{IDF_TARGET_OTG_NUM_HOST_CHAN: default="8", esp32p4="16"}
+{IDF_TARGET_OTG_NUM_HOST_CHAN: default="8", esp32s31="16", esp32p4="16"}
 
 The document provides information regarding the USB Host Library. This document is split into the following sections:
 
@@ -28,9 +28,9 @@ The Host Library has the following features:
 .. list::
 
     :esp32s2 or esp32s3 or esp32h4: - Supports Full Speed (FS) and Low Speed (LS) Devices.
-    :esp32p4: - Supports High Speed (HS), Full Speed (FS) and Low Speed (LS) Devices.
+    :esp32s31 or esp32p4: - Supports High Speed (HS), Full Speed (FS) and Low Speed (LS) Devices.
     - Supports all four transfer types: Control, Bulk, Interrupt, and Isochronous.
-    :esp32p4: - Supports High-Bandwidth Isochronous endpoints.
+    :esp32s31 or esp32p4: - Supports High-Bandwidth Isochronous endpoints.
     :esp32p4: - {IDF_TARGET_NAME} has two USB 2.0 OTG controllers: one High-Speed and one Full-Speed. Each controller can operate as a USB host independently, so either one alone or both together can function as USB hosts simultaneously.
     - Allows multiple class drivers to run simultaneously, i.e., multiple clients of the Host Library.
     - A single device can be used by multiple clients simultaneously, e.g., composite devices.
@@ -52,7 +52,7 @@ Currently, the Host Library and the underlying Host Stack has the following limi
     - The External Hub Driver: Remote Wakeup feature is not supported (External Hubs are active, even if there are no devices inserted).
     - The External Hub Driver: Doesn't handle error cases (overcurrent handling, errors during initialization etc. are not implemented yet).
     - The External Hub Driver: No Interface selection. The Driver uses the first available Interface with Hub Class code (09h).
-    :esp32p4: - The External Hub Driver: No Transaction Translator layer (No FS/LS Devices support when a Hub is attached to HS Host).
+    :esp32s31 or esp32p4: - The External Hub Driver: No Transaction Translator layer (No FS/LS Devices support when a Hub is attached to HS Host).
 
 
 .. -------------------------------------------------- Architecture -----------------------------------------------------

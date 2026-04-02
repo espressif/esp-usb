@@ -20,7 +20,7 @@ extensions += [  # Needed as a trigger for running doxygen
 languages = ['en']
 
 # Project targets (used as URL slugs)
-idf_targets = ['esp32s2', 'esp32s3', 'esp32p4', 'esp32h4']
+idf_targets = ['esp32s2', 'esp32s3', 'esp32s31', 'esp32p4', 'esp32h4']
 
 # Default redirects map; will be updated in setup once config values are available.
 redirects = {}
