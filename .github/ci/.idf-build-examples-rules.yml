@@ -21,3 +21,7 @@ examples/peripherals/usb/host/uvc:
       reason: Run UVC example starts using UVC driver 2.0 only on IDF version 5.5
   disable:
     - if: SOC_USB_OTG_SUPPORTED != 1
+
+examples/network/sta2eth:
+  disable:
+    - if: SOC_USB_OTG_SUPPORTED != 1 or SOC_WIFI_SUPPORTED != 1
