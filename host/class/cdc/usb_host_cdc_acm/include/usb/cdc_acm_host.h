@@ -23,6 +23,11 @@
  */
 #define CDC_HOST_ANY_PID (0)
 
+/**
+ * @brief Match any USB device address when opening a CDC device.
+ */
+#define CDC_HOST_ANY_DEV_ADDR (0)
+
 // For backward compatibility with IDF versions which do not have suspend/resume api
 #ifdef USB_HOST_LIB_EVENT_FLAGS_AUTO_SUSPEND
 #define CDC_HOST_SUSPEND_RESUME_API_SUPPORTED
@@ -35,9 +40,13 @@ extern "C" {
 /**
  * @brief New USB device callback.
  *
- * Provides an already opened `usb_dev`, which is closed again after this callback
- * returns. This is useful for inspecting the device descriptors, such as the VID
- * and PID, before selecting a driver.
+ * Registered with `cdc_acm_host_install()` (`cdc_acm_host_driver_config_t::new_dev_cb`) or
+ * `cdc_acm_host_register_new_dev_callback()`. The host stack opens `usb_dev` for the
+ * callback and closes it again when the callback returns; the handle is only valid during
+ * the call. Use it to read descriptors (for example with `usb_host_get_device_descriptor()`)
+ * or to get more information about the device with `usb_host_device_info()` before choosing
+ * how to open the device—for example filling `cdc_acm_host_open_config_t::dev_addr`
+ * when several devices share the same VID and PID.
  *
  * @param[in] usb_dev Open USB device handle valid for the duration of the callback.
  *
@@ -105,15 +114,23 @@ esp_err_t cdc_acm_host_uninstall(void);
 esp_err_t cdc_acm_host_register_new_dev_callback(cdc_acm_new_dev_callback_t new_dev_cb);
 
 /**
- * @brief Open a CDC-ACM device.
+ * @internal Implementation detail for `cdc_acm_host_open`; not public API.
  *
- * The driver first looks for CDC-compliant descriptors. If none are found, it
- * falls back to interfaces that expose two bulk endpoints suitable for data
- * transfers.
- *
- * Use `CDC_HOST_ANY_VID` and `CDC_HOST_ANY_PID` when the vendor or product ID
- * does not matter. In that case, the first matching USB device is opened. This
- * is recommended only when at most one USB device can be present.
+ * @param[in] open_config Open configuration structure.
+ * @param[out] cdc_hdl_ret Returned CDC device handle.
+ * @return
+ *      - ESP_OK on success
+ *      - ESP_ERR_INVALID_STATE if the CDC-ACM host driver is not installed
+ *      - ESP_ERR_INVALID_ARG if `open_config` or `cdc_hdl_ret` is NULL
+ *      - ESP_ERR_NO_MEM if there is not enough memory to open the device
+ *      - ESP_ERR_NOT_FOUND if no matching USB device or interface is found
+ *      - Other error codes from interface parsing or device initialization
+ */
+esp_err_t cdc_acm_host_open_v2(const cdc_acm_host_open_config_t *open_config,
+                               cdc_acm_dev_hdl_t *cdc_hdl_ret);
+
+/**
+ * @internal Implementation detail for `cdc_acm_host_open`; not public API.
  *
  * @param[in] vid Device vendor ID, or `CDC_HOST_ANY_VID` to match any vendor ID.
  * @param[in] pid Device product ID, or `CDC_HOST_ANY_PID` to match any
@@ -131,36 +148,62 @@ esp_err_t cdc_acm_host_register_new_dev_callback(cdc_acm_new_dev_callback_t new_
  *      - ESP_ERR_NOT_FOUND if no matching USB device or interface is found
  *      - Other error codes from interface parsing or device initialization
  */
-esp_err_t cdc_acm_host_open(uint16_t vid, uint16_t pid, uint8_t interface_idx,
-                            const cdc_acm_host_device_config_t *dev_config,
-                            cdc_acm_dev_hdl_t *cdc_hdl_ret);
+esp_err_t cdc_acm_host_open_v1_dispatch(uint16_t vid, uint16_t pid, uint8_t interface_idx,
+                                        const cdc_acm_host_device_config_t *dev_config,
+                                        cdc_acm_dev_hdl_t *cdc_hdl_ret);
 
+#if !defined(__cplusplus) || defined(__DOXYGEN__)
 /**
- * @brief Backward-compatible alias for cdc_acm_host_open().
+ * @brief Open a CDC-ACM device (C).
+ * @hideinitializer
  *
- * @deprecated Use cdc_acm_host_open() instead.
+ * Primary entry point in C. Implemented as a macro using `_Generic` on the type of the first argument.
  *
- * @param[in] vid Device vendor ID.
- * @param[in] pid Device product ID.
- * @param[in] interface_num Device interface index.
- * @param[in] dev_config Device configuration structure.
- * @param[out] cdc_hdl_ret Returned CDC device handle.
+ * **Form 1 — open with @ref cdc_acm_host_open_config_t (USB address-aware)**
+ * First argument is `cdc_acm_host_open_config_t *` or `const cdc_acm_host_open_config_t *`.
+ * Second argument is `cdc_acm_dev_hdl_t *` (out; receives the handle on success).
+ * Use this when you must select among several devices that share the same VID/PID (set `dev_addr`, or
+ * `CDC_HOST_ANY_DEV_ADDR` to accept any address). Fill timeouts, buffer sizes, and callbacks in the same struct.
+ *
+ * **Form 2 — legacy open by VID, PID, and interface**
+ * First argument is `uint16_t` vendor ID, then `uint16_t` product ID, `uint8_t` interface index,
+ * `const cdc_acm_host_device_config_t *`, and `cdc_acm_dev_hdl_t *`.
+ * Use `CDC_HOST_ANY_VID` / `CDC_HOST_ANY_PID` when the ID does not matter; the first matching device is used
+ * (only appropriate when a single matching device is expected).
+ *
+ * The driver first looks for CDC-compliant descriptors. If none are found, it falls back to interfaces
+ * that expose two bulk endpoints suitable for data transfers.
+ *
+ * @param[in] arg1 Form 1: pointer to @ref cdc_acm_host_open_config_t. Form 2: device vendor ID (`uint16_t`).
+ * @param[in] ... Form 1: `cdc_acm_dev_hdl_t *cdc_hdl_ret` (output; receives the CDC handle on success).
+ *            Form 2: `uint16_t pid`, `uint8_t interface_idx`, `const cdc_acm_host_device_config_t *dev_config`,
+ *            and `cdc_acm_dev_hdl_t *cdc_hdl_ret` (output handle).
  *
  * @return
  *      - ESP_OK on success
  *      - ESP_ERR_INVALID_STATE if the CDC-ACM host driver is not installed
- *      - ESP_ERR_INVALID_ARG if `dev_config` or `cdc_hdl_ret` is NULL
+ *      - ESP_ERR_INVALID_ARG if a required pointer argument is NULL (including `dev_config` in Form 2)
  *      - ESP_ERR_NO_MEM if there is not enough memory to open the device
  *      - ESP_ERR_NOT_FOUND if no matching USB device or interface is found
  *      - Other error codes from interface parsing or device initialization
  */
-static inline esp_err_t cdc_acm_host_open_vendor_specific(uint16_t vid, uint16_t pid,
-                                                          uint8_t interface_num,
-                                                          const cdc_acm_host_device_config_t *dev_config,
-                                                          cdc_acm_dev_hdl_t *cdc_hdl_ret)
-{
-    return cdc_acm_host_open(vid, pid, interface_num, dev_config, cdc_hdl_ret);
-}
+#define cdc_acm_host_open(arg1, ...) \
+    _Generic((arg1), \
+        cdc_acm_host_open_config_t *: cdc_acm_host_open_v2, \
+        const cdc_acm_host_open_config_t *: cdc_acm_host_open_v2, \
+        default: cdc_acm_host_open_v1_dispatch \
+    )(arg1, ##__VA_ARGS__)
+#endif
+
+/**
+ * @brief Open a CDC-like device that is not fully CDC-ACM compliant (legacy helper macro).
+ * @hideinitializer
+ *
+ * Same behavior as the legacy Form 2 of cdc_acm_host_open with arguments
+ * `(vid, pid, interface_num, dev_config, cdc_hdl_ret)`.
+ */
+#define cdc_acm_host_open_vendor_specific(vid, pid, interface_num, dev_config, cdc_hdl_ret) \
+    cdc_acm_host_open_v1_dispatch(vid, pid, interface_num, dev_config, cdc_hdl_ret)
 
 /**
  * @brief Close a CDC device and release its resources.
@@ -299,6 +342,24 @@ esp_err_t cdc_acm_host_enable_remote_wakeup(cdc_acm_dev_hdl_t cdc_hdl, bool enab
 
 #ifdef __cplusplus
 }
+
+/**
+ * @internal C++ overloads mirror the C `cdc_acm_host_open` macro; omitted from public API reference.
+ */
+static inline esp_err_t cdc_acm_host_open(const cdc_acm_host_open_config_t *open_config,
+                                          cdc_acm_dev_hdl_t *cdc_hdl_ret)
+{
+    return cdc_acm_host_open_v2(open_config, cdc_hdl_ret);
+}
+
+/** @internal */
+static inline esp_err_t cdc_acm_host_open(uint16_t vid, uint16_t pid, uint8_t interface_idx,
+                                          const cdc_acm_host_device_config_t *dev_config,
+                                          cdc_acm_dev_hdl_t *cdc_hdl_ret)
+{
+    return cdc_acm_host_open_v1_dispatch(vid, pid, interface_idx, dev_config, cdc_hdl_ret);
+}
+
 class CdcAcmDevice {
 public:
     // Operators
@@ -316,14 +377,19 @@ public:
         return cdc_acm_host_data_tx_blocking(this->cdc_hdl, data, len, timeout_ms);
     }
 
+    inline esp_err_t open(const cdc_acm_host_open_config_t *open_config)
+    {
+        return cdc_acm_host_open_v2(open_config, &this->cdc_hdl);
+    }
+
     inline esp_err_t open(uint16_t vid, uint16_t pid, uint8_t interface_idx, const cdc_acm_host_device_config_t *dev_config)
     {
-        return cdc_acm_host_open(vid, pid, interface_idx, dev_config, &this->cdc_hdl);
+        return cdc_acm_host_open_v1_dispatch(vid, pid, interface_idx, dev_config, &this->cdc_hdl);
     }
 
     inline esp_err_t open_vendor_specific(uint16_t vid, uint16_t pid, uint8_t interface_idx, const cdc_acm_host_device_config_t *dev_config)
     {
-        return cdc_acm_host_open(vid, pid, interface_idx, dev_config, &this->cdc_hdl);
+        return cdc_acm_host_open_v1_dispatch(vid, pid, interface_idx, dev_config, &this->cdc_hdl);
     }
 
     inline esp_err_t close()
