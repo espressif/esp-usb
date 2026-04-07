@@ -465,28 +465,36 @@ static void cdc_acm_transfers_free(cdc_dev_t *cdc_dev)
     assert(cdc_dev);
     if (cdc_dev->notif.xfer != NULL) {
         usb_host_transfer_free(cdc_dev->notif.xfer);
+        cdc_dev->notif.xfer = NULL;
     }
     if (cdc_dev->data.in_xfer != NULL) {
         cdc_acm_reset_in_transfer(cdc_dev);
         usb_host_transfer_free(cdc_dev->data.in_xfer);
+        cdc_dev->data.in_xfer = NULL;
     }
     if (cdc_dev->data.out_xfer != NULL) {
         if (cdc_dev->data.out_xfer->context != NULL) {
             vSemaphoreDelete((SemaphoreHandle_t)cdc_dev->data.out_xfer->context);
+            cdc_dev->data.out_xfer->context = NULL;
         }
         if (cdc_dev->data.out_mux != NULL) {
             vSemaphoreDelete(cdc_dev->data.out_mux);
+            cdc_dev->data.out_mux = NULL;
         }
         usb_host_transfer_free(cdc_dev->data.out_xfer);
+        cdc_dev->data.out_xfer = NULL;
     }
     if (cdc_dev->ctrl_transfer != NULL) {
         if (cdc_dev->ctrl_transfer->context != NULL) {
             vSemaphoreDelete((SemaphoreHandle_t)cdc_dev->ctrl_transfer->context);
+            cdc_dev->ctrl_transfer->context = NULL;
         }
         if (cdc_dev->ctrl_mux != NULL) {
             vSemaphoreDelete(cdc_dev->ctrl_mux);
+            cdc_dev->ctrl_mux = NULL;
         }
         usb_host_transfer_free(cdc_dev->ctrl_transfer);
+        cdc_dev->ctrl_transfer = NULL;
     }
 }
 

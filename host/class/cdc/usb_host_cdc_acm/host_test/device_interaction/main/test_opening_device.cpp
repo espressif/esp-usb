@@ -18,6 +18,7 @@ extern "C" {
 
 SCENARIO("Test mocked device opening and closing")
 {
+    Mockusb_host_Init();
     usb_host_mock_dev_list_init();
     SECTION("Fail to open CDC-ACM Device: CDC-ACM Host is not installed") {
         REQUIRE(ESP_ERR_INVALID_STATE == cdc_acm_host_open(0, 0, 0, nullptr, nullptr));
@@ -38,7 +39,7 @@ SCENARIO("Test mocked device opening and closing")
 
         cdc_acm_dev_hdl_t dev = nullptr;
         // Define input parameters for cdc_acm_host_open
-        // VID, PID, interface index and IN EP of the added cp120x device
+        // VID, PID, interface index and IN EP of the added cp210x device
         const uint16_t vid = 0x10C4, pid = 0xEA60;
         const uint8_t interface_index = 0;
         const uint8_t in_ep = 0x82;
@@ -126,6 +127,81 @@ SCENARIO("Test mocked device opening and closing")
         }
 
         // Uninstall CDC-ACM driver
+        REQUIRE(ESP_OK == test_cdc_acm_host_uninstall());
+    }
+}
+
+/**
+ * @brief Test usb_host_transfer_alloc() failures
+ *
+ * CH340 exposes an interrupt notification endpoint plus bulk IN/OUT, so cdc_acm_transfers_allocate()
+ * calls usb_host_transfer_alloc() in this order: notification, control, bulk IN, bulk OUT.
+ *
+ * Test how the driver reacts to ESP_ERR_NO_MEM from usb_host_transfer_alloc()
+ */
+SCENARIO("Test usb_host_transfer_alloc() failures")
+{
+    Mockusb_host_Init();
+    usb_host_mock_dev_list_init();
+
+    GIVEN("CDC driver is installed and USB host is mocked without transfer alloc stub") {
+        REQUIRE(ESP_OK == test_cdc_acm_host_install(nullptr));
+
+        usb_host_device_addr_list_fill_Stub(usb_host_device_addr_list_fill_mock_callback);
+        usb_host_device_open_Stub(usb_host_device_open_mock_callback);
+        usb_host_get_device_descriptor_Stub(usb_host_get_device_descriptor_mock_callback);
+        usb_host_device_close_Stub(usb_host_device_close_mock_callback);
+        usb_host_get_active_config_descriptor_Stub(usb_host_get_active_config_descriptor_mock_callback);
+        // Deliberately no usb_host_transfer_alloc_Stub / usb_host_transfer_free_Stub: use CMock expectations below.
+
+        const uint16_t vid = 0x1A86;
+        const uint16_t pid = 0x7523;
+        const uint8_t interface_index = 0;
+        cdc_acm_host_device_config_t dev_config = {
+            .connection_timeout_ms = 1,
+            .out_buffer_size = 64,
+            .in_buffer_size = 64,
+            .event_cb = nullptr,
+            .data_cb = nullptr,
+            .user_arg = nullptr,
+        };
+
+        REQUIRE(ESP_OK == usb_host_mock_add_device(5, (const usb_device_desc_t *)ch340_device_desc,
+                                                   (const usb_config_desc_t *)ch340_config_desc));
+
+
+        // Fake transfers to return from usb_host_transfer_alloc
+        usb_transfer_t xfer0{};
+        usb_transfer_t xfer1{};
+        usb_transfer_t xfer2{};
+        usb_transfer_t *ptr[3] = { &xfer0, &xfer1, &xfer2 };
+
+        // CH340 allocates 4 transfers: notification, control, bulk IN, bulk OUT
+        // Test reaction of failure of all of them
+        for (int i = 0; i < 4; i++) {
+            SECTION("Failing to allocate transfer " + std::to_string(i + 1) + " of 4") {
+                // First i transfer allocations should succeed
+                for (int j = 0; j < i; j++) {
+                    usb_host_transfer_alloc_ExpectAnyArgsAndReturn(ESP_OK);
+                    usb_host_transfer_alloc_ReturnThruPtr_transfer(&ptr[j]);
+                }
+
+                // Last transfer allocation should fail
+                usb_host_transfer_alloc_ExpectAnyArgsAndReturn(ESP_ERR_NO_MEM);
+
+                // All allocated transfers should be freed
+                for (int j = 0; j < i; j++) {
+                    usb_host_transfer_free_ExpectAnyArgsAndReturn(ESP_OK);
+                }
+
+                usb_host_device_close_ExpectAnyArgsAndReturn(ESP_OK);
+
+                cdc_acm_dev_hdl_t dev = nullptr;
+                REQUIRE(ESP_ERR_NO_MEM == cdc_acm_host_open(vid, pid, interface_index, &dev_config, &dev));
+                REQUIRE(dev == nullptr);
+            }
+        }
+
         REQUIRE(ESP_OK == test_cdc_acm_host_uninstall());
     }
 }
