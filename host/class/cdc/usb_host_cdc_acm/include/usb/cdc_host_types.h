@@ -93,3 +93,22 @@ typedef struct {
     cdc_acm_data_callback_t data_cb;      /*!< Data RX callback. Can be NULL for write-only devices. */
     void *user_arg;                       /*!< User argument passed to both callbacks. */
 } cdc_acm_host_device_config_t;
+
+/**
+ * @brief CDC-ACM host open configuration.
+ */
+typedef struct {
+    uint16_t vid;                         /*!< Device vendor ID, or CDC_HOST_ANY_VID to match any vendor ID. */
+    uint16_t pid;                         /*!< Device product ID, or CDC_HOST_ANY_PID to match any product ID. */
+    uint8_t interface_idx;                /*!< Device interface index used for CDC-ACM communication. */
+    uint8_t dev_addr;                     /*!< USB device address to select, or CDC_HOST_ANY_DEV_ADDR to match any. */
+
+    uint32_t connection_timeout_ms;       /*!< Timeout for USB device connection in milliseconds. */
+    size_t out_buffer_size;               /*!< Maximum USB bulk OUT transfer size. Set to 0 for read-only devices.
+                                               Larger writes are split into multiple transfers. */
+    size_t in_buffer_size;                /*!< Maximum USB bulk IN transfer size. If set to 0, the IN endpoint MPS
+                                               is used. */
+    cdc_acm_host_dev_callback_t event_cb; /*!< Device event callback. Can be NULL. */
+    cdc_acm_data_callback_t data_cb;      /*!< Data RX callback. Can be NULL for write-only devices. */
+    void *user_arg;                       /*!< User argument passed to both callbacks. */
+} cdc_acm_host_open_config_t;

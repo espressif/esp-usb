@@ -9,6 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Added
 
 - Added remote wakeup feature
+- Added option to open a CDC device with specific USB address
 
 ## [2.3.0] - 2026-01-23
 
