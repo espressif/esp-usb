@@ -1,6 +1,6 @@
 # USB Host HID (Human Interface Device) Driver
 
-[![Component Registry](https://components.espressif.com/components/espressif/usb_host_hid/badge.svg)](https://components.espressif.com/components/espressif/usb_host_hid)
+[![Component Registry](https://components.espressif.com/components/espressif/usb_host_hid/badge.svg)](https://components.espressif.com/components/espressif/usb_host_hid) ![maintenance-status](https://img.shields.io/badge/maintenance-passively--maintained-yellowgreen.svg) ![changelog](https://img.shields.io/badge/Keep_a_Changelog-blue?logo=keepachangelog&logoColor=E05735)
 
 This directory contains an implementation of a USB HID Driver implemented on top of the [USB Host Library](https://components.espressif.com/components/espressif/usb).
 
