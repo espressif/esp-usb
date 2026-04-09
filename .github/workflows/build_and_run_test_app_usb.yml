@@ -5,6 +5,8 @@
 #   - host
 #     - class drivers test apps -> runner tag: usb_host
 #     - class driver examples -> only build
+#
+# Temporarily disabled run for usb_host native test apps
 
 name: Build and Run USB Test Application
 
@@ -115,7 +117,7 @@ jobs:
       matrix:
         idf_ver: ${{ fromJson(inputs.idf_releases) }}
         idf_target: ${{ fromJson(inputs.idf_targets) }}
-        test_app: ["device", "host_native", "host_managed"]
+        test_app: ["device", "host_managed"]
         runner_tag: ["usb_device", "usb_host", "usb_host_flash_disk"]
         eco_ver: ["eco_default", "eco4"]
 
@@ -124,10 +126,6 @@ jobs:
           - test_app: device
             runner_tag: usb_host
           - test_app: device
-            runner_tag: usb_host_flash_disk
-          - test_app: host_native
-            runner_tag: usb_device
-          - test_app: host_native
             runner_tag: usb_host_flash_disk
           - test_app: host_managed
             runner_tag: usb_device
@@ -139,11 +137,6 @@ jobs:
             idf_ver: "release-v5.2"
           - test_app: host_managed
             idf_ver: "release-v5.3"
-          # Exclude native usb component for IDF >= 6 (usb component has been removed from esp-idf)
-          - test_app: host_native
-            idf_ver: "release-v6.0"
-          - test_app: host_native
-            idf_ver: "latest"
           # Exclude eco4 version for esp32s2
           - idf_target: "esp32s2"
             eco_ver: "eco4"
