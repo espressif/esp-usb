@@ -87,7 +87,7 @@ extern "C" {
 
 #define CFG_TUD_ENABLED                 1       // TinyUSB Device enabled
 
-#if (CONFIG_IDF_TARGET_ESP32P4)
+#if (CONFIG_IDF_TARGET_ESP32P4) || (CONFIG_IDF_TARGET_ESP32S31)
 #define CFG_TUD_MAX_SPEED               OPT_MODE_HIGH_SPEED
 #else
 #define CFG_TUD_MAX_SPEED               OPT_MODE_FULL_SPEED
@@ -105,13 +105,14 @@ extern "C" {
 // DMA Mode has a priority over Slave/IRQ mode and will be used if hardware supports it
 #define CFG_TUD_DWC2_DMA_ENABLE     1       // Enable DMA
 
-#if CONFIG_CACHE_L1_CACHE_LINE_SIZE
+#if CONFIG_CACHE_L1_CACHE_LINE_SIZE && CONFIG_SOC_CACHE_INTERNAL_MEM_VIA_L1CACHE
 // To enable the dcd_dcache clean/invalidate/clean_invalidate calls
 #   define CFG_TUD_MEM_DCACHE_ENABLE    1
 #define CFG_TUD_MEM_DCACHE_LINE_SIZE    CONFIG_CACHE_L1_CACHE_LINE_SIZE
 // NOTE: starting with esp-idf v5.3 there is specific attribute present: DRAM_DMA_ALIGNED_ATTR
 #   define CFG_TUSB_MEM_SECTION         __attribute__((aligned(CONFIG_CACHE_L1_CACHE_LINE_SIZE))) DRAM_ATTR
 #else
+#   define CFG_TUD_MEM_DCACHE_ENABLE    0
 #   define CFG_TUD_MEM_CACHE_ENABLE     0
 #   define CFG_TUSB_MEM_SECTION         TU_ATTR_ALIGNED(4) DRAM_ATTR
 #endif // CONFIG_CACHE_L1_CACHE_LINE_SIZE

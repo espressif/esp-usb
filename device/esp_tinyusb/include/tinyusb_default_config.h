@@ -40,7 +40,16 @@ extern "C" {
                                                                 )(__VA_ARGS__)
 
 /** @cond INTERNAL */
-#if CONFIG_IDF_TARGET_ESP32P4
+// Helper: default high-speed port index.
+// Multi-port chips (e.g. ESP32-P4) have a dedicated HS port enum value.
+// Single-port HS-only chips (e.g. ESP32-S31) use port 0 which is inherently HS.
+#if (SOC_USB_OTG_PERIPH_NUM > 1)
+#define TINYUSB_PORT_DEFAULT_HS  TINYUSB_PORT_HIGH_SPEED_0
+#else
+#define TINYUSB_PORT_DEFAULT_HS  TINYUSB_PORT_FULL_SPEED_0
+#endif
+
+#if CONFIG_IDF_TARGET_ESP32P4 || CONFIG_IDF_TARGET_ESP32S31
 #define TINYUSB_CONFIG_NO_ARG()                  TINYUSB_CONFIG_HIGH_SPEED(NULL, NULL)
 #define TINYUSB_CONFIG_EVENT(event_hdl)          TINYUSB_CONFIG_HIGH_SPEED(event_hdl, NULL)
 #define TINYUSB_CONFIG_EVENT_ARG(event_hdl, arg) TINYUSB_CONFIG_HIGH_SPEED(event_hdl, arg)
@@ -116,7 +125,7 @@ extern "C" {
  */
 #define TINYUSB_CONFIG_HIGH_SPEED(event_hdl, arg)       \
     (tinyusb_config_t) {                                \
-        .port = TINYUSB_PORT_HIGH_SPEED_0,              \
+        .port = TINYUSB_PORT_DEFAULT_HS,                \
         .phy = {                                        \
             .skip_setup = false,                        \
             .self_powered = false,                      \

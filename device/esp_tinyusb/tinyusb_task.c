@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2025-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -131,7 +131,12 @@ esp_err_t tinyusb_task_start(tinyusb_port_t port, const tinyusb_task_config_t *c
     task_ctx->handle = NULL;                                    // TinyUSB task is not started
     task_ctx->rhport = port;                                    // Peripheral port number
     task_ctx->rhport_init.role = TUSB_ROLE_DEVICE;              // Role selection: esp_tinyusb is always a device
-    task_ctx->rhport_init.speed = (port == TINYUSB_PORT_FULL_SPEED_0) ? TUSB_SPEED_FULL : TUSB_SPEED_HIGH; // Speed selection
+    // Speed selection: ESP32-S31 is HS-only single-port chip
+#if CONFIG_IDF_TARGET_ESP32S31
+    task_ctx->rhport_init.speed = TUSB_SPEED_HIGH;
+#else
+    task_ctx->rhport_init.speed = (port == TINYUSB_PORT_FULL_SPEED_0) ? TUSB_SPEED_FULL : TUSB_SPEED_HIGH;
+#endif
     task_ctx->desc_cfg = desc_cfg;
 
     TaskHandle_t task_hdl = NULL;
