@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2020-2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2020-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -203,10 +203,16 @@ esp_err_t tinyusb_descriptors_set(tinyusb_port_t port, const tinyusb_desc_config
         s_desc_cfg.fs_cfg = config->full_speed_config;
     }
 
-#if (SOC_USB_OTG_PERIPH_NUM > 1)
-    // High-speed configuration descriptor
-    if (port == TINYUSB_PORT_HIGH_SPEED_0) {
 #if (TUD_OPT_HIGH_SPEED)
+    // High-speed configuration descriptor setup
+    // Needed for multi-port chips (P4 HS port) and HS-only single-port chips (S31)
+#if (SOC_USB_OTG_PERIPH_NUM > 1)
+    if (port == TINYUSB_PORT_HIGH_SPEED_0) {
+#elif CONFIG_IDF_TARGET_ESP32S31
+    if (1) {
+#else
+    if (0) {
+#endif
         if (config->high_speed_config == NULL) {
 #if (CFG_TUD_CDC > 0 || CFG_TUD_MSC > 0 || CFG_TUD_NCM > 0)
             // We provide default config descriptors only for CDC, MSC and NCM classes
@@ -233,11 +239,10 @@ esp_err_t tinyusb_descriptors_set(tinyusb_port_t port, const tinyusb_desc_config
                                             ((tusb_desc_configuration_t *)s_desc_cfg.hs_cfg)->wTotalLength);
         s_desc_cfg.other_speed = calloc(1, other_speed_buf_size);
         ESP_GOTO_ON_FALSE(s_desc_cfg.other_speed, ESP_ERR_NO_MEM, fail, TAG, "Other speed memory allocation error");
-#endif // TUD_OPT_HIGH_SPEED
     } else {
         s_desc_cfg.hs_cfg = NULL;
     }
-#endif // (SOC_USB_OTG_PERIPH_NUM > 1)
+#endif // TUD_OPT_HIGH_SPEED
 
     // Select String Descriptors and count them
     if (config->string == NULL) {

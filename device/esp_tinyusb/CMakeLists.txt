@@ -50,17 +50,17 @@ if(CONFIG_TINYUSB_NET_MODE_NCM)
          )
 endif() # CONFIG_TINYUSB_NET_MODE_NCM
 
-# Software VBUS monitoring is available only on esp32p4
-if(${target} STREQUAL "esp32p4")
+# Software VBUS monitoring is needed for chips with HS USB-OTG peripheral
+if(${target} STREQUAL "esp32p4" OR ${target} STREQUAL "esp32s31")
     list(APPEND srcs "tinyusb_vbus_monitor.c")
 
-    # VBUS monitoring on ESP32-P4 requires GPIO driver
+    # VBUS monitoring requires GPIO driver
     if(IDF_VERSION VERSION_GREATER_EQUAL "5.3")
         list(APPEND priv_req esp_driver_gpio)
     else()
         list(APPEND priv_req driver)
     endif()
-endif() # esp32p4
+endif() # esp32p4/esp32s31
 
 idf_component_register(SRCS ${srcs}
                        INCLUDE_DIRS "include"
