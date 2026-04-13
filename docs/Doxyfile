@@ -45,6 +45,9 @@ INPUT                  = \
 
 WARN_NO_PARAMDOC = YES
 
+## Omit @internal comments and members from public API output
+INTERNAL_DOCS        = NO
+
 ## Enable preprocessing and remove __attribute__(...) expressions from the INPUT files
 ##
 ENABLE_PREPROCESSING   = YES
