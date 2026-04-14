@@ -567,24 +567,15 @@ static esp_err_t hid_host_device_disconnected(usb_device_handle_t dev_hdl)
     }
     HID_EXIT_CRITICAL();
 
-    // Before freeing hid_device: if any interface is still in the global list with
-    // its parent pointing at this device (because hid_host_device_close_disconnect()
-    // failed partway and could not remove the iface), null the parent so later list
-    // traversals do not dereference a freed hid_device_t (UAF).
-    HID_ENTER_CRITICAL();
-    hid_iface_t *orphan;
-    STAILQ_FOREACH(orphan, &s_hid_driver->hid_ifaces_tailq, tailq_entry) {
-        if (orphan->parent == hid_device) {
-            ESP_LOGW(TAG, "Iface %d left in list after failed close; clearing parent before device free",
-                     orphan->dev_params.iface_num);
-            orphan->parent = NULL;
-        }
-    }
-    HID_EXIT_CRITICAL();
-
     // Delete HID compliant device — must run even if an individual close above failed,
     // otherwise the device context is leaked and cannot be recovered without a
-    // physical re-plug of the USB device.
+    // physical re-plug of the USB device. Interfaces with a user callback remain
+    // in hid_ifaces_tailq in HID_INTERFACE_STATE_WAIT_USER_DELETION awaiting the
+    // user's second hid_host_device_close(); that is a normal state and must not
+    // be altered here. The best-effort path inside hid_host_device_close_impl()
+    // forces the state forward on disable/release failure, so by the time we reach
+    // this point any interface that still references hid_device is already either
+    // (a) owned by the user (WAIT_USER_DELETION) or (b) removed from the list.
     esp_err_t uninstall_err = hid_host_uninstall_device(hid_device);
     if (uninstall_err != ESP_OK) {
         ESP_LOGW(TAG, "Uninstall device failed on disconnect (continuing): %s",
@@ -1588,8 +1579,27 @@ static esp_err_t hid_host_device_close_impl(hid_host_device_handle_t hid_dev_han
             if (best_effort) {
                 ESP_LOGW(TAG, "Unable to release HID Interface on disconnect (continuing): %s",
                          esp_err_to_name(release_err));
-                // Fall through: we still want the state transition / user callback /
-                // list removal below to run so the iface is not orphaned.
+                // usb_host_interface_release() failed inside
+                // hid_host_interface_release_and_free_transfer(), which causes an
+                // early return there before the transfer buffer is freed. The
+                // iface struct itself is about to be freed by _hid_host_remove_interface()
+                // below, so we'd otherwise leak iface->in_xfer. Free it here so
+                // best-effort cleanup matches the leak-free invariant of the
+                // strict path.
+                if (hid_iface->in_xfer) {
+                    esp_err_t xfer_free_err = usb_host_transfer_free(hid_iface->in_xfer);
+                    if (xfer_free_err != ESP_OK) {
+                        ESP_LOGW(TAG, "Failed to free in_xfer on disconnect: %s",
+                                 esp_err_to_name(xfer_free_err));
+                    }
+                    hid_iface->in_xfer = NULL;
+                }
+                // Force state transition: release failed but iface must not stay
+                // in HID_INTERFACE_STATE_READY, otherwise a user second-close
+                // would re-enter this branch.
+                hid_iface->state = HID_INTERFACE_STATE_IDLE;
+                // Fall through to the state transition / user callback / list
+                // removal below so the iface is not orphaned.
             } else {
                 ret = release_err;
                 ESP_LOGE(TAG, "Unable to release HID Interface");
