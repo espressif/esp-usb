@@ -36,6 +36,7 @@ SCENARIO("Test mocked device opening and closing")
         usb_host_get_active_config_descriptor_Stub(usb_host_get_active_config_descriptor_mock_callback);
         usb_host_transfer_alloc_Stub(usb_host_transfer_alloc_mock_callback);
         usb_host_transfer_free_Stub(usb_host_transfer_free_mock_callback);
+        usb_host_device_info_Stub(usb_host_device_info_mock_callback);
 
         cdc_acm_dev_hdl_t dev = nullptr;
         // Define input parameters for cdc_acm_host_open
@@ -43,6 +44,7 @@ SCENARIO("Test mocked device opening and closing")
         const uint16_t vid = 0x10C4, pid = 0xEA60;
         const uint8_t interface_index = 0;
         const uint8_t in_ep = 0x82;
+        const uint8_t dev_addr = 5;
         cdc_acm_host_device_config_t dev_config = {
             .connection_timeout_ms = 1,   // Set small connection timeout, so the usb_host_device_addr_list_fill() is called only once
             .out_buffer_size = 100,
@@ -61,8 +63,26 @@ SCENARIO("Test mocked device opening and closing")
         }
 
         AND_GIVEN("Mocked device is added to the device list") {
-            REQUIRE(ESP_OK == usb_host_mock_add_device(5, (const usb_device_desc_t *)cp210x_device_desc,
+
+            REQUIRE(ESP_OK == usb_host_mock_add_device(dev_addr, (const usb_device_desc_t *)cp210x_device_desc,
                                                        (const usb_config_desc_t *)cp210x_config_desc));
+
+            SECTION("Incorrect USB device address") {
+                // Same VID/PID/interface as the mocked device, but dev_addr does not match address 5.
+                const cdc_acm_host_open_config_t open_cfg = {
+                    .vid = vid,
+                    .pid = pid,
+                    .interface_idx = interface_index,
+                    .dev_addr = dev_addr + 1,
+                    .connection_timeout_ms = dev_config.connection_timeout_ms,
+                    .out_buffer_size = dev_config.out_buffer_size,
+                    .in_buffer_size = dev_config.in_buffer_size,
+                    .event_cb = dev_config.event_cb,
+                    .data_cb = dev_config.data_cb,
+                    .user_arg = dev_config.user_arg,
+                };
+                REQUIRE(ESP_ERR_NOT_FOUND == cdc_acm_host_open(&open_cfg, &dev));
+            }
 
             SECTION("Incorrect VID") {
                 // USB device present, but incorrect VID is given
@@ -87,6 +107,59 @@ SCENARIO("Test mocked device opening and closing")
                 REQUIRE(ESP_ERR_NOT_FOUND == cdc_acm_host_open(CDC_HOST_ANY_VID, 0x1234, interface_index, &dev_config, &dev));
             }
 
+            SECTION("Open two devices with same VID PID and different USB address") {
+                const uint8_t dev_addr_b = 6;
+                REQUIRE(ESP_OK == usb_host_mock_add_device(dev_addr_b, (const usb_device_desc_t *)cp210x_device_desc,
+                                                           (const usb_config_desc_t *)cp210x_config_desc));
+
+                cdc_acm_dev_hdl_t dev_a = nullptr;
+                cdc_acm_dev_hdl_t dev_b = nullptr;
+                const cdc_acm_host_open_config_t open_cfg_a = {
+                    .vid = vid,
+                    .pid = pid,
+                    .interface_idx = interface_index,
+                    .dev_addr = dev_addr,
+                    .connection_timeout_ms = dev_config.connection_timeout_ms,
+                    .out_buffer_size = dev_config.out_buffer_size,
+                    .in_buffer_size = dev_config.in_buffer_size,
+                    .event_cb = dev_config.event_cb,
+                    .data_cb = dev_config.data_cb,
+                    .user_arg = dev_config.user_arg,
+                };
+                const cdc_acm_host_open_config_t open_cfg_b = {
+                    .vid = vid,
+                    .pid = pid,
+                    .interface_idx = interface_index,
+                    .dev_addr = dev_addr_b,
+                    .connection_timeout_ms = dev_config.connection_timeout_ms,
+                    .out_buffer_size = dev_config.out_buffer_size,
+                    .in_buffer_size = dev_config.in_buffer_size,
+                    .event_cb = dev_config.event_cb,
+                    .data_cb = dev_config.data_cb,
+                    .user_arg = dev_config.user_arg,
+                };
+
+                test_usb_host_interface_claim(interface_index);
+                REQUIRE(ESP_OK == cdc_acm_host_open(&open_cfg_a, &dev_a));
+                REQUIRE(dev_a != nullptr);
+
+                test_usb_host_interface_claim(interface_index);
+                REQUIRE(ESP_OK == cdc_acm_host_open(&open_cfg_b, &dev_b));
+                REQUIRE(dev_b != nullptr);
+
+                test_cdc_acm_reset_transfer_endpoint(in_ep);
+                usb_host_interface_release_ExpectAndReturn(nullptr, nullptr, interface_index, ESP_OK);
+                usb_host_interface_release_IgnoreArg_client_hdl();
+                usb_host_interface_release_IgnoreArg_dev_hdl();
+                REQUIRE(ESP_OK == cdc_acm_host_close(dev_a));
+
+                test_cdc_acm_reset_transfer_endpoint(in_ep);
+                usb_host_interface_release_ExpectAndReturn(nullptr, nullptr, interface_index, ESP_OK);
+                usb_host_interface_release_IgnoreArg_client_hdl();
+                usb_host_interface_release_IgnoreArg_dev_hdl();
+                REQUIRE(ESP_OK == cdc_acm_host_close(dev_b));
+            }
+
             SECTION("Successfully open and close the device") {
                 // Call cdc_acm_start
                 // Claim data interface, make sure that the interface_idx has been claimed
@@ -109,6 +182,40 @@ SCENARIO("Test mocked device opening and closing")
 
                 SECTION("Specific VID and any PID") {
                     REQUIRE(ESP_OK == cdc_acm_host_open(vid, CDC_HOST_ANY_PID, interface_index, &dev_config, &dev));
+                    REQUIRE(nullptr != dev);
+                }
+
+                SECTION("Specific USB device address") {
+                    const cdc_acm_host_open_config_t open_cfg = {
+                        .vid = CDC_HOST_ANY_VID,
+                        .pid = CDC_HOST_ANY_PID,
+                        .interface_idx = interface_index,
+                        .dev_addr = dev_addr,
+                        .connection_timeout_ms = dev_config.connection_timeout_ms,
+                        .out_buffer_size = dev_config.out_buffer_size,
+                        .in_buffer_size = dev_config.in_buffer_size,
+                        .event_cb = dev_config.event_cb,
+                        .data_cb = dev_config.data_cb,
+                        .user_arg = dev_config.user_arg,
+                    };
+                    REQUIRE(ESP_OK == cdc_acm_host_open(&open_cfg, &dev));
+                    REQUIRE(nullptr != dev);
+                }
+
+                SECTION("Match any device address") {
+                    const cdc_acm_host_open_config_t open_cfg = {
+                        .vid = vid,
+                        .pid = pid,
+                        .interface_idx = interface_index,
+                        .dev_addr = CDC_HOST_ANY_DEV_ADDR,
+                        .connection_timeout_ms = dev_config.connection_timeout_ms,
+                        .out_buffer_size = dev_config.out_buffer_size,
+                        .in_buffer_size = dev_config.in_buffer_size,
+                        .event_cb = dev_config.event_cb,
+                        .data_cb = dev_config.data_cb,
+                        .user_arg = dev_config.user_arg,
+                    };
+                    REQUIRE(ESP_OK == cdc_acm_host_open(&open_cfg, &dev));
                     REQUIRE(nullptr != dev);
                 }
 
@@ -151,6 +258,7 @@ SCENARIO("Test usb_host_transfer_alloc() failures")
         usb_host_device_open_Stub(usb_host_device_open_mock_callback);
         usb_host_get_device_descriptor_Stub(usb_host_get_device_descriptor_mock_callback);
         usb_host_device_close_Stub(usb_host_device_close_mock_callback);
+        usb_host_device_info_Stub(usb_host_device_info_mock_callback);
         usb_host_get_active_config_descriptor_Stub(usb_host_get_active_config_descriptor_mock_callback);
         // Deliberately no usb_host_transfer_alloc_Stub / usb_host_transfer_free_Stub: use CMock expectations below.
 

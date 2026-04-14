@@ -184,29 +184,22 @@ esp_err_t test_cdc_acm_host_open(uint8_t dev_address, uint16_t vid, uint16_t pid
         return ret;      // ESP_ERR_NO_MEM
     }
 
-    // Device opening
-    usb_host_device_addr_list_fill_ExpectAnyArgsAndReturn(ESP_OK);
-    usb_host_device_addr_list_fill_AddCallback(usb_host_device_addr_list_fill_mock_callback);
+    // Basic USB Host stack operations are stubbed
+    usb_host_device_addr_list_fill_Stub(usb_host_device_addr_list_fill_mock_callback);
+    usb_host_device_info_Stub(usb_host_device_info_mock_callback);
+    usb_host_get_device_descriptor_Stub(usb_host_get_device_descriptor_mock_callback);
+    usb_host_get_active_config_descriptor_Stub(usb_host_get_active_config_descriptor_mock_callback);
 
     // We are expecting usb_host_device_open, usb_host_get_device_descriptor usb_host_device_close
     // to be called at least mocked_devs_count times
     const int mocked_devs_count = usb_host_mock_get_devs_count();   // Get number of mocked USB devices in mocked device list
     for (int i = 0; i < mocked_devs_count; i++) {
         usb_host_device_open_ExpectAnyArgsAndReturn(ESP_OK);
-        usb_host_get_device_descriptor_ExpectAnyArgsAndReturn(ESP_OK);
         usb_host_device_close_ExpectAnyArgsAndReturn(ESP_OK);
     }
 
     usb_host_device_open_AddCallback(usb_host_device_open_mock_callback);
-    usb_host_get_device_descriptor_AddCallback(usb_host_get_device_descriptor_mock_callback);
     usb_host_device_close_AddCallback(usb_host_device_close_mock_callback);
-
-    // We have found the device by specified PID VID
-
-    // Get Device and Configuration descriptors of the correct device
-    usb_host_get_device_descriptor_ExpectAnyArgsAndReturn(ESP_OK);
-    usb_host_get_active_config_descriptor_ExpectAnyArgsAndReturn(ESP_OK);
-    usb_host_get_active_config_descriptor_AddCallback(usb_host_get_active_config_descriptor_mock_callback);
 
     // Setup control transfer
     usb_host_transfer_alloc_ExpectAnyArgsAndReturn(ESP_OK);

@@ -25,11 +25,9 @@ The CDC-ACM Class driver supports CDC-ACM devices that meet the following requir
 The CDC-ACM Class driver supports CDC-like devices that meet the following requirements:
 
 - The device class code must be set to the vendor specific class code `0xFF`
-- The device needs to provide and interface containing the following endpoints:
+- The device needs to provide an interface containing the following endpoints:
   - (Mandatory) Two Bulk endpoints (IN and OUT) for data
   - (Optional) An interrupt endpoint (IN) for the notification element
-
-For CDC-like devices, users are responsible for ensuring that they only call APIs (e.g., `cdc_acm_host_send_break()`) that are supported by the target device.
 
 ## Usage
 
@@ -37,13 +35,13 @@ The following steps outline the typical API call pattern of the CDC-ACM Class Dr
 
 1. Install the USB Host Library via `usb_host_install()`
 2. Install the CDC-ACM driver via `cdc_acm_host_install()`
-3. Call `cdc_acm_host_open()` to open a CDC-ACM/CDC-like device. This function will block until the target device is connected or timeout
+3. Open a CDC-ACM/CDC-like device with `cdc_acm_host_open()`. The call blocks until a matching device is connected or the connection timeout expires.
 4. To transmit data, call `cdc_acm_host_data_tx_blocking()`
 5. When data is received, the driver will automatically run the receive data callback
 6. An opened device can be closed via `cdc_acm_host_close()`
 7. The CDC-ACM driver can be uninstalled via `cdc_acm_host_uninstall()`
 
-Use `CDC_HOST_ANY_*` macros to signal to `cdc_acm_host_open()` function that you don't care about the device's VID and PID. In this case, first USB device will be opened. It is recommended to use this feature if only one device can ever be in the system (there is no USB HUB connected).
+Use `CDC_HOST_ANY_VID`, `CDC_HOST_ANY_PID`, and `CDC_HOST_ANY_DEV_ADDR` when you do not want to filter by vendor ID, product ID, or USB device address. Wildcards are appropriate when only one matching device is expected. If several devices share the same VID and PID (for example behind a hub), fill `cdc_acm_host_open_config_t` and set `dev_addr` to the device’s USB address.
 
 ## Examples
 

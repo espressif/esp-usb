@@ -257,20 +257,21 @@ static void cdc_acm_device_remove(cdc_dev_t *cdc_dev)
 }
 
 /**
- * @brief Open USB device with requested VID/PID
+ * @brief Find and open USB device with requested VID/PID/dev_addr
  *
  * This function has two regular return paths:
- * 1. USB device with matching VID/PID is already opened by this driver: allocate new CDC device on top of the already opened USB device.
- * 2. USB device with matching VID/PID is NOT opened by this driver yet: poll USB connected devices until it is found.
+ * 1. USB device with matching VID/PID/dev_addr is already opened by this driver: allocate new CDC device on top of the already opened USB device.
+ * 2. USB device with matching VID/PID/dev_addr is NOT opened by this driver yet: poll USB connected devices until it is found.
  *
  * @note This function will block for timeout_ms, if the device is not enumerated at the moment of calling this function.
- * @param[in] vid Vendor ID
- * @param[in] pid Product ID
+ * @param[in] dev_addr USB device address, or CDC_HOST_ANY_DEV_ADDR to ignore address
+ * @param[in] vid Vendor ID, or CDC_HOST_ANY_VID to match any vendor ID
+ * @param[in] pid Product ID, or CDC_HOST_ANY_PID to match any product ID
  * @param[in] timeout_ms Connection timeout [ms]
  * @param[out] dev CDC-ACM device
  * @return esp_err_t
  */
-static esp_err_t cdc_acm_find_and_open_usb_device(uint16_t vid, uint16_t pid, int timeout_ms, cdc_dev_t **dev)
+static esp_err_t cdc_acm_find_and_open_usb_device(uint8_t dev_addr, uint16_t vid, uint16_t pid, int timeout_ms, cdc_dev_t **dev)
 {
     assert(p_cdc_acm_obj);
     assert(dev);
@@ -285,9 +286,12 @@ static esp_err_t cdc_acm_find_and_open_usb_device(uint16_t vid, uint16_t pid, in
     cdc_dev_t *cdc_dev;
     SLIST_FOREACH(cdc_dev, &p_cdc_acm_obj->cdc_devices_list, list_entry) {
         const usb_device_desc_t *device_desc;
+        usb_device_info_t dev_info;
         ESP_ERROR_CHECK(usb_host_get_device_descriptor(cdc_dev->dev_hdl, &device_desc));
+        ESP_ERROR_CHECK(usb_host_device_info(cdc_dev->dev_hdl, &dev_info));
         if ((vid == device_desc->idVendor || vid == CDC_HOST_ANY_VID) &&
-                (pid == device_desc->idProduct || pid == CDC_HOST_ANY_PID)) {
+                (pid == device_desc->idProduct || pid == CDC_HOST_ANY_PID) &&
+                (dev_addr == dev_info.dev_addr || dev_addr == CDC_HOST_ANY_DEV_ADDR)) {
             // Return path 1:
             (*dev)->dev_hdl = cdc_dev->dev_hdl;
             return ESP_OK;
@@ -309,19 +313,21 @@ static esp_err_t cdc_acm_find_and_open_usb_device(uint16_t vid, uint16_t pid, in
         for (int i = 0; i < num_of_devices; i++) {
             usb_device_handle_t current_device;
             // Open USB device
-            if (usb_host_device_open(p_cdc_acm_obj->cdc_acm_client_hdl, dev_addr_list[i], &current_device) == ESP_OK) {
-                assert(current_device);
-                const usb_device_desc_t *device_desc;
-                ESP_ERROR_CHECK(usb_host_get_device_descriptor(current_device, &device_desc));
-                if ((device_desc->bDeviceClass != USB_CLASS_HUB) &&
-                        (vid == device_desc->idVendor || vid == CDC_HOST_ANY_VID) &&
-                        (pid == device_desc->idProduct || pid == CDC_HOST_ANY_PID)) {
-                    // Return path 2:
-                    (*dev)->dev_hdl = current_device;
-                    return ESP_OK;
-                }
-                usb_host_device_close(p_cdc_acm_obj->cdc_acm_client_hdl, current_device);
+            if (usb_host_device_open(p_cdc_acm_obj->cdc_acm_client_hdl, dev_addr_list[i], &current_device) != ESP_OK) {
+                continue;
             }
+            assert(current_device);
+            const usb_device_desc_t *device_desc;
+            ESP_ERROR_CHECK(usb_host_get_device_descriptor(current_device, &device_desc));
+            if ((device_desc->bDeviceClass != USB_CLASS_HUB) &&
+                    (vid == device_desc->idVendor || vid == CDC_HOST_ANY_VID) &&
+                    (pid == device_desc->idProduct || pid == CDC_HOST_ANY_PID) &&
+                    (dev_addr == dev_addr_list[i] || dev_addr == CDC_HOST_ANY_DEV_ADDR)) {
+                // Return path 2:
+                (*dev)->dev_hdl = current_device;
+                return ESP_OK;
+            }
+            usb_host_device_close(p_cdc_acm_obj->cdc_acm_client_hdl, current_device);
         }
         vTaskDelay(pdMS_TO_TICKS(50));
     } while (xTaskCheckForTimeOut(&connection_timeout, &timeout_ticks) == pdFALSE);
@@ -581,17 +587,39 @@ err:
     return ret;
 }
 
-esp_err_t cdc_acm_host_open(uint16_t vid, uint16_t pid, uint8_t interface_idx, const cdc_acm_host_device_config_t *dev_config, cdc_acm_dev_hdl_t *cdc_hdl_ret)
+esp_err_t cdc_acm_host_open_v1_dispatch(uint16_t vid, uint16_t pid, uint8_t interface_idx,
+                                        const cdc_acm_host_device_config_t *dev_config,
+                                        cdc_acm_dev_hdl_t *cdc_hdl_ret)
+{
+    CDC_ACM_CHECK(p_cdc_acm_obj, ESP_ERR_INVALID_STATE);
+    CDC_ACM_CHECK(dev_config, ESP_ERR_INVALID_ARG);
+    const cdc_acm_host_open_config_t cfg = {
+        .vid = vid,
+        .pid = pid,
+        .interface_idx = interface_idx,
+        .dev_addr = CDC_HOST_ANY_DEV_ADDR,
+        .connection_timeout_ms = dev_config->connection_timeout_ms,
+        .out_buffer_size = dev_config->out_buffer_size,
+        .in_buffer_size = dev_config->in_buffer_size,
+        .event_cb = dev_config->event_cb,
+        .data_cb = dev_config->data_cb,
+        .user_arg = dev_config->user_arg,
+    };
+    return cdc_acm_host_open_v2(&cfg, cdc_hdl_ret);
+}
+
+esp_err_t cdc_acm_host_open_v2(const cdc_acm_host_open_config_t *open_config, cdc_acm_dev_hdl_t *cdc_hdl_ret)
 {
     esp_err_t ret;
     CDC_ACM_CHECK(p_cdc_acm_obj, ESP_ERR_INVALID_STATE);
-    CDC_ACM_CHECK(dev_config, ESP_ERR_INVALID_ARG);
+    CDC_ACM_CHECK(open_config, ESP_ERR_INVALID_ARG);
     CDC_ACM_CHECK(cdc_hdl_ret, ESP_ERR_INVALID_ARG);
 
     xSemaphoreTake(p_cdc_acm_obj->open_close_mutex, portMAX_DELAY);
     // Find underlying USB device
     cdc_dev_t *cdc_dev;
-    ret =  cdc_acm_find_and_open_usb_device(vid, pid, dev_config->connection_timeout_ms, &cdc_dev);
+    ret = cdc_acm_find_and_open_usb_device(open_config->dev_addr, open_config->vid, open_config->pid,
+                                           open_config->connection_timeout_ms, &cdc_dev);
     if (ESP_OK != ret) {
         goto exit;
     }
@@ -605,7 +633,7 @@ esp_err_t cdc_acm_host_open(uint16_t vid, uint16_t pid, uint8_t interface_idx, c
     // Parse the required interface descriptor
     cdc_parsed_info_t cdc_info;
     ESP_GOTO_ON_ERROR(
-        cdc_parse_interface_descriptor(device_desc, config_desc, interface_idx, &cdc_info),
+        cdc_parse_interface_descriptor(device_desc, config_desc, open_config->interface_idx, &cdc_info),
         err, TAG, "Could not open required interface as CDC");
 
     // Save all members of cdc_dev
@@ -628,13 +656,13 @@ esp_err_t cdc_acm_host_open(uint16_t vid, uint16_t pid, uint8_t interface_idx, c
 
     // The following line is here for backward compatibility with v1.0.*
     // where fixed size of IN buffer (equal to IN Maximum Packet Size) was used
-    const size_t in_buf_size = (dev_config->data_cb && (dev_config->in_buffer_size == 0)) ? USB_EP_DESC_GET_MPS(cdc_info.in_ep) : dev_config->in_buffer_size;
+    const size_t in_buf_size = (open_config->data_cb && (open_config->in_buffer_size == 0)) ? USB_EP_DESC_GET_MPS(cdc_info.in_ep) : open_config->in_buffer_size;
 
     // Allocate USB transfers, claim CDC interfaces and return CDC-ACM handle
     ESP_GOTO_ON_ERROR(
-        cdc_acm_transfers_allocate(cdc_dev, cdc_info.notif_ep, cdc_info.in_ep, in_buf_size, cdc_info.out_ep, dev_config->out_buffer_size),
+        cdc_acm_transfers_allocate(cdc_dev, cdc_info.notif_ep, cdc_info.in_ep, in_buf_size, cdc_info.out_ep, open_config->out_buffer_size),
         err, TAG,);
-    ESP_GOTO_ON_ERROR(cdc_acm_start(cdc_dev, dev_config->event_cb, dev_config->data_cb, dev_config->user_arg), err, TAG,);
+    ESP_GOTO_ON_ERROR(cdc_acm_start(cdc_dev, open_config->event_cb, open_config->data_cb, open_config->user_arg), err, TAG,);
     *cdc_hdl_ret = (cdc_acm_dev_hdl_t)cdc_dev;
     xSemaphoreGive(p_cdc_acm_obj->open_close_mutex);
     return ESP_OK;
