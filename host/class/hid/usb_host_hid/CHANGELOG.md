@@ -4,6 +4,12 @@ All notable changes to this component will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- Fixed disconnect cleanup chain aborting on `usb_host_endpoint_halt` / `usb_host_endpoint_flush` / per-interface close failures, which left the USB device context dangling and unrecoverable without a physical re-plug. These failures on the disconnect path are now logged and the chain continues so that `hid_host_uninstall_device()` is always reached. See issue #470.
+
 ## [1.2.0] - 2026-04-08
 
 ### Added

@@ -548,17 +548,29 @@ static esp_err_t hid_host_device_disconnected(usb_device_handle_t dev_hdl)
         HID_EXIT_CRITICAL();
 
         if (hid_iface_curr->parent && (hid_iface_curr->parent->dev_addr == hid_device->dev_addr)) {
-            HID_RETURN_ON_ERROR( hid_host_device_close(hid_iface_curr),
-                                 "Unable to close device");
+            // Best-effort cleanup: an individual interface close failure must not
+            // prevent the remaining interfaces or the final uninstall_device from
+            // being processed. The device is already physically gone from the bus.
+            esp_err_t close_err = hid_host_device_close(hid_iface_curr);
+            if (close_err != ESP_OK) {
+                ESP_LOGW(TAG, "Close iface %d failed on disconnect (continuing): %s",
+                         hid_iface_curr->dev_params.iface_num,
+                         esp_err_to_name(close_err));
+            }
         }
         HID_ENTER_CRITICAL();
         hid_iface_curr = hid_iface_next;
     }
     HID_EXIT_CRITICAL();
 
-    // Delete HID compliant device
-    HID_RETURN_ON_ERROR( hid_host_uninstall_device(hid_device),
-                         "Unable to uninstall device");
+    // Delete HID compliant device — must run even if an individual close above failed,
+    // otherwise the device context is leaked and cannot be recovered without a
+    // physical re-plug of the USB device.
+    esp_err_t uninstall_err = hid_host_uninstall_device(hid_device);
+    if (uninstall_err != ESP_OK) {
+        ESP_LOGW(TAG, "Uninstall device failed on disconnect (continuing): %s",
+                 esp_err_to_name(uninstall_err));
+    }
 
     return ESP_OK;
 }
@@ -838,10 +850,21 @@ static esp_err_t hid_host_disable_interface(hid_iface_t *iface)
                         "Interface wrong state");
 
     if (HID_INTERFACE_STATE_ACTIVE == iface->state) {
-        HID_RETURN_ON_ERROR( usb_host_endpoint_halt(iface->parent->dev_hdl, iface->ep_in),
-                             "Unable to HALT EP");
-        HID_RETURN_ON_ERROR( usb_host_endpoint_flush(iface->parent->dev_hdl, iface->ep_in),
-                             "Unable to FLUSH EP");
+        // Best-effort cleanup: when called from the disconnect path, the device may
+        // already be gone from the bus and endpoint_halt/flush returns
+        // ESP_ERR_INVALID_STATE. Aborting here would prevent hid_host_uninstall_device()
+        // from ever running, leaking the USB device context. Log and continue.
+        esp_err_t ep_err;
+        ep_err = usb_host_endpoint_halt(iface->parent->dev_hdl, iface->ep_in);
+        if (ep_err != ESP_OK) {
+            ESP_LOGD(TAG, "EP halt failed (device likely gone): %s",
+                     esp_err_to_name(ep_err));
+        }
+        ep_err = usb_host_endpoint_flush(iface->parent->dev_hdl, iface->ep_in);
+        if (ep_err != ESP_OK) {
+            ESP_LOGD(TAG, "EP flush failed (device likely gone): %s",
+                     esp_err_to_name(ep_err));
+        }
     }
     // If interface state is suspended, the EP is already flushed and halted, only clear the EP
     // If suspended, may return ESP_ERR_INVALID_STATE
