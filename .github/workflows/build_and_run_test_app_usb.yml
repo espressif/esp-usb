@@ -81,8 +81,8 @@ jobs:
             MODIFIED_FILES_FLAG="--modified-files=$CHANGED_FILES"
           fi
 
-          idf-build-apps find --paths ${{ matrix.path }} --disable-targets linux esp32s31 $MODIFIED_FILES_FLAG
-          idf-build-apps build --paths ${{ matrix.path }} --disable-targets linux esp32s31 $MODIFIED_FILES_FLAG --collect-app-info="app_info_${{ github.run_id }}.txt"
+          idf-build-apps find --paths ${{ matrix.path }} --disable-targets linux $MODIFIED_FILES_FLAG
+          idf-build-apps build --paths ${{ matrix.path }} --disable-targets linux $MODIFIED_FILES_FLAG --collect-app-info="app_info_${{ github.run_id }}.txt"
       - name: Check if build artifacts exist
         id: check_build_artifacts
         shell: bash
