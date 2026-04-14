@@ -152,6 +152,8 @@ static esp_err_t hid_host_install_device(uint8_t dev_addr,
 
 
 static esp_err_t hid_host_uninstall_device(hid_device_t *hid_device);
+static esp_err_t hid_host_disable_interface_disconnect(hid_iface_t *iface);
+static esp_err_t hid_host_device_close_disconnect(hid_host_device_handle_t hid_dev_handle);
 
 // --------------------------- Internal Logic ----------------------------------
 /**
@@ -550,8 +552,10 @@ static esp_err_t hid_host_device_disconnected(usb_device_handle_t dev_hdl)
         if (hid_iface_curr->parent && (hid_iface_curr->parent->dev_addr == hid_device->dev_addr)) {
             // Best-effort cleanup: an individual interface close failure must not
             // prevent the remaining interfaces or the final uninstall_device from
-            // being processed. The device is already physically gone from the bus.
-            esp_err_t close_err = hid_host_device_close(hid_iface_curr);
+            // being processed. The device is already physically gone from the bus,
+            // so we call the disconnect-specific close variant which swallows
+            // endpoint errors; the graceful hid_host_device_close() path stays strict.
+            esp_err_t close_err = hid_host_device_close_disconnect(hid_iface_curr);
             if (close_err != ESP_OK) {
                 ESP_LOGW(TAG, "Close iface %d failed on disconnect (continuing): %s",
                          hid_iface_curr->dev_params.iface_num,
@@ -560,6 +564,21 @@ static esp_err_t hid_host_device_disconnected(usb_device_handle_t dev_hdl)
         }
         HID_ENTER_CRITICAL();
         hid_iface_curr = hid_iface_next;
+    }
+    HID_EXIT_CRITICAL();
+
+    // Before freeing hid_device: if any interface is still in the global list with
+    // its parent pointing at this device (because hid_host_device_close_disconnect()
+    // failed partway and could not remove the iface), null the parent so later list
+    // traversals do not dereference a freed hid_device_t (UAF).
+    HID_ENTER_CRITICAL();
+    hid_iface_t *orphan;
+    STAILQ_FOREACH(orphan, &s_hid_driver->hid_ifaces_tailq, tailq_entry) {
+        if (orphan->parent == hid_device) {
+            ESP_LOGW(TAG, "Iface %d left in list after failed close; clearing parent before device free",
+                     orphan->dev_params.iface_num);
+            orphan->parent = NULL;
+        }
     }
     HID_EXIT_CRITICAL();
 
@@ -830,7 +849,16 @@ static esp_err_t hid_host_interface_release_and_free_transfer(hid_iface_t *iface
 }
 
 /**
- * @brief Disable active interface
+ * @brief Disable active interface (graceful path — strict error propagation).
+ *
+ * Called from the public hid_host_device_stop() / hid_host_device_close() code
+ * path while the device is still present on the bus. Any failure from
+ * usb_host_endpoint_halt() / usb_host_endpoint_flush() is a real error for the
+ * caller and is returned so the caller can react.
+ *
+ * For the disconnect cleanup path (where the device is already physically gone
+ * and these calls routinely return ESP_ERR_INVALID_STATE), use
+ * hid_host_disable_interface_disconnect() instead.
  *
  * @param[in] iface       Pointer to Interface structure
  * @return esp_err_t
@@ -850,24 +878,60 @@ static esp_err_t hid_host_disable_interface(hid_iface_t *iface)
                         "Interface wrong state");
 
     if (HID_INTERFACE_STATE_ACTIVE == iface->state) {
-        // Best-effort cleanup: when called from the disconnect path, the device may
-        // already be gone from the bus and endpoint_halt/flush returns
-        // ESP_ERR_INVALID_STATE. Aborting here would prevent hid_host_uninstall_device()
-        // from ever running, leaking the USB device context. Log and continue.
+        HID_RETURN_ON_ERROR( usb_host_endpoint_halt(iface->parent->dev_hdl, iface->ep_in),
+                             "Unable to HALT EP");
+        HID_RETURN_ON_ERROR( usb_host_endpoint_flush(iface->parent->dev_hdl, iface->ep_in),
+                             "Unable to FLUSH EP");
+    }
+    // If interface state is suspended, the EP is already flushed and halted, only clear the EP
+    // If suspended, may return ESP_ERR_INVALID_STATE
+    usb_host_endpoint_clear(iface->parent->dev_hdl, iface->ep_in);
+
+    iface->state = HID_INTERFACE_STATE_READY;
+
+    return ESP_OK;
+}
+
+/**
+ * @brief Disable interface on the disconnect cleanup path (best-effort).
+ *
+ * usb_host_endpoint_halt() / usb_host_endpoint_flush() are expected to fail with
+ * ESP_ERR_INVALID_STATE once the device has disappeared from the bus. Aborting
+ * here would prevent endpoint_clear, the state transition, and ultimately
+ * hid_host_uninstall_device() from running, which leaks the USB device context
+ * so badly that only a physical USB re-plug recovers it. We therefore log these
+ * failures at debug level and push through to the clear/state-transition path.
+ *
+ * @param[in] iface       Pointer to Interface structure
+ * @return esp_err_t
+ */
+static esp_err_t hid_host_disable_interface_disconnect(hid_iface_t *iface)
+{
+    HID_RETURN_ON_INVALID_ARG(iface);
+    HID_RETURN_ON_INVALID_ARG(iface->parent);
+
+    HID_RETURN_ON_FALSE(is_interface_in_list(iface),
+                        ESP_ERR_NOT_FOUND,
+                        "Interface handle not found");
+
+    HID_RETURN_ON_FALSE((HID_INTERFACE_STATE_ACTIVE == iface->state ||
+                         HID_INTERFACE_STATE_SUSPENDED == iface->state),
+                        ESP_ERR_INVALID_STATE,
+                        "Interface wrong state");
+
+    if (HID_INTERFACE_STATE_ACTIVE == iface->state) {
         esp_err_t ep_err;
         ep_err = usb_host_endpoint_halt(iface->parent->dev_hdl, iface->ep_in);
         if (ep_err != ESP_OK) {
-            ESP_LOGD(TAG, "EP halt failed (device likely gone): %s",
+            ESP_LOGD(TAG, "EP halt failed on disconnect (device likely gone): %s",
                      esp_err_to_name(ep_err));
         }
         ep_err = usb_host_endpoint_flush(iface->parent->dev_hdl, iface->ep_in);
         if (ep_err != ESP_OK) {
-            ESP_LOGD(TAG, "EP flush failed (device likely gone): %s",
+            ESP_LOGD(TAG, "EP flush failed on disconnect (device likely gone): %s",
                      esp_err_to_name(ep_err));
         }
     }
-    // If interface state is suspended, the EP is already flushed and halted, only clear the EP
-    // If suspended, may return ESP_ERR_INVALID_STATE
     usb_host_endpoint_clear(iface->parent->dev_hdl, iface->ep_in);
 
     iface->state = HID_INTERFACE_STATE_READY;
@@ -1461,7 +1525,24 @@ fail:
     return ret;
 }
 
-esp_err_t hid_host_device_close(hid_host_device_handle_t hid_dev_handle)
+/**
+ * @brief Shared implementation of hid_host_device_close().
+ *
+ * @param[in] hid_dev_handle  HID device handle
+ * @param[in] best_effort     When false (graceful close path), disable/release
+ *                            failures abort the function with the original
+ *                            strict ESP_GOTO_ON_ERROR semantics.
+ *                            When true (disconnect cleanup path), those
+ *                            failures are logged and the state-transition /
+ *                            user-callback / list-removal code below still
+ *                            runs, so the interface is reliably removed from
+ *                            s_hid_driver->hid_ifaces_tailq before
+ *                            hid_host_device_disconnected() frees the owning
+ *                            hid_device_t. Without this, a failed close on the
+ *                            disconnect path would leave the iface dangling in
+ *                            the global list with a stale parent pointer.
+ */
+static esp_err_t hid_host_device_close_impl(hid_host_device_handle_t hid_dev_handle, bool best_effort)
 {
     esp_err_t ret = ESP_OK;
     HID_RETURN_ON_FALSE(s_hid_driver, ESP_ERR_INVALID_STATE, "HID Driver is not installed");
@@ -1475,20 +1556,46 @@ esp_err_t hid_host_device_close(hid_host_device_handle_t hid_dev_handle)
     hid_iface_t *hid_iface = get_iface_by_handle(hid_dev_handle);
     HID_GOTO_ON_FALSE(hid_iface, ESP_ERR_INVALID_ARG, "Invalid HID device handle");
 
-    ESP_LOGD(TAG, "Close addr %d, iface %d, state %d",
+    ESP_LOGD(TAG, "Close addr %d, iface %d, state %d (best_effort=%d)",
              hid_iface->dev_params.addr,
              hid_iface->dev_params.iface_num,
-             hid_iface->state);
+             hid_iface->state,
+             best_effort);
 
     if (HID_INTERFACE_STATE_ACTIVE == hid_iface->state ||
             HID_INTERFACE_STATE_SUSPENDED == hid_iface->state) {
-        HID_GOTO_ON_ERROR(hid_host_disable_interface(hid_iface),
-                          "Unable to disable HID Interface");
+        esp_err_t disable_err = best_effort
+                                ? hid_host_disable_interface_disconnect(hid_iface)
+                                : hid_host_disable_interface(hid_iface);
+        if (disable_err != ESP_OK) {
+            if (best_effort) {
+                ESP_LOGW(TAG, "Unable to disable HID Interface on disconnect (continuing): %s",
+                         esp_err_to_name(disable_err));
+                // Force the state forward so the release/free path below still runs
+                // and the iface eventually leaves the global list.
+                hid_iface->state = HID_INTERFACE_STATE_READY;
+            } else {
+                ret = disable_err;
+                ESP_LOGE(TAG, "Unable to disable HID Interface");
+                goto fail;
+            }
+        }
     }
 
     if (HID_INTERFACE_STATE_READY == hid_iface->state) {
-        HID_GOTO_ON_ERROR(hid_host_interface_release_and_free_transfer(hid_iface),
-                          "Unable to release HID Interface");
+        esp_err_t release_err = hid_host_interface_release_and_free_transfer(hid_iface);
+        if (release_err != ESP_OK) {
+            if (best_effort) {
+                ESP_LOGW(TAG, "Unable to release HID Interface on disconnect (continuing): %s",
+                         esp_err_to_name(release_err));
+                // Fall through: we still want the state transition / user callback /
+                // list removal below to run so the iface is not orphaned.
+            } else {
+                ret = release_err;
+                ESP_LOGE(TAG, "Unable to release HID Interface");
+                goto fail;
+            }
+        }
         // If the device is closing by user before device detached we need to flush user callback here
         free(hid_iface->report_desc);
         hid_iface->report_desc = NULL;
@@ -1519,6 +1626,16 @@ esp_err_t hid_host_device_close(hid_host_device_handle_t hid_dev_handle)
 fail:
     xSemaphoreGive(open_close_mutex);
     return ret;
+}
+
+esp_err_t hid_host_device_close(hid_host_device_handle_t hid_dev_handle)
+{
+    return hid_host_device_close_impl(hid_dev_handle, /*best_effort=*/false);
+}
+
+static esp_err_t hid_host_device_close_disconnect(hid_host_device_handle_t hid_dev_handle)
+{
+    return hid_host_device_close_impl(hid_dev_handle, /*best_effort=*/true);
 }
 
 esp_err_t hid_host_handle_events(uint32_t timeout)

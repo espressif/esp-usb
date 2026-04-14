@@ -8,7 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
-- Fixed disconnect cleanup chain aborting on `usb_host_endpoint_halt` / `usb_host_endpoint_flush` / per-interface close failures, which left the USB device context dangling and unrecoverable without a physical re-plug. These failures on the disconnect path are now logged and the chain continues so that `hid_host_uninstall_device()` is always reached. See issue #470.
+- Fixed disconnect cleanup chain aborting on `usb_host_endpoint_halt` / `usb_host_endpoint_flush` / per-interface close failures, which left the USB device context dangling and unrecoverable without a physical re-plug. The disconnect cleanup path now uses dedicated best-effort helpers (`hid_host_disable_interface_disconnect`, `hid_host_device_close_disconnect`) that log and continue on those expected failures so `hid_host_uninstall_device()` is always reached. The public graceful-close API (`hid_host_device_close`, `hid_host_device_stop`) keeps the existing strict error propagation unchanged. `hid_host_device_disconnected()` additionally clears the `parent` pointer of any interface still in the global list before freeing the owning `hid_device_t`, closing a potential use-after-free if an individual close failed partway through. See issue #470.
 
 ## [1.2.0] - 2026-04-08
 
