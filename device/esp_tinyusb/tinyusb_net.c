@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2023-2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2023-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -22,7 +22,7 @@ typedef struct packet {
 
 struct tinyusb_net_handle {
     bool initialized;
-    SemaphoreHandle_t buffer_sema;
+    SemaphoreHandle_t sync_mutex;
     EventGroupHandle_t  tx_flags;
     tusb_net_rx_cb_t    rx_cb;
     tusb_net_free_tx_cb_t tx_buff_free_cb;
@@ -39,18 +39,18 @@ static const char *TAG = "tusb_net";
 static void do_send_sync(void *ctx)
 {
     (void) ctx;
-    if (xSemaphoreTake(s_net_obj.buffer_sema, 0) != pdTRUE || s_net_obj.packet_to_send == NULL) {
+    packet_t *packet = s_net_obj.packet_to_send;
+    if (packet == NULL) {
         return;
     }
 
-    packet_t *packet = s_net_obj.packet_to_send;
     if (tud_network_can_xmit(packet->len)) {
         tud_network_xmit(packet, packet->len);
         packet->result = ESP_OK;
     } else {
         packet->result = ESP_FAIL;
     }
-    xSemaphoreGive(s_net_obj.buffer_sema);
+    /* Signal completion; sync_mutex is released by the caller after packet_to_send is cleared. */
     xEventGroupSetBits(s_net_obj.tx_flags, TX_FINISHED_BIT);
 }
 
@@ -87,14 +87,19 @@ esp_err_t tinyusb_net_send_sync(void *buffer, uint16_t len, void *buff_free_arg,
         return ESP_ERR_INVALID_STATE;
     }
 
-    // Lazy init the flags and semaphores, as they might not be needed (if async approach is used)
+    // Lazy init the event group and sync mutex, as they might not be needed (if async approach is used)
     if (!s_net_obj.tx_flags) {
         s_net_obj.tx_flags = xEventGroupCreate();
         ESP_RETURN_ON_FALSE(s_net_obj.tx_flags, ESP_ERR_NO_MEM, TAG, "Failed to allocate event flags");
     }
-    if (!s_net_obj.buffer_sema) {
-        s_net_obj.buffer_sema = xSemaphoreCreateBinary();
-        ESP_RETURN_ON_FALSE(s_net_obj.buffer_sema, ESP_ERR_NO_MEM, TAG, "Failed to allocate buffer semaphore");
+    if (!s_net_obj.sync_mutex) {
+        s_net_obj.sync_mutex = xSemaphoreCreateMutex();
+        ESP_RETURN_ON_FALSE(s_net_obj.sync_mutex, ESP_ERR_NO_MEM, TAG, "Failed to allocate sync mutex");
+    }
+
+    /* Exclusive access to packet_to_send and the deferred sync send (multi-thread safe). */
+    if (xSemaphoreTake(s_net_obj.sync_mutex, portMAX_DELAY) != pdTRUE) {
+        return ESP_ERR_INVALID_STATE;
     }
 
     packet_t packet = {
@@ -102,16 +107,23 @@ esp_err_t tinyusb_net_send_sync(void *buffer, uint16_t len, void *buff_free_arg,
         .len = len,
         .buff_free_arg = buff_free_arg
     };
+    /* Stack address is valid until this function returns: we hold sync_mutex so no other task
+     * can run another sync send, and we block on the event group until do_send_sync finishes
+     * before clearing packet_to_send and releasing the mutex. */
     s_net_obj.packet_to_send = &packet;
-    xSemaphoreGive(s_net_obj.buffer_sema);  // now the packet is ready, let's mark it available to tusb send
 
     // to execute the send function in tinyUSB task context
     usbd_defer_func(do_send_sync, NULL, false);  // arg=NULL -> sync send, we keep the packet inside the object
 
-    // wait wor completion with defined timeout
+    // wait for completion with defined timeout
     EventBits_t bits = xEventGroupWaitBits(s_net_obj.tx_flags, TX_FINISHED_BIT, pdTRUE, pdTRUE, timeout);
-    xSemaphoreTake(s_net_obj.buffer_sema, portMAX_DELAY);   // if tusb sending already started, we have wait before ditching the packet
+    if ((bits & TX_FINISHED_BIT) == 0) {
+        /* Do not clear stack packet until USB task finishes; wait without time limit (same as prior second sync). */
+        xEventGroupWaitBits(s_net_obj.tx_flags, TX_FINISHED_BIT, pdTRUE, pdTRUE, portMAX_DELAY);
+    }
     s_net_obj.packet_to_send = NULL;        // invalidate the argument
+    xSemaphoreGive(s_net_obj.sync_mutex);
+
     if (bits & TX_FINISHED_BIT) {   // If transaction finished, return error code
         return packet.result;
     }
@@ -122,7 +134,7 @@ esp_err_t tinyusb_net_init(const tinyusb_net_config_t *cfg)
 {
     ESP_RETURN_ON_FALSE(s_net_obj.initialized == false, ESP_ERR_INVALID_STATE, TAG, "TinyUSB Net class is already initialized");
 
-    // the semaphore and event flags are initialized only if needed
+    // the mutex and event flags are initialized only if needed
     s_net_obj.rx_cb = cfg->on_recv_callback;
     s_net_obj.init_cb = cfg->on_init_callback;
     s_net_obj.tx_buff_free_cb = cfg->free_tx_buffer;
@@ -142,9 +154,9 @@ esp_err_t tinyusb_net_init(const tinyusb_net_config_t *cfg)
 
 void tinyusb_net_deinit(void)
 {
-    if (s_net_obj.buffer_sema) {
-        vSemaphoreDelete(s_net_obj.buffer_sema);
-        s_net_obj.buffer_sema = NULL;
+    if (s_net_obj.sync_mutex) {
+        vSemaphoreDelete(s_net_obj.sync_mutex);
+        s_net_obj.sync_mutex = NULL;
     }
     if (s_net_obj.tx_flags) {
         vEventGroupDelete(s_net_obj.tx_flags);
