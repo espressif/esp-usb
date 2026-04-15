@@ -15,14 +15,14 @@
 # Run:
 #   - usb device examples:
 #     - usb_device target runners, with matrix of all listed releases
-#     - IDF Releases: Latest, IDF 6.0, IDF 5.5
+#     - IDF Releases: Latest, IDF 6.0, IDF 5.5, IDF 5.4
 #   - usb host examples:
 #     - usb_host_examples target runners, with matrix of all listed releases
-#     - IDF Releases: Latest, IDF 6.0, IDF 5.5
+#     - IDF Releases: Latest, IDF 6.0, IDF 5.5, IDF 5.4
 #
 # Temporarily disabled tests and TODOs of this workflow:
 # - USB Device NCM example run: Ignored due to GH Runner configuration (docker needs --net=host to access host network namespace)
-# - Examples runs on targets enabled only for IDF >= 5.5
+# - Examples runs on targets enabled only for IDF >= 5.4
 
 name: Build and Run ESP-IDF USB examples
 
@@ -178,21 +178,41 @@ jobs:
       matrix:
         idf_ver:
           [
-            # Only run for IDF >= 5.5,
+            # Only run for IDF >= 5.4,
             # For lower IDF versions, running pytest files from esp-idf outside of esp-idf container is too complicated
+            "release-v5.4",
             "release-v5.5",
             "release-v6.0",
             "latest",
           ]
         idf_target: ["esp32s2", "esp32p4"]
         runner_tag: ["usb_host_flash_disk", "usb_device"]
+        eco_ver: ["eco_default", "eco4"]
         include:
           # Assign a folder structure to a target runner
           - runner_tag: usb_host_flash_disk
             example: host
           - runner_tag: usb_device
             example: device
-    runs-on: [self-hosted, linux, docker, "${{ matrix.idf_target }}", "${{ matrix.runner_tag }}", eco_default]
+        exclude:
+          # Exclude eco4 version for esp32s2
+          - idf_target: "esp32s2"
+            eco_ver: "eco4"
+          # Exclude eco_default for older IDF versions, esp32p4 ECO6 support starts in IDF 5.5
+          - idf_target: "esp32p4"
+            eco_ver: "eco_default"
+            idf_ver: "release-v5.4"
+          # Exclude eco4 for newer IDF versions, esp32p4 ECO6 is default in IDF 5.5 and later
+          - idf_target: "esp32p4"
+            eco_ver: "eco4"
+            idf_ver: "release-v5.5"
+          - idf_target: "esp32p4"
+            eco_ver: "eco4"
+            idf_ver: "release-v6.0"
+          - idf_target: "esp32p4"
+            eco_ver: "eco4"
+            idf_ver: "latest"
+    runs-on: [self-hosted, linux, docker, "${{ matrix.idf_target }}", "${{ matrix.runner_tag }}", "${{ matrix.eco_ver }}"]
     container:
       image: python:3.11-bookworm
       options: --privileged --device-cgroup-rule="c 188:* rmw" --device-cgroup-rule="c 166:* rmw"
@@ -211,7 +231,7 @@ jobs:
       - name: Setup IDF Examples path
       # Create matrix-specific directory name and save it's path to the EXAMPLES_PATH variable
         run: |
-          EXAMPLES_DIR="idf_examples_${{ matrix.idf_ver }}_${{ matrix.idf_target }}_${{ matrix.runner_tag }}"
+          EXAMPLES_DIR="idf_examples_${{ matrix.idf_ver }}_${{ matrix.idf_target }}_${{ matrix.runner_tag }}_${{ matrix.eco_ver }}"
           mkdir -p "$EXAMPLES_DIR" && cd "$EXAMPLES_DIR" && pwd
           echo "EXAMPLES_PATH=$(pwd)" >> "$GITHUB_ENV"
       - uses: actions/download-artifact@v7
