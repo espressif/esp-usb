@@ -101,7 +101,8 @@ typedef struct {
         union {
             struct {
                 hub_flag_action_t actions: 8;       /**< Hub actions */
-                uint32_t reserved24: 24;            /**< Reserved */
+                uint32_t light_sleep_auto_resume: 1;/**< To indicate that the root port resume was called from light sleep callback */
+                uint32_t reserved23: 23;            /**< Reserved */
             };
             uint32_t val;                           /**< Hub flag action value */
         } flags;                                    /**< Hub flags */
@@ -585,6 +586,17 @@ static void root_port_req(root_hub_port_t *root_hub_port)
         root_hub_port->dynamic.state = ROOT_PORT_STATE_SUSPENDED;
         HUB_DRIVER_EXIT_CRITICAL();
 
+#ifdef AUTO_PM_LIGHT_SLEEP
+        // Root port is suspended at the HCD level; unblock light-sleep waiter before queuing USBH work
+        hub_event_data_t event_data = {
+            .event = HUB_EVENT_SUSPEND_COMPLETED,
+            .suspended = {
+                .uid = 0,    // Not used, reserved for future use
+            },
+        };
+        p_hub_driver_obj->constant.event_cb(&event_data, p_hub_driver_obj->constant.event_cb_arg);
+#endif // AUTO_PM_LIGHT_SLEEP
+
         // Root port, including all the connected devices were suspended (global suspend)
         // Propagate the suspended event to clients
         usbh_devs_set_pm_actions_all(USBH_DEV_SUSPEND_EVT);
@@ -593,8 +605,25 @@ static void root_port_req(root_hub_port_t *root_hub_port)
         ESP_LOGD(HUB_DRIVER_TAG, "Resuming root port %d",  root_hub_port->constant.index);
 
         HUB_DRIVER_ENTER_CRITICAL();
+#ifdef AUTO_PM_LIGHT_SLEEP
+        const bool light_sleep_auto_resume = (bool)p_hub_driver_obj->dynamic.flags.light_sleep_auto_resume;
+#endif // AUTO_PM_LIGHT_SLEEP
         const root_port_state_t root_state = root_hub_port->dynamic.state;
         HUB_DRIVER_EXIT_CRITICAL();
+
+#ifdef AUTO_PM_LIGHT_SLEEP
+        const hcd_port_state_t hcd_port_state = hcd_port_get_state(root_port_hdl);
+        if (hcd_port_state == HCD_PORT_STATE_RECOVERY) {
+            if (light_sleep_auto_resume) {
+                // We are resuming root port from light sleep and the HCD port is currently in recovery state
+                // That indicates, that the device has been disconnected during light sleep
+                // Clock gating will be disabled by recovery routine, nothing to do here
+                return;
+            }
+            // root port in unexpected (recovery) state, fatal error, do ESP_ERROR_CHECK for backtrace
+            ESP_ERROR_CHECK(hcd_port_state == HCD_PORT_STATE_RECOVERY);
+        }
+#endif // AUTO_PM_LIGHT_SLEEP
 
         // In case the port's state changed (disconnection, reconnection) prior to issuing PORT_REQ_RESUME request,
         // we will not proceed with the resuming sequence
@@ -883,6 +912,17 @@ esp_err_t hub_root_stop(void)
     }
     return ESP_OK;
 }
+
+#ifdef AUTO_PM_LIGHT_SLEEP
+esp_err_t hub_root_mark_light_sleep_auto_resume(void)
+{
+    HUB_DRIVER_ENTER_CRITICAL();
+    HUB_DRIVER_CHECK_FROM_CRIT(p_hub_driver_obj != NULL, ESP_ERR_INVALID_STATE);
+    p_hub_driver_obj->dynamic.flags.light_sleep_auto_resume = 1;
+    HUB_DRIVER_EXIT_CRITICAL();
+    return ESP_OK;
+}
+#endif // AUTO_PM_LIGHT_SLEEP
 
 bool hub_root_is_suspended(void)
 {
