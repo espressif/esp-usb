@@ -397,7 +397,7 @@ The following event is associated with the automatic suspend timer. When a timer
 - :cpp:enumerator:`USB_HOST_LIB_EVENT_FLAGS_AUTO_SUSPEND` — Indicates that the automatic suspend timer has expired.
 
 Auto Suspend Timer
-^^^^^^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^
 
 Users can configure an automatic suspend timer using :cpp:func:`usb_host_lib_set_auto_suspend`. The auto suspend timer is reset every time the USB Host library client processing function handles an event from any client, or when USB Host library itself is processing any event.
 
@@ -486,7 +486,7 @@ The following code snippet demonstrates how to cycle between suspended and resum
     For more details regarding suspend and resume, please refer to `USB 2.0 Specification <https://www.usb.org/document-library/usb-20-specification>`_ > Chapter 11.9 *Suspend and Resume*.
 
 Remote Wakeup
-^^^^^^^^^^^^^^
+^^^^^^^^^^^^^
 
 The USB Host library supports USB Remote wakeup, which allows a suspended USB device to signal the host to resume the bus. Remote wakeup is initiated by the device.
 
@@ -513,6 +513,57 @@ When a suspended device with remote wakeup enabled initiates a remote wakeup:
  - The root port transitions from suspended to active state.
  - The USB Host library resumes normal operation and SOF generation.
  - All clients that have opened the affected device are notified via the :cpp:enumerator:`USB_HOST_CLIENT_EVENT_DEV_RESUMED` event.
+
+Light sleep usage with USB Host
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+During light sleep the SoC can gate clocks to peripherals, including the USB OTG controller used by the USB Host stack. When that happens, the host stops sending start-of-frame (SOF) packets. From the device's point of view the bus can look suspended even if the host software has not completed a normal global suspend sequence; after wake, the bus can return to the active state without a matching software-driven resume sequence. That ordering mismatch can confuse devices and class drivers.
+
+Automatic root-port suspend and resume
+""""""""""""""""""""""""""""""""""""""
+
+When :ref:`CONFIG_ESP_SLEEP_EVENT_CALLBACKS <esp-idf:config_esp_sleep_event_callbacks>` is enabled, the USB Host library (at :cpp:func:`usb_host_install`) registers two sleep event callbacks:
+
+- **Before light sleep**:
+  - :cpp:enumerator:`SLEEP_EVENT_SW_GOTO_SLEEP` sleep event is used, indicating beginning of :cpp:func:`esp_light_sleep_start`
+  - the library calls :cpp:func:`usb_host_lib_root_port_suspend` and waits for the hardware suspend sequence to finish (endpoints idle, HCD port suspended). This aligns USB global suspend with entry to light sleep and reduces power on the host controller.
+- **After light sleep**:
+  - :cpp:enumerator:`SLEEP_EVENT_SW_EXIT_SLEEP` sleep event is used, indicating end of :cpp:func:`esp_light_sleep_start`
+  - the library resumes the root port with :cpp:func:`usb_host_lib_root_port_resume` so SOFs and normal operation resume.
+
+If :ref:`CONFIG_ESP_SLEEP_EVENT_CALLBACKS <esp-idf:config_esp_sleep_event_callbacks>` is disabled, those callbacks are not compiled in and you must manage the root port yourself if you need spec-compliant suspend and resume around light sleep.
+
+Kconfig prerequisites
+"""""""""""""""""""""
+
+Enable the following options in menuconfig as appropriate for your application:
+
+- :ref:`CONFIG_ESP_SLEEP_EVENT_CALLBACKS <esp-idf:config_esp_sleep_event_callbacks>` — **Required** for the built-in light-sleep suspend and resume behavior described above.
+- :ref:`CONFIG_PM_ENABLE <esp-idf:config_pm_enable>` and :ref:`CONFIG_FREERTOS_USE_TICKLESS_IDLE <esp-idf:config_freertos_use_tickless_idle>` — Use these when you rely on the power manager / tickless idle path to enter light sleep automatically while the CPU is idle. They are not strictly required if you only call :cpp:func:`esp_light_sleep_start` yourself, as long as sleep event callbacks are enabled so the USB hooks are registered.
+
+Client events and timing
+""""""""""""""""""""""""
+
+To keep light-sleep entry latency low, the pre-sleep callback completes only the hardware suspend path before sleep. Client-visible suspend notifications (:cpp:enumerator:`USB_HOST_CLIENT_EVENT_DEV_SUSPENDED`) are typically delivered **after** wake, once :cpp:func:`usb_host_lib_handle_events` runs again and the stack finishes the software side of suspend. Likewise, :cpp:enumerator:`USB_HOST_CLIENT_EVENT_DEV_RESUMED` is delivered after the post-sleep resume path completes. Expect on the order of ~17 ms extra latency on light-sleep entry from this sequence (see implementation notes in the source).
+
+
+Disconnect during light sleep
+"""""""""""""""""""""""""""""
+
+If a device disconnects while the SoC is in light sleep, the disconnect may only be observed after wake. The USB OTG peripheral disconnect interrupt is delivered after exiting the light sleep. Even thought the library still thinks the device is present since the :cpp:func:`usb_host_lib_handle_events` hasn't had a chance to run, the resume sequence is started, but the lower USB Host stack layers handle the disconnected device and the resume sequence is correctly not executed.
+
+Deep sleep usage with USB Host
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Deep sleep powers down the USB OTG peripheral and loses SRAM contents. The USB Host stack, device handles, and enumeration state do not survive deep sleep: from the USB device's perspective the host connection is effectively lost, and after reset the device must be discovered again through normal attach and enumeration.
+
+Recommended application flow:
+
+#. Finish or cancel outstanding transfers, halt and flush endpoints (if needed), then release interfaces and close devices (same teardown as at runtime).
+#. Deregister USB Host clients and call :cpp:func:`usb_host_uninstall` so PHY and driver resources are released cleanly before :cpp:func:`esp_deep_sleep_start`.
+#. After wake (cold boot from the application point of view), call :cpp:func:`usb_host_install` again, register clients, and wait for :cpp:enumerator:`USB_HOST_CLIENT_EVENT_NEW_DEV` (or equivalent) as if USB were starting from scratch.
+
+There is no automatic USB suspend or resume across deep sleep because the host software does not persist. Do not assume devices keep their address or configuration after deep sleep.
 
 .. ---------------------------------------------------- Examples -------------------------------------------------------
 
