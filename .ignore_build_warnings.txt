@@ -1,2 +1,3 @@
 warning: unknown kconfig symbol 'ESP32P4_SELECTS_REV_LESS_V3' assigned to*
 warning: unknown kconfig symbol 'ESP32P4_REV_MIN_301' assigned to*
+warning: unknown kconfig symbol 'USB_HOST_AUTO_PM_LIGHT_SLEEP' assigned to*

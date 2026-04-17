@@ -1,0 +1,7 @@
+# Configuration with power management disabled
+
+# Power management and sleep
+CONFIG_PM_ENABLE=n
+CONFIG_FREERTOS_USE_TICKLESS_IDLE=n
+CONFIG_ESP_SLEEP_EVENT_CALLBACKS=n
+CONFIG_USB_HOST_AUTO_PM_LIGHT_SLEEP=n

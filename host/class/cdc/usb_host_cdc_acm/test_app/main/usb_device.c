@@ -155,11 +155,26 @@ TEST_CASE("mock_dev_app_dual_iface", "[cdc_acm_mock_dev][dual_iface][ignore]")
 }
 
 /**
+ * @brief Do a connection/disconnection delay
+ *
+ * @param[in] delay_ms Delay in ms
+ */
+static void dconn_conn_delay(size_t delay_ms)
+{
+    if (delay_ms > 0) {
+        vTaskDelay(pdMS_TO_TICKS(delay_ms));
+    }
+}
+
+/**
  * @brief Run CDC-ACM Device with 2 interfaces in a loopback mode
  *
  * Device performs sudden disconnect followed by a connect upon receiving Suspend callback
+ *
+ * @param[in] dconn_delay_ms Delay in ms before disconnecting the port
+ * @param[in] conn_delay_ms Delay in ms before connecting the port back
  */
-TEST_CASE("mock_dev_app_suspend_dconn", "[cdc_acm_mock_dev][suspend_dconn][ignore]")
+static void device_suspend_common(size_t dconn_delay_ms, size_t conn_delay_ms)
 {
     cdc_acm_mock_device_run();
     tinyusb_event_id_t mask_event = UINT32_MAX;
@@ -176,11 +191,16 @@ TEST_CASE("mock_dev_app_suspend_dconn", "[cdc_acm_mock_dev][suspend_dconn][ignor
 
             switch (dev_event.id) {
             case TINYUSB_EVENT_SUSPENDED:
+
+                // Optional delay before disconnection (depends on the test case whether sudden disconnect, or just disconnect)
+                dconn_conn_delay(dconn_delay_ms);
+
+                // Disconnect
                 TEST_ASSERT(tud_disconnect());
                 ESP_LOGI(CDC_DEV_TAG, "Triggering disconnect");
 
                 // Stay disconnected for a while and trigger connect
-                vTaskDelay(pdMS_TO_TICKS(1000));
+                dconn_conn_delay(conn_delay_ms);
 
                 ESP_LOGI(CDC_DEV_TAG, "Triggering connect");
                 TEST_ASSERT(tud_connect());
@@ -198,9 +218,24 @@ TEST_CASE("mock_dev_app_suspend_dconn", "[cdc_acm_mock_dev][suspend_dconn][ignor
 /**
  * @brief Run CDC-ACM Device with 2 interfaces in a loopback mode
  *
- * Device performs sudden disconnect followed by a connect upon receiving Resume callback
+ * Device performs sudden disconnect followed by a connect upon receiving Suspend callback
  */
-TEST_CASE("mock_dev_app_resume_dconn", "[cdc_acm_mock_dev][resume_dconn][ignore]")
+TEST_CASE("mock_dev_app_suspend_sudden_dconn", "[cdc_acm_mock_dev][suspend_sudden_dconn][ignore]")
+{
+    device_suspend_common(0, 1000);
+}
+
+/**
+ * @brief Run CDC-ACM Device with 2 interfaces in a loopback mode
+ *
+ * Device performs a disconnect receiving Suspend callback using long connection delay to simulate device not being present
+ */
+TEST_CASE("mock_dev_app_suspend_dconn_no_dev", "[cdc_acm_mock_dev][suspend_dconn_no_dev][ignore]")
+{
+    device_suspend_common(1000, 5000);
+}
+
+static void device_resume_common(size_t dconn_delay_ms, size_t conn_delay_ms)
 {
     cdc_acm_mock_device_run();
 
@@ -210,11 +245,16 @@ TEST_CASE("mock_dev_app_resume_dconn", "[cdc_acm_mock_dev][resume_dconn][ignore]
 
             switch (dev_event.id) {
             case TINYUSB_EVENT_RESUMED:
+
+                // Optional delay before disconnection (depends on the test case whether sudden disconnect, or just disconnect)
+                dconn_conn_delay(dconn_delay_ms);
+
+                // Disconnect
                 TEST_ASSERT(tud_disconnect());
                 ESP_LOGI(CDC_DEV_TAG, "Triggering disconnect");
 
                 // Stay disconnected for a while and trigger connect
-                vTaskDelay(pdMS_TO_TICKS(1000));
+                dconn_conn_delay(conn_delay_ms);
 
                 ESP_LOGI(CDC_DEV_TAG, "Triggering connect");
                 TEST_ASSERT(tud_connect());
@@ -224,6 +264,16 @@ TEST_CASE("mock_dev_app_resume_dconn", "[cdc_acm_mock_dev][resume_dconn][ignore]
             }
         }
     }
+}
+
+/**
+ * @brief Run CDC-ACM Device with 2 interfaces in a loopback mode
+ *
+ * Device performs sudden disconnect followed by a connect upon receiving Resume callback
+ */
+TEST_CASE("mock_dev_app_resume_sudden_dconn", "[cdc_acm_mock_dev][resume_sudden_dconn][ignore]")
+{
+    device_resume_common(0, 1000);
 }
 
 /**
