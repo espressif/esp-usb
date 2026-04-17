@@ -9,6 +9,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include "sdkconfig.h"
 #include "esp_system.h"
 #include "unity.h"
 #include "freertos/FreeRTOS.h"
@@ -21,6 +22,9 @@
 #include "usb/usb_host.h"
 #include "usb/cdc_acm_host.h"
 #include "esp_intr_alloc.h"
+#include "esp_sleep.h"
+#include "esp_timer.h"
+#include "esp_private/sleep_event.h"
 
 #define APP_QUEUE_LENGTH 5
 
@@ -1208,7 +1212,7 @@ TEST_CASE("resume_by_transfer_submit", "[cdc_acm]")
  * #. host registers the new device event, enumerates, opens the device and tests it functionality
  * #. cleanup
  */
-TEST_CASE("device_suspend_sudden_disconnect", "[host_suspend_dconn]")
+TEST_CASE("device_suspend_sudden_disconnect", "[host_suspend_sudden_dconn]")
 {
     nb_of_responses = 0;
 
@@ -1255,7 +1259,7 @@ TEST_CASE("device_suspend_sudden_disconnect", "[host_suspend_dconn]")
  * #. host registers the new device event, enumerates, opens the device and tests it functionality
  * #. cleanup
  */
-TEST_CASE("device_resume_sudden_disconnect", "[host_resume_dconn]")
+TEST_CASE("device_resume_sudden_disconnect", "[host_resume_sudden_dconn]")
 {
     nb_of_responses = 0;
 
@@ -1534,5 +1538,209 @@ TEST_CASE("large_tx", "[cdc_acm]")
     TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_uninstall());
     vTaskDelay(20); // Short delay to allow task to be cleaned up
 }
+
+#if defined(CONFIG_ESP_SLEEP_EVENT_CALLBACKS) && defined(CDC_HOST_SUSPEND_RESUME_API_SUPPORTED)
+
+#define TIMER_LIGHT_SLEEP_WAKEUP_TIME_US (5 * 1000 * 1000) // 5 seconds
+#define LIGHT_SLEEP_NUM_CYCLES           (5)
+
+/**
+ * @brief Test: Class driver usage with light sleep
+ * #. open the device and setup light sleep timer wakeup source
+ * #. send some data to make sure that the device is working
+ * #. enter light sleep mode, expect wakeup from timer after expected time
+ * #. expect suspend and resume events around light sleep
+ * #. repeat the above steps for several cycles
+ * #. cleanup
+ */
+TEST_CASE("light_sleep", "[cdc_acm][light_sleep]")
+{
+    nb_of_responses = 0;
+    test_install_cdc_driver(&driver_config_new_dev_cb);
+
+    TEST_ASSERT_EQUAL(ESP_OK, esp_sleep_enable_timer_wakeup(TIMER_LIGHT_SLEEP_WAKEUP_TIME_US));
+    printf("Light sleep timer wakeup source is ready\n");
+
+    cdc_acm_dev_hdl_t cdc_dev = NULL;
+    cdc_acm_host_device_config_t dev_config = default_dev_config;
+
+    printf("Opening CDC-ACM device\n");
+    wait_for_app_event(&new_dev_event, 100);
+    TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_open(0x303A, 0x4002, 0, &dev_config, &cdc_dev)); // 0x303A:0x4002 (TinyUSB Dual CDC device)
+    TEST_ASSERT_NOT_NULL(cdc_dev);
+
+    for (int i = 0; i < LIGHT_SLEEP_NUM_CYCLES; i++) {
+
+        for (int i = 0; i < NUM_ITERATIONS; i++) {
+            TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_data_tx_blocking(cdc_dev, tx_buf, sizeof(tx_buf), 1000));
+        }
+        vTaskDelay(10); // Wait until responses are processed
+        TEST_ASSERT_EQUAL(NUM_ITERATIONS, nb_of_responses);
+        nb_of_responses = 0;
+
+        const int64_t t_before_us = esp_timer_get_time();               // Get timestamp before entering sleep
+        TEST_ASSERT_EQUAL(ESP_OK, esp_light_sleep_start());             // Enter light sleep mode
+        const int64_t t_after_us = esp_timer_get_time();                // Get timestamp after waking up from sleep
+        const uint32_t wakeup_cause = esp_sleep_get_wakeup_causes();    // Determine wake up reason
+        TEST_ASSERT(wakeup_cause & BIT(ESP_SLEEP_WAKEUP_TIMER));        // Wake up reason must be timer
+
+        // Check light sleep duration
+        TEST_ASSERT_INT_WITHIN_MESSAGE(
+            TIMER_LIGHT_SLEEP_WAKEUP_TIME_US / 10, TIMER_LIGHT_SLEEP_WAKEUP_TIME_US,
+            t_after_us - t_before_us, "Unexpected light sleep duration");
+
+        // Expect suspend and resume event (suspend event is processed after waking up from light sleep)
+        wait_for_app_event(&suspend_event, pdMS_TO_TICKS(5000));
+        wait_for_app_event(&resume_event, pdMS_TO_TICKS(5000));
+        printf("Returned from light sleep, reason: timer, t=%lld ms, slept for %lld ms\n", t_after_us / 1000, (t_after_us - t_before_us) / 1000);
+    }
+
+    TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_close(cdc_dev));
+    TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_uninstall());
+    vTaskDelay(20); // Short delay to allow task to be cleaned up
+}
+
+/**
+ * @brief Test: Device disconnection during light sleep and connection after exiting light sleep
+ * #. open the device and setup light sleep timer wakeup source
+ * #. send some data to make sure that the device is working
+ * #. enter light sleep mode
+ * #. device disconnects the root port and connect it back after the host exits light sleep
+ * #. host handles light sleep callback (device is gone, but usb_host_lib still registers the device) -> usb host recovery
+ * #. expect events:
+ * #   - suspend event (generated before entering light sleep)
+ * #   - disconnect event (disconnect during light sleep)
+ * #   - new device event (device connected after host recovery)
+ * #. open the device again, sed some data
+ * #. cleanup
+ */
+TEST_CASE("light_sleep_dconn_no_dev", "[light_sleep][host_suspend_dconn_no_dev]")
+{
+    nb_of_responses = 0;
+    test_install_cdc_driver(&driver_config_new_dev_cb);
+
+    TEST_ASSERT_EQUAL(ESP_OK, esp_sleep_enable_timer_wakeup(TIMER_LIGHT_SLEEP_WAKEUP_TIME_US));
+    printf("Light sleep timer wakeup source is ready\n");
+
+    cdc_acm_dev_hdl_t cdc_dev = NULL;
+    cdc_acm_host_device_config_t dev_config = default_dev_config;
+
+    printf("Opening CDC-ACM device\n");
+    wait_for_app_event(&new_dev_event, 100);
+    TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_open(0x303A, 0x4002, 0, &dev_config, &cdc_dev)); // 0x303A:0x4002 (TinyUSB Dual CDC device)
+    TEST_ASSERT_NOT_NULL(cdc_dev);
+
+    for (int i = 0; i < NUM_ITERATIONS; i++) {
+        TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_data_tx_blocking(cdc_dev, tx_buf, sizeof(tx_buf), 1000));
+    }
+    vTaskDelay(10); // Wait until responses are processed
+    TEST_ASSERT_EQUAL(NUM_ITERATIONS, nb_of_responses);
+
+    TEST_ASSERT_EQUAL(ESP_OK, esp_light_sleep_start());             // Enter light sleep mode
+
+    // After exiting light sleep, expect suspend event which was not generated prior to entering the light sleep
+    // to achieve low light sleep enter latency only a HW suspend sequence was done (USB Bus suspend signaling)
+    wait_for_app_event(&suspend_event, pdMS_TO_TICKS(5000));
+    // Port was disconnected during light sleep (by USB Device): Disconnect interrupt was not delivered during light sleep, but after
+    // exiting light sleep
+    wait_for_app_event(&dev_gone_event, pdMS_TO_TICKS(5000));
+
+    // Currently, the port is in recovery stage (after disconnect in light sleep)
+    // Expect new connection after recovery (by USB Device)
+    wait_for_app_event(&new_dev_event,  pdMS_TO_TICKS(5000));
+    // Try to send data to an old device
+    TEST_ASSERT_EQUAL(ESP_ERR_NOT_SUPPORTED, cdc_acm_host_data_tx_blocking(cdc_dev, tx_buf, sizeof(tx_buf), 1000));
+    cdc_dev = NULL;
+    nb_of_responses = 0;
+
+    // Open the device again
+    printf("Opening CDC-ACM device\n");
+    TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_open(0x303A, 0x4002, 0, &dev_config, &cdc_dev)); // 0x303A:0x4002 (TinyUSB Dual CDC device)
+    TEST_ASSERT_NOT_NULL(cdc_dev);
+    for (int i = 0; i < NUM_ITERATIONS; i++) {
+        TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_data_tx_blocking(cdc_dev, tx_buf, sizeof(tx_buf), 1000));
+    }
+    vTaskDelay(10); // Wait until responses are processed
+    TEST_ASSERT_EQUAL(NUM_ITERATIONS, nb_of_responses);
+
+    TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_close(cdc_dev));
+    TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_uninstall());
+    vTaskDelay(20); // Short delay to allow task to be cleaned up
+}
+
+#endif // CONFIG_ESP_SLEEP_EVENT_CALLBACKS && CDC_HOST_SUSPEND_RESUME_API_SUPPORTED
+
+#define TIMER_DEEP_SLEEP_WAKEUP_TIME_US  (3 * 1000 * 1000) // 3 seconds
+
+static void cdc_acm_deep_sleep_common(void)
+{
+    nb_of_responses = 0;
+    test_install_cdc_driver(&driver_config_new_dev_cb);
+
+    TEST_ASSERT_EQUAL(ESP_OK, esp_sleep_enable_timer_wakeup(TIMER_DEEP_SLEEP_WAKEUP_TIME_US));
+    printf("Deep sleep timer wakeup source is ready\n");
+
+    cdc_acm_dev_hdl_t cdc_dev = NULL;
+    cdc_acm_host_device_config_t dev_config = default_dev_config;
+
+    printf("Opening CDC-ACM device\n");
+    wait_for_app_event(&new_dev_event, 100);
+    TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_open(0x303A, 0x4002, 0, &dev_config, &cdc_dev)); // 0x303A:0x4002 (TinyUSB Dual CDC device)
+    TEST_ASSERT_NOT_NULL(cdc_dev);
+
+    for (int i = 0; i < NUM_ITERATIONS; i++) {
+        TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_data_tx_blocking(cdc_dev, tx_buf, sizeof(tx_buf), 1000));
+    }
+    vTaskDelay(10); // Wait until responses are processed
+    TEST_ASSERT_EQUAL(NUM_ITERATIONS, nb_of_responses);
+
+    esp_deep_sleep_start();
+}
+
+/**
+ * @brief Deep sleep 1st test stage
+ *
+ * Open the device, install host driver, send some data and enter deep sleep
+ */
+static void cdc_acm_host_deep_sleep_1(void)
+{
+    cdc_acm_deep_sleep_common();
+}
+
+/**
+ * @brief Deep sleep 2nd test stage
+ *
+ * Check reset reason, open the device, install host driver, send some data and enter deep sleep
+ */
+static void cdc_acm_host_deep_sleep_2(void)
+{
+    // Get reset reason and check if it's deep sleep reset
+    soc_reset_reason_t reason = esp_rom_get_reset_reason(0);
+    TEST_ASSERT(reason == RESET_REASON_CORE_DEEP_SLEEP);
+    cdc_acm_deep_sleep_common();
+}
+
+/**
+ * @brief Deep sleep 3rd test stage
+ *
+ * Check reset reason
+ */
+static void cdc_acm_host_deep_sleep_3(void)
+{
+    // Get reset reason and check if it's deep sleep reset
+    soc_reset_reason_t reason = esp_rom_get_reset_reason(0);
+    TEST_ASSERT(reason == RESET_REASON_CORE_DEEP_SLEEP);
+}
+
+/**
+ * @brief Test: Class driver usage with deep sleep
+ * #. open the device and setup deep sleep timer wakeup source
+ * #. send some data to make sure that the device is working
+ * #. enter deep sleep mode, expect wakeup from timer after set time
+ * #. make sure that the reset reason is deep sleep reset after wakeup
+ * #. repeat the above steps for several cycles
+ * #. cleanup
+ */
+TEST_CASE_MULTIPLE_STAGES("deep_sleep", "[cdc_acm][deep_sleep]", cdc_acm_host_deep_sleep_1, cdc_acm_host_deep_sleep_2, cdc_acm_host_deep_sleep_3);
 
 #endif // SOC_USB_OTG_SUPPORTED
