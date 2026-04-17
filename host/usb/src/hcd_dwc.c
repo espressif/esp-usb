@@ -622,7 +622,10 @@ static esp_err_t _port_cmd_reset(port_t *port);
  *
  * - Port must be enabled in order to to be suspended
  * - All pipes must be halted for the port to be suspended
- * - Suspending the port stops Keep Alive/SOF from being sent to the connected device and gates the internal clock
+ * - Suspending the port would effectively:
+ *   - perform a suspend sequence: Driving a J-state
+ *   - stop Keep Alive/SOF from being sent to the USB Bus and the connected devices
+ *   - gate the peripheral's internal clock
  *
  * - This sequence equals to a sequence from the DesignWare Cores USB 2.0 Programming Guide version 4.00a
  *   14.2.2 Clock Gating
@@ -642,7 +645,10 @@ static esp_err_t _port_cmd_bus_suspend(port_t *port);
  * @brief Resume the port
  *
  * - Port must be suspended in order to be resumed
- * - Resuming the root port starts to send Keep Alive/SOF to the connected device and un-gates the internal clock
+ * - Resuming the root port would effectively:
+ *   - un-gate the peripheral's internal clock
+ *   - perform a resume sequence: Toggling K-state for around 20ms
+ *   - start sending Keep Alive/SOF to the connected device
  *
  * - This sequence equals to a sequence from the DesignWare Cores USB 2.0 Programming Guide version 4.00a
  *   14.2.2 Clock Gating
