@@ -4,6 +4,12 @@ All notable changes to this component will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- Fixed disconnect cleanup chain aborting on `usb_host_endpoint_halt` / `usb_host_endpoint_flush` / per-interface close failures, which left the USB device context dangling and unrecoverable without a physical re-plug. The disconnect cleanup path now uses dedicated best-effort helpers (`hid_host_disable_interface_disconnect`, `hid_host_device_close_disconnect`) that log and continue on those expected failures so `hid_host_uninstall_device()` is always reached. The best-effort close path also forces the interface state forward on each failure so list removal is guaranteed, and frees `iface->in_xfer` if `usb_host_interface_release()` fails partway through, preserving the leak-free invariant of the strict path. The public graceful-close API (`hid_host_device_close`, `hid_host_device_stop`) keeps the existing strict error propagation unchanged. See issue #470.
+
 ## [1.2.0] - 2026-04-08
 
 ### Added
