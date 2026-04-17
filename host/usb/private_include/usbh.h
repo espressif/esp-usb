@@ -319,6 +319,21 @@ esp_err_t usbh_devs_mark_all_free(void);
  */
 void usbh_devs_set_pm_actions_all(usbh_dev_ctrl_t device_ctrl);
 
+#ifdef AUTO_PM_LIGHT_SLEEP
+/**
+ * @brief Halt and flush all endpoints on all devices (synchronous)
+ *
+ * Used by automatic light sleep enter before asserting DWC root suspend.
+ * @return
+ *    - ESP_OK: All devices flush/halt successful
+ *    - ESP_ERR_INVALID_STATE: USBH driver is not installed
+ *    - ESP_ERR_INVALID_SIZE: Too many devices connected for synchronous handling
+ *    - ESP_ERR_NOT_FINISHED: usb host lib busy, mutex to process the EPs can't be acquired. We bail the auto-suspend
+ *                            operation in favor of a low latency to enter light sleep.
+ */
+esp_err_t usbh_devs_halt_flush_all_sync(void);
+#endif // AUTO_PM_LIGHT_SLEEP
+
 /**
  * @brief Open a device by address
  *

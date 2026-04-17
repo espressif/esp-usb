@@ -9,6 +9,7 @@
 #include <stdbool.h>
 #include <sys/queue.h>
 #include "esp_err.h"
+#include "esp_check.h"
 #include "esp_heap_caps.h"
 #include "esp_bit_defs.h"
 #include "esp_private/critical_section.h"
@@ -37,10 +38,13 @@ Implementation of the HUB driver that supports Root HUB with 2 Root Ports.
 #define HUB_ROOT_HCD_PORT_FIFO_BIAS                 HCD_PORT_FIFO_BIAS_BALANCED
 #endif
 
-#define PORT_REQ_DISABLE                            0x01
-#define PORT_REQ_RECOVER                            0x02
-#define PORT_REQ_SUSPEND                            0x04
-#define PORT_REQ_RESUME                             0x08
+#define PORT_REQ_DISABLE                            BIT0
+#define PORT_REQ_RECOVER                            BIT1
+#define PORT_REQ_SUSPEND                            BIT2
+#define PORT_REQ_RESUME                             BIT3
+#ifdef AUTO_PM_LIGHT_SLEEP
+#define PORT_REQ_EXIT_LIGHT_SLEEP                   BIT4
+#endif // AUTO_PM_LIGHT_SLEEP
 
 /**
  * @brief Hub driver action flags
@@ -100,7 +104,8 @@ typedef struct {
         union {
             struct {
                 hub_flag_action_t actions: 8;       /**< Hub actions */
-                uint32_t reserved24: 24;            /**< Reserved */
+                uint32_t light_sleep_auto_pm: 1;    /**< Root port was automatically suspended from light sleep callback, when entering light sleep */
+                uint32_t reserved23: 23;            /**< Reserved */
             };
             uint32_t val;                           /**< Hub flag action value */
         } flags;                                    /**< Hub flags */
@@ -632,6 +637,24 @@ static void root_port_req(root_hub_port_t *root_hub_port)
         // Clear all EPs and propagate the resumed event to clients
         usbh_devs_set_pm_actions_all(USBH_DEV_RESUME | USBH_DEV_RESUME_EVT);    // NOLINT(clang-analyzer-optin.core.EnumCastOutOfRange)
     }
+#ifdef AUTO_PM_LIGHT_SLEEP
+    if (port_reqs & PORT_REQ_EXIT_LIGHT_SLEEP) {
+        ESP_LOGD(HUB_DRIVER_TAG, "Root port %d exit light sleep sequence",  root_hub_port->constant.index);
+
+        const hcd_port_state_t hcd_port_state = hcd_port_get_state(root_port_hdl);
+        if (hcd_port_state == HCD_PORT_STATE_RECOVERY) {
+            // We are about to deliver a deferred root port suspend event and the HCD port is currently in recovery state
+            // That indicates, that the device has been disconnected during light sleep
+            // Clock gating will be disabled by recovery routine, nothing to do here
+            // Deferred suspend event will not be delivered
+            return;
+        }
+
+        // Root port, including all the connected devices were suspended (global suspend)
+        // Propagate the suspended event to clients
+        usbh_devs_set_pm_actions_all(USBH_DEV_SUSPEND_EVT);
+    }
+#endif // AUTO_PM_LIGHT_SLEEP
 }
 
 static esp_err_t root_port_recycle(root_hub_port_t *root_hub_port)
@@ -1030,6 +1053,90 @@ esp_err_t hub_root_mark_resume(void)
     p_hub_driver_obj->constant.proc_req_cb(USB_PROC_REQ_SOURCE_HUB, false, p_hub_driver_obj->constant.proc_req_cb_arg);
     return ESP_OK;
 }
+
+#ifdef AUTO_PM_LIGHT_SLEEP
+
+esp_err_t hub_root_mark_exit_light_sleep(void)
+{
+    HUB_DRIVER_ENTER_CRITICAL();
+    HUB_DRIVER_CHECK_FROM_CRIT(p_hub_driver_obj != NULL, ESP_ERR_INVALID_STATE);
+    // Return early, if the root port was not suspended from the light sleep callback (suspend event already delivered)
+    HUB_DRIVER_CHECK_FROM_CRIT(p_hub_driver_obj->dynamic.flags.light_sleep_auto_pm != 0, ESP_OK);
+    // Root port suspended from the light sleep callback, deliver the suspend event
+    p_hub_driver_obj->dynamic.flags.light_sleep_auto_pm = 0;
+
+    // TODO: Suspend/Resume API is currently available only for single host configuration.
+    // Pick the first root port that is enabled
+    root_hub_port_t *root_hub_port = &p_hub_driver_obj->root_hub_ports[0];
+    hub_flag_action_t action = HUB_DRIVER_ACTION_ROOT0_REQ;
+#if HCD_NUM_PORTS > 1
+    if (!root_hub_port->constant.hdl) {
+        root_hub_port = &p_hub_driver_obj->root_hub_ports[1];
+        action = HUB_DRIVER_ACTION_ROOT1_REQ;
+    }
+#endif
+    assert(root_hub_port->constant.hdl);
+    // Root port must be in suspended state
+    // This state is a stale state taken when entering light sleep, port might have undergone reset or error,
+    // but the usb host lib has not have a chance to run, thus to update the port state
+    HUB_DRIVER_CHECK_FROM_CRIT(root_hub_port->dynamic.state == ROOT_PORT_STATE_SUSPENDED, ESP_ERR_NOT_ALLOWED);
+
+    // Set port request to exit light sleep
+    root_hub_port->dynamic.reqs |= PORT_REQ_EXIT_LIGHT_SLEEP;
+    p_hub_driver_obj->dynamic.flags.actions |= action;
+    HUB_DRIVER_EXIT_CRITICAL();
+
+    // Call processing callback
+    p_hub_driver_obj->constant.proc_req_cb(USB_PROC_REQ_SOURCE_HUB, false, p_hub_driver_obj->constant.proc_req_cb_arg);
+    return ESP_OK;
+}
+
+esp_err_t hub_root_light_sleep_suspend_bus(void)
+{
+    HUB_DRIVER_ENTER_CRITICAL();
+    HUB_DRIVER_CHECK_FROM_CRIT(p_hub_driver_obj != NULL, ESP_ERR_INVALID_STATE);
+
+    root_hub_port_t *root_hub_port = &p_hub_driver_obj->root_hub_ports[0];
+#if HCD_NUM_PORTS > 1
+    if (!root_hub_port->constant.hdl) {
+        root_hub_port = &p_hub_driver_obj->root_hub_ports[1];
+    }
+#endif
+    assert(root_hub_port->constant.hdl);
+    // Continue only when enabled; otherwise port is either already suspended, powered off or device not preset
+    HUB_DRIVER_CHECK_FROM_CRIT(root_hub_port->dynamic.state == ROOT_PORT_STATE_ENABLED, ESP_OK);
+    hcd_port_handle_t root_port_hdl = root_hub_port->constant.hdl;
+    HUB_DRIVER_EXIT_CRITICAL();
+
+    // Check the port state
+    const hcd_port_state_t hcd_port_state = hcd_port_get_state(root_port_hdl);
+    switch (hcd_port_state) {
+    case HCD_PORT_STATE_SUSPENDED:      // Already suspended
+    case HCD_PORT_STATE_SUSPENDING:     // Inside suspend entry delay, already suspending
+    case HCD_PORT_STATE_NOT_POWERED:    // No suspend routine needed for not powered port
+        // no further actions
+        return ESP_OK;
+    case HCD_PORT_STATE_ENABLED:
+        // Continue with auto suspend from light sleep callback
+        break;
+    default:
+        // In other state (port resetting, in recovery, resuming..) it does not make sense to continue
+        // with the auto suspend sequence, the port state is not correct for the suspend
+        return ESP_ERR_NOT_FINISHED;
+    }
+
+    ESP_RETURN_ON_ERROR(usbh_devs_halt_flush_all_sync(), HUB_DRIVER_TAG, "Devs halt/flush failed");
+    ESP_RETURN_ON_ERROR(hcd_port_command(root_port_hdl, HCD_PORT_CMD_SUSPEND_LIGHT_SLEEP), HUB_DRIVER_TAG, "Port suspend cmd failed");
+
+    HUB_DRIVER_ENTER_CRITICAL();
+    p_hub_driver_obj->dynamic.flags.light_sleep_auto_pm = 1;
+    root_hub_port->dynamic.state = ROOT_PORT_STATE_SUSPENDED;
+    HUB_DRIVER_EXIT_CRITICAL();
+    return ESP_OK;
+}
+
+#endif // AUTO_PM_LIGHT_SLEEP
+
 
 esp_err_t hub_node_recycle(unsigned int node_uid)
 {

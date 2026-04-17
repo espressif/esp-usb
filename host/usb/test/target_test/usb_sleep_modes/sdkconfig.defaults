@@ -1,0 +1,14 @@
+# This file was generated using idf.py save-defconfig. It can be edited manually.
+# Espressif IoT Development Framework (ESP-IDF) Project Minimal Configuration
+#
+# CONFIG_ESP_TASK_WDT_INIT is not set
+CONFIG_HEAP_POISONING_COMPREHENSIVE=y
+# CONFIG_UNITY_ENABLE_FLOAT is not set
+# CONFIG_UNITY_ENABLE_DOUBLE is not set
+CONFIG_UNITY_ENABLE_BACKTRACE_ON_FAIL=y
+CONFIG_USB_HOST_HUBS_SUPPORTED=y
+
+# Power management and sleep
+CONFIG_PM_ENABLE=y
+CONFIG_FREERTOS_USE_TICKLESS_IDLE=y
+CONFIG_ESP_SLEEP_EVENT_CALLBACKS=y
