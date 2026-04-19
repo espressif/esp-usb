@@ -137,9 +137,9 @@ menu "TinyUSB Stack"
             depends on TINYUSB_MSC_ENABLED
             int "MSC FIFO size"
             default 512 if IDF_TARGET_ESP32S2 || IDF_TARGET_ESP32S3 || IDF_TARGET_ESP32H4
-            default 8192 if IDF_TARGET_ESP32P4
+            default 8192 if IDF_TARGET_ESP32P4 || IDF_TARGET_ESP32S31
             range 64 8192 if IDF_TARGET_ESP32S2 || IDF_TARGET_ESP32S3 || IDF_TARGET_ESP32H4
-            range 64 32768 if IDF_TARGET_ESP32P4
+            range 64 32768 if IDF_TARGET_ESP32P4 || IDF_TARGET_ESP32S31
             help
                 MSC FIFO size, in bytes.
 
@@ -322,7 +322,7 @@ menu "TinyUSB Stack"
         config TINYUSB_VENDOR_RX_BUFSIZE
             depends on (TINYUSB_VENDOR_COUNT > 0)
             int "Vendor specific FIFO size of RX channel"
-            default 512 if IDF_TARGET_ESP32P4
+            default 512 if IDF_TARGET_ESP32P4 || IDF_TARGET_ESP32S31
             default 64
             range 0 32768
             help
@@ -335,7 +335,7 @@ menu "TinyUSB Stack"
         config TINYUSB_VENDOR_TX_BUFSIZE
             depends on (TINYUSB_VENDOR_COUNT > 0)
             int "Vendor specific FIFO size of TX channel"
-            default 512 if IDF_TARGET_ESP32P4
+            default 512 if IDF_TARGET_ESP32P4 || IDF_TARGET_ESP32S31
             default 64
             range 0 32768
             help
@@ -347,7 +347,7 @@ menu "TinyUSB Stack"
         config TINYUSB_VENDOR_EPSIZE
             depends on (TINYUSB_VENDOR_COUNT > 0)
             int "Vendor specific Endpoint buffer size"
-            default 512 if IDF_TARGET_ESP32P4
+            default 512 if IDF_TARGET_ESP32P4 || IDF_TARGET_ESP32S31
             default 64
             range 64 32768
             help

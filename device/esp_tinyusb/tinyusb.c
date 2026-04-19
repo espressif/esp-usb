@@ -171,13 +171,17 @@ esp_err_t tinyusb_driver_install(const tinyusb_config_t *config)
             .otg_speed = USB_PHY_SPEED_FULL,
         };
 
-#if (SOC_USB_OTG_PERIPH_NUM > 1)
+#if CONFIG_IDF_TARGET_ESP32S31
+        // ESP32-S31 has only UTMI (HS) PHY, no internal FSLS PHY
+        phy_conf.target = USB_PHY_TARGET_UTMI;
+        phy_conf.otg_speed = USB_PHY_SPEED_HIGH;
+#elif (SOC_USB_OTG_PERIPH_NUM > 1)
         if (config->port == TINYUSB_PORT_HIGH_SPEED_0) {
             // Default PHY for OTG2.0 is UTMI
             phy_conf.target = USB_PHY_TARGET_UTMI;
             phy_conf.otg_speed = USB_PHY_SPEED_HIGH;
         }
-#endif // (SOC_USB_OTG_PERIPH_NUM > 1)
+#endif // CONFIG_IDF_TARGET_ESP32S31
 
         // OTG IOs config
         const usb_phy_otg_io_conf_t otg_io_conf = USB_PHY_SELF_POWERED_DEVICE(config->phy.vbus_monitor_io);
@@ -189,12 +193,16 @@ esp_err_t tinyusb_driver_install(const tinyusb_config_t *config)
     // Init TinyUSB stack in task
     ESP_GOTO_ON_ERROR(tinyusb_task_start(config->port, &config->task, &config->descriptor), del_phy, TAG, "Init TinyUSB task failed");
 
-#if (CONFIG_IDF_TARGET_ESP32P4)
-    // Due to hardware limitations on ESP32-P4, VBUS cannot be monitored automatically by the High-Speed USB-OTG peripheral,
+#if (CONFIG_IDF_TARGET_ESP32P4) || (CONFIG_IDF_TARGET_ESP32S31)
+    // Due to hardware limitations, VBUS cannot be monitored automatically by the High-Speed USB-OTG peripheral,
     // so we need to initialize VBUS GPIO monitoring manually.
 
     // Initialize VBUS monitoring only for High-Speed ports and self-powered devices
+#if (CONFIG_IDF_TARGET_ESP32P4)
     if (config->port == TINYUSB_PORT_HIGH_SPEED_0 && config->phy.self_powered) {
+#else
+    if (config->phy.self_powered) {
+#endif
         const tinyusb_vbus_monitor_config_t vbus_cfg = {
             .gpio_num = config->phy.vbus_monitor_io,
             .port = (int)config->port,
@@ -205,7 +213,7 @@ esp_err_t tinyusb_driver_install(const tinyusb_config_t *config)
             goto del_phy;
         }
     }
-#endif // CONFIG_IDF_TARGET_ESP32P4
+#endif // CONFIG_IDF_TARGET_ESP32P4 || CONFIG_IDF_TARGET_ESP32S31
 
     s_ctx.port = config->port;              // Save the port number
     s_ctx.phy_hdl = phy_hdl;                // Save the PHY handle for uninstallation
@@ -234,7 +242,9 @@ esp_err_t tinyusb_driver_uninstall(void)
     if (s_ctx.port == TINYUSB_PORT_HIGH_SPEED_0) {
         tinyusb_vbus_monitor_deinit();
     }
-#endif // CONFIG_IDF_TARGET_ESP32P4
+#elif (CONFIG_IDF_TARGET_ESP32S31)
+    tinyusb_vbus_monitor_deinit();
+#endif // CONFIG_IDF_TARGET_ESP32P4 || CONFIG_IDF_TARGET_ESP32S31
     return ESP_OK;
 }
 
