@@ -3,9 +3,6 @@
 examples/peripherals/usb/device:
   disable:
     - if: SOC_USB_OTG_SUPPORTED != 1
-    - if: IDF_TARGET == "esp32s31"
-      temporary: true
-      reason: USB device examples do not support esp32s31 yet
 
 examples/peripherals/usb/device/tusb_ncm:
   disable:
