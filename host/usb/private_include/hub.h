@@ -16,11 +16,6 @@
 #define ENABLE_USB_HUBS                     1
 #endif // CONFIG_USB_HOST_HUBS_SUPPORTED
 
-// Automatically suspend the root port when light sleep is entered, and resume it when light sleep is exited
-#ifdef CONFIG_ESP_SLEEP_EVENT_CALLBACKS
-#define AUTO_PM_LIGHT_SLEEP
-#endif // CONFIG_ESP_SLEEP_EVENT_CALLBACKS
-
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -30,7 +25,6 @@ typedef enum {
     HUB_EVENT_CONNECTED,            /**< Device has been connected */
     HUB_EVENT_RESET_COMPLETED,      /**< Device reset completed */
     HUB_EVENT_DISCONNECTED,         /**< Device has been disconnected */
-    HUB_EVENT_SUSPEND_COMPLETED,    /**< Port suspend completed */
 } hub_event_t;
 
 typedef struct {
@@ -47,9 +41,6 @@ typedef struct {
         struct {
             unsigned int uid;                   /**< Unique device ID */
         } disconnected;                         /**< HUB_EVENT_DISCONNECTED specific data */
-        struct {
-            unsigned int uid;                   /**< Unique device ID */
-        } suspended;                            /**< HUB_EVENT_SUSPEND_COMPLETED specific data */
     };
 } hub_event_data_t;
 
@@ -145,14 +136,30 @@ esp_err_t hub_root_stop(void);
  * As the light sleep callback automatically calls root port resume without the usb_host_lib has a change to run to
  * possibly update a device list and handle a possible disconnection, mark the port to be ready for such a situation
  *
- * In case a disconnection happens during a light sleep, device is still present, but the DWC disconnect interrupt handler
- * set the HCD port state to a recovery state.
+ * In case a disconnection happens during a light sleep, device is still present in the host stack,
+ * but the DWC disconnect interrupt handler set the HCD port state to a recovery state.
  *
  * @return
  *    - ESP_OK: Successfully marked
  *    - ESP_ERR_INVALID_STATE: Hub driver is in invalid state
  */
 esp_err_t hub_root_mark_light_sleep_auto_resume(void);
+
+/**
+ * @brief Minimal root suspend for automatic light sleep (synchronous)
+ *
+ * Halt and flush all device endpoints, issue HCD_PORT_CMD_SUSPEND_LIGHT_SLEEP on the root port, mark the root hub
+ * suspended, and update USBH device suspended state without client-visible suspend events (those follow on resume).
+ *
+ * @note The device actions are done synchronously to decrease enter light sleep latency
+ *
+ * @return
+ *   - ESP_OK: Bus suspended
+ *   - ESP_ERR_INVALID_STATE: Hub driver is in invalid state
+ *   - ESP_ERR_NOT_ALLOWED: Root port is not in a correct state to be suspended (must be enabled and device connected)
+ *   - Other errors from calling functions
+ */
+esp_err_t hub_root_light_sleep_suspend_bus(void);
 
 #endif // AUTO_PM_LIGHT_SLEEP
 

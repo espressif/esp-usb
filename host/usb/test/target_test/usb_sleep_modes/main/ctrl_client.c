@@ -16,6 +16,8 @@
 #include "usb/usb_host.h"
 #include "unity.h"
 
+#if defined(SOC_LIGHT_SLEEP_SUPPORTED) && defined(SOC_DEEP_SLEEP_SUPPORTED)
+
 /*
 Implementation of a control transfer client used for USB Host Tests.
 
@@ -212,3 +214,5 @@ void ctrl_client_sleep_task(void *arg)
     xEventGroupSetBits(ctrl_obj.test_event_group, EVT_CLIENT_CLOSE);
     vTaskDelete(NULL);
 }
+
+#endif // SOC_LIGHT_SLEEP_SUPPORTED && SOC_DEEP_SLEEP_SUPPORTED

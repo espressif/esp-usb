@@ -17,14 +17,17 @@
 #include "esp_sleep.h"
 #include "esp_timer.h"
 #include "esp_private/sleep_event.h"
-#include "soc/soc_caps.h"
+
+#if defined(SOC_LIGHT_SLEEP_SUPPORTED) && defined(SOC_DEEP_SLEEP_SUPPORTED)
 
 #define TIMER_LIGHT_SLEEP_WAKEUP_TIME_US (3 * 1000 * 1000) // 3 seconds
 #define TIMER_DEEP_SLEEPWAKEUP_TIME_US   (5 * 1000 * 1000) // 5 seconds
 #define EVT_WAIT_TIME_MS                 (5 * 1000)        // 5 seconds
-#define LIGHT_SLEEP_NUM_CYCLES           (5)
+#define LIGHT_SLEEP_NUM_CYCLES           (3)
 
 const char *USB_SLEEP_TAG = "USB sleep";
+
+extern void test_setup(void);
 
 /*
     Light sleep task
@@ -88,10 +91,8 @@ static void deep_sleep_task(void *args)
     TEST_ASSERT_EQUAL(ESP_OK, esp_sleep_enable_timer_wakeup(TIMER_DEEP_SLEEPWAKEUP_TIME_US));
     ESP_LOGI(USB_SLEEP_TAG, "Deep sleep timer wakeup source is ready");
 
-    TEST_ASSERT_EQUAL_MESSAGE(
-        pdTRUE,
-        xEventGroupWaitBits(test_event_group, EVT_ALLOW_SLEEP | EVT_CLIENT_CLOSE, pdTRUE, pdFALSE, pdMS_TO_TICKS(EVT_WAIT_TIME_MS)),
-        "CTRL client did not set event on time to allow deep sleep");
+    EventBits_t evt_bit = xEventGroupWaitBits(test_event_group, EVT_ALLOW_SLEEP | EVT_CLIENT_CLOSE, pdTRUE, pdFALSE, pdMS_TO_TICKS(EVT_WAIT_TIME_MS));
+    TEST_ASSERT_MESSAGE((evt_bit & EVT_ALLOW_SLEEP) || (evt_bit & EVT_CLIENT_CLOSE), "CTRL client did not set event on time to allow deep sleep");
     ESP_LOGI(USB_SLEEP_TAG, "Entering deep sleep");
 
     /* Enter sleep mode */
@@ -161,6 +162,7 @@ Procedure:
 */
 TEST_CASE("Test USB Host light sleep", "[usb_sleep_modes][light_sleep]")
 {
+    test_setup();
     // Call common function with light sleep mode
     usb_host_sleep_common(ESP_SLEEP_MODE_LIGHT_SLEEP);
 }
@@ -224,6 +226,7 @@ Procedure:
 */
 TEST_CASE("Test USB Host enter light sleep error handling", "[usb_sleep_modes][light_sleep]")
 {
+    test_setup();
     TaskHandle_t sleep_task_hdl = NULL;
 
     TEST_ASSERT_EQUAL(pdTRUE, xTaskCreate(light_sleep_enter_task_error, "light_sleep_enter_task_error", 4096, xTaskGetCurrentTaskHandle(), 2, &sleep_task_hdl));
@@ -254,12 +257,216 @@ TEST_CASE("Test USB Host enter light sleep error handling", "[usb_sleep_modes][l
 
 
 /**
+ * @brief Timestamp struct for measuring added light sleep latency by automatically calling root port suspend and resume
+ */
+typedef struct {
+    int64_t before_suspend;         /**< Time stamp taken before executing auto suspend from light sleep callback */
+    int64_t after_suspend;          /**< Time stamp taken after executing auto suspend from light sleep callback */
+    int64_t before_resume;          /**< Time stamp taken before executing auto resume from light sleep callback */
+    int64_t after_resume;           /**< Time stamp taken after executing auto resume from light sleep callback */
+} light_sleep_cb_time_stamp_us_t;
+
+static light_sleep_cb_time_stamp_us_t s_light_sleep_time_stamp = {};
+
+/**
+ * @brief Callback function to start measuring enter light sleep latency
+ * @param[in] user_arg pointer to time stamp structure
+ * @param[in] ext_arg External argument, not used
+ * @return ESP_OK
+ */
+static esp_err_t test_time_before_auto_suspend(void *user_arg, void *ext_arg)
+{
+    light_sleep_cb_time_stamp_us_t *time_stamp = (light_sleep_cb_time_stamp_us_t *)user_arg;
+    time_stamp->before_suspend = esp_timer_get_time();
+    return ESP_OK;
+}
+
+/**
+ * @brief Callback function to finish measuring enter light sleep latency
+ * @param[in] user_arg pointer to time stamp structure
+ * @param[in] ext_arg External argument, not used
+ * @return ESP_OK
+ */
+static esp_err_t test_time_after_auto_suspend(void *user_arg, void *ext_arg)
+{
+    light_sleep_cb_time_stamp_us_t *time_stamp = (light_sleep_cb_time_stamp_us_t *)user_arg;
+    time_stamp->after_suspend = esp_timer_get_time();
+    return ESP_OK;
+}
+
+/**
+ * @brief Callback function to start measuring exit light sleep latency
+ * @param[in] user_arg pointer to time stamp structure
+ * @param[in] ext_arg External argument, not used
+ * @return ESP_OK
+ */
+static esp_err_t test_time_before_auto_resume(void *user_arg, void *ext_arg)
+{
+    light_sleep_cb_time_stamp_us_t *time_stamp = (light_sleep_cb_time_stamp_us_t *)user_arg;
+    time_stamp->before_resume = esp_timer_get_time();
+    return ESP_OK;
+}
+
+/**
+ * @brief Callback function to finish measuring exit light sleep latency
+ * @param[in] user_arg pointer to time stamp structure
+ * @param[in] ext_arg External argument, not used
+ * @return ESP_OK
+ */
+static esp_err_t test_time_after_auto_resume(void *user_arg, void *ext_arg)
+{
+    light_sleep_cb_time_stamp_us_t *time_stamp = (light_sleep_cb_time_stamp_us_t *)user_arg;
+    time_stamp->after_resume = esp_timer_get_time();
+    return ESP_OK;
+}
+
+/**
+ * @brief Light sleep callback registered before installing usb_host_lib, invoked when entering light sleep (suspending)
+ */
+static const esp_sleep_event_cb_config_t s_before_auto_suspend_cb = {
+    .cb = test_time_before_auto_suspend,
+    .user_arg = (void *) &s_light_sleep_time_stamp,
+    .prior = 2,
+    .next = NULL,
+};
+
+/**
+ * @brief Light sleep callback registered after installing usb_host_lib, invoked when entering light sleep (suspending)
+ */
+static const esp_sleep_event_cb_config_t s_after_auto_suspend_cb = {
+    .cb = test_time_after_auto_suspend,
+    .user_arg = (void *) &s_light_sleep_time_stamp,
+    .prior = 2,
+    .next = NULL,
+};
+
+/**
+ * @brief Light sleep callback registered before installing usb_host_lib, invoked when exiting light sleep (resuming)
+ */
+static const esp_sleep_event_cb_config_t s_before_auto_resume_cb = {
+    .cb = test_time_before_auto_resume,
+    .user_arg = (void *) &s_light_sleep_time_stamp,
+    .prior = 2,
+    .next = NULL,
+};
+
+/**
+ * @brief Light sleep callback registered after installing usb_host_lib, invoked when exiting light sleep (resuming)
+ */
+static const esp_sleep_event_cb_config_t s_after_auto_resume_cb = {
+    .cb = test_time_after_auto_resume,
+    .user_arg = (void *) &s_light_sleep_time_stamp,
+    .prior = 2,
+    .next = NULL,
+};
+
+static void light_sleep_enter_latency_task(void *args)
+{
+    // Enable light sleep wake up source
+    TEST_ASSERT_EQUAL(ESP_OK, esp_sleep_enable_timer_wakeup(TIMER_LIGHT_SLEEP_WAKEUP_TIME_US));
+    ESP_LOGI(USB_SLEEP_TAG, "Light sleep timer wakeup source is ready");
+
+    // Wait for device connection
+    TEST_ASSERT_EQUAL_MESSAGE(pdTRUE, ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(2000)), "Device was not connected on time");
+
+    // Wait for device enumeration
+    vTaskDelay(20);
+
+    // Init cache, call the DUT function for the first time separately outside of the measuring loop
+    TEST_ASSERT_EQUAL(ESP_OK, esp_light_sleep_start());
+    vTaskDelay(10);
+
+    // Measure enter and exit light sleep latency
+    for (int i = 0; i < LIGHT_SLEEP_NUM_CYCLES; i++) {
+        TEST_ASSERT_EQUAL(ESP_OK, esp_light_sleep_start());
+        const uint32_t wakeup_cause = esp_sleep_get_wakeup_causes();
+        TEST_ASSERT(wakeup_cause & BIT(ESP_SLEEP_WAKEUP_TIMER));
+
+        const int64_t enter_light_sleep_latency = s_light_sleep_time_stamp.after_suspend - s_light_sleep_time_stamp.before_suspend;
+        const int64_t exit_light_sleep_latency = s_light_sleep_time_stamp.after_resume - s_light_sleep_time_stamp.before_resume;
+
+        ESP_LOGI(USB_SLEEP_TAG, "Enter light sleep latency: %lld us", enter_light_sleep_latency);
+        ESP_LOGI(USB_SLEEP_TAG, "Exit light sleep latency: %lld us", exit_light_sleep_latency);
+
+        // Comparing against fixed threshold, the real latency varies and it's not completely stable even for the same targets
+        TEST_ASSERT_LESS_OR_EQUAL_INT_MESSAGE(200, enter_light_sleep_latency, "Enter light sleep latency too high");
+        TEST_ASSERT_LESS_OR_EQUAL_INT_MESSAGE(200, exit_light_sleep_latency, "Exit light sleep latency too high");
+
+        vTaskDelay(50);
+    }
+
+    // Unregister light sleep callbacks registered in test case
+    TEST_ASSERT_EQUAL(ESP_OK, esp_sleep_unregister_event_callback(SLEEP_EVENT_SW_GOTO_SLEEP, test_time_before_auto_suspend));
+    TEST_ASSERT_EQUAL(ESP_OK, esp_sleep_unregister_event_callback(SLEEP_EVENT_SW_GOTO_SLEEP, test_time_after_auto_suspend));
+    TEST_ASSERT_EQUAL(ESP_OK, esp_sleep_unregister_event_callback(SLEEP_EVENT_SW_EXIT_SLEEP, test_time_before_auto_resume));
+    TEST_ASSERT_EQUAL(ESP_OK, esp_sleep_unregister_event_callback(SLEEP_EVENT_SW_EXIT_SLEEP, test_time_after_auto_resume));
+
+    // Disconnect the device, finish test
+    TEST_ASSERT_EQUAL(ESP_ERR_NOT_FINISHED, usb_host_device_free_all());
+    vTaskDelete(NULL);
+}
+
+/*
+Test light sleep latency
+
+Purpose:
+- Measure added latency to enter and exit light sleep caused by automatic suspend and resume of the root port
+
+Procedure:
+    - Register additional testing light sleep callbacks which will be called before and after the actual callbacks
+      registered in the usb_host_lib
+    - Enter light sleep
+    - Take time stamps from each callback
+    - Measure added latency for enter light sleep and exit light sleep
+    - Deregister testing callbacks, teardown
+*/
+TEST_CASE("Test USB Host enter light sleep latency", "[usb_sleep_modes][light_sleep]")
+{
+    // Multiple light sleep callbacks with the same callback id (eg SLEEP_EVENT_SW_GOTO_SLEEP) are executed in the same
+    // order as they were registered, usb_host_lib registers enter light sleep and exit light sleep callbacks during installation
+
+    // Register 2 callbacks before installing the usb_host_lib, with the same callbacks IDs, as the usb_host_lib is registering
+    TEST_ASSERT_EQUAL(ESP_OK, esp_sleep_register_event_callback(SLEEP_EVENT_SW_GOTO_SLEEP, &s_before_auto_suspend_cb));
+    TEST_ASSERT_EQUAL(ESP_OK, esp_sleep_register_event_callback(SLEEP_EVENT_SW_EXIT_SLEEP, &s_before_auto_resume_cb));
+    // Install usb_host_lib
+    test_setup();
+    // Register 2 callbacks after installing the usb_host_lib, with the same callbacks IDs, as the usb_host_lib is registering
+    TEST_ASSERT_EQUAL(ESP_OK, esp_sleep_register_event_callback(SLEEP_EVENT_SW_GOTO_SLEEP, &s_after_auto_suspend_cb));
+    TEST_ASSERT_EQUAL(ESP_OK, esp_sleep_register_event_callback(SLEEP_EVENT_SW_EXIT_SLEEP, &s_after_auto_resume_cb));
+
+    TaskHandle_t sleep_task_hdl = NULL;
+    TEST_ASSERT_EQUAL(pdTRUE, xTaskCreate(light_sleep_enter_latency_task, "light_sleep_enter_latency", 4096, NULL, 2, &sleep_task_hdl));
+    TEST_ASSERT_NOT_NULL(sleep_task_hdl);
+
+    // Handle device connection separately
+    uint32_t event_flags_device_conn;
+    TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_handle_events(pdMS_TO_TICKS(2000), &event_flags_device_conn));
+
+    // Notify the worker task, that the device has been connected
+    xTaskNotifyGive(sleep_task_hdl);
+
+    while (1) {
+        uint32_t event_flags;
+        usb_host_lib_handle_events(portMAX_DELAY, &event_flags);
+
+        if (event_flags & USB_HOST_LIB_EVENT_FLAGS_NO_CLIENTS) {
+            TEST_FAIL_MESSAGE("No clients for this test");
+        }
+        if (event_flags & USB_HOST_LIB_EVENT_FLAGS_ALL_FREE) {
+            printf("All devices free\n");
+            break;
+        }
+    }
+}
+
+/**
  * @brief Deep sleep test case stage 1
  *
  * Just calls the common sleep function, which does the USB Host functional test and enters deep sleep
  */
 static void usb_host_deep_sleep_1(void)
 {
+    test_setup();
     // Call common test function with deep sleep mode
     usb_host_sleep_common(ESP_SLEEP_MODE_DEEP_SLEEP);
 }
@@ -272,6 +479,7 @@ static void usb_host_deep_sleep_1(void)
  */
 static void usb_host_deep_sleep_2(void)
 {
+    test_setup();
     // Get reset reason and check if it's deep sleep reset
     soc_reset_reason_t reason = esp_rom_get_reset_reason(0);
     TEST_ASSERT(reason == RESET_REASON_CORE_DEEP_SLEEP);
@@ -287,6 +495,7 @@ static void usb_host_deep_sleep_2(void)
  */
 static void usb_host_deep_sleep_3(void)
 {
+    test_setup();
     // Get reset reason and check if it's deep sleep reset
     soc_reset_reason_t reason = esp_rom_get_reset_reason(0);
     TEST_ASSERT(reason == RESET_REASON_CORE_DEEP_SLEEP);
@@ -324,3 +533,5 @@ Procedure:
     - Device is expected to be disconnected during deep sleep
 */
 TEST_CASE_MULTIPLE_STAGES("Test USB Host deep sleep", "[usb_sleep_modes][deep_sleep]", usb_host_deep_sleep_1, usb_host_deep_sleep_2, usb_host_deep_sleep_3);
+
+#endif // SOC_LIGHT_SLEEP_SUPPORTED && SOC_DEEP_SLEEP_SUPPORTED

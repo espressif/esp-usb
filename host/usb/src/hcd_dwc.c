@@ -641,6 +641,30 @@ static esp_err_t _port_cmd_reset(port_t *port);
  */
 static esp_err_t _port_cmd_bus_suspend(port_t *port);
 
+#ifdef AUTO_PM_LIGHT_SLEEP
+/**
+ * @brief Suspend the port from the enter light sleep callback
+ *
+ * This suspend function is faster, but less safe than the original suspend function
+ * It only check the port state and sets the suspend bit on the DWC and assumes the bus has suspended safely
+ * Otherwise the port would enter a recovery state upon resuming from the light sleep
+ * The peripheral's clock will be gated externally in a light sleep
+ *
+ * - Port must be enabled in order to to be suspended
+ * - All pipes must be halted for the port to be suspended
+ * - Suspending the port from enter light sleep callback would effectively:
+ *   - perform a suspend sequence: Driving a J-state
+ *   - stop Keep Alive/SOF from being sent to the USB Bus and the connected devices
+ *
+ * @note This function in non-blocking
+ * @param[in] port Pointer to the port object
+ * @return
+ *    - ESP_ERR_INVALID_STATE: Port is not in a correct state to be suspended, or pipe(s) routed through this port is not halted
+ *    - ESP_OK: Root port suspended
+ */
+static esp_err_t _port_cmd_bus_suspend_light_sleep(port_t *port);
+#endif // AUTO_PM_LIGHT_SLEEP
+
 /**
  * @brief Resume the port
  *
@@ -1374,6 +1398,18 @@ exit:
     return ret;
 }
 
+#ifdef AUTO_PM_LIGHT_SLEEP
+static esp_err_t _port_cmd_bus_suspend_light_sleep(port_t *port)
+{
+    if (!(port->state == HCD_PORT_STATE_ENABLED && _port_check_all_pipes_halted(port))) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    usb_dwc_hal_port_suspend(port->hal);
+    port->state = HCD_PORT_STATE_SUSPENDED;
+    return ESP_OK;
+}
+#endif // AUTO_PM_LIGHT_SLEEP
+
 static esp_err_t _port_cmd_bus_resume(port_t *port)
 {
     esp_err_t ret;
@@ -1605,6 +1641,12 @@ esp_err_t hcd_port_command(hcd_port_handle_t port_hdl, hcd_port_cmd_t command)
             ret = _port_cmd_disable(port);
             break;
         }
+#ifdef AUTO_PM_LIGHT_SLEEP
+        case HCD_PORT_CMD_SUSPEND_LIGHT_SLEEP: {
+            ret = _port_cmd_bus_suspend_light_sleep(port);
+            break;
+        }
+#endif // AUTO_PM_LIGHT_SLEEP
         }
         port->flags.cmd_processing = 0;
     }
