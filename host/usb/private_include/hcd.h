@@ -21,6 +21,11 @@ extern "C" {
 
 // ------------------------------------------------- Macros & Types ----------------------------------------------------
 
+// Automatically suspend the root port when light sleep is entered, and resume it when light sleep is exited
+#ifdef CONFIG_ESP_SLEEP_EVENT_CALLBACKS
+#define AUTO_PM_LIGHT_SLEEP
+#endif // CONFIG_ESP_SLEEP_EVENT_CALLBACKS
+
 // ----------------------- Configs -------------------------
 
 #define HCD_NUM_PORTS                           SOC_USB_OTG_PERIPH_NUM   // Each peripheral is a root port
@@ -108,6 +113,10 @@ typedef enum {
     HCD_PORT_CMD_SUSPEND,           /**< Suspend the port. All pipes must be halted */
     HCD_PORT_CMD_RESUME,            /**< Resume the port */
     HCD_PORT_CMD_DISABLE,           /**< Disable the port (stops the SOFs or keep alive). All pipes must be halted. */
+#ifdef AUTO_PM_LIGHT_SLEEP
+    // Non-blocking version of suspend sequence, should be used only from enter light sleep callback
+    HCD_PORT_CMD_SUSPEND_LIGHT_SLEEP,   /**< Suspend the port from light sleep callback */
+#endif // AUTO_PM_LIGHT_SLEEP
 } hcd_port_cmd_t;
 
 /**

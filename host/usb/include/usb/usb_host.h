@@ -286,7 +286,6 @@ esp_err_t usb_host_lib_root_port_suspend(void);
  *
  * @note The root port and the devices are not resumed immediately after returning from this function, this function
  *       only sets actions for devices and root port, which are handled by the usb_host_lib_handle_events() in separate task.
- * @note If the function is called from a light sleep callback, it's called from a light sleep critical section
  * @return
  *    - ESP_OK: Root port marked to be resumed, or already issuing a resume sequence
  *    - ESP_ERR_NOT_FOUND: No device is connected

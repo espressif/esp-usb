@@ -13,6 +13,9 @@
 #include "dev_msc.h"
 #include "phy_common.h"
 #include "usb/usb_host.h"
+#include "soc/soc_caps.h"
+
+#if defined(SOC_LIGHT_SLEEP_SUPPORTED) && defined(SOC_DEEP_SLEEP_SUPPORTED)
 
 // ----------------------------------------------------- Macros --------------------------------------------------------
 
@@ -32,7 +35,7 @@
 #define TEST_PERIPHERAL_MAP     BIT0
 #endif // TEST_P4_OTG11
 
-void setUp(void)
+void test_setup(void)
 {
     unity_utils_record_free_mem();
     dev_msc_init();
@@ -62,6 +65,8 @@ void tearDown(void)
     esp_reent_cleanup();    //clean up some of the newlib's lazy allocations
     unity_utils_evaluate_leaks();
 }
+
+#endif // SOC_LIGHT_SLEEP_SUPPORTED && SOC_DEEP_SLEEP_SUPPORTED
 
 void app_main(void)
 {

@@ -13,6 +13,7 @@
 #include "freertos/semphr.h"
 #include "esp_private/critical_section.h"
 #include "esp_err.h"
+#include "esp_check.h"
 #include "esp_log.h"
 #include "esp_heap_caps.h"
 #include "hcd.h"
@@ -23,6 +24,7 @@
 #define EP_NUM_MIN                  1   // The smallest possible non-default endpoint number
 #define EP_NUM_MAX                  16  // The largest possible non-default endpoint number
 #define NUM_NON_DEFAULT_EP          ((EP_NUM_MAX - 1) * 2)  // The total number of non-default endpoints a device can have.
+#define USBH_MAX_SYNC_DEVS_HANDLED  16  // Maximum number of devices handled synchronously
 
 // Device action flags. LISTED IN THE ORDER THEY SHOULD BE HANDLED IN within usbh_process(). Some actions are mutually exclusive
 typedef enum {
@@ -1064,6 +1066,70 @@ esp_err_t usbh_devs_mark_all_free(void)
     return (wait_for_free) ? ESP_ERR_NOT_FINISHED : ESP_OK;
 }
 
+#ifdef AUTO_PM_LIGHT_SLEEP
+/**
+ * @brief Halt and flush EPs on provided device synchronously
+ * @note This function is used only with light sleep callback
+ *
+ * @return
+ *    - ESP_OK: Halted and Flushed successfully
+ */
+static esp_err_t halt_flush_one_device(device_t *dev_obj)
+{
+    xSemaphoreTake(p_usbh_obj->constant.mux_lock, portMAX_DELAY);
+    for (int i = 0; i < NUM_NON_DEFAULT_EP; i++) {
+        if (dev_obj->mux_protected.endpoints[i] != NULL) {
+            ESP_ERROR_CHECK(hcd_pipe_command(dev_obj->mux_protected.endpoints[i]->constant.pipe_hdl, HCD_PIPE_CMD_HALT));
+            ESP_ERROR_CHECK(hcd_pipe_command(dev_obj->mux_protected.endpoints[i]->constant.pipe_hdl, HCD_PIPE_CMD_FLUSH));
+        }
+    }
+    xSemaphoreGive(p_usbh_obj->constant.mux_lock);
+
+    ESP_ERROR_CHECK(hcd_pipe_command(dev_obj->constant.default_pipe, HCD_PIPE_CMD_HALT));
+    ESP_ERROR_CHECK(hcd_pipe_command(dev_obj->constant.default_pipe, HCD_PIPE_CMD_FLUSH));
+    return ESP_OK;
+}
+
+esp_err_t usbh_devs_halt_flush_all_sync(void)
+{
+    USBH_CHECK(p_usbh_obj != NULL, ESP_ERR_INVALID_STATE);
+
+    device_t *devs_list[USBH_MAX_SYNC_DEVS_HANDLED];
+    int devs_count = 0;
+    USBH_ENTER_CRITICAL();
+    device_t *current_dev;
+
+    // Get number of devices currently connected by counting the idle and pending tailqs
+    // Instead of reading the p_usbh_obj->mux_protected.num_device which requires acquiring mutex
+    TAILQ_FOREACH(current_dev, &p_usbh_obj->dynamic.devs_pending_tailq, dynamic.tailq_entry) {
+        devs_count++;
+    }
+    TAILQ_FOREACH(current_dev, &p_usbh_obj->dynamic.devs_idle_tailq, dynamic.tailq_entry) {
+        devs_count++;
+    }
+    if (devs_count > USBH_MAX_SYNC_DEVS_HANDLED) {
+        USBH_EXIT_CRITICAL();
+        return ESP_ERR_NOT_ALLOWED;
+    }
+    devs_count = 0;
+    TAILQ_FOREACH(current_dev, &p_usbh_obj->dynamic.devs_pending_tailq, dynamic.tailq_entry) {
+        devs_list[devs_count++] = current_dev;
+    }
+    TAILQ_FOREACH(current_dev, &p_usbh_obj->dynamic.devs_idle_tailq, dynamic.tailq_entry) {
+        devs_list[devs_count++] = current_dev;
+    }
+    USBH_EXIT_CRITICAL();
+
+    for (int i = 0; i < devs_count; i++) {
+        esp_err_t err = halt_flush_one_device(devs_list[i]);
+        if (err != ESP_OK) {
+            return err;
+        }
+    }
+    return ESP_OK;
+}
+#endif // AUTO_PM_LIGHT_SLEEP
+
 void usbh_devs_set_pm_actions_all(usbh_dev_ctrl_t device_ctrl)
 {
     // Decode the device_ctrl to dev_actions flags
@@ -1082,6 +1148,10 @@ void usbh_devs_set_pm_actions_all(usbh_dev_ctrl_t device_ctrl)
 
     if (device_ctrl & USBH_DEV_RESUME_EVT) {
         dev_actions_flags |= DEV_ACTION_PROP_RESUME_EVT;
+    }
+
+    if (device_ctrl & USBH_DEV_SUSPEND_STATE) {
+        dev_actions_flags = 0;
     }
 
     USBH_ENTER_CRITICAL();
@@ -1103,11 +1173,12 @@ void usbh_devs_set_pm_actions_all(usbh_dev_ctrl_t device_ctrl)
         while (dev_obj_cur != NULL) {
 
             // Update device state
-            if (device_ctrl & USBH_DEV_SUSPEND_EVT) {
+            if (device_ctrl & (USBH_DEV_SUSPEND_EVT | USBH_DEV_SUSPEND_STATE)) {
                 // Change device state to suspended and backup the current device state for resuming
                 dev_obj_cur->dynamic.last_state = dev_obj_cur->dynamic.state;
                 dev_obj_cur->dynamic.state = USB_DEVICE_STATE_SUSPENDED;
-            } else if (device_ctrl & USBH_DEV_RESUME_EVT) {
+            }
+            if (device_ctrl & USBH_DEV_RESUME_EVT) {
                 // Set the device state, to the state in which it was before suspending
                 dev_obj_cur->dynamic.state = dev_obj_cur->dynamic.last_state;
             }

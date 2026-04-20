@@ -168,9 +168,6 @@ typedef struct {
         usb_phy_handle_t phy_handles[HCD_NUM_PORTS];  // One per port; NULL if skip_phy_setup or port not enabled
         void *enum_client;                            // Pointer to Enum driver (acting as a client). Used to reroute completed USBH control transfers
         void *hub_client;                             // Pointer to External Hub driver (acting as a client). Used to reroute completed USBH control transfers. NULL, when External Hub Driver not available.
-#ifdef AUTO_PM_LIGHT_SLEEP
-        SemaphoreHandle_t root_port_suspend_done_sem; // Hub signals root suspend complete
-#endif // AUTO_PM_LIGHT_SLEEP
     } constant;
 } host_lib_t;
 
@@ -437,13 +434,6 @@ static void hub_event_callback(hub_event_data_t *event_data, void *arg)
         // We allow this to fail in case the device object was already freed
         usbh_devs_remove(event_data->disconnected.uid);
         break;
-#ifdef AUTO_PM_LIGHT_SLEEP
-    case HUB_EVENT_SUSPEND_COMPLETED:
-        // Root port has finished suspend sequence
-        // Signalize the light sleep callback that it can proceed to light sleep now
-        xSemaphoreGive(p_host_lib_obj->constant.root_port_suspend_done_sem);
-        break;
-#endif // AUTO_PM_LIGHT_SLEEP
     default:
         abort();    // Should never occur
         break;
@@ -541,27 +531,19 @@ static void auto_suspend_timer_cb(TimerHandle_t xTimer)
 }
 
 #ifdef AUTO_PM_LIGHT_SLEEP
-
-// Max time to wait for async root-port suspend (EP idle → HCD suspend) before light sleep
-#define USB_HOST_LIGHT_SLEEP_MAX_LATENCY_MS    200
-
 /**
  * @brief Callback function invoked before entering light sleep
  *
- * - The function is called when the system is about to enter light sleep
- * - The function suspends the root port and the devices connected to it to lower power consumption during light sleep
- * - The function waits until the root port finishes HCD suspend sequence before allowing the system to enter light sleep
- * - No Client related suspend messages are delivered before entering light sleep, to achieve the lowest possible latency
- * - Clients will be notified about the suspend event after waking up from light sleep
+ * - Synchronously halt/flush all endpoints, assert DWC root port suspend without HCD internal clock gating, and mark
+ *   the root hub and USBH device state as suspended (no public suspend API and no client suspend events yet).
+ * - Clients receive paired suspend/resume notifications after wake when usb host resumes from light sleep
  *
- * @note This callback adds light sleep latency of about 17ms
  * @param[in] user_arg User argument, not used
  * @param[in] ext_arg External argument, not used
  * @return
- *    - ESP_OK: Root port successfully suspended, or is already suspended, can enter light sleep
- *    - ESP_ERR_TIMEOUT: Timed out waiting for root port to suspend
- *    - ESP_ERR_INVALID_STATE: Root port is not in correct state to be suspended, or root port suspend failed
- *    - Other error codes from usb_host_lib_root_port_suspend()
+ *    - ESP_OK: Root port suspended for light sleep, or already suspended
+ *    - ESP_ERR_INVALID_STATE: usb host lib is not installed
+ *    - Other errors from hub_root_light_sleep_suspend_bus()
  */
 static esp_err_t enter_light_sleep(void *user_arg, void *ext_arg)
 {
@@ -569,33 +551,11 @@ static esp_err_t enter_light_sleep(void *user_arg, void *ext_arg)
     ESP_LOGD(USB_HOST_TAG, "Enter light sleep cb");
 
     if (hub_root_is_suspended()) {
-        // Root port already suspended, can enter light sleep immediately
+        // Already suspended, nothing to do
         return ESP_OK;
     }
 
-    // Drain stale give from a prior suspend cycle
-    while (xSemaphoreTake(p_host_lib_obj->constant.root_port_suspend_done_sem, 0) == pdTRUE) {
-    }
-
-    // Mark the root port as suspended, only the HW suspend sequence will be finished before entering light sleep
-    // SW suspend sequence (delivering suspended events to clients) will not be finished before light sleep, but after
-    const esp_err_t ret = usb_host_lib_root_port_suspend();
-    if (ret != ESP_OK) {
-        ESP_RETURN_ON_ERROR(ret, USB_HOST_TAG, "Failed to suspend root port before light sleep");
-    }
-
-    if (!hub_root_is_suspended()) {
-        if (xSemaphoreTake(p_host_lib_obj->constant.root_port_suspend_done_sem, pdMS_TO_TICKS(USB_HOST_LIGHT_SLEEP_MAX_LATENCY_MS)) != pdTRUE) {
-            ESP_LOGE(USB_HOST_TAG, "Timed out waiting for root port suspend before light sleep");
-            return ESP_ERR_TIMEOUT;
-        }
-    }
-
-    if (!hub_root_is_suspended()) {
-        ESP_LOGE(USB_HOST_TAG, "Root port suspend wait finished but port is not suspended");
-        return ESP_ERR_INVALID_STATE;
-    }
-
+    ESP_RETURN_ON_ERROR(hub_root_light_sleep_suspend_bus(), USB_HOST_TAG, "Failed to suspend root port before light sleep");
     return ESP_OK;
 }
 
@@ -610,14 +570,17 @@ static esp_err_t enter_light_sleep(void *user_arg, void *ext_arg)
  * @param[in] ext_arg External argument, not used
  * @return
  *    - ESP_OK: Root port successfully resumed, normal operation restored after light sleep
- *    - Other error codes from usb_host_lib_root_port_resume()
+ *    - ESP_ERR_INVALID_STATE: usb host lib is not installed
+ *    - Other error codes from hub_root_mark_resume()
  */
 static esp_err_t exit_light_sleep(void *user_arg, void *ext_arg)
 {
+    HOST_CHECK(p_host_lib_obj != NULL, ESP_ERR_INVALID_STATE);
     ESP_EARLY_LOGD(USB_HOST_TAG, "Exit light sleep cb");
     // Using ISR variant, because we are in a light sleep critical section
     ESP_RETURN_ON_ERROR_ISR(hub_root_mark_light_sleep_auto_resume(), USB_HOST_TAG, "Root port in incorrect state");
-    ESP_RETURN_ON_ERROR_ISR(usb_host_lib_root_port_resume(), USB_HOST_TAG, "Failed to resume root port after light sleep");
+    // Just mark the root port for resume
+    ESP_RETURN_ON_ERROR_ISR(hub_root_mark_resume(), USB_HOST_TAG, "Failed to resume root port after light sleep");
     return ESP_OK;
 }
 
@@ -676,15 +639,7 @@ esp_err_t usb_host_install(const usb_host_config_t *config)
     SemaphoreHandle_t event_sem = xSemaphoreCreateBinary();
     SemaphoreHandle_t mux_lock = xSemaphoreCreateMutex();
     TimerHandle_t auto_suspend_timer = xTimerCreate("auto_suspend_tmr", pdMS_TO_TICKS(1000), pdFALSE, NULL, auto_suspend_timer_cb);
-#ifdef AUTO_PM_LIGHT_SLEEP
-    SemaphoreHandle_t root_port_suspend_done_sem = xSemaphoreCreateBinary();
-#endif // AUTO_PM_LIGHT_SLEEP
-
-    if (host_lib_obj == NULL || event_sem == NULL || mux_lock == NULL || auto_suspend_timer == NULL
-#ifdef AUTO_PM_LIGHT_SLEEP
-            || root_port_suspend_done_sem == NULL
-#endif // AUTO_PM_LIGHT_SLEEP
-       ) {
+    if (host_lib_obj == NULL || event_sem == NULL || mux_lock == NULL || auto_suspend_timer == NULL) {
         ret = ESP_ERR_NO_MEM;
         goto alloc_err;
     }
@@ -693,9 +648,6 @@ esp_err_t usb_host_install(const usb_host_config_t *config)
     host_lib_obj->constant.event_sem = event_sem;
     host_lib_obj->constant.mux_lock = mux_lock;
     host_lib_obj->constant.auto_suspend_timer = auto_suspend_timer;
-#ifdef AUTO_PM_LIGHT_SLEEP
-    host_lib_obj->constant.root_port_suspend_done_sem = root_port_suspend_done_sem;
-#endif // AUTO_PM_LIGHT_SLEEP
 
     /*
     Install each layer of the Host stack (listed below) from the lowest layer to the highest
@@ -800,6 +752,12 @@ esp_err_t usb_host_install(const usb_host_config_t *config)
         goto hub_err;
     }
 
+    // Register light sleep callbacks to automatically suspend/resume the root hub when light sleep is entered/exited
+#ifdef AUTO_PM_LIGHT_SLEEP
+    ESP_GOTO_ON_ERROR(esp_sleep_register_event_callback(SLEEP_EVENT_SW_GOTO_SLEEP, &enter_light_sleep_cb), sleep_cb_err, USB_HOST_TAG, "Failed to register goto light sleep callback");
+    ESP_GOTO_ON_ERROR(esp_sleep_register_event_callback(SLEEP_EVENT_SW_EXIT_SLEEP, &exit_light_sleep_cb), sleep_cb_err, USB_HOST_TAG, "Failed to register exit light sleep callback");
+#endif // AUTO_PM_LIGHT_SLEEP
+
     // Assign host library object
     HOST_ENTER_CRITICAL();
     if (p_host_lib_obj != NULL) {
@@ -815,16 +773,15 @@ esp_err_t usb_host_install(const usb_host_config_t *config)
         ESP_ERROR_CHECK(hub_root_start());
     }
 
-    // Register light sleep callbacks to automatically suspend/resume the root hub when light sleep is entered/exited
-#ifdef AUTO_PM_LIGHT_SLEEP
-    ESP_ERROR_CHECK(esp_sleep_register_event_callback(SLEEP_EVENT_SW_GOTO_SLEEP, &enter_light_sleep_cb));
-    ESP_ERROR_CHECK(esp_sleep_register_event_callback(SLEEP_EVENT_SW_EXIT_SLEEP, &exit_light_sleep_cb));
-#endif // AUTO_PM_LIGHT_SLEEP
-
     ret = ESP_OK;
     return ret;
 
 assign_err:
+#ifdef AUTO_PM_LIGHT_SLEEP
+sleep_cb_err:
+    ESP_ERROR_CHECK(esp_sleep_unregister_event_callback(SLEEP_EVENT_SW_GOTO_SLEEP, &enter_light_sleep));
+    ESP_ERROR_CHECK(esp_sleep_unregister_event_callback(SLEEP_EVENT_SW_EXIT_SLEEP, &exit_light_sleep));
+#endif // AUTO_PM_LIGHT_SLEEP
     ESP_ERROR_CHECK(hub_uninstall());
 hub_err:
     ESP_ERROR_CHECK(enum_uninstall());
@@ -847,12 +804,6 @@ alloc_err:
     if (auto_suspend_timer) {
         xTimerDelete(auto_suspend_timer, portMAX_DELAY);
     }
-#ifdef AUTO_PM_LIGHT_SLEEP
-    if (root_port_suspend_done_sem) {
-        vSemaphoreDelete(root_port_suspend_done_sem);
-    }
-#endif // AUTO_PM_LIGHT_SLEEP
-
     heap_caps_free(host_lib_obj);
     return ret;
 }
@@ -903,9 +854,6 @@ esp_err_t usb_host_uninstall(void)
     // Free memory objects
     vSemaphoreDelete(host_lib_obj->constant.mux_lock);
     vSemaphoreDelete(host_lib_obj->constant.event_sem);
-#ifdef AUTO_PM_LIGHT_SLEEP
-    vSemaphoreDelete(host_lib_obj->constant.root_port_suspend_done_sem);
-#endif // AUTO_PM_LIGHT_SLEEP
     xTimerDelete(host_lib_obj->constant.auto_suspend_timer, portMAX_DELAY);
     heap_caps_free(host_lib_obj);
     return ESP_OK;
@@ -1067,14 +1015,14 @@ esp_err_t usb_host_lib_root_port_resume(void)
         ret = ESP_OK;
         goto exit;
     } else if (ret != ESP_OK) {
-        ESP_EARLY_LOGE(USB_HOST_TAG, "USB Host lib is not in correct state to be resumed");
+        ESP_LOGE(USB_HOST_TAG, "USB Host lib is not in correct state to be resumed");
         goto exit;
     }
 
     // Mark root port as ready to be resumed
     ret = hub_root_mark_resume();
     if (ret != ESP_OK) {
-        ESP_EARLY_LOGE(USB_HOST_TAG, "Root hub resume err: %s", esp_err_to_name(ret));
+        ESP_LOGE(USB_HOST_TAG, "Root hub resume err: %s", esp_err_to_name(ret));
     }
 
     // We have marked the root port as ready for resume, once the port is fully resumed

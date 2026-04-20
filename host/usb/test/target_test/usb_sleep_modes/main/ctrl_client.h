@@ -6,7 +6,10 @@
 
 #include <stdint.h>
 #include "esp_sleep.h"
+#include "soc/soc_caps.h"
 #include "freertos/event_groups.h"
+
+#if defined(SOC_LIGHT_SLEEP_SUPPORTED) && defined(SOC_DEEP_SLEEP_SUPPORTED)
 
 #define EVT_ALLOW_SLEEP      BIT0
 #define EVT_TEST_FINISH      BIT1
@@ -21,3 +24,5 @@ typedef struct {
  * @brief CTRL client verifying light and deep sleep modes
  */
 void ctrl_client_sleep_task(void *arg);
+
+#endif // SOC_LIGHT_SLEEP_SUPPORTED && SOC_DEEP_SLEEP_SUPPORTED

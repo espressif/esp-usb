@@ -9,6 +9,7 @@
 #include <stdbool.h>
 #include <sys/queue.h>
 #include "esp_err.h"
+#include "esp_check.h"
 #include "esp_heap_caps.h"
 #include "esp_bit_defs.h"
 #include "esp_private/critical_section.h"
@@ -586,17 +587,6 @@ static void root_port_req(root_hub_port_t *root_hub_port)
         root_hub_port->dynamic.state = ROOT_PORT_STATE_SUSPENDED;
         HUB_DRIVER_EXIT_CRITICAL();
 
-#ifdef AUTO_PM_LIGHT_SLEEP
-        // Root port is suspended at the HCD level; unblock light-sleep waiter before queuing USBH work
-        hub_event_data_t event_data = {
-            .event = HUB_EVENT_SUSPEND_COMPLETED,
-            .suspended = {
-                .uid = 0,    // Not used, reserved for future use
-            },
-        };
-        p_hub_driver_obj->constant.event_cb(&event_data, p_hub_driver_obj->constant.event_cb_arg);
-#endif // AUTO_PM_LIGHT_SLEEP
-
         // Root port, including all the connected devices were suspended (global suspend)
         // Propagate the suspended event to clients
         usbh_devs_set_pm_actions_all(USBH_DEV_SUSPEND_EVT);
@@ -654,8 +644,17 @@ static void root_port_req(root_hub_port_t *root_hub_port)
         HUB_DRIVER_EXIT_CRITICAL();
 
         // Root port, including all the connected devices were resumed (global resume)
-        // Clear all EPs and propagate the resumed event to clients
-        usbh_devs_set_pm_actions_all(USBH_DEV_RESUME | USBH_DEV_RESUME_EVT);    // NOLINT(clang-analyzer-optin.core.EnumCastOutOfRange)
+#ifdef AUTO_PM_LIGHT_SLEEP
+        if (light_sleep_auto_resume) {
+            // Resuming after light sleep
+            // Deliver deferred client suspend notifications first (usbh_process order), then resume EPs and deliver resume evt
+            usbh_devs_set_pm_actions_all(USBH_DEV_SUSPEND_EVT | USBH_DEV_RESUME | USBH_DEV_RESUME_EVT);    // NOLINT(clang-analyzer-optin.core.EnumCastOutOfRange)
+        } else
+#endif // AUTO_PM_LIGHT_SLEEP
+        {
+            // Clear all EPs and propagate the resumed event to clients
+            usbh_devs_set_pm_actions_all(USBH_DEV_RESUME | USBH_DEV_RESUME_EVT);    // NOLINT(clang-analyzer-optin.core.EnumCastOutOfRange)
+        }
     }
 }
 
@@ -922,6 +921,34 @@ esp_err_t hub_root_mark_light_sleep_auto_resume(void)
     HUB_DRIVER_CHECK_FROM_CRIT(p_hub_driver_obj != NULL, ESP_ERR_INVALID_STATE);
     p_hub_driver_obj->dynamic.flags.light_sleep_auto_resume = 1;
     HUB_DRIVER_EXIT_CRITICAL();
+    return ESP_OK;
+}
+
+esp_err_t hub_root_light_sleep_suspend_bus(void)
+{
+    HUB_DRIVER_ENTER_CRITICAL();
+    HUB_DRIVER_CHECK_FROM_CRIT(p_hub_driver_obj != NULL, ESP_ERR_INVALID_STATE);
+
+    root_hub_port_t *root_hub_port = &p_hub_driver_obj->root_hub_ports[0];
+#if HCD_NUM_PORTS > 1
+    if (!root_hub_port->constant.hdl) {
+        root_hub_port = &p_hub_driver_obj->root_hub_ports[1];
+    }
+#endif
+    assert(root_hub_port->constant.hdl);
+    HUB_DRIVER_CHECK_FROM_CRIT(root_hub_port->dynamic.state == ROOT_PORT_STATE_ENABLED, ESP_ERR_NOT_ALLOWED);
+    hcd_port_handle_t root_port_hdl = root_hub_port->constant.hdl;
+    HUB_DRIVER_EXIT_CRITICAL();
+
+    ESP_RETURN_ON_ERROR(usbh_devs_halt_flush_all_sync(), HUB_DRIVER_TAG, "Devs halt/flush failed");
+    ESP_RETURN_ON_ERROR(hcd_port_command(root_port_hdl, HCD_PORT_CMD_SUSPEND_LIGHT_SLEEP), HUB_DRIVER_TAG, "Port suspend cmd failed");
+
+    HUB_DRIVER_ENTER_CRITICAL();
+    root_hub_port->dynamic.state = ROOT_PORT_STATE_SUSPENDED;
+    HUB_DRIVER_EXIT_CRITICAL();
+
+    // Only update devices states to suspended
+    usbh_devs_set_pm_actions_all(USBH_DEV_SUSPEND_STATE);
     return ESP_OK;
 }
 #endif // AUTO_PM_LIGHT_SLEEP
