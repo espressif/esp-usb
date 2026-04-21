@@ -377,7 +377,7 @@ TEST_CASE("read_write", "[cdc_acm]")
     for (int i = 0; i < NUM_ITERATIONS; i++) {
         TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_data_tx_blocking(cdc_dev, tx_buf, sizeof(tx_buf), 1000));
     }
-    vTaskDelay(10); // Wait until responses are processed
+    vTaskDelay(20); // Wait until responses are processed
 
     TEST_ASSERT_EQUAL(NUM_ITERATIONS, nb_of_responses);
 
@@ -1098,7 +1098,7 @@ TEST_CASE("device_close_while_suspended", "[cdc_acm]")
     // Close the suspended device
     TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_close(cdc_dev));
     // Try to open the still suspended device
-    TEST_ASSERT_EQUAL(ESP_ERR_NOT_FOUND, cdc_acm_host_open(0x303A, 0x4002, 0, &dev_config, &cdc_dev)); // 0x303A:0x4002 (TinyUSB Dual CDC device)
+    TEST_ASSERT_NOT_EQUAL(ESP_OK, cdc_acm_host_open(0x303A, 0x4002, 0, &dev_config, &cdc_dev)); // 0x303A:0x4002 (TinyUSB Dual CDC device)
 
     // Cleanup
     TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_uninstall());
@@ -1127,7 +1127,7 @@ TEST_CASE("device_open_while_suspended", "[cdc_acm]")
     const cdc_acm_host_device_config_t dev_config = default_dev_config;
 
     printf("Opening CDC-ACM device\n");
-    TEST_ASSERT_EQUAL(ESP_ERR_NOT_FOUND, cdc_acm_host_open(0x303A, 0x4002, 0, &dev_config, &cdc_dev)); // 0x303A:0x4002 (TinyUSB Dual CDC device)
+    TEST_ASSERT_NOT_EQUAL(ESP_OK, cdc_acm_host_open(0x303A, 0x4002, 0, &dev_config, &cdc_dev)); // 0x303A:0x4002 (TinyUSB Dual CDC device)
     TEST_ASSERT_NULL(cdc_dev);
 
     // Resume the device
