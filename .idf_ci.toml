@@ -11,8 +11,6 @@ component_mapping_regexes = [
 component_ignored_file_extensions = [
     ".md",
     ".rst",
-    ".yaml",
-    ".yml",
     ".py",
 ]
 
