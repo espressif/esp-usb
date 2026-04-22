@@ -28,7 +28,7 @@ extern "C" {
  * - `TINYUSB_DEFAULT_CONFIG(event_cb)`
  * - `TINYUSB_DEFAULT_CONFIG(event_cb, event_arg)`
  *
- * The default port is `TINYUSB_PORT_HIGH_SPEED_0` on ESP32-P4 and
+ * The default port is `TINYUSB_PORT_HIGH_SPEED_0` on ESP32-P4 and ESP32-S31.
  * `TINYUSB_PORT_FULL_SPEED_0` on other supported targets. The default task
  * settings come from TINYUSB_TASK_DEFAULT().
  */
@@ -40,7 +40,18 @@ extern "C" {
                                                                 )(__VA_ARGS__)
 
 /** @cond INTERNAL */
-#if CONFIG_IDF_TARGET_ESP32P4
+// Helper: default high-speed port index. Only defined on HS-capable targets:
+//  - Multi-port chips (e.g. ESP32-P4) have a dedicated HS port enum value.
+//  - Single-port HS-only chips (e.g. ESP32-S31) use port 0, which is inherently HS.
+// On FS-only targets (e.g. ESP32-S2/S3/H4) this macro is intentionally left
+// undefined so that any use of TINYUSB_CONFIG_HIGH_SPEED fails to compile.
+#if (SOC_USB_OTG_PERIPH_NUM > 1)
+#define TINYUSB_PORT_DEFAULT_HS  TINYUSB_PORT_HIGH_SPEED_0
+#elif CONFIG_IDF_TARGET_ESP32S31
+#define TINYUSB_PORT_DEFAULT_HS  TINYUSB_PORT_FULL_SPEED_0
+#endif
+
+#if CONFIG_IDF_TARGET_ESP32P4 || CONFIG_IDF_TARGET_ESP32S31
 #define TINYUSB_CONFIG_NO_ARG()                  TINYUSB_CONFIG_HIGH_SPEED(NULL, NULL)
 #define TINYUSB_CONFIG_EVENT(event_hdl)          TINYUSB_CONFIG_HIGH_SPEED(event_hdl, NULL)
 #define TINYUSB_CONFIG_EVENT_ARG(event_hdl, arg) TINYUSB_CONFIG_HIGH_SPEED(event_hdl, arg)
@@ -111,12 +122,17 @@ extern "C" {
  * settings from TINYUSB_TASK_DEFAULT(), and empty descriptor pointers so the
  * stack can fall back to built-in defaults when available.
  *
+ * @note Only defined on high-speed-capable targets (e.g. ESP32-P4, ESP32-S31).
+ *       Using this macro on a full-speed-only target results in a compile-time
+ *       error; use TINYUSB_CONFIG_FULL_SPEED() there instead.
+ *
  * @param event_hdl Event callback assigned to tinyusb_config_t.event_cb.
  * @param arg User argument assigned to tinyusb_config_t.event_arg.
  */
+#if (SOC_USB_OTG_PERIPH_NUM > 1) || CONFIG_IDF_TARGET_ESP32S31
 #define TINYUSB_CONFIG_HIGH_SPEED(event_hdl, arg)       \
     (tinyusb_config_t) {                                \
-        .port = TINYUSB_PORT_HIGH_SPEED_0,              \
+        .port = TINYUSB_PORT_DEFAULT_HS,                \
         .phy = {                                        \
             .skip_setup = false,                        \
             .self_powered = false,                      \
@@ -134,6 +150,7 @@ extern "C" {
         .event_cb = (event_hdl),                        \
         .event_arg = (arg),                             \
     }
+#endif // HS-capable target
 
 /**
  * @brief Initialize a TinyUSB task configuration with default values.
