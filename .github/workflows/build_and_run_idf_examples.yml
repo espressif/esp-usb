@@ -59,6 +59,7 @@ jobs:
       MANIFEST_PATH: ${{ github.workspace }}/.github/ci/.idf-build-examples-rules.yml
       USB_EXAMPLES_PATH: ${{ github.workspace }}  # Will be set-up in "Setup IDF Examples path" step
       NETWORK_EXAMPLES_PATH: ${{ github.workspace }}  # Will be set-up in "Setup IDF Examples path" step
+      PYTHONWARNINGS: "ignore"
     steps:
       - uses: actions/checkout@v5
         with:
