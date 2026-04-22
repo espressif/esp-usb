@@ -67,6 +67,16 @@ host/usb:
     - if: IDF_VERSION < "5.4.0"
       reason: We will support component overriding only in service releases
 
+host/usb/test/target_test/enum:
+  depends_filepatterns:
+    - 'host/usb/**'
+  enable:
+    - if: SOC_USB_OTG_SUPPORTED == 1 and ENV_VAR_USB_COMP_MANAGED == "yes" and IDF_TARGET not in ["esp32s31"]
+      reason: Test uses FSLS PHY interface to emulate device attach/detach which the esp32s31 lacks
+  disable:
+    - if: IDF_VERSION < "5.4.0"
+      reason: We will support component overriding only in service releases
+
 # Host tests
 .host_test_enable_rules: &host_test_enable_rules
   enable:
