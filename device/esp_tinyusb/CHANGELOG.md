@@ -1,3 +1,8 @@
+## [Unreleased]
+
+- NCM (`tinyusb_net`): Reworked `tinyusb_net_send_sync` to wait for `tud_network_can_xmit` in the caller and defer only `tud_network_xmit`, so a momentarily full NCM TX path no longer returns immediate `ESP_FAIL` from the USB task (improves LwIP/TCP under load).
+- NCM (`tinyusb_net`): Sync path is now thread-safe (mutex + completion signaling), and `timeout` applies to the whole operation via `vTaskSetTimeOutState` / `xTaskCheckForTimeOut`; expiry returns `ESP_ERR_TIMEOUT`.
+
 ## 2.1.1
 
 - esp_tinyusb: Fixed VBUS monitoring feature on ESP32-P4 USB OTG 2.0 (HS)
