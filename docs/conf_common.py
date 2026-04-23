@@ -11,6 +11,7 @@ from esp_docs.conf_docs import *  # noqa: F403,F401
 
 
 extensions += [  # Needed as a trigger for running doxygen
+               'sphinx.ext.intersphinx',
                'esp_docs.esp_extensions.dummy_build_system',
                'esp_docs.esp_extensions.run_doxygen',
                'kconfig_reference',
@@ -42,8 +43,22 @@ def _configure_redirects(app, config):
     config.redirects = _build_redirects(release_url, idf_target=idf_target_val)
 
 
+def _configure_intersphinx(app, config):
+    """Resolve :ref:`… <esp-idf:…>` to ESP-IDF Kconfig / doc labels (per-target objects.inv)."""
+    target = getattr(config, 'idf_target', None) or ''
+    if not target:
+        return
+    # ESP-IDF Programming Guide branch for :ref:`… <esp-idf:…>` (intersphinx ``objects.inv``).
+    # Use ``latest`` so pre-release targets have published docs; links track IDF master.
+    base = f'https://docs.espressif.com/projects/esp-idf/en/latest/{target}/'
+    mapping = dict(getattr(config, 'intersphinx_mapping', None) or {})
+    mapping['esp-idf'] = (base, None)
+    config.intersphinx_mapping = mapping
+
+
 def setup(app):
     app.connect('config-inited', _configure_redirects)
+    app.connect('config-inited', _configure_intersphinx)
     return esp_conf_docs.setup(app)
 
 # GitHub repository information
