@@ -65,7 +65,6 @@ typedef enum {
 typedef enum {
     ROOT_PORT_STATE_NOT_POWERED,    /**< Root port initialized and/or not powered */
     ROOT_PORT_STATE_POWERED,        /**< Root port is powered, device is not connected */
-    ROOT_PORT_STATE_DISABLED,       /**< A device is connected but is disabled (i.e., not reset, no SOFs are sent) */
     ROOT_PORT_STATE_ENABLED,        /**< A device is connected, port has been reset, SOFs are sent */
     ROOT_PORT_STATE_SUSPENDED,      /**< Root port is suspended, no SOFs are sent */
 } root_port_state_t;
@@ -477,7 +476,6 @@ reset_err:
         HUB_DRIVER_ENTER_CRITICAL();
         switch (root_hub_port->dynamic.state) {
         case ROOT_PORT_STATE_POWERED: // This occurred before enumeration
-        case ROOT_PORT_STATE_DISABLED: // This occurred after the device has already been disabled
             // Therefore, there's no device object to clean up, and we can go straight to port recovery
             root_hub_port->dynamic.reqs |= PORT_REQ_RECOVER;
             if (root_hub_port->constant.index == 0) {
@@ -502,7 +500,15 @@ reset_err:
         HUB_DRIVER_EXIT_CRITICAL();
 
         if (port_has_device) {
-            ESP_ERROR_CHECK(dev_tree_node_dev_gone(NULL, root_hub_port->constant.index));
+            // The dev tree node may have already been removed via the recycle path
+            // (USBH_EVENT_DEV_FREE -> hub_node_recycle) if the device was freed by
+            // its clients before this disconnect event was processed by the hub
+            // driver. In that case there is nothing more to report, so treat
+            // ESP_ERR_NOT_FOUND as benign.
+            const esp_err_t ret = dev_tree_node_dev_gone(NULL, root_hub_port->constant.index);
+            if (ret != ESP_OK && ret != ESP_ERR_NOT_FOUND) {
+                ESP_ERROR_CHECK(ret);
+            }
         }
 
         break;
