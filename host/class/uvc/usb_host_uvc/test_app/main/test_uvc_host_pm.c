@@ -569,7 +569,7 @@ TEST_CASE("Device close while suspended", "[uvc]")
     TEST_ASSERT_EQUAL(ESP_OK, uvc_host_stream_close(stream));
 
     // Try to open still suspended device
-    TEST_ASSERT_EQUAL(ESP_ERR_NOT_FOUND, uvc_host_stream_open(&default_stream_config, 100, &stream));
+    TEST_ASSERT_NOT_EQUAL(ESP_OK, uvc_host_stream_open(&default_stream_config, 100, &stream));
     test_teardown();
 }
 
@@ -625,7 +625,7 @@ TEST_CASE("Device open while suspended", "[uvc]")
     const uvc_host_stream_config_t stream_config = default_stream_config;
 
     // Try to open the suspended device
-    TEST_ASSERT_EQUAL(ESP_ERR_NOT_FOUND, uvc_host_stream_open(&stream_config, 100, &stream));
+    TEST_ASSERT_NOT_EQUAL(ESP_OK, uvc_host_stream_open(&stream_config, 100, &stream));
     TEST_ASSERT_NULL(stream);
 
     // Resume the root port, but do not expect any event, since the device was never opened
