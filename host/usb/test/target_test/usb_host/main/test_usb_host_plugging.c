@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2015-2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2015-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -149,6 +149,86 @@ TEST_CASE("Test USB Host suspend + disconnection (no client)", "[usb_host][low_s
                 break;
             }
         }
+    }
+}
+
+/*
+Test USB Host Library disconnect after device free (no client)
+Purpose:
+- Regression test for the race between the root port disconnect handler and the
+  device recycle path that previously aborted with ESP_ERR_NOT_FOUND from
+  dev_tree_node_dev_gone() (espressif/esp-idf#18366).
+- Verify that a HCD_PORT_EVENT_DISCONNECTION raised after the dev_tree_node has
+  already been removed via USBH_EVENT_DEV_FREE -> hub_node_recycle is handled
+  gracefully instead of aborting via ESP_ERROR_CHECK.
+
+Procedure:
+- Install USB Host Library (no client registered)
+- Wait for the device to be auto-enumerated
+- Call usb_host_device_free_all() to free the device while it's still connected.
+  With no client (open_count == 0), USBH frees the device immediately, which
+  triggers USBH_EVENT_DEV_FREE -> hub_node_recycle:
+    - root_port_recycle() queues PORT_REQ_DISABLE
+    - dev_tree_node_remove_by_parent() removes the node
+  The hub task then processes PORT_REQ_DISABLE -> HCD_PORT_CMD_DISABLE.
+- Wait for USB_HOST_LIB_EVENT_FLAGS_ALL_FREE to make sure the recycle path has
+  completed and the dev_tree_node is gone.
+- Power OFF the root port. With a connected device this raises
+  HCD_PORT_EVENT_DISCONNECTION. The disconnect handler ends up calling
+  dev_tree_node_dev_gone(NULL, idx), which now returns ESP_ERR_NOT_FOUND.
+  Without the fix this aborts via ESP_ERROR_CHECK; with the fix the
+  ESP_ERR_NOT_FOUND is treated as benign.
+- Drain events for a short period; reaching the end of the loop without an
+  abort is the regression check.
+*/
+
+TEST_CASE("Test USB Host disconnect after device free (no client)", "[usb_host][low_speed][full_speed][high_speed]")
+{
+    // Wait for the device to be enumerated
+    while (1) {
+        uint32_t event_flags;
+        usb_host_lib_handle_events(pdMS_TO_TICKS(100), &event_flags);
+        usb_host_lib_info_t lib_info;
+        TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_info(&lib_info));
+        if (lib_info.num_devices == 1) {
+            break;
+        }
+    }
+    printf("Device enumerated\n");
+
+    // Free the device while still physically connected. This drives:
+    //   USBH_EVENT_DEV_FREE -> hub_node_recycle:
+    //       - root_port_recycle queues PORT_REQ_DISABLE
+    //       - dev_tree_node is removed
+    //   Hub task: PORT_REQ_DISABLE -> hcd_port_command(HCD_PORT_CMD_DISABLE)
+    TEST_ASSERT_EQUAL(ESP_ERR_NOT_FINISHED, usb_host_device_free_all());
+
+    // Wait for ALL_FREE: dev_tree_node has been removed and the root port has
+    // been disabled.
+    while (1) {
+        uint32_t event_flags;
+        usb_host_lib_handle_events(portMAX_DELAY, &event_flags);
+        if (event_flags & USB_HOST_LIB_EVENT_FLAGS_ALL_FREE) {
+            break;
+        }
+    }
+    printf("All devices freed\n");
+    // Brief delay to let the hub task fully process PORT_REQ_DISABLE
+    vTaskDelay(pdMS_TO_TICKS(50));
+
+    // Power OFF the root port. With a connected device this raises
+    // HCD_PORT_EVENT_DISCONNECTION. Without the fix the disconnect handler
+    // would call dev_tree_node_dev_gone(NULL, idx), which now returns
+    // ESP_ERR_NOT_FOUND because the dev_tree_node was already removed by
+    // hub_node_recycle, and ESP_ERROR_CHECK would abort.
+    printf("Forcing Sudden Disconnect (root port power OFF)\n");
+    TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_set_root_port_power(false));
+
+    // Drain events for ~500 ms so the disconnect event is fully handled.
+    // Reaching the end of this loop without an abort is the regression check.
+    for (int i = 0; i < 25; i++) {
+        uint32_t event_flags;
+        usb_host_lib_handle_events(pdMS_TO_TICKS(20), &event_flags);
     }
 }
 
