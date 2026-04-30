@@ -74,19 +74,24 @@ void tinyusb_net_deinit(void);
  * @brief Send a packet synchronously through the TinyUSB NET interface.
  *
  * @note Synchronous and asynchronous sends can be mixed.
- * @note The first synchronous send allocates synchronization primitives, which
- *       increases heap usage.
+ * @note The first synchronous send allocates a mutex and a shared completion semaphore;
+ *       each call uses a small on-stack control block for the deferred transmit.
+ * @note The same @p timeout budget covers waiting for NCM TX space (`tud_network_can_xmit`)
+ *       in the caller task and waiting for the deferred transmit on the USB stack.
+ *       With `timeout == 0`, at least one TX-ready wait iteration still runs before the
+ *       tick deadline is applied.
+ * @note If the overall deadline expires (including while waiting for TX space or for USB
+ *       completion), the function returns @ref ESP_ERR_TIMEOUT.
  *
  * @param[in] buffer Packet payload buffer.
  * @param[in] len Packet length in bytes.
  * @param[in] buff_free_arg User token passed to `free_tx_buffer`, typically the
  *                          packet buffer pointer.
- * @param[in] timeout Timeout in RTOS ticks.
+ * @param[in] timeout Timeout in RTOS ticks for the entire operation (see notes).
  *
  * @return
  *      - ESP_OK if the packet is accepted by TinyUSB for transmission
- *      - ESP_FAIL if the USB interface cannot accept the packet
- *      - ESP_ERR_TIMEOUT if the transmission does not complete before `timeout`
+ *      - ESP_ERR_TIMEOUT if TX space or USB completion does not occur within `timeout`
  *      - ESP_ERR_INVALID_STATE if the TinyUSB NET interface is not mounted
  *      - ESP_ERR_NO_MEM if internal synchronization objects cannot be allocated
  */
