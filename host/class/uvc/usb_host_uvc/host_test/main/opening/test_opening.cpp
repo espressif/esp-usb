@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2025-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -8,6 +8,8 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include "usb/uvc_host.h"
+#include "uvc_types_priv.h" // For uvc_host_stream_s internals
+
 #include "mock_add_usb_device.h"
 #include "test_fixtures.hpp"
 
@@ -40,7 +42,7 @@ static void _add_mocked_devices(void)
     ADD_MOCK_DEV(4, customer_camera_dual);
 }
 
-SCENARIO("UVC driver install/uninstall")
+SCENARIO("UVC driver install/uninstall", "[installing]")
 {
     WHEN("UVC driver is not installed") {
         THEN("Stream cannot be opened") {
@@ -77,7 +79,7 @@ SCENARIO("UVC driver install/uninstall")
     }
 }
 
-SCENARIO("Test mocked device opening and closing")
+SCENARIO("Test mocked device opening and closing", "[opening]")
 {
     // We will put device adding to the SECTION, to run it just once, not repeatedly for all the following SECTIONs
     // (if multiple sections are present)
@@ -198,7 +200,7 @@ SCENARIO("Test mocked device opening and closing")
     }
 }
 
-SCENARIO("Test mocked device format negotiation")
+SCENARIO("Test mocked device format negotiation", "[opening]")
 {
     // We will put device adding to the SECTION, to run it just once, not repeatedly for all the following SECTIONs
     // (if multiple sections are present)
@@ -262,6 +264,109 @@ SCENARIO("Test mocked device format negotiation")
         //     REQUIRE(ESP_OK == test_uvc_host_stream_open(&stream_config, 0, &stream, true));
         //     REQUIRE(ESP_OK == test_uvc_host_stream_close(stream));
         // }
+
+        REQUIRE(ESP_OK == test_uvc_host_uninstall());
+    }
+}
+
+#define NUMBER_OF_URBS 4
+SCENARIO("Test mocked device URB allocation", "[opening]")
+{
+    // We will put device adding to the SECTION, to run it just once, not repeatedly for all the following SECTIONs
+    // (if multiple sections are present)
+    SECTION("Add mocked devices") {
+        _add_mocked_devices();
+
+        // Optionally, print all the devices
+        //usb_host_mock_print_mocked_devices(0xFF);
+    }
+
+    SECTION("Install the UVC driver") {
+        const uvc_host_driver_config_t uvc_driver_config = {
+            .driver_task_stack_size = 4 * 1024,
+            .driver_task_priority = 10,
+            .xCoreID = tskNO_AFFINITY,
+            .create_background_task = true,
+            .event_cb = nullptr,
+            .user_ctx = nullptr,
+        };
+        REQUIRE(ESP_OK == test_uvc_host_install(&uvc_driver_config));
+
+        uvc_host_stream_config_t stream_config = {
+            .event_cb = nullptr,
+            .frame_cb = nullptr,
+            .user_ctx = nullptr,
+            .usb = {
+                .dev_addr = UVC_HOST_ANY_DEV_ADDR,
+                .vid = UVC_HOST_ANY_VID,
+                .pid = UVC_HOST_ANY_PID,
+                .uvc_stream_index = 0,
+            },
+            .vs_format = {
+                .h_res = 1280,
+                .v_res = 720,
+                .fps = 15,
+                .format = UVC_VS_FORMAT_MJPEG,
+            },
+            .advanced = {
+                .number_of_frame_buffers = 3,
+                .frame_size = 0,
+                .frame_heap_caps = 0,
+                .number_of_urbs = NUMBER_OF_URBS,
+                .urb_size = 0,
+                .user_frame_buffers = NULL,
+            },
+        };
+
+        THEN("URB size default") {
+            uvc_host_stream_hdl_t stream = nullptr;
+            REQUIRE(ESP_OK == test_uvc_host_stream_open(&stream_config, 0, &stream, true));
+            REQUIRE(stream->constant.num_of_xfers == NUMBER_OF_URBS);
+            // This camera offers 1020 MPS with 2 extra transaction in a microframe, so 3 * 1020 = 3060
+            // Default URB size is 4 * MPS, so 4 * 3060 = 12240
+            REQUIRE(stream->constant.xfers[0]->data_buffer_size == 4 * 3060);
+            REQUIRE(ESP_OK == test_uvc_host_stream_close(stream));
+        }
+
+        THEN("URB size greater than MPS") {
+            uvc_host_stream_hdl_t stream = nullptr;
+            stream_config.advanced.urb_size = 2 * 3060; // 2 * MPS
+            REQUIRE(ESP_OK == test_uvc_host_stream_open(&stream_config, 0, &stream, true));
+            REQUIRE(stream->constant.num_of_xfers == NUMBER_OF_URBS);
+            REQUIRE(stream->constant.xfers[0]->data_buffer_size == 2 * 3060);
+            REQUIRE(ESP_OK == test_uvc_host_stream_close(stream));
+        }
+
+        THEN("URB size greater than default") {
+            uvc_host_stream_hdl_t stream = nullptr;
+            stream_config.advanced.urb_size = 6 * 3060; // 6 * MPS
+            REQUIRE(ESP_OK == test_uvc_host_stream_open(&stream_config, 0, &stream, true));
+            REQUIRE(stream->constant.num_of_xfers == NUMBER_OF_URBS);
+            REQUIRE(stream->constant.xfers[0]->data_buffer_size == 6 * 3060);
+            REQUIRE(ESP_OK == test_uvc_host_stream_close(stream));
+        }
+
+        THEN("URB size cannot be smaller than MPS") {
+            uvc_host_stream_hdl_t stream = nullptr;
+            stream_config.advanced.urb_size = 500;
+            REQUIRE(ESP_OK == test_uvc_host_stream_open(&stream_config, 0, &stream, true));
+            REQUIRE(stream->constant.num_of_xfers == NUMBER_OF_URBS);
+            // This camera offers 1020 MPS with 2 extra transaction in a microframe, so 3 * 1020 = 3060
+            // This is the minimum URB size, even if user requested smaller
+            REQUIRE(stream->constant.xfers[0]->data_buffer_size == 3060);
+            REQUIRE(ESP_OK == test_uvc_host_stream_close(stream));
+        }
+
+        THEN("URB size must be integer multiple of MPS") {
+            uvc_host_stream_hdl_t stream = nullptr;
+            stream_config.advanced.urb_size = 3500;
+            REQUIRE(ESP_OK == test_uvc_host_stream_open(&stream_config, 0, &stream, true));
+            REQUIRE(stream->constant.num_of_xfers == NUMBER_OF_URBS);
+            // This camera offers 1020 MPS with 2 extra transaction in a microframe, so 3 * 1020 = 3060
+            // The driver should round up the requested URB size to the nearest multiple of MPS, which is 6120
+            REQUIRE(stream->constant.xfers[0]->data_buffer_size == 2 * 3060);
+            REQUIRE(ESP_OK == test_uvc_host_stream_close(stream));
+        }
 
         REQUIRE(ESP_OK == test_uvc_host_uninstall());
     }
