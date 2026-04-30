@@ -879,16 +879,15 @@ esp_err_t usbh_devs_addr_list_fill(int list_len, uint8_t *dev_addr_list, int *nu
     USBH_ENTER_CRITICAL();
     /*
     Fill list with devices from idle tailq and pending tailq. Only devices that
-    are fully enumerated are added to the list. Thus, the following devices are
-    not excluded:
+    are fully enumerated are added to the list. Thus, the following devices are excluded:
     - Devices with their enum_lock set
-    - Devices not in the configured state
+    - Devices not in the configured or suspended state
     - Devices with address 0
     */
     TAILQ_FOREACH(dev_obj, &p_usbh_obj->dynamic.devs_idle_tailq, dynamic.tailq_entry) {
         if (num_filled < list_len) {
             if (!dev_obj->dynamic.flags.enum_lock &&
-                    dev_obj->dynamic.state == USB_DEVICE_STATE_CONFIGURED &&
+                    (dev_obj->dynamic.state == USB_DEVICE_STATE_CONFIGURED || dev_obj->dynamic.state == USB_DEVICE_STATE_SUSPENDED) &&
                     dev_obj->constant.address != 0) {
                 dev_addr_list[num_filled] = dev_obj->constant.address;
                 num_filled++;
@@ -902,7 +901,7 @@ esp_err_t usbh_devs_addr_list_fill(int list_len, uint8_t *dev_addr_list, int *nu
     TAILQ_FOREACH(dev_obj, &p_usbh_obj->dynamic.devs_pending_tailq, dynamic.tailq_entry) {
         if (num_filled < list_len) {
             if (!dev_obj->dynamic.flags.enum_lock &&
-                    dev_obj->dynamic.state == USB_DEVICE_STATE_CONFIGURED &&
+                    (dev_obj->dynamic.state == USB_DEVICE_STATE_CONFIGURED || dev_obj->dynamic.state == USB_DEVICE_STATE_SUSPENDED) &&
                     dev_obj->constant.address != 0) {
                 dev_addr_list[num_filled] = dev_obj->constant.address;
                 num_filled++;
