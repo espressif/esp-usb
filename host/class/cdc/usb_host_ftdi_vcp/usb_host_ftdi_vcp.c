@@ -136,16 +136,16 @@ static void ftdi_event(const cdc_acm_host_dev_event_data_t *event, void *user_ct
 static int calculate_baudrate(uint32_t baudrate, uint16_t *wValue, uint16_t *wIndex)
 {
     int baudrate_real;
-    if (baudrate > 2000000) {
-        // set to 3000000
+    if (baudrate >= 3000000) {
+        // Divisor 0 is a special case for 3 MBaud
         *wValue = 0;
         *wIndex = 0;
         baudrate_real = 3000000;
-    } else if (baudrate >= 1000000) {
-        // set to 1000000
+    } else if (baudrate >= 2000000) {
+        // Divisor 1 is a special case for 2 MBaud
         *wValue = 1;
         *wIndex = 0;
-        baudrate_real = 1000000;
+        baudrate_real = 2000000;
     } else {
         const float ftdi_fractal[] = {0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875, 1};
         const uint8_t ftdi_fractal_bits[] = {0, 0x03, 0x02, 0x04, 0x01, 0x05, 0x06, 0x07};
