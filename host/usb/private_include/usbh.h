@@ -107,6 +107,7 @@ typedef enum {
     USBH_DEV_RESUME         = (1 << 1),     /**< Resume device(s) -> Clear all endpoints */
     USBH_DEV_SUSPEND_EVT    = (1 << 2),     /**< Propagate Suspended event -> Device was suspended, propagate the event to clients */
     USBH_DEV_RESUME_EVT     = (1 << 3),     /**< Propagate Resumed event -> Device was resumed, propagate the event to clients */
+    USBH_DEV_SUSPEND_STATE  = (1 << 4),     /**< Mark devices suspended internally (just update state) without queuing any commands */
 } usbh_dev_ctrl_t;
 
 // ---------------------- Callbacks ------------------------
@@ -318,6 +319,19 @@ esp_err_t usbh_devs_mark_all_free(void);
  * @param[in] device_ctrl Device control command
  */
 void usbh_devs_set_pm_actions_all(usbh_dev_ctrl_t device_ctrl);
+
+#ifdef AUTO_PM_LIGHT_SLEEP
+/**
+ * @brief Halt and flush all endpoints on all devices (synchronous)
+ *
+ * Used by automatic light sleep enter before asserting DWC root suspend.
+ * @return
+ *    - ESP_OK: All devices flush/halt successful
+ *    - ESP_ERR_INVALID_STATE: USB Host not installed
+ *    - ESP_ERR_NOT_ALLOWED: Too many devices connected for synchronous handling
+ */
+esp_err_t usbh_devs_halt_flush_all_sync(void);
+#endif // AUTO_PM_LIGHT_SLEEP
 
 /**
  * @brief Open a device by address

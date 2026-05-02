@@ -28,6 +28,9 @@ Warning: The USB Host Library API is still a beta version and may be subject to 
 #include "hcd.h"
 #include "esp_private/usb_phy.h"
 #include "usb/usb_host.h"
+#ifdef  AUTO_PM_LIGHT_SLEEP
+#include "esp_private/sleep_event.h"        // For light sleep event callbacks
+#endif // AUTO_PM_LIGHT_SLEEP
 
 #if SOC_USB_OTG_SUPPORTED
 #include "esp_idf_version.h"
@@ -492,6 +495,8 @@ static void get_config_desc_transfer_cb(usb_transfer_t *transfer)
     xSemaphoreGive(transfer_done);
 }
 
+// ------------------- Power management Related ----------------------
+
 /**
  * @brief Automatic suspend timer timer callback
  *
@@ -524,6 +529,82 @@ static void auto_suspend_timer_cb(TimerHandle_t xTimer)
     _unblock_lib(false);
     HOST_EXIT_CRITICAL();
 }
+
+#ifdef AUTO_PM_LIGHT_SLEEP
+/**
+ * @brief Callback function invoked before entering light sleep
+ *
+ * - Synchronously halt/flush all endpoints, assert DWC root port suspend without HCD internal clock gating, and mark
+ *   the root hub and USBH device state as suspended (no public suspend API and no client suspend events yet).
+ * - Clients receive paired suspend/resume notifications after wake when usb host resumes from light sleep
+ *
+ * @param[in] user_arg User argument, not used
+ * @param[in] ext_arg External argument, not used
+ * @return
+ *    - ESP_OK: Root port suspended for light sleep, or already suspended
+ *    - ESP_ERR_INVALID_STATE: usb host lib is not installed
+ *    - Other errors from hub_root_light_sleep_suspend_bus()
+ */
+static esp_err_t enter_light_sleep(void *user_arg, void *ext_arg)
+{
+    HOST_CHECK(p_host_lib_obj != NULL, ESP_ERR_INVALID_STATE);
+    ESP_LOGD(USB_HOST_TAG, "Enter light sleep cb");
+
+    if (hub_root_is_suspended()) {
+        // Already suspended, nothing to do
+        return ESP_OK;
+    }
+
+    ESP_RETURN_ON_ERROR(hub_root_light_sleep_suspend_bus(), USB_HOST_TAG, "Failed to suspend root port before light sleep");
+    return ESP_OK;
+}
+
+/**
+ * @brief Callback function invoked after exiting light sleep
+ *
+ * - The function is called when the system wakes up from light sleep
+ * - The function resumes the root port and the devices connected to it
+ *
+ * @note This callback is called from a light sleep critical section
+ * @param[in] user_arg User argument, not used
+ * @param[in] ext_arg External argument, not used
+ * @return
+ *    - ESP_OK: Root port successfully resumed, normal operation restored after light sleep
+ *    - ESP_ERR_INVALID_STATE: usb host lib is not installed
+ *    - Other error codes from hub_root_mark_resume()
+ */
+static esp_err_t exit_light_sleep(void *user_arg, void *ext_arg)
+{
+    HOST_CHECK(p_host_lib_obj != NULL, ESP_ERR_INVALID_STATE);
+    ESP_EARLY_LOGD(USB_HOST_TAG, "Exit light sleep cb");
+    // Using ISR variant, because we are in a light sleep critical section
+    ESP_RETURN_ON_ERROR_ISR(hub_root_mark_light_sleep_auto_resume(), USB_HOST_TAG, "Root port in incorrect state");
+    // Just mark the root port for resume
+    ESP_RETURN_ON_ERROR_ISR(hub_root_mark_resume(), USB_HOST_TAG, "Failed to resume root port after light sleep");
+    return ESP_OK;
+}
+
+/**
+ * @brief Callback configuration for enter light sleep event
+ */
+static const esp_sleep_event_cb_config_t enter_light_sleep_cb = {
+    .cb = enter_light_sleep,
+    .user_arg = NULL,
+    .prior = 2,
+    .next = NULL,
+};
+
+/**
+ * @brief Callback configuration for exit light sleep event
+ */
+static const esp_sleep_event_cb_config_t exit_light_sleep_cb = {
+    .cb = exit_light_sleep,
+    .user_arg = NULL,
+    .prior = 2,
+    .next = NULL,
+};
+
+#endif // AUTO_PM_LIGHT_SLEEP
 
 // ------------------------------------------------ Library Functions --------------------------------------------------
 
@@ -671,6 +752,12 @@ esp_err_t usb_host_install(const usb_host_config_t *config)
         goto hub_err;
     }
 
+    // Register light sleep callbacks to automatically suspend/resume the root hub when light sleep is entered/exited
+#ifdef AUTO_PM_LIGHT_SLEEP
+    ESP_GOTO_ON_ERROR(esp_sleep_register_event_callback(SLEEP_EVENT_SW_GOTO_SLEEP, &enter_light_sleep_cb), sleep_cb_err, USB_HOST_TAG, "Failed to register goto light sleep callback");
+    ESP_GOTO_ON_ERROR(esp_sleep_register_event_callback(SLEEP_EVENT_SW_EXIT_SLEEP, &exit_light_sleep_cb), sleep_cb_err, USB_HOST_TAG, "Failed to register exit light sleep callback");
+#endif // AUTO_PM_LIGHT_SLEEP
+
     // Assign host library object
     HOST_ENTER_CRITICAL();
     if (p_host_lib_obj != NULL) {
@@ -690,6 +777,11 @@ esp_err_t usb_host_install(const usb_host_config_t *config)
     return ret;
 
 assign_err:
+#ifdef AUTO_PM_LIGHT_SLEEP
+sleep_cb_err:
+    ESP_ERROR_CHECK(esp_sleep_unregister_event_callback(SLEEP_EVENT_SW_GOTO_SLEEP, &enter_light_sleep));
+    ESP_ERROR_CHECK(esp_sleep_unregister_event_callback(SLEEP_EVENT_SW_EXIT_SLEEP, &exit_light_sleep));
+#endif // AUTO_PM_LIGHT_SLEEP
     ESP_ERROR_CHECK(hub_uninstall());
 hub_err:
     ESP_ERROR_CHECK(enum_uninstall());
@@ -726,6 +818,11 @@ esp_err_t usb_host_uninstall(void)
                          p_host_lib_obj->dynamic.flags.val == 0,
                          ESP_ERR_INVALID_STATE);
     HOST_EXIT_CRITICAL();
+
+#ifdef AUTO_PM_LIGHT_SLEEP
+    ESP_ERROR_CHECK(esp_sleep_unregister_event_callback(SLEEP_EVENT_SW_GOTO_SLEEP, &enter_light_sleep));
+    ESP_ERROR_CHECK(esp_sleep_unregister_event_callback(SLEEP_EVENT_SW_EXIT_SLEEP, &exit_light_sleep));
+#endif // AUTO_PM_LIGHT_SLEEP
 
     // Stop the root hub
     ESP_ERROR_CHECK(hub_root_stop());
