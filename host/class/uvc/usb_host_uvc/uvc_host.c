@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2024-2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2024-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -355,7 +355,7 @@ static void uvc_transfers_free(uvc_stream_t *uvc_stream)
  *
  * @param[in] uvc_stream       Pointer to UVC stream
  * @param[in] num_of_transfers Number of USB transfers allocated for this stream
- * @param[in] transfer_size    Size of 1 USB transfer in bytes
+ * @param[in] transfer_size    Size of 1 USB transfer in bytes. If 0, the transfer size will be set to 4 times MPS
  * @param[in] ep_desc          Descriptor of the streaming endpoint
  * @return
  *     - ESP_OK:              Success
@@ -374,6 +374,15 @@ static esp_err_t uvc_transfers_allocate(uvc_stream_t *uvc_stream, unsigned num_o
     if (is_isoc) {
         // Multiply MPS by number of transactions in microframe: This is the minimum size we can request in IN transfer
         max_packet_size *= (USB_EP_DESC_GET_MULT(ep_desc) + 1);
+    }
+
+    if (transfer_size == 0) {
+        // If the caller doesn't specify transfer size, we will allocate 4 MPS buffer
+        // This is a reasonable compromise between performance and memory consumption
+        transfer_size = 4 * max_packet_size;
+    }
+
+    if (is_isoc) {
         // Divide the transfer data buffer into ISOC packets
         num_isoc_packets = usb_round_up_to_mps(transfer_size, max_packet_size) / max_packet_size;
     }
@@ -835,12 +844,9 @@ esp_err_t uvc_host_stream_open(const uvc_host_stream_config_t *stream_config, in
         uvc_host_stream_control_probe(uvc_stream, &real_format, &vs_result),
         err, TAG, "Failed to negotiate requested Video Stream format");
 
-    // check if the urb_size is smaller than the maximum payload transfer size
-    size_t urb_size = stream_config->advanced.urb_size < vs_result.dwMaxPayloadTransferSize ?
-                      vs_result.dwMaxPayloadTransferSize : stream_config->advanced.urb_size;
     // Allocate USB transfers
     ESP_GOTO_ON_ERROR(
-        uvc_transfers_allocate(uvc_stream, stream_config->advanced.number_of_urbs, urb_size, ep_desc),
+        uvc_transfers_allocate(uvc_stream, stream_config->advanced.number_of_urbs, stream_config->advanced.urb_size, ep_desc),
         err, TAG,);
     // Allocate Frame buffers
     ESP_GOTO_ON_ERROR(
