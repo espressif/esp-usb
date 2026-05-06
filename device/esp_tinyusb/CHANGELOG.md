@@ -1,3 +1,7 @@
+## 2.2.0
+
+- esp_tinyusb: Added ESP32-S31 support
+
 ## 2.1.1
 
 - esp_tinyusb: Fixed VBUS monitoring feature on ESP32-P4 USB OTG 2.0 (HS)
