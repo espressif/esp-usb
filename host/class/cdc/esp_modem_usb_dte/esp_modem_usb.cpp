@@ -76,20 +76,21 @@ public:
         cdc_acm_host_install(&esp_modem_cdc_acm_driver_config);
 
         // Open CDC-ACM device
-        const cdc_acm_host_device_config_t esp_modem_cdc_acm_device_config = {
+        const cdc_acm_host_open_config_t esp_modem_cdc_acm_open_config = {
+            .vid = usb_config->vid,
+            .pid = usb_config->pid,
+            .interface_idx = static_cast<uint8_t>(term_idx == 0 ? usb_config->interface_idx : usb_config->secondary_interface_idx),
+            .dev_addr = CDC_HOST_ANY_DEV_ADDR,
             .connection_timeout_ms = usb_config->timeout_ms,
             .out_buffer_size = config->dte_buffer_size,
             .in_buffer_size = config->dte_buffer_size,
             .event_cb = handle_notif,
             .data_cb = handle_rx,
-            .user_arg = this
+            .user_arg = this,
         };
 
-        // Determine Terminal interface index
-        const uint8_t intf_idx = term_idx == 0 ? usb_config->interface_idx : usb_config->secondary_interface_idx;
-
         ESP_MODEM_THROW_IF_ERROR(
-            this->CdcAcmDevice::open(usb_config->vid, usb_config->pid, intf_idx, &esp_modem_cdc_acm_device_config),
+            this->CdcAcmDevice::open(&esp_modem_cdc_acm_open_config),
             "USB Device open failed");
     };
 

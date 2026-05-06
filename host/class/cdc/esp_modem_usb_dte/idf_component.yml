@@ -14,6 +14,6 @@ repository_info:
 
 dependencies:
   usb_host_cdc_acm:
-    version: "^2.2"
+    version: "^2.4"
     override_path: "../usb_host_cdc_acm"
   esp_modem: ">=1.1,<3"
