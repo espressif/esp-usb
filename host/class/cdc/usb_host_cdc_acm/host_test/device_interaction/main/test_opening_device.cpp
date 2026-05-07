@@ -52,6 +52,7 @@ SCENARIO("Test mocked device opening and closing")
             .event_cb = nullptr,
             .data_cb = nullptr,
             .user_arg = nullptr,
+            .dev_addr = CDC_HOST_ANY_DEV_ADDR,
         };
 
         SECTION("Fail to open CDC-ACM Device: dev_config is nullptr") {
@@ -272,6 +273,7 @@ SCENARIO("Test usb_host_transfer_alloc() failures")
             .event_cb = nullptr,
             .data_cb = nullptr,
             .user_arg = nullptr,
+            .dev_addr = CDC_HOST_ANY_DEV_ADDR,
         };
 
         REQUIRE(ESP_OK == usb_host_mock_add_device(5, (const usb_device_desc_t *)ch340_device_desc,
