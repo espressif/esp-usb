@@ -45,6 +45,7 @@ enum uvc_host_stream_format {
     UVC_VS_FORMAT_YUY2,        /*!< YUY2 stream format. */
     UVC_VS_FORMAT_H264,        /*!< H.264 stream format. */
     UVC_VS_FORMAT_H265,        /*!< H.265 stream format. */
+    UVC_VS_FORMAT_NV12,        /*!< NV12 stream format. */
 };
 
 /**
