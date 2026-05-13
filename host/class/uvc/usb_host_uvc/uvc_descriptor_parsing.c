@@ -166,6 +166,8 @@ int uvc_desc_parse_format(const uvc_format_desc_t *format_desc)
         // We do not check full guid, but only the first 4 characters that show human readable format
         if (strncmp(guid, "YUY2", 4) == 0) {
             ret = UVC_VS_FORMAT_YUY2;
+        } else if (strncmp(guid, "NV12", 4) == 0) {
+            ret = UVC_VS_FORMAT_NV12;
         }
         break;
     }
@@ -456,10 +458,11 @@ esp_err_t uvc_desc_get_frame_list(const usb_config_desc_t *config_desc, uint8_t 
         }
 
         const uvc_format_desc_t *this_format = (const uvc_format_desc_t *)(current_desc);
-        enum uvc_host_stream_format format_type = uvc_desc_parse_format(this_format);
-        if (0 > format_type) { // Undefined format
+        int parsed_format = uvc_desc_parse_format(this_format);
+        if (parsed_format < 0) { // Undefined format
             continue;
         }
+        enum uvc_host_stream_format format_type = parsed_format;
 
         num_frame += this_format->bNumFrameDescriptors;
 
@@ -485,6 +488,7 @@ esp_err_t uvc_desc_get_frame_list(const usb_config_desc_t *config_desc, uint8_t 
             frame_info->v_res = this_frame->wHeight;
             switch (format_type) {
             case UVC_VS_FORMAT_YUY2:
+            case UVC_VS_FORMAT_NV12:
             case UVC_VS_FORMAT_MJPEG:
                 frame_info->default_interval = this_frame->mjpeg_uncompressed.dwDefaultFrameInterval;
                 frame_info->interval_type = this_frame->mjpeg_uncompressed.bFrameIntervalType;
