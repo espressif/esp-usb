@@ -176,6 +176,7 @@ bool uvc_frame_payload_header_validate(const uvc_payload_header_t *hdr, size_t p
 #if CONFIG_UVC_CHECK_PAYLOAD_HEADER_EOH
     // UVC spec: End of Header (EOH) bit must be set
     if (!hdr->bmHeaderInfo.end_of_header) {
+        ESP_LOGW(TAG, "EOH bit not set");
         return false;
     }
 #endif // CONFIG_UVC_CHECK_PAYLOAD_HEADER_EOH

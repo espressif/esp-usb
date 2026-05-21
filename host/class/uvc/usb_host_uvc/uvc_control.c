@@ -7,6 +7,7 @@
 
 #include <string.h> // For memset
 #include <math.h>   // fabsf for float comparison
+#include <inttypes.h>
 
 #include "esp_check.h"
 
@@ -145,12 +146,22 @@ esp_err_t uvc_host_stream_control_probe(uvc_host_stream_hdl_t stream_hdl, uvc_ho
 
     esp_err_t ret;
     uvc_vs_ctrl_t vs_result = {0};
-    uvc_host_stream_format_t default_format;
+    uvc_host_stream_format_t default_format = {0};
 
     // Notes: Some cameras require 'probe_get' to be the 1st negotiation call
     // It returns 'default' format and frame settings which will be used if requested format is UVC_VS_FORMAT_DEFAULT
-    uvc_control_probe_get(stream_hdl, &vs_result, &default_format);
-    if (requested_format->format == UVC_VS_FORMAT_DEFAULT) {
+    ret = uvc_control_probe_get(stream_hdl, &vs_result, &default_format);
+    if (ret == ESP_OK) {
+        ESP_LOGI(TAG, "Default format from camera: %dx%d@%2.1fFPS, fmt=%d, frame_size=%"PRIu32", payload=%"PRIu32,
+                 default_format.h_res, default_format.v_res, default_format.fps, default_format.format,
+                 vs_result.dwMaxVideoFrameSize, vs_result.dwMaxPayloadTransferSize);
+    } else {
+        ESP_LOGW(TAG, "Default probe GET_CUR failed: %s, raw fmt=%u frame=%u interval=%"PRIu32" frame_size=%"PRIu32" payload=%"PRIu32,
+                 esp_err_to_name(ret), vs_result.bFormatIndex, vs_result.bFrameIndex, vs_result.dwFrameInterval,
+                 vs_result.dwMaxVideoFrameSize, vs_result.dwMaxPayloadTransferSize);
+    }
+
+    if (requested_format->format == UVC_VS_FORMAT_DEFAULT && ret == ESP_OK) {
         memcpy(requested_format, &default_format, sizeof(uvc_host_stream_format_t));
     }
 

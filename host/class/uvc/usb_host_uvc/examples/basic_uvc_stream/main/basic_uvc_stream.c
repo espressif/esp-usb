@@ -150,7 +150,9 @@ static void frame_handling_task(void *arg)
             do {
                 uvc_host_frame_t *frame;
                 if (xQueueReceive(frame_q, &frame, pdMS_TO_TICKS(5000)) == pdPASS) {
-                    ESP_LOGI(TAG, "Stream %d: New frame %dx%d! Len: %d", uvc_index, frame->vs_format.h_res, frame->vs_format.v_res, frame->data_len);
+                    ESP_LOGI(TAG, "Stream %d: New frame %dx%d! Len: %d DATA: %02X %02X %02X %02X ... %02X %02X %02X %02X", uvc_index, frame->vs_format.h_res, frame->vs_format.v_res, frame->data_len,
+                             frame->data[0], frame->data[1], frame->data[2], frame->data[3],
+                             frame->data[frame->data_len - 4], frame->data[frame->data_len - 3], frame->data[frame->data_len - 2], frame->data[frame->data_len - 1]);
 
                     // Process the frame data here!!
 

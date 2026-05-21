@@ -17,6 +17,55 @@
 
 static const char *TAG = "uvc-bulk";
 
+static void bulk_complete_frame(uvc_stream_t *uvc_stream)
+{
+    // Clear the current frame before invoking the callback so no later packet can append to it.
+    UVC_ENTER_CRITICAL();
+    uvc_host_frame_t *this_frame = uvc_stream->dynamic.current_frame;
+    uvc_stream->dynamic.current_frame = NULL;
+
+    const bool invoke_fb_callback = (uvc_stream->dynamic.streaming && uvc_stream->constant.frame_cb && this_frame &&
+                                     !uvc_stream->single_thread.skip_current_frame);
+    UVC_EXIT_CRITICAL();
+
+    bool return_frame = true;
+    if (invoke_fb_callback) {
+        return_frame = uvc_stream->constant.frame_cb(this_frame, uvc_stream->constant.cb_arg);
+    }
+    if (this_frame && return_frame) {
+        uvc_host_frame_return(uvc_stream, this_frame);
+    }
+}
+
+static void bulk_add_frame_data(uvc_stream_t *uvc_stream, const uint8_t *data, size_t data_len)
+{
+    if (uvc_stream->single_thread.skip_current_frame || data_len == 0) {
+        return;
+    }
+
+    uvc_host_frame_t *current_frame = UVC_ATOMIC_LOAD(uvc_stream->dynamic.current_frame);
+    if (!current_frame) {
+        ESP_LOGE(TAG, "missing current frame while appending bulk payload");
+        uvc_stream->single_thread.skip_current_frame = true;
+        return;
+    }
+
+    esp_err_t ret = uvc_frame_add_data(current_frame, data, data_len);
+    if (ret != ESP_OK) {
+        // Frame buffer overflow
+        uvc_stream->single_thread.skip_current_frame = true;
+
+        // Inform the user about the overflow
+        uvc_host_stream_callback_t stream_cb = uvc_stream->constant.stream_cb;
+        if (stream_cb) {
+            const uvc_host_stream_event_data_t event = {
+                .type = UVC_HOST_FRAME_BUFFER_OVERFLOW,
+            };
+            stream_cb(&event, uvc_stream->constant.cb_arg);
+        }
+    }
+}
+
 /**
  * @brief Callback function for handling Bulk USB transfers from a UVC camera.
  *
@@ -84,16 +133,16 @@ void bulk_transfer_callback(usb_transfer_t *transfer)
     case UVC_STREAM_BULK_PACKET_SOF: {
 label_sof:
         const uvc_payload_header_t *payload_header = (const uvc_payload_header_t *)payload;
+        // Validate header before accessing it
+        if (!uvc_frame_payload_header_validate(payload_header, transfer->actual_num_bytes)) {
+            ESP_LOGW(TAG, "invalid UVC payload header, %02x, %02x, len:%d", payload[0], payload[1], transfer->actual_num_bytes);
+            uvc_stream->single_thread.skip_current_frame = true;
+            goto skip_sof;
+        }
 
         // We detected start of new frame. Update Frame ID and start fetching this frame
         uvc_stream->single_thread.current_frame_id   = payload_header->bmHeaderInfo.frame_id;
         uvc_stream->single_thread.skip_current_frame = payload_header->bmHeaderInfo.error; // Check for error flag
-        // Validate header before accessing it
-        if (!uvc_frame_payload_header_validate(payload_header, transfer->actual_num_bytes)) {
-            ESP_LOGD(TAG, "invalid UVC payload header, %02x, %02x, len:%d", payload[0], payload[1], transfer->actual_num_bytes);
-            uvc_stream->single_thread.skip_current_frame = true;
-            goto skip_sof;
-        }
         payload_data     += payload_header->bHeaderLength; // Pointer arithmetic!
         payload_data_len -= payload_header->bHeaderLength;
 
@@ -149,23 +198,8 @@ skip_sof:
     }
     case UVC_STREAM_BULK_PACKET_DATA: {
         // Add received data to frame buffer
-        if (!uvc_stream->single_thread.skip_current_frame) {
-            uvc_host_frame_t *current_frame = UVC_ATOMIC_LOAD(uvc_stream->dynamic.current_frame);
-            esp_err_t ret = uvc_frame_add_data(current_frame, payload_data, payload_data_len);
-            if (ret != ESP_OK) {
-                // Frame buffer overflow
-                uvc_stream->single_thread.skip_current_frame = true;
+        bulk_add_frame_data(uvc_stream, payload_data, payload_data_len);
 
-                // Inform the user about the overflow
-                uvc_host_stream_callback_t stream_cb = uvc_stream->constant.stream_cb;
-                if (stream_cb) {
-                    const uvc_host_stream_event_data_t event = {
-                        .type = UVC_HOST_FRAME_BUFFER_OVERFLOW,
-                    };
-                    stream_cb(&event, uvc_stream->constant.cb_arg);
-                }
-            }
-        }
         // We got short packet in data section, this packet is EoF
         if (transfer->data_buffer_size > transfer->actual_num_bytes) {
             uvc_stream->single_thread.next_bulk_packet = UVC_STREAM_BULK_PACKET_EOF;
@@ -175,38 +209,26 @@ skip_sof:
     case UVC_STREAM_BULK_PACKET_EOF: {
         uvc_stream->single_thread.next_bulk_packet = UVC_STREAM_BULK_PACKET_SOF;
         const uvc_payload_header_t *payload_header = (const uvc_payload_header_t *)payload;
-        uvc_stream->single_thread.skip_current_frame |= payload_header->bmHeaderInfo.error; // Check for error flag
 
         // Validate header before accessing it
         if (!uvc_frame_payload_header_validate(payload_header, transfer->actual_num_bytes)) {
             ESP_LOGD(TAG, "invalid UVC payload header in EOF, %02x, %02x, len:%d", payload[0], payload[1], transfer->actual_num_bytes);
             uvc_stream->single_thread.skip_current_frame = true;
+            break;
         }
 
-        // Get the current frame being processed and clear it from the stream,
-        // so no more data is written to this frame after the end of frame
-        UVC_ENTER_CRITICAL(); // Enter critical section to safely check and modify the stream state.
-        uvc_host_frame_t *this_frame = uvc_stream->dynamic.current_frame;
-        uvc_stream->dynamic.current_frame = NULL;
-
-        // Determine if we should invoke the frame callback:
-        // Only invoke the callback if streaming is active, a frame callback exists,
-        // and we have a valid frame to pass to the user.
-        const bool invoke_fb_callback = (uvc_stream->dynamic.streaming && uvc_stream->constant.frame_cb && this_frame && !uvc_stream->single_thread.skip_current_frame);
-        UVC_EXIT_CRITICAL();
-
-        bool return_frame = true; // Default to returning the frame in case streaming has been stopped
-        if (invoke_fb_callback) {
-            // Call the user's frame callback. If the callback returns false,
-            // we do not return the frame to the empty queue (i.e., the user wants to keep it for processing)
-            return_frame = uvc_stream->constant.frame_cb(this_frame, uvc_stream->constant.cb_arg);
-        }
-        if (return_frame) {
-            // If the user has processed the frame (or the stream is stopped), return it to the empty frame queue
-            uvc_host_frame_return(uvc_stream, this_frame);
-        }
-
+        uvc_stream->single_thread.skip_current_frame |= payload_header->bmHeaderInfo.error; // Check for error flag
         const bool start_of_frame = (uvc_stream->single_thread.current_frame_id != payload_header->bmHeaderInfo.frame_id);
+
+        if (!start_of_frame && payload_header->bmHeaderInfo.end_of_frame == false && payload_data_len > 0) {
+            // This is not the end of frame, we collect more data
+            uvc_stream->single_thread.next_bulk_packet = UVC_STREAM_BULK_PACKET_DATA;
+            bulk_add_frame_data(uvc_stream, payload_data + payload_header->bHeaderLength, payload_data_len - payload_header->bHeaderLength);
+            break;
+        }
+
+        bulk_complete_frame(uvc_stream);
+
         if (start_of_frame && payload_header->bHeaderLength < payload_data_len) {
             // If the frame ID has changed and this packet contains more data,
             // we assume that this is a new frame and we should start processing it.
