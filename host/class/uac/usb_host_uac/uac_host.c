@@ -169,7 +169,10 @@ typedef struct uac_interface {
     uac_device_t *parent;                      /*!< Parent USB UAC device */
     uint8_t xfer_num;                          /*!< Number of transfers */
     uint8_t packet_num;                        /*!< packets per transfer */
-    uint32_t packet_size;                      /*!< size of each packet */
+    uint32_t packet_size;                      /*!< floor bytes per isochronous packet (frames_floor × frame_size) */
+    uint32_t packet_frame_size;                /*!< bytes per audio frame (channels × subframe_size) */
+    uint32_t packet_size_frac;                 /*!< remainder in frames/second when dividing sample_rate by 1000, i.e. sample_rate % 1000 */
+    uint32_t packet_frac_accum;                /*!< running fractional frame accumulator (0..999) */
     uac_host_device_event_cb_t user_cb;        /*!< Interface application callback */
     void *user_cb_arg;                         /*!< Interface application callback arg */
     RingbufHandle_t ringbuf;                   /*!< Ring buffer for audio data */
@@ -804,6 +807,7 @@ static esp_err_t uac_host_interface_add(uac_device_t *uac_device, uint8_t iface_
                         UAC_GOTO_ON_FALSE(0, ESP_ERR_NOT_SUPPORTED, "UAC Format Type not supported");
                     }
                     iface_alt->dev_alt_param.channels = as_format_type_desc->bNrChannels;
+                    iface_alt->dev_alt_param.subframe_size = as_format_type_desc->bSubframeSize;
                     iface_alt->dev_alt_param.bit_resolution = as_format_type_desc->bBitResolution;
                     iface_alt->dev_alt_param.sample_freq_type = as_format_type_desc->bSamFreqType;
                     if (as_format_type_desc->bSamFreqType == 0) {
@@ -1241,6 +1245,24 @@ static void stream_rx_xfer_done(usb_transfer_t *in_xfer)
     uac_host_user_interface_callback(iface, UAC_HOST_DEVICE_EVENT_TRANSFER_ERROR);
 }
 
+static uint32_t _uac_fill_tx_xfer_packets(uac_iface_t *iface, usb_transfer_t *xfer)
+{
+    uint32_t total = 0;
+    for (int j = 0; j < iface->packet_num; j++) {
+        iface->packet_frac_accum += iface->packet_size_frac;
+        uint32_t psize = iface->packet_size;
+        if (iface->packet_frac_accum >= 1000) {
+            // Add one complete audio frame to keep packets frame-aligned.
+            psize += iface->packet_frame_size;
+            iface->packet_frac_accum -= 1000;
+        }
+        xfer->isoc_packet_desc[j].num_bytes = psize;
+        total += psize;
+    }
+    xfer->num_bytes = total;
+    return total;
+}
+
 static void stream_tx_xfer_submit(usb_transfer_t *out_xfer)
 {
     uac_iface_t *iface = out_xfer->context;
@@ -1248,13 +1270,17 @@ static void stream_tx_xfer_submit(usb_transfer_t *out_xfer)
 
     // Prevent other threads from manipulating the ring buffer when calling the `uac_host_device_write` function.
     xSemaphoreTake(iface->ringbuf_mutex, portMAX_DELAY);
+
+    // Save accumulator state in case we cannot submit (not enough data in ring buffer).
+    uint32_t saved_accum = iface->packet_frac_accum;
+    uint32_t urb_size = _uac_fill_tx_xfer_packets(iface, out_xfer);
+
     size_t data_len = _ring_buffer_get_len(iface->ringbuf);
-    if (data_len >= iface->packet_size * iface->packet_num) {
-        data_len = iface->packet_size * iface->packet_num;
+    if (data_len >= urb_size) {
         size_t actual_num_bytes = 0;
-        _ring_buffer_pop(iface->ringbuf, out_xfer->data_buffer, data_len, &actual_num_bytes, 0);
-        if (unlikely(actual_num_bytes != data_len)) {
-            ESP_LOGW(TAG, "TX Ringbuffer pop %d bytes, but requested %d bytes", actual_num_bytes, data_len);
+        _ring_buffer_pop(iface->ringbuf, out_xfer->data_buffer, urb_size, &actual_num_bytes, 0);
+        if (unlikely(actual_num_bytes != urb_size)) {
+            ESP_LOGW(TAG, "TX Ringbuffer pop %zu bytes, but requested %" PRIu32 " bytes", actual_num_bytes, urb_size);
         }
         xSemaphoreGive(iface->ringbuf_mutex);
 
@@ -1268,6 +1294,8 @@ static void stream_tx_xfer_submit(usb_transfer_t *out_xfer)
             uac_host_user_interface_callback(iface, UAC_HOST_DEVICE_EVENT_TX_DONE);
         }
     } else {
+        // Not enough data — restore accumulator so next attempt is consistent.
+        iface->packet_frac_accum = saved_accum;
         xSemaphoreGive(iface->ringbuf_mutex);
         // add the transfer to free list
         UAC_ENTER_CRITICAL();
@@ -1432,6 +1460,8 @@ static esp_err_t uac_host_interface_resume(uac_iface_t *iface)
         }
     } else if (iface->dev_info.type == UAC_STREAM_TX) {
         assert(!(iface->iface_alt[iface->cur_alt].ep_addr & USB_B_ENDPOINT_ADDRESS_EP_DIR_MASK));
+        // Reset accumulator so suspend/resume does not shift the fractional packet pattern.
+        iface->packet_frac_accum = 0;
         // for TX, we submit the first transfer with data 0 to make the speaker quiet
         for (int i = 0; i < iface->xfer_num; i++) {
             assert(iface->free_xfer_list[i]);
@@ -1443,10 +1473,7 @@ static esp_err_t uac_host_interface_resume(uac_iface_t *iface)
             // set the data buffer to 0
             memset(iface->free_xfer_list[i]->data_buffer, 0, iface->free_xfer_list[i]->data_buffer_size);
             // for synchronous transfer type, the packet size depends on the actual sample rate, channels and bit resolution.
-            for (int j = 0; j < iface->packet_num; j++) {
-                iface->free_xfer_list[i]->isoc_packet_desc[j].num_bytes = iface->packet_size;
-            }
-            iface->free_xfer_list[i]->num_bytes = iface->packet_num * iface->packet_size;
+            _uac_fill_tx_xfer_packets(iface, iface->free_xfer_list[i]);
         }
     }
 
@@ -2297,8 +2324,8 @@ esp_err_t uac_host_printf_device_param(uac_host_device_handle_t uac_dev_handle)
     for (int i = 1; i <= dev_info.iface_alt_num; i++) {
         uac_host_dev_alt_param_t iface_alt_params;
         ESP_ERROR_CHECK(uac_host_get_device_alt_param(uac_dev_handle, i, &iface_alt_params));
-        printf("--------alt interface[%d]--------- \nchannels = %d \nbit_resolution = %d \nsample_freq: \n",
-               i, iface_alt_params.channels, iface_alt_params.bit_resolution);
+        printf("--------alt interface[%d]--------- \nchannels = %d \nsubframe_size = %d \nbit_resolution = %d \nsample_freq: \n",
+               i, iface_alt_params.channels, iface_alt_params.subframe_size, iface_alt_params.bit_resolution);
         if (iface_alt_params.sample_freq_type) {
             for (int j = 0; j < iface_alt_params.sample_freq_type; j++) {
                 printf("\t%" PRIu32 "\n", iface_alt_params.sample_freq[j]);
@@ -2359,21 +2386,25 @@ esp_err_t uac_host_device_start(uac_host_device_handle_t uac_dev_handle, const u
     }
 
     UAC_GOTO_ON_FALSE(iface->cur_alt != UINT8_MAX, ESP_ERR_NOT_FOUND, "No suitable alt setting found");
+    const uint8_t stream_subframe_size = iface->iface_alt[iface->cur_alt].dev_alt_param.subframe_size;
+    UAC_GOTO_ON_FALSE(stream_subframe_size, ESP_ERR_INVALID_SIZE, "Invalid subframe size");
 
     // enqueue multiple transfers to make sure the data is not lost
     iface->xfer_num = CONFIG_UAC_NUM_ISOC_URBS;
     iface->packet_num = CONFIG_UAC_NUM_PACKETS_PER_URB;
-    // Use 64-bit intermediate to prevent overflow in packet size calculation
-    const uint64_t packet_size_calc = (uint64_t)iface->iface_alt[iface->cur_alt].cur_sampling_freq
-                                      * stream_config->channels
-                                      * stream_config->bit_resolution / 8;
-    iface->packet_size = (uint32_t)(packet_size_calc / 1000);
-    // if the packet size is not an integer, we need to add one more byte
-    if (packet_size_calc % 1000) {
-        ESP_LOGD(TAG, "packet_size %" PRIu32 " is not an integer, add one more byte", iface->packet_size);
-        iface->packet_size++;
+    // Packet size must contain whole audio frames to preserve sample alignment.
+    // For non-integer rates (e.g. 44100 Hz), alternate between floor and ceil frame counts.
+    const uint32_t frame_size = (uint32_t)stream_config->channels * stream_subframe_size;
+    const uint32_t sample_rate = iface->iface_alt[iface->cur_alt].cur_sampling_freq;
+    iface->packet_frame_size = frame_size;
+    iface->packet_size = (sample_rate / 1000) * frame_size;
+    iface->packet_size_frac = sample_rate % 1000;
+    iface->packet_frac_accum = 0;
+    if (iface->packet_size_frac) {
+        ESP_LOGD(TAG, "packet_size %" PRIu32 " / %" PRIu32 " bytes (frame_size=%" PRIu32 "), using fractional accumulator",
+                 iface->packet_size, iface->packet_size + frame_size, frame_size);
     }
-    UAC_GOTO_ON_FALSE(iface->packet_size <= iface->iface_alt[iface->cur_alt].ep_mps,
+    UAC_GOTO_ON_FALSE((iface->packet_size + (iface->packet_size_frac ? frame_size : 0)) <= iface->iface_alt[iface->cur_alt].ep_mps,
                       ESP_ERR_INVALID_SIZE, "Calculated packet size exceeds endpoint max packet size");
 
     // Claim Interface and prepare transfer
@@ -2455,6 +2486,7 @@ esp_err_t uac_host_device_stop(uac_host_device_handle_t uac_dev_handle)
         UAC_GOTO_ON_ERROR(uac_host_interface_release_and_free_transfer(iface), "Unable to release UAC Interface");
     }
 
+    iface->packet_frac_accum = 0;
     uac_host_interface_unlock(iface);
     return ESP_OK;
 

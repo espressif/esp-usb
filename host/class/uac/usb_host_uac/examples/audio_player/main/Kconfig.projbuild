@@ -5,4 +5,25 @@ menu "Example USB Audio Player"
         help
             Enable this to playback audio from microphone
 
+    config EXAMPLE_SPK_SAMPLE_FREQ
+        int "Speaker sample frequency in Hz (0 = auto)"
+        default 0
+        range 0 196000
+        help
+            Target sample frequency for the speaker output stream in Hz.
+            The driver searches the device's supported alternate settings for
+            a matching frequency. If not found, the first frequency reported
+            by the device is used instead.
+            Set to 0 to always use the device's first reported frequency.
+            Common values: 44100, 48000, 32000, 16000.
+
+    config EXAMPLE_MIC_SAMPLE_FREQ
+        int "Microphone sample frequency in Hz (0 = auto)"
+        default 0
+        range 0 196000
+        depends on EXAMPLE_MIC_PLAYBACK
+        help
+            Target sample frequency for the microphone input stream in Hz.
+            Set to 0 to use the first frequency reported by the device.
+
 endmenu

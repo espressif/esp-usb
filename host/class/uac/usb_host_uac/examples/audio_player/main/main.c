@@ -22,6 +22,70 @@
 
 static const char *TAG = "usb_audio_player";
 
+static uint32_t get_fallback_sample_freq(const uac_host_dev_alt_param_t *alt_params, uint32_t preferred)
+{
+    if (alt_params->sample_freq_type > 0) {
+        return alt_params->sample_freq[0];
+    }
+
+    uint32_t lower = alt_params->sample_freq_lower;
+    uint32_t upper = alt_params->sample_freq_upper;
+
+    if (lower == 0 && upper == 0) {
+        return 0;
+    }
+    if (lower == 0) {
+        return upper;
+    }
+    if (upper == 0) {
+        return lower;
+    }
+    if (lower > upper) {
+        uint32_t tmp = lower;
+        lower = upper;
+        upper = tmp;
+    }
+
+    if (preferred == 0 || preferred < lower) {
+        return lower;
+    }
+    if (preferred > upper) {
+        return upper;
+    }
+    return preferred;
+}
+
+static bool find_dev_alt_params_for_freq(uac_host_device_handle_t handle, uint32_t freq,
+                                         uac_host_dev_alt_param_t *out)
+{
+    uac_host_dev_info_t info;
+    if (uac_host_get_device_info(handle, &info) != ESP_OK) {
+        return false;
+    }
+    for (uint8_t alt = 1; alt <= info.iface_alt_num; alt++) {
+        uac_host_dev_alt_param_t p;
+        if (uac_host_get_device_alt_param(handle, alt, &p) != ESP_OK) {
+            continue;
+        }
+        bool match = false;
+        if (p.sample_freq_type > 0) {
+            for (int i = 0; i < p.sample_freq_type; i++) {
+                if (p.sample_freq[i] == freq) {
+                    match = true;
+                    break;
+                }
+            }
+        } else {
+            match = (freq >= p.sample_freq_lower && freq <= p.sample_freq_upper);
+        }
+        if (match) {
+            *out = p;
+            return true;
+        }
+    }
+    return false;
+}
+
 #define USB_HOST_TASK_PRIORITY  5
 #define UAC_TASK_PRIORITY       5
 #define USER_TASK_PRIORITY      2
@@ -43,14 +107,24 @@ static volatile bool s_stop_play_request = false; // request playback stop
 #ifndef CONFIG_EXAMPLE_MIC_PLAYBACK
 static uint8_t s_buffer[48000];
 
-static void generate_siren_tone(uint32_t rate, uint8_t channels, uint8_t bits,
+static void generate_siren_tone(uint32_t rate, uint8_t channels, uint8_t subframe_size, uint8_t bits,
                                 uint8_t *buf, int buf_size)
 {
     float volume = 0.01f;
     float high_freq = 1200.0f;
     float low_freq  = 700.0f;
-    float period   = 0.3f;
-    size_t frames = buf_size / (channels * (bits / 8));
+    size_t bytes_per_frame = channels * subframe_size;
+    if (bytes_per_frame == 0) {
+        ESP_LOGE(TAG, "Invalid PCM frame size");
+        return;
+    }
+    size_t frames = buf_size / bytes_per_frame;
+    float buffer_duration = (float)frames / rate;
+    float period = 0.3f;
+    if (buffer_duration < period * 2) {
+        period = buffer_duration / 2;
+    }
+    ESP_LOGI(TAG, "Generated siren tone: %.3f s buffer, %.3f s period", buffer_duration, period);
 
     for (size_t i = 0; i < frames; i++) {
         // current time in seconds
@@ -58,18 +132,18 @@ static void generate_siren_tone(uint32_t rate, uint8_t channels, uint8_t bits,
         // determine current frequency based on time
         float freq = fmodf(t, period * 2) < period ? high_freq : low_freq;
 
-        if (bits == 16) {
-            int16_t sample = (int16_t)(32767 * volume * sinf(2 * M_PI * freq * t));
-            for (uint8_t ch = 0; ch < channels; ch++) {
-                ((int16_t *)buf)[i * channels + ch] = sample;
-            }
-        } else if (bits == 24) {
-            int32_t sample = (int32_t)(8388607 * volume * sinf(2 * M_PI * freq * t));
-            for (uint8_t ch = 0; ch < channels; ch++) {
-                size_t idx = (i * channels + ch) * 3;
-                buf[idx]   = sample & 0xFF;
-                buf[idx + 1] = (sample >> 8) & 0xFF;
-                buf[idx + 2] = (sample >> 16) & 0xFF;
+        int32_t sample = 0;
+        if (bits <= 16) {
+            sample = (int32_t)(32767 * volume * sinf(2 * M_PI * freq * t));
+        } else if (bits <= 24) {
+            sample = (int32_t)(8388607 * volume * sinf(2 * M_PI * freq * t));
+        } else {
+            sample = (int32_t)(2147483647 * volume * sinf(2 * M_PI * freq * t));
+        }
+        for (uint8_t ch = 0; ch < channels; ch++) {
+            size_t idx = (i * channels + ch) * subframe_size;
+            for (uint8_t byte = 0; byte < subframe_size; byte++) {
+                buf[idx + byte] = (sample >> (8 * byte)) & 0xFF;
             }
         }
     }
@@ -280,14 +354,23 @@ static void uac_lib_task(void *arg)
                     ESP_LOGI(TAG, "UAC Device connected: SPK");
                     uac_host_printf_device_param(uac_device_handle);
                     uac_host_dev_alt_param_t iface_alt_params;
-                    uac_host_get_device_alt_param(uac_device_handle, 1, &iface_alt_params);
+                    uint32_t spk_freq = CONFIG_EXAMPLE_SPK_SAMPLE_FREQ;
+                    if (spk_freq != 0 && find_dev_alt_params_for_freq(uac_device_handle, spk_freq, &iface_alt_params)) {
+                        ESP_LOGI(TAG, "Found alt setting for %" PRIu32 " Hz", spk_freq);
+                    } else {
+                        if (spk_freq != 0) {
+                            ESP_LOGW(TAG, "%" PRIu32 " Hz not found, using device default", spk_freq);
+                        }
+                        ESP_ERROR_CHECK(uac_host_get_device_alt_param(uac_device_handle, 1, &iface_alt_params));
+                        spk_freq = get_fallback_sample_freq(&iface_alt_params, spk_freq);
+                    }
                     uac_host_stream_config_t stm_config = {
                         .channels = iface_alt_params.channels,
                         .bit_resolution = iface_alt_params.bit_resolution,
-                        .sample_freq = iface_alt_params.sample_freq[0],
+                        .sample_freq = spk_freq,
                     };
-                    ESP_LOGI(TAG, "Start UAC speaker with %"PRIu32" Hz, %u bits, %s ",
-                             stm_config.sample_freq, stm_config.bit_resolution, stm_config.channels == 1 ? "Mono" : "Stereo");
+                    ESP_LOGI(TAG, "Start UAC speaker with %"PRIu32" Hz, %u-byte subframe, %u bits, %s ",
+                             stm_config.sample_freq, iface_alt_params.subframe_size, stm_config.bit_resolution, stm_config.channels == 1 ? "Mono" : "Stereo");
                     if (ESP_OK != uac_host_device_start(uac_device_handle, &stm_config)) {
                         ESP_LOGE(TAG, "Failed to start UAC device");
                         ESP_ERROR_CHECK(uac_host_device_close(uac_device_handle));
@@ -298,7 +381,7 @@ static void uac_lib_task(void *arg)
                     uac_host_device_set_mute(uac_device_handle, false); // set mute off
 #ifndef CONFIG_EXAMPLE_MIC_PLAYBACK
                     player_config_t player_config = {0};
-                    generate_siren_tone(stm_config.sample_freq, stm_config.channels, stm_config.bit_resolution,
+                    generate_siren_tone(stm_config.sample_freq, stm_config.channels, iface_alt_params.subframe_size, stm_config.bit_resolution,
                                         s_buffer, sizeof(s_buffer));
                     player_config.pcm_ptr = s_buffer;
                     player_config.pcm_size = sizeof(s_buffer);
@@ -322,11 +405,20 @@ static void uac_lib_task(void *arg)
                     };
                     ESP_ERROR_CHECK(uac_host_device_open(&dev_config, &uac_device_handle));
                     uac_host_dev_alt_param_t mic_alt_params;
-                    ESP_ERROR_CHECK(uac_host_get_device_alt_param(uac_device_handle, 1, &mic_alt_params));
+                    uint32_t mic_freq = CONFIG_EXAMPLE_MIC_SAMPLE_FREQ;
+                    if (mic_freq != 0 && find_dev_alt_params_for_freq(uac_device_handle, mic_freq, &mic_alt_params)) {
+                        ESP_LOGI(TAG, "Found alt setting for MIC %" PRIu32 " Hz", mic_freq);
+                    } else {
+                        if (mic_freq != 0) {
+                            ESP_LOGW(TAG, "MIC %" PRIu32 " Hz not found, using device default", mic_freq);
+                        }
+                        ESP_ERROR_CHECK(uac_host_get_device_alt_param(uac_device_handle, 1, &mic_alt_params));
+                        mic_freq = get_fallback_sample_freq(&mic_alt_params, mic_freq);
+                    }
                     const uac_host_stream_config_t mic_stream_config = {
                         .channels = mic_alt_params.channels,
                         .bit_resolution = mic_alt_params.bit_resolution,
-                        .sample_freq = mic_alt_params.sample_freq[0],
+                        .sample_freq = mic_freq,
                     };
                     ESP_LOGI(TAG, "Start UAC microphone with %"PRIu32" Hz, %u bits, channels=%u",
                              mic_stream_config.sample_freq,
@@ -340,7 +432,7 @@ static void uac_lib_task(void *arg)
                     s_mic_dev_handle = uac_device_handle;
                     if (s_mic_record_buf == NULL) {
                         // Allocate a linear buffer to store ~5 seconds of PCM; round down to threshold multiple
-                        uint32_t bytes_per_sec = mic_stream_config.sample_freq * mic_stream_config.channels * (mic_stream_config.bit_resolution / 8);
+                        uint32_t bytes_per_sec = mic_stream_config.sample_freq * mic_stream_config.channels * mic_alt_params.subframe_size;
                         s_mic_record_buf_size = bytes_per_sec * 15 / 10; // 1.5 seconds
                         s_mic_record_buf = (uint8_t *)calloc(1, s_mic_record_buf_size);
                         if (s_mic_record_buf == NULL) {

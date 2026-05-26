@@ -128,6 +128,7 @@ typedef struct {
 typedef struct {
     uint8_t format;                                  /*!< Audio stream format. Currently only PCM (1) is supported. */
     uint8_t channels;                                /*!< Number of audio channels. */
+    uint8_t subframe_size;                           /*!< Number of bytes per audio subframe. */
     uint8_t bit_resolution;                          /*!< Audio bit resolution. */
     uint8_t sample_freq_type;                        /*!< 0 for continuous range, non-zero for discrete values. */
     union {
