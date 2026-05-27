@@ -66,6 +66,7 @@ jobs:
                       "release-v5.4",
                       "release-v5.5",
                       "release-v6.0",
+                      "release-v6.1",
                       "latest"]'
       idf_targets: '["esp32s2", "esp32p4"]'
       changed_files: ${{ needs.get-changed-files.outputs.all_changed_files }}

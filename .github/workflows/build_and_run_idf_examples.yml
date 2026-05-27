@@ -48,6 +48,7 @@ jobs:
             "release-v5.4",
             "release-v5.5",
             "release-v6.0",
+            "release-v6.1",
             "latest",
           ]
     runs-on: ubuntu-latest
@@ -196,6 +197,7 @@ jobs:
             "release-v5.4",
             "release-v5.5",
             "release-v6.0",
+            "release-v6.1",
             "latest",
           ]
         idf_target: ["esp32s2", "esp32p4"]
@@ -225,6 +227,9 @@ jobs:
           - idf_target: "esp32p4"
             eco_ver: "eco4"
             idf_ver: "release-v6.0"
+          - idf_target: "esp32p4"
+            eco_ver: "eco4"
+            idf_ver: "release-v6.1"
           - idf_target: "esp32p4"
             eco_ver: "eco4"
             idf_ver: "latest"
