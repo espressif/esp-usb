@@ -133,6 +133,7 @@ struct client_s {
         usb_host_client_event_cb_t event_callback;
         void *callback_arg;
         QueueHandle_t event_msg_queue;
+        bool notify_dev_removed;
     } constant;
 };
 
@@ -297,6 +298,39 @@ static void send_event_msg_to_clients(const usb_host_client_event_msg_t *event_m
     xSemaphoreGive(p_host_lib_obj->constant.mux_lock);
 }
 
+static void send_removed_event_msg_to_clients(uint8_t dev_addr)
+{
+    const usb_host_client_event_msg_t event_msg = {
+        .event = USB_HOST_CLIENT_EVENT_DEV_REMOVED,
+        .dev_removed = {
+            .address = dev_addr,
+        },
+    };
+
+    // Broadcast removal only to subscribers that do not own the device; owners receive DEV_GONE instead.
+    xSemaphoreTake(p_host_lib_obj->constant.mux_lock, portMAX_DELAY);
+    client_t *client_obj;
+    TAILQ_FOREACH(client_obj, &p_host_lib_obj->mux_protected.client_tailq, dynamic.tailq_entry) {
+        if (!client_obj->constant.notify_dev_removed) {
+            continue;
+        }
+        HOST_ENTER_CRITICAL();
+        bool opened = _check_client_opened_device(client_obj, dev_addr);
+        HOST_EXIT_CRITICAL();
+        if (opened) {
+            continue;
+        }
+        if (xQueueSend(client_obj->constant.event_msg_queue, &event_msg, 0) == pdTRUE) {
+            HOST_ENTER_CRITICAL();
+            _unblock_client(client_obj, false);
+            HOST_EXIT_CRITICAL();
+        } else {
+            ESP_LOGE(USB_HOST_TAG, "Client event message queue full when sending device removed");
+        }
+    }
+    xSemaphoreGive(p_host_lib_obj->constant.mux_lock);
+}
+
 // ---------------------------------------------------- Callbacks ------------------------------------------------------
 
 // ------------------- Library Related ---------------------
@@ -356,10 +390,11 @@ static void usbh_event_callback(usbh_event_data_t *event_data, void *arg)
         break;
     }
     case USBH_EVENT_DEV_GONE: {
-        if (hub_dev_gone(event_data->new_dev_data.dev_addr) == ESP_OK) {
+        if (hub_dev_gone(event_data->dev_gone_data.dev_addr) == ESP_OK) {
             // Device is a hub, we do not need to propagate the event to the clients
             break;
         }
+        send_removed_event_msg_to_clients(event_data->dev_gone_data.dev_addr);
         // Prepare a DEV GONE event, send only to clients that have opened the device
         usb_host_client_event_msg_t event_msg = {
             .event = USB_HOST_CLIENT_EVENT_DEV_GONE,
@@ -368,6 +403,9 @@ static void usbh_event_callback(usbh_event_data_t *event_data, void *arg)
         send_event_msg_to_clients(&event_msg, false, event_data->dev_gone_data.dev_addr);
         break;
     }
+    case USBH_EVENT_DEV_REMOVED:
+        send_removed_event_msg_to_clients(event_data->dev_removed_data.dev_addr);
+        break;
     case USBH_EVENT_DEV_FREE: {
         // Let the Hub driver know that the device is free and its node can be free and port re-enabled
         // Node could be already freed on device disconnect (when clients still holding the device opened), no need to verify result
@@ -1150,6 +1188,7 @@ esp_err_t usb_host_client_register(const usb_host_client_config_t *client_config
     client_obj->constant.event_callback = client_config->async.client_event_callback;
     client_obj->constant.callback_arg = client_config->async.callback_arg;
     client_obj->constant.event_msg_queue = event_msg_queue;
+    client_obj->constant.notify_dev_removed = client_config->flags.notify_dev_removed;
 
     // Add client to the host library's list of clients
     xSemaphoreTake(p_host_lib_obj->constant.mux_lock, portMAX_DELAY);

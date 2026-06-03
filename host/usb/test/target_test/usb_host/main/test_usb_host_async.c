@@ -309,6 +309,277 @@ TEST_CASE("Test USB Host async API", "[usb_host][low_speed][full_speed][high_spe
 }
 
 /*
+Test USB Host device removed event for unopened devices
+
+Requires: This test requires an MSC SCSI device to be attached (see the MSC mock class)
+
+Purpose:
+    - Test that clients subscribed to device removal notifications receive USB_HOST_CLIENT_EVENT_DEV_REMOVED
+      when a device they have not opened is disconnected
+
+Procedure:
+    - Install USB Host Library
+    - Register one client with notify_dev_removed enabled
+    - Wait for the client to detect device connection
+    - Disconnect the device without opening it
+    - Verify that the client receives USB_HOST_CLIENT_EVENT_DEV_REMOVED with the removed device address
+    - Cleanup
+*/
+
+typedef enum {
+    DEV_REMOVED_TEST_STAGE_NONE,
+    DEV_REMOVED_TEST_STAGE_CONN,
+    DEV_REMOVED_TEST_STAGE_REMOVED,
+} dev_removed_test_stage_t;
+
+typedef struct {
+    dev_removed_test_stage_t stage;
+    uint8_t dev_addr;
+} dev_removed_test_state_t;
+
+static void test_dev_removed_client_cb(const usb_host_client_event_msg_t *event_msg, void *arg)
+{
+    dev_removed_test_state_t *test_state = (dev_removed_test_state_t *)arg;
+
+    switch (event_msg->event) {
+    case USB_HOST_CLIENT_EVENT_NEW_DEV:
+        ESP_LOGI(USB_HOST_ASYNC_TAG, "Client event -> New device");
+        TEST_ASSERT_EQUAL_UINT8(0, test_state->dev_addr);
+        test_state->dev_addr = event_msg->new_dev.address;
+        test_state->stage = DEV_REMOVED_TEST_STAGE_CONN;
+        break;
+    case USB_HOST_CLIENT_EVENT_DEV_REMOVED:
+        ESP_LOGI(USB_HOST_ASYNC_TAG, "Client event -> Device removed");
+        TEST_ASSERT_EQUAL_UINT8(test_state->dev_addr, event_msg->dev_removed.address);
+        test_state->stage = DEV_REMOVED_TEST_STAGE_REMOVED;
+        break;
+    case USB_HOST_CLIENT_EVENT_DEV_GONE:
+        TEST_FAIL_MESSAGE("Unopened device monitor must not receive DEV_GONE");
+        break;
+    default:
+        TEST_FAIL_MESSAGE("Unexpected client event");
+        break;
+    }
+}
+
+TEST_CASE("Test USB Host device removed event for unopened device", "[usb_host][removed_event][low_speed][full_speed][high_speed]")
+{
+    dev_removed_test_state_t test_state = {0};
+    const usb_host_client_config_t client_config = {
+        .is_synchronous = false,
+        .max_num_event_msg = 5,
+        .flags = {
+            .notify_dev_removed = 1,
+        },
+        .async = {
+            .client_event_callback = test_dev_removed_client_cb,
+            .callback_arg = (void *) &test_state,
+        },
+    };
+    usb_host_client_handle_t client_hdl;
+    TEST_ASSERT_EQUAL(ESP_OK, usb_host_client_register(&client_config, &client_hdl));
+
+    // Wait until the device connects and the client receives the event
+    TickType_t new_dev_ticks = pdMS_TO_TICKS(NEW_DEV_EVENT_MS);
+    TimeOut_t new_dev_timeout;
+    vTaskSetTimeOutState(&new_dev_timeout);
+    while (test_state.stage != DEV_REMOVED_TEST_STAGE_CONN) {
+        usb_host_lib_handle_events(0, NULL);
+        usb_host_client_handle_events(client_hdl, 0);
+        vTaskDelay(pdMS_TO_TICKS(10));
+        if (xTaskCheckForTimeOut(&new_dev_timeout, &new_dev_ticks) == pdTRUE) {
+            TEST_FAIL_MESSAGE("New device was not enumerated within specified time");
+        }
+    }
+    TEST_ASSERT_NOT_EQUAL_MESSAGE(0, test_state.dev_addr, "Device not enumerated");
+
+    // Trigger a disconnect without opening the device
+    TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_set_root_port_power(false));
+
+    // Wait until the client receives the removed event and the unopened device is freed
+    bool all_dev_free = false;
+    TickType_t dev_removed_ticks = pdMS_TO_TICKS(DEV_GONE_EVENT_MS);
+    TimeOut_t dev_removed_timeout;
+    vTaskSetTimeOutState(&dev_removed_timeout);
+    while (test_state.stage != DEV_REMOVED_TEST_STAGE_REMOVED || !all_dev_free) {
+        uint32_t event_flags;
+        usb_host_lib_handle_events(0, &event_flags);
+        if (event_flags & USB_HOST_LIB_EVENT_FLAGS_ALL_FREE) {
+            all_dev_free = true;
+        }
+        usb_host_client_handle_events(client_hdl, 0);
+        vTaskDelay(pdMS_TO_TICKS(10));
+        if (xTaskCheckForTimeOut(&dev_removed_timeout, &dev_removed_ticks) == pdTRUE) {
+            TEST_FAIL_MESSAGE("Device removed event was not received within specified time");
+        }
+    }
+
+    TEST_ASSERT_EQUAL(ESP_OK, usb_host_client_deregister(client_hdl));
+    bool all_clients_gone = false;
+    while (!all_clients_gone) {
+        uint32_t event_flags;
+        usb_host_lib_handle_events(0, &event_flags);
+        if (event_flags & USB_HOST_LIB_EVENT_FLAGS_NO_CLIENTS) {
+            all_clients_gone = true;
+        }
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+}
+
+/*
+Test USB Host device removed event for monitor clients
+
+Requires: This test requires an MSC SCSI device to be attached (see the MSC mock class)
+
+Purpose:
+    - Test that an owner client receives USB_HOST_CLIENT_EVENT_DEV_GONE for an opened device
+    - Test that a subscribed monitor client that did not open the device receives USB_HOST_CLIENT_EVENT_DEV_REMOVED
+
+Procedure:
+    - Install USB Host Library
+    - Register an owner client and a monitor client
+    - Open the device from the owner client only
+    - Disconnect the device
+    - Verify owner receives DEV_GONE and monitor receives DEV_REMOVED
+    - Cleanup
+*/
+
+typedef enum {
+    DEV_GONE_REMOVED_TEST_STAGE_NONE,
+    DEV_GONE_REMOVED_TEST_STAGE_CONN,
+    DEV_GONE_REMOVED_TEST_STAGE_DCONN,
+} dev_gone_removed_test_stage_t;
+
+typedef struct {
+    dev_gone_removed_test_stage_t stage;
+    uint8_t dev_addr;
+} dev_gone_removed_test_state_t;
+
+static void test_dev_gone_owner_client_cb(const usb_host_client_event_msg_t *event_msg, void *arg)
+{
+    dev_gone_removed_test_state_t *test_state = (dev_gone_removed_test_state_t *)arg;
+
+    switch (event_msg->event) {
+    case USB_HOST_CLIENT_EVENT_NEW_DEV:
+        ESP_LOGI(USB_HOST_ASYNC_TAG, "Owner client event -> New device");
+        test_state->dev_addr = event_msg->new_dev.address;
+        test_state->stage = DEV_GONE_REMOVED_TEST_STAGE_CONN;
+        break;
+    case USB_HOST_CLIENT_EVENT_DEV_GONE:
+        ESP_LOGI(USB_HOST_ASYNC_TAG, "Owner client event -> Device gone");
+        test_state->stage = DEV_GONE_REMOVED_TEST_STAGE_DCONN;
+        break;
+    case USB_HOST_CLIENT_EVENT_DEV_REMOVED:
+        TEST_FAIL_MESSAGE("Owner client must not receive DEV_REMOVED for opened device");
+        break;
+    default:
+        TEST_FAIL_MESSAGE("Unexpected owner client event");
+        break;
+    }
+}
+
+static void test_dev_removed_monitor_client_cb(const usb_host_client_event_msg_t *event_msg, void *arg)
+{
+    dev_gone_removed_test_state_t *test_state = (dev_gone_removed_test_state_t *)arg;
+
+    switch (event_msg->event) {
+    case USB_HOST_CLIENT_EVENT_NEW_DEV:
+        ESP_LOGI(USB_HOST_ASYNC_TAG, "Monitor client event -> New device");
+        test_state->dev_addr = event_msg->new_dev.address;
+        test_state->stage = DEV_GONE_REMOVED_TEST_STAGE_CONN;
+        break;
+    case USB_HOST_CLIENT_EVENT_DEV_REMOVED:
+        ESP_LOGI(USB_HOST_ASYNC_TAG, "Monitor client event -> Device removed");
+        TEST_ASSERT_EQUAL_UINT8(test_state->dev_addr, event_msg->dev_removed.address);
+        test_state->stage = DEV_GONE_REMOVED_TEST_STAGE_DCONN;
+        break;
+    case USB_HOST_CLIENT_EVENT_DEV_GONE:
+        TEST_FAIL_MESSAGE("Monitor client must not receive DEV_GONE for unopened device");
+        break;
+    default:
+        TEST_FAIL_MESSAGE("Unexpected monitor client event");
+        break;
+    }
+}
+
+TEST_CASE("Test USB Host device removed event for monitor client", "[usb_host][removed_event][low_speed][full_speed][high_speed]")
+{
+    dev_gone_removed_test_state_t owner_state = {0};
+    dev_gone_removed_test_state_t monitor_state = {0};
+    usb_host_client_config_t client_config = {
+        .is_synchronous = false,
+        .max_num_event_msg = 5,
+        .async = {
+            .client_event_callback = test_dev_gone_owner_client_cb,
+            .callback_arg = (void *) &owner_state,
+        },
+    };
+    usb_host_client_handle_t owner_client_hdl;
+    usb_host_client_handle_t monitor_client_hdl;
+    TEST_ASSERT_EQUAL(ESP_OK, usb_host_client_register(&client_config, &owner_client_hdl));
+
+    client_config.flags.notify_dev_removed = 1;
+    client_config.async.client_event_callback = test_dev_removed_monitor_client_cb;
+    client_config.async.callback_arg = (void *)&monitor_state;
+    TEST_ASSERT_EQUAL(ESP_OK, usb_host_client_register(&client_config, &monitor_client_hdl));
+
+    // Wait until the device connects and both clients receive the event
+    TickType_t new_dev_ticks = pdMS_TO_TICKS(NEW_DEV_EVENT_MS);
+    TimeOut_t new_dev_timeout;
+    vTaskSetTimeOutState(&new_dev_timeout);
+    while (owner_state.stage != DEV_GONE_REMOVED_TEST_STAGE_CONN || monitor_state.stage != DEV_GONE_REMOVED_TEST_STAGE_CONN) {
+        usb_host_lib_handle_events(0, NULL);
+        usb_host_client_handle_events(owner_client_hdl, 0);
+        usb_host_client_handle_events(monitor_client_hdl, 0);
+        vTaskDelay(pdMS_TO_TICKS(10));
+        if (xTaskCheckForTimeOut(&new_dev_timeout, &new_dev_ticks) == pdTRUE) {
+            TEST_FAIL_MESSAGE("New device was not enumerated within specified time");
+        }
+    }
+    TEST_ASSERT_NOT_EQUAL_MESSAGE(0, owner_state.dev_addr, "Device not enumerated");
+    TEST_ASSERT_EQUAL_UINT8(owner_state.dev_addr, monitor_state.dev_addr);
+
+    // Only the owner client opens the device
+    usb_device_handle_t dev_hdl;
+    TEST_ASSERT_EQUAL(ESP_OK, usb_host_device_open(owner_client_hdl, owner_state.dev_addr, &dev_hdl));
+
+    // Trigger a disconnect by powering OFF the root port
+    TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_set_root_port_power(false));
+
+    // Wait until owner gets DEV_GONE and monitor gets DEV_REMOVED
+    TickType_t dev_dconn_ticks = pdMS_TO_TICKS(DEV_GONE_EVENT_MS);
+    TimeOut_t dev_dconn_timeout;
+    vTaskSetTimeOutState(&dev_dconn_timeout);
+    while (owner_state.stage != DEV_GONE_REMOVED_TEST_STAGE_DCONN || monitor_state.stage != DEV_GONE_REMOVED_TEST_STAGE_DCONN) {
+        usb_host_lib_handle_events(0, NULL);
+        usb_host_client_handle_events(owner_client_hdl, 0);
+        usb_host_client_handle_events(monitor_client_hdl, 0);
+        vTaskDelay(pdMS_TO_TICKS(10));
+        if (xTaskCheckForTimeOut(&dev_dconn_timeout, &dev_dconn_ticks) == pdTRUE) {
+            TEST_FAIL_MESSAGE("Device disconnection events were not received within specified time");
+        }
+    }
+
+    TEST_ASSERT_EQUAL(ESP_OK, usb_host_device_close(owner_client_hdl, dev_hdl));
+    TEST_ASSERT_EQUAL(ESP_OK, usb_host_client_deregister(owner_client_hdl));
+    TEST_ASSERT_EQUAL(ESP_OK, usb_host_client_deregister(monitor_client_hdl));
+
+    bool all_clients_gone = false;
+    bool all_dev_free = false;
+    while (!all_clients_gone || !all_dev_free) {
+        uint32_t event_flags;
+        usb_host_lib_handle_events(0, &event_flags);
+        if (event_flags & USB_HOST_LIB_EVENT_FLAGS_NO_CLIENTS) {
+            all_clients_gone = true;
+        }
+        if (event_flags & USB_HOST_LIB_EVENT_FLAGS_ALL_FREE) {
+            all_dev_free = true;
+        }
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+}
+
+/*
 Test USB Host Asynchronous API single client
 
 Purpose:

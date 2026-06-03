@@ -13,6 +13,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Added
 
 - Automatic root-port suspend before light sleep when `esp_light_sleep_start()` is called (https://github.com/espressif/esp-usb/pull/445), configurable in menuconfig via `CONFIG_ESP_SLEEP_EVENT_CALLBACKS`
+- Added `USB_HOST_CLIENT_EVENT_DEV_REMOVED` and the `notify_dev_removed` client flag so clients can monitor removal of devices they have not opened.
 
 ## [1.4.1] - 2026-05-29
 

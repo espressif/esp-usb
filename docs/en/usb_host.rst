@@ -196,6 +196,7 @@ With reference to the graph above, the typical lifecycle involves the following 
 5. Device 1 suddenly disconnects.
     - Client 1 is notified by way of :cpp:enumerator:`USB_HOST_CLIENT_EVENT_DEV_GONE` and begins its cleanup.
     - Client 2 is not notified as it has not opened Device 1.
+    - If Client 2 registered with ``notify_dev_removed`` enabled, it is notified by way of :cpp:enumerator:`USB_HOST_CLIENT_EVENT_DEV_REMOVED`.
 6. Client 1 completes its cleanup and deregisters by calling :cpp:func:`usb_host_client_deregister`.
     - This is typically called from the client task before the task exits.
     - This can be called elsewhere if necessary as long as Client 1 has already completed its cleanup.
@@ -228,6 +229,20 @@ The following callbacks are called from within :cpp:func:`usb_host_client_handle
 .. note::
 
     Given that the callbacks are called from within :cpp:func:`usb_host_client_handle_events`, users should avoid blocking from within the callbacks as this will result in :cpp:func:`usb_host_client_handle_events` being blocked as well, thus preventing other pending client events from being handled.
+
+Client events
+"""""""""""""
+
+Clients receive :cpp:enumerator:`USB_HOST_CLIENT_EVENT_NEW_DEV` when a new device has been enumerated. The event includes the device address, which can be used to open the device.
+
+When a device opened by a client is removed, that client is notified via :cpp:enumerator:`USB_HOST_CLIENT_EVENT_DEV_GONE`. This event includes the device handle and is the cleanup signal for releasing interfaces and closing the device.
+
+Clients that need to monitor removal of devices they have not opened can set ``notify_dev_removed`` in :cpp:type:`usb_host_client_config_t`. Such clients are notified via :cpp:enumerator:`USB_HOST_CLIENT_EVENT_DEV_REMOVED`, which includes only the removed device address and does not provide a device handle.
+
+When a device is suspended or resumed, all clients that have opened the affected device are notified via the following events. Each event includes the handle of the suspended or resumed device:
+
+- :cpp:enumerator:`USB_HOST_CLIENT_EVENT_DEV_SUSPENDED` — The device has entered a suspended state.
+- :cpp:enumerator:`USB_HOST_CLIENT_EVENT_DEV_RESUMED` — The device has resumed operation.
 
 The following code snippet demonstrates a bare-bones host class driver and its client task. The code snippet contains:
 
@@ -363,6 +378,8 @@ The typical life cycle of a client task and class driver will go through the fol
     b. Release all previously claimed interfaces via :cpp:func:`usb_host_interface_release`.
     c. Close the device via :cpp:func:`usb_host_device_close`.
 
+#. If the class driver needs to monitor removal of devices it has not opened, enable ``notify_dev_removed`` in :cpp:type:`usb_host_client_config_t` and handle :cpp:enumerator:`USB_HOST_CLIENT_EVENT_DEV_REMOVED`.
+
 #. Deregister the client via :cpp:func:`usb_host_client_deregister` and free any other class driver resources.
 #. Delete the client task. Signal the Daemon Task if necessary.
 
@@ -381,15 +398,6 @@ Note that the global Suspend/Resume also suspends/resumes the USB-OTG peripheral
 
 Events
 ^^^^^^
-
-Client events
-"""""""""""""
-
-When a device is suspended or resumed, all clients that have opened the affected device are notified via the following events. Each event includes the handle of the suspended or resumed device:
-
-- :cpp:enumerator:`USB_HOST_CLIENT_EVENT_DEV_SUSPENDED` — The device has entered a suspended state.
-- :cpp:enumerator:`USB_HOST_CLIENT_EVENT_DEV_RESUMED` — The device has resumed operation.
-
 
 USB Host library event
 """"""""""""""""""""""
