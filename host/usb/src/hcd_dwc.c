@@ -1168,9 +1168,6 @@ static inline bool _is_fifo_config_by_bias(const usb_dwc_hal_fifo_config_t *cfg)
 /**
  * @brief Gate internal clock
  *
- * @note HAL functions used in this function were backported together with remote wakeup changes, we are guarding the
- *       presence of both using the same public define
- *
  * @param[in] port Pointer to the port object
  * @param[in] enable enable/disable internal clock gating
  * @return True internal clk successfully gated/un-gated

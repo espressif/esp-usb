@@ -4,10 +4,6 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-/*
-Warning: The USB Host Library API is still a beta version and may be subject to change
-*/
-
 #pragma once
 
 #include <stdint.h>
