@@ -863,7 +863,6 @@ static hcd_port_event_t _intr_hdlr_hprt(port_t *port, usb_dwc_hal_port_event_t h
         port->flags.conn_dev_ena = 0;
         break;
     }
-#ifdef REMOTE_WAKE_HAL_SUPPORTED
     case USB_DWC_HAL_PORT_EVENT_REMOTE_WAKEUP: {
         ESP_EARLY_LOGD(HCD_DWC_TAG, "Remote wakeup generated from device");
         // Port must have been previously suspended to start processing remote wakeup signaling
@@ -872,7 +871,6 @@ static hcd_port_event_t _intr_hdlr_hprt(port_t *port, usb_dwc_hal_port_event_t h
         }
         break;
     }
-#endif // REMOTE_WAKE_HAL_SUPPORTED
     default: {
         abort();
         break;
@@ -1180,7 +1178,6 @@ static inline bool _is_fifo_config_by_bias(const usb_dwc_hal_fifo_config_t *cfg)
  */
 static inline bool _internal_clk_gate(port_t *port, bool enable)
 {
-#ifdef REMOTE_WAKE_HAL_SUPPORTED
     // Stop PHY Clock and gate HCLK
     usb_dwc_hal_pwr_clk_internal_clock_gate(port->hal, enable);
 
@@ -1197,9 +1194,6 @@ static inline bool _internal_clk_gate(port_t *port, bool enable)
         return true;
     }
     return false;
-#else
-    return true;
-#endif // REMOTE_WAKE_HAL_SUPPORTED
 }
 
 // ---------------------- Commands -------------------------

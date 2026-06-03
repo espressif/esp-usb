@@ -8,7 +8,7 @@ repository: "https://github.com/espressif/esp-usb.git"
 repository_info:
   path: "host/usb"
 dependencies:
-  idf: ">=5.4"
+  idf: ">=5.5.3"
 targets:
   - esp32s2
   - esp32s3
