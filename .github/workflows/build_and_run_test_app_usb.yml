@@ -55,6 +55,8 @@ jobs:
           - test_app: host_native
             idf_ver: "release-v6.0"
           - test_app: host_native
+            idf_ver: "release-v6.1"
+          - test_app: host_native
             idf_ver: "latest"
 
     runs-on: ubuntu-latest
@@ -146,6 +148,8 @@ jobs:
           # Exclude native usb component for IDF >= 6 (usb component has been removed from esp-idf)
           - test_app: host_native
             idf_ver: "release-v6.0"
+          - test_app: host_native
+            idf_ver: "release-v6.1"
           - test_app: host_native
             idf_ver: "latest"
           # Exclude eco4 version for esp32s2
