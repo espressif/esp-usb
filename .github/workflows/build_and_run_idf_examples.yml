@@ -126,7 +126,7 @@ jobs:
       - name: Create component manifest file for usb_host_lib
         # Create manifest file for usb_host_lib example, because the examples do not have it for IDF < 6.0
         # and we need to override the usb component
-        if: contains('release-v5.4 release-v5.5', matrix.idf_ver)
+        if: contains('release-v5.5', matrix.idf_ver)
         working-directory: ${{ env.USB_EXAMPLES_PATH }}/host/usb_host_lib/main
         run: |
           python3 - << 'EOF'
@@ -146,7 +146,7 @@ jobs:
           fi
       - name: Override usb component
         # Override usb host component only for service releases
-        if: contains('release-v5.4 release-v5.5 release-v6.0 latest', matrix.idf_ver)
+        if: contains('release-v5.5 release-v6.0 latest', matrix.idf_ver)
         run: |
           . ${IDF_PATH}/export.sh
           python .github/ci/override_managed_component.py usb host/usb ${{ env.USB_EXAMPLES_PATH }}/host/*

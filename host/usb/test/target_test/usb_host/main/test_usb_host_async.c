@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2015-2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2015-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -676,7 +676,6 @@ TEST_CASE("Test USB Host suspend/resume multiple tasks access (no client)", "[us
     TEST_ASSERT_MESSAGE(ulTaskNotifyTake(pdFALSE, pdMS_TO_TICKS(1000)), "usb host lib task did not finish");
 }
 
-#ifdef REMOTE_WAKE_HAL_SUPPORTED
 /*
 Note: This test is run in CI only in limited state (open MSC device -> Check remote wakeup from descriptor -> close device)
       It can be run manually with remote wakeup capable device
@@ -723,5 +722,3 @@ TEST_CASE("Test USB Host remote wakeup", "[usb_host][low_speed][full_speed][high
     }
     printf("Deleting host_lib_task\n");
 }
-
-#endif // REMOTE_WAKE_HAL_SUPPORTED

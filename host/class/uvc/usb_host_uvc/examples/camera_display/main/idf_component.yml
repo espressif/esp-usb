@@ -10,4 +10,4 @@ dependencies:
     version: "*"
     override_path: "../../../../../../usb"
     rules:
-      - if: "idf_version >=5.4"                 # Use managed component only for 5.4 and above
+      - if: "idf_version >=5.5.3"                 # Use managed component only for 5.5.3 and above

@@ -64,7 +64,7 @@ host/usb:
     - if: SOC_USB_OTG_SUPPORTED == 1 and ENV_VAR_USB_COMP_MANAGED == "yes"
       reason: USB Component tests with native USB component are already running in esp-idf CI
   disable:
-    - if: IDF_VERSION < "5.4.0"
+    - if: IDF_VERSION < "5.5.3"
       reason: We will support component overriding only in service releases
 
 host/usb/test/target_test/enum:
@@ -74,13 +74,13 @@ host/usb/test/target_test/enum:
     - if: SOC_USB_OTG_SUPPORTED == 1 and ENV_VAR_USB_COMP_MANAGED == "yes" and IDF_TARGET not in ["esp32s31"]
       reason: Test uses FSLS PHY interface to emulate device attach/detach which the esp32s31 lacks
   disable:
-    - if: IDF_VERSION < "5.4.0"
+    - if: IDF_VERSION < "5.5.3"
       reason: We will support component overriding only in service releases
 
 # Host tests
 .host_test_enable_rules: &host_test_enable_rules
   enable:
-    - if: IDF_TARGET in ["linux"] and (IDF_VERSION >= "6.1.0")
+    - if: IDF_TARGET in ["linux"] and (IDF_VERSION >= "6.2.0")
       reason: USB mocks are run only for the latest version of IDF
 
 host/class/cdc/usb_host_cdc_acm/host_test:
