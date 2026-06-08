@@ -5,6 +5,7 @@
  */
 
 #include <stdio.h>
+#include <unistd.h>
 #include <catch2/catch_session.hpp>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -25,7 +26,11 @@ static void main_task(void *args)
     vTaskDelete(NULL);
 }
 
-extern "C" int __wrap_main(int argc, const char **argv)
+extern "C" void app_main(void)
+{
+}
+
+int main(int argc, const char **argv)
 {
     // Following section is copied from components\freertos\FreeRTOS-Kernel\portable\linux\port_idf.c
     // It starts the FreeRTOS scheduler and creates the main task to run Catch2 tests.
