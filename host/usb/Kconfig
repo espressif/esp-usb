@@ -199,6 +199,20 @@ menu "USB-OTG"
 
     endmenu #Hub Driver Configuration
 
+    menu "Power management"
+
+        config USB_HOST_AUTO_PM_LIGHT_SLEEP
+            bool "Automatically suspend root port before light sleep"
+            depends on ESP_SLEEP_EVENT_CALLBACKS
+            default n
+            help
+                Register light sleep event callbacks to automatically suspend the root port when the SoC
+                enters light sleep.
+
+                Requires ESP_SLEEP_EVENT_CALLBACKS to be enabled in the menuconfig.
+
+    endmenu #Power management
+
     config USB_HOST_ENABLE_ENUM_FILTER_CALLBACK
         bool "Enable enumeration filter callback"
         default n
