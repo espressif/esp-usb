@@ -22,9 +22,9 @@ extern "C" {
 // ------------------------------------------------- Macros & Types ----------------------------------------------------
 
 // Register light sleep callbacks to automatically suspend the root port when light sleep is entered
-#ifdef CONFIG_ESP_SLEEP_EVENT_CALLBACKS
+#ifdef CONFIG_USB_HOST_AUTO_PM_LIGHT_SLEEP
 #define AUTO_PM_LIGHT_SLEEP
-#endif // CONFIG_ESP_SLEEP_EVENT_CALLBACKS
+#endif // CONFIG_USB_HOST_AUTO_PM_LIGHT_SLEEP
 
 // ----------------------- Configs -------------------------
 
