@@ -1,3 +1,6 @@
+## 2.2.1
+- Fix DTR/RTS polarity for CH34x
+
 ## 2.2.0
 - Added PID autodetection
 
