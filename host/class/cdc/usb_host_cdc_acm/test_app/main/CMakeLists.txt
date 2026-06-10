@@ -1,6 +1,6 @@
 idf_component_register(SRC_DIRS .
                        INCLUDE_DIRS .
-                       REQUIRES unity
+                       REQUIRES unity esp_timer
                        WHOLE_ARCHIVE)
 
 # So we have access to private_include:
