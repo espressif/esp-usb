@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Added `CONFIG_UVC_CHECK_PAYLOAD_HEADER_ERR` option to control whether UVC payload header ERR packets discard the current frame.
+
+### Fixed
+
+- Fixed ISOC handling so empty packets with invalid UVC payload headers do not discard the current frame.
+- Fixed basic UVC stream example to support MJPEG frame buffer size estimation
+
 ## [2.5.1] - 2026-05-25
 
 ### Added

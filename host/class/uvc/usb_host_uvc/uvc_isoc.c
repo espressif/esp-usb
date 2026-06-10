@@ -84,7 +84,10 @@ void isoc_transfer_callback(usb_transfer_t *transfer)
         const uvc_payload_header_t *payload_header = (const uvc_payload_header_t *)payload;
         if (!uvc_frame_payload_header_validate(payload_header, isoc_desc->actual_num_bytes)) {
             ESP_LOGD(TAG, "invalid UVC payload header, %02x, %02x, len:%d", payload[0], payload[1], isoc_desc->actual_num_bytes);
-            uvc_stream->single_thread.skip_current_frame = true;
+            if (isoc_desc->actual_num_bytes != 0) {
+                // Only skip the frame if we received some data (otherwise it's just an empty packet, which is not an issue by itself)
+                uvc_stream->single_thread.skip_current_frame = true;
+            }
             goto next_isoc_packet;
         }
 
@@ -98,17 +101,23 @@ void isoc_transfer_callback(usb_transfer_t *transfer)
             goto next_isoc_packet;
         }
 
+#ifdef CONFIG_UVC_CHECK_PAYLOAD_HEADER_ERR
         // Check for error flag
         if (payload_header->bmHeaderInfo.error) {
             ESP_LOGW(TAG, "frame error");
             uvc_stream->single_thread.skip_current_frame = true;
         }
+#endif // CONFIG_UVC_CHECK_PAYLOAD_HEADER_ERR
 
         const bool start_of_frame = (uvc_stream->single_thread.current_frame_id != payload_header->bmHeaderInfo.frame_id);
         if (start_of_frame) {
             // We detected start of new frame. Update Frame ID and start fetching this frame
             uvc_stream->single_thread.current_frame_id   = payload_header->bmHeaderInfo.frame_id;
+#ifdef CONFIG_UVC_CHECK_PAYLOAD_HEADER_ERR
             uvc_stream->single_thread.skip_current_frame = payload_header->bmHeaderInfo.error;
+#else
+            uvc_stream->single_thread.skip_current_frame = false;
+#endif // CONFIG_UVC_CHECK_PAYLOAD_HEADER_ERR
 
             // Check mjpeg frame start
             if (uvc_stream->dynamic.vs_format.format == UVC_VS_FORMAT_MJPEG &&

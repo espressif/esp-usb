@@ -38,6 +38,12 @@
 
 #define UVC_DESC_DWFRAMEINTERVAL_TO_FPS(dwFrameInterval) (((dwFrameInterval) != 0) ? 10000000 / ((float)(dwFrameInterval)) : 0)
 
+#define JPG_MIN_SIZE 40000
+#define JPG_COMPRESSION_RATIO 6
+#define max(a, b) ((a) > (b) ? (a) : (b))
+#define UVC_ESTIMATE_JPG_SIZE_B(width, height, bpp) \
+    (max(((width) * (height) * (bpp) / 8) / JPG_COMPRESSION_RATIO, JPG_MIN_SIZE))
+
 static const char *TAG = "UVC example";
 static QueueHandle_t rx_frames_queue[EXAMPLE_NUMBER_OF_STREAMS];
 static int device_count = 0;
@@ -274,7 +280,7 @@ static void start_uvc_frame_handling_tasks(void)
         },
         .advanced = {
             .number_of_frame_buffers = EXAMPLE_FRAME_COUNT,
-            .frame_size = 0,
+            .frame_size = UVC_ESTIMATE_JPG_SIZE_B(frame_info_list[0][0].h_res, frame_info_list[0][0].v_res, 16),
             .number_of_urbs = 4,
             .urb_size = 10 * 1024,
         },
