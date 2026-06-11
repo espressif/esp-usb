@@ -10,6 +10,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - This component now requires ESP-IDF version >= 5.5.3
 
+### Added
+
+- Automatic root-port suspend before light sleep when `esp_light_sleep_start()` is called (https://github.com/espressif/esp-usb/pull/445), configurable in menuconfig via `CONFIG_ESP_SLEEP_EVENT_CALLBACKS`
+
 ## [1.4.1] - 2026-05-29
 
 ### Fixed
