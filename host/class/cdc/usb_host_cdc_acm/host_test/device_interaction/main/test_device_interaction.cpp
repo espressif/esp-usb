@@ -198,6 +198,7 @@ SCENARIO("Invalid custom command")
             .event_cb = nullptr,
             .data_cb = nullptr,
             .user_arg = nullptr,
+            .dev_addr = CDC_HOST_ANY_DEV_ADDR,
         };
 
         // Use any device, does not matter for this test
@@ -248,6 +249,7 @@ SCENARIO("Interact with mocked USB devices")
             .event_cb = nullptr,
             .data_cb = nullptr,
             .user_arg = nullptr,
+            .dev_addr = CDC_HOST_ANY_DEV_ADDR,
         };
 
         SECTION("Interact with device: ASIX Electronics Corp. AX88772A Fast Ethernet") {
@@ -437,6 +439,7 @@ SCENARIO("TinyUSB serial")
                 .event_cb = nullptr,
                 .data_cb = nullptr,
                 .user_arg = nullptr,
+                .dev_addr = CDC_HOST_ANY_DEV_ADDR,
             };
 
             usb_host_device_open_Stub(usb_host_device_open_mock_callback);
