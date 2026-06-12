@@ -153,7 +153,9 @@ void isoc_transfer_callback(usb_transfer_t *transfer)
                 // We received SoF but current_frame is not NULL: We missed EoF - reset the frame buffer
                 ESP_EARLY_LOGW(TAG, "missed EoF");
                 uvc_stream->single_thread.skip_current_frame = true;
-                uvc_frame_reset(uvc_stream->dynamic.current_frame);
+                if (uvc_stream->dynamic.current_frame) {
+                    uvc_frame_reset(uvc_stream->dynamic.current_frame);
+                }
                 UVC_EXIT_CRITICAL();
             }
         }
