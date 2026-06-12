@@ -119,6 +119,7 @@ void isoc_transfer_callback(usb_transfer_t *transfer)
             uvc_stream->single_thread.skip_current_frame = false;
 #endif // CONFIG_UVC_CHECK_PAYLOAD_HEADER_ERR
 
+#ifdef CONFIG_UVC_CHECK_PAYLOAD_HEADER_SOI
             // Check mjpeg frame start
             if (uvc_stream->dynamic.vs_format.format == UVC_VS_FORMAT_MJPEG &&
                     (payload_data[0] != JPEG_MARKER || payload_data[1] != JPEG_SOI)) {
@@ -126,6 +127,7 @@ void isoc_transfer_callback(usb_transfer_t *transfer)
                 uvc_stream->single_thread.skip_current_frame = true;
                 ESP_LOGW(TAG, "invalid MJPEG SOI");
             }
+#endif // CONFIG_UVC_CHECK_PAYLOAD_HEADER_SOI
 
             // Get free frame buffer for this new frame
             UVC_ENTER_CRITICAL();
