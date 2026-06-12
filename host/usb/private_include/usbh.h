@@ -41,6 +41,7 @@ typedef enum {
     USBH_EVENT_DEV_SUSPEND,         /**< A device has been suspended */
     USBH_EVENT_DEV_RESUME,          /**< A device has been resumed */
     USBH_EVENT_ALL_IDLE,            /**< All devices idle (all EPs halted and flushed) */
+    USBH_EVENT_DEV_REMOVED,         /**< A device has been removed. No device handle is provided */
 } usbh_event_t;
 
 /**
@@ -60,6 +61,9 @@ typedef struct {
             uint8_t dev_addr;
             usb_device_handle_t dev_hdl;
         } dev_gone_data;
+        struct {
+            uint8_t dev_addr;
+        } dev_removed_data;
         struct {
             unsigned int dev_uid;
             usb_device_handle_t parent_dev_hdl;

@@ -62,7 +62,7 @@ The USB 2.0 specification "assumes a specialized client of the USBD, called a hu
 
 - ``usbh_devs_remove()`` which will indicate to the USBH that a device has been removed (such as due to a disconnection or a port error).
 
-    - If the device is not currently opened (i.e., used by one or more clients), the USBH will free the underlying device object immediately.
+    - If the device is not currently opened (i.e., used by one or more clients), the USBH will propagate a ``USBH_EVENT_DEV_REMOVED`` event and then free the underlying device object immediately.
     - If the device is currently opened, a ``USBH_EVENT_DEV_GONE`` event will be propagated and the device will be flagged for removal. The last client to close the device will free the device object.
     - When a device object is freed, a ``USBH_EVENT_DEV_FREE`` event will be propagated. This event is used to indicate that the device's upstream port can be recycled.
 

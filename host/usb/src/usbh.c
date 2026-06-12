@@ -33,12 +33,13 @@ typedef enum {
     DEV_ACTION_EP0_DEQUEUE          = (1 << 2),     // Dequeue all URBs from EP0
     DEV_ACTION_EP0_CLEAR            = (1 << 3),     // Move EP0 to the the active state
     DEV_ACTION_PROP_GONE_EVT        = (1 << 4),     // Propagate a USBH_EVENT_DEV_GONE event
-    DEV_ACTION_FREE                 = (1 << 5),     // Free the device object
-    DEV_ACTION_PROP_NEW_DEV         = (1 << 6),     // Propagate a USBH_EVENT_NEW_DEV event
-    DEV_ACTION_EPn_CLEAR            = (1 << 7),     // Move all non-default endpoints to active state
-    DEV_ACTION_PROP_SUSPEND_EVT     = (1 << 8),     // Propagate USBH_EVENT_DEV_SUSPEND event
-    DEV_ACTION_PROP_RESUME_EVT      = (1 << 9),     // Propagate USBH_EVENT_DEV_RESUME event
-    DEV_ACTION_PROP_ALL_IDLE_EVT    = (1 << 10),    // Propagate USBH_EVENT_ALL_IDLE event
+    DEV_ACTION_PROP_REMOVED_EVT     = (1 << 5),     // Propagate a USBH_EVENT_DEV_REMOVED event
+    DEV_ACTION_FREE                 = (1 << 6),     // Free the device object
+    DEV_ACTION_PROP_NEW_DEV         = (1 << 7),     // Propagate a USBH_EVENT_NEW_DEV event
+    DEV_ACTION_EPn_CLEAR            = (1 << 8),     // Move all non-default endpoints to active state
+    DEV_ACTION_PROP_SUSPEND_EVT     = (1 << 9),     // Propagate USBH_EVENT_DEV_SUSPEND event
+    DEV_ACTION_PROP_RESUME_EVT      = (1 << 10),    // Propagate USBH_EVENT_DEV_RESUME event
+    DEV_ACTION_PROP_ALL_IDLE_EVT    = (1 << 11),    // Propagate USBH_EVENT_ALL_IDLE event
 } dev_action_t;
 
 typedef struct device_s device_t;
@@ -656,6 +657,19 @@ static inline void handle_prop_gone_evt(device_t *dev_obj)
     p_usbh_obj->constant.event_cb(&event_data, p_usbh_obj->constant.event_cb_arg);
 }
 
+static inline void handle_prop_removed_event(device_t *dev_obj)
+{
+    // Only stable identifiers are propagated because the device object may be freed immediately afterwards.
+    ESP_LOGD(USBH_TAG, "Device %d removed", dev_obj->constant.address);
+    usbh_event_data_t event_data = {
+        .event = USBH_EVENT_DEV_REMOVED,
+        .dev_removed_data = {
+            .dev_addr = dev_obj->constant.address,
+        },
+    };
+    p_usbh_obj->constant.event_cb(&event_data, p_usbh_obj->constant.event_cb_arg);
+}
+
 static inline void handle_prop_suspend_event(device_t *dev_obj)
 {
     ESP_LOGD(USBH_TAG, "Device %d suspended", dev_obj->constant.address);
@@ -866,6 +880,9 @@ esp_err_t usbh_process(void)
         if (action_flags & DEV_ACTION_PROP_GONE_EVT) {
             handle_prop_gone_evt(dev_obj);
         }
+        if (action_flags & DEV_ACTION_PROP_REMOVED_EVT) {
+            handle_prop_removed_event(dev_obj);
+        }
         if (action_flags & DEV_ACTION_EPn_CLEAR) {
             handle_epn_clear(dev_obj);
         }
@@ -1029,8 +1046,8 @@ esp_err_t usbh_devs_remove(unsigned int uid)
     dev_obj->dynamic.flags.is_gone = 1;
     // Check if the device can be freed immediately
     if (dev_obj->dynamic.open_count == 0) {
-        // Device is not currently opened at all. Can free immediately.
-        call_proc_req_cb = _dev_set_actions(dev_obj, DEV_ACTION_FREE);
+        // Device is not currently opened at all. Notify subscribed monitors, then free immediately.
+        call_proc_req_cb = _dev_set_actions(dev_obj, DEV_ACTION_PROP_REMOVED_EVT | DEV_ACTION_FREE);
     } else {
         // Device is still opened. Flush endpoints and propagate device gone event
         call_proc_req_cb = _dev_set_actions(dev_obj,
