@@ -60,8 +60,10 @@ def tusb_device_teardown(iterations, timeout):
     [
         pytest.param('default', 'esp32s2'),
         pytest.param('default', 'esp32s3'),
+        pytest.param('default', 'esp32h4'),
         pytest.param('default', 'esp32p4', marks=[pytest.mark.eco_default]),
         pytest.param('esp32p4_eco4', 'esp32p4', marks=[pytest.mark.esp32p4_eco4]),
+        pytest.param('default', 'esp32s31'),
     ],
     indirect=['target'],
 )

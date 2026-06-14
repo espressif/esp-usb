@@ -13,8 +13,10 @@ from pytest_embedded_idf.dut import IdfDut
     [
         pytest.param(2, 'default', 'esp32s2'),
         pytest.param(2, 'default', 'esp32s3'),
+        pytest.param(2, 'default', 'esp32h4'),
         pytest.param(2, 'default', 'esp32p4', marks=[pytest.mark.eco_default]),
         pytest.param(2, 'esp32p4_eco4', 'esp32p4', marks=[pytest.mark.esp32p4_eco4]),
+        pytest.param(2, 'default', 'esp32s31'),
     ],
     indirect=True,
 )
