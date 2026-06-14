@@ -1,6 +1,3 @@
-| Supported Targets | ESP32-P4 | ESP32-S2 | ESP32-S3 |
-| ----------------- | -------- | -------- | -------- |
-
 # USB: Host test application
 
 There are three sets of tests in this application:

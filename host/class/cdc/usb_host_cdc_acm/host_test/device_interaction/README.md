@@ -1,6 +1,3 @@
-| Supported Targets | Linux |
-| ----------------- | ----- |
-
 # Description
 
 This directory contains test code for `USB Host CDC-ACM` driver. Namely:
