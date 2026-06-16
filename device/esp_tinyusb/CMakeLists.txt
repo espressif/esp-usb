@@ -9,6 +9,7 @@ set(srcs
     )
 
 set(priv_req "")
+set(req fatfs vfs)
 
 # USB-PHY driver
 # For IDF 6.x and later, usb_phy driver is moved from usb to esp_hw_support
@@ -62,11 +63,19 @@ if(${target} STREQUAL "esp32p4" OR ${target} STREQUAL "esp32s31")
     endif()
 endif() # esp32p4/esp32s31
 
+# idf_component.yml is ignored when the component manager is disabled, so the
+# dependency on tinyusb must be declared here instead. It belongs in REQUIRES
+# (not PRIV_REQUIRES) because the public header tinyusb.h includes tusb.h.
+idf_build_get_property(idf_component_manager IDF_COMPONENT_MANAGER)
+if(NOT idf_component_manager)
+    list(APPEND req tinyusb)
+endif()
+
 idf_component_register(SRCS ${srcs}
                        INCLUDE_DIRS "include"
                        PRIV_INCLUDE_DIRS "include_private"
                        PRIV_REQUIRES ${priv_req}
-                       REQUIRES fatfs vfs
+                       REQUIRES ${req}
                        )
 
 # Determine whether tinyusb is fetched from component registry or from local path
