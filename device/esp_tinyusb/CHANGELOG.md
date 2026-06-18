@@ -1,3 +1,7 @@
+## 2.2.1
+
+- esp_tinyusb: Add an explicit `tinyusb` dependency when the IDF component manager is disabled
+
 ## 2.2.0
 
 - esp_tinyusb: Added ESP32-S31 support
