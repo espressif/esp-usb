@@ -5,6 +5,7 @@
  */
 
 #include <stdio.h>
+#include <string.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/event_groups.h"
@@ -25,9 +26,33 @@
 #define EVT_WAIT_TIME_MS                 (5 * 1000)        // 5 seconds
 #define LIGHT_SLEEP_NUM_CYCLES           (3)
 
+static char err_msg_buf[128];
 const char *USB_SLEEP_TAG = "USB sleep";
 
 extern void test_setup(void);
+
+static void light_sleep_enter_catch_impl(const char *file, int line)
+{
+    const esp_err_t light_sleep_err = esp_light_sleep_start();
+    if (light_sleep_err == ESP_ERR_SLEEP_REJECT) {
+        // Enter light sleep might be rejected, due to the other esp core being in a critical section
+        // Let the usb host lib handle current events and try to enter the light sleep again
+        ESP_LOGI(USB_SLEEP_TAG, "Light sleep rejected, re-entering light sleep");
+        snprintf(err_msg_buf, sizeof(err_msg_buf), "Second light sleep entry error at %s:%d\n", file, line);
+        taskYIELD();
+        TEST_ASSERT_EQUAL_MESSAGE(ESP_OK, esp_light_sleep_start(), err_msg_buf);
+    } else if (light_sleep_err != ESP_OK) {
+        // Other error occurred
+        snprintf(err_msg_buf, sizeof(err_msg_buf), "Light sleep entry error at %s:%d\n", file, line);
+        TEST_ASSERT_EQUAL_MESSAGE(ESP_OK, light_sleep_err, err_msg_buf);
+    } else {
+        // pass
+    }
+}
+/**
+ * @brief Enter light sleep and catch sleep rejected error
+ */
+#define light_sleep_enter_catch() light_sleep_enter_catch_impl(__FILE__, __LINE__)
 
 /*
     Light sleep task
@@ -55,7 +80,7 @@ static void light_sleep_task(void *args)
         const int64_t t_before_us = esp_timer_get_time();
 
         // Enter light sleep mode
-        TEST_ASSERT_EQUAL(ESP_OK, esp_light_sleep_start());
+        light_sleep_enter_catch();
 
         // Get timestamp after waking up from sleep
         const int64_t t_after_us = esp_timer_get_time();
@@ -270,7 +295,7 @@ static void light_sleep_enter_task_error(void *args)
     const int64_t t_before_us = esp_timer_get_time();
 
     // Immediately enter light sleep mode
-    TEST_ASSERT_EQUAL(ESP_OK, esp_light_sleep_start());
+    light_sleep_enter_catch();
 
     // Get timestamp after waking up from sleep
     const int64_t t_after_us = esp_timer_get_time();
@@ -469,7 +494,7 @@ static void light_sleep_enter_latency_task(void *args)
     vTaskDelay(20);
 
     // Init cache, call the DUT function for the first time separately outside of the measuring loop
-    TEST_ASSERT_EQUAL(ESP_OK, esp_light_sleep_start());
+    light_sleep_enter_catch();
 
     // Resume the root port manually and wait for the resume sequence
     TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_root_port_resume());
@@ -477,7 +502,7 @@ static void light_sleep_enter_latency_task(void *args)
 
     // Measure enter and exit light sleep latency
     for (int i = 0; i < LIGHT_SLEEP_NUM_CYCLES; i++) {
-        TEST_ASSERT_EQUAL(ESP_OK, esp_light_sleep_start());
+        light_sleep_enter_catch();
         const uint32_t wakeup_cause = esp_sleep_get_wakeup_causes();
         TEST_ASSERT(wakeup_cause & BIT(ESP_SLEEP_WAKEUP_TIMER));
 
@@ -686,14 +711,14 @@ TEST_CASE("Test USB Host light sleep events delivery", "[usb_sleep_modes][low_sp
 
     /* Test case 1: Light sleep callback suspend event delivery */
     // Enter light sleep with root port resumed and expect suspend event (auto suspend by light sleep)
-    TEST_ASSERT_EQUAL(ESP_OK, esp_light_sleep_start());
+    light_sleep_enter_catch();
     TEST_ASSERT_EQUAL_MESSAGE(pdTRUE, xQueueReceive(notif_queue, &client_event, pdMS_TO_TICKS(1000)), "Suspend event not delivered");
     TEST_ASSERT_EQUAL_MESSAGE(client_event, USB_HOST_CLIENT_EVENT_DEV_SUSPENDED, "Unexpected event delivered");
 
     /* Test case 2: Light sleep callback with root port auto-suspended */
     // Enter light sleep with root port automatically suspended and expect no event
     // Light sleep shall not deliver suspend event if the root port was not suspended by the light sleep callback
-    TEST_ASSERT_EQUAL(ESP_OK, esp_light_sleep_start());
+    light_sleep_enter_catch();
     TEST_ASSERT_EQUAL_MESSAGE(pdFALSE, xQueueReceive(notif_queue, &client_event, pdMS_TO_TICKS(1000)), "An event delivered, but none was expected");
 
     // Manually resume and suspend the root port (don't use light sleep callback to suspend the port)
@@ -706,7 +731,7 @@ TEST_CASE("Test USB Host light sleep events delivery", "[usb_sleep_modes][low_sp
 
     /* Test case 3: Light sleep callback with root port manually suspended */
     // Enter light sleep with root port manually suspended and expect no event
-    TEST_ASSERT_EQUAL(ESP_OK, esp_light_sleep_start());
+    light_sleep_enter_catch();
     TEST_ASSERT_EQUAL_MESSAGE(pdFALSE, xQueueReceive(notif_queue, &client_event, pdMS_TO_TICKS(1000)), "An event delivered, but none was expected");
 
     // Stop the client task, deregister client and release devices
