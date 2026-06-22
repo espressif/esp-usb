@@ -193,6 +193,7 @@ TEST_CASE("tinyusb_cdc_throughput", "[esp_tinyusb][cdc_throughput]")
         bytes_written += tud_cdc_n_write(0, tx_buf, CDC_THROUGHPUT_TEST_BUFFER_SIZE);
     }
 
+    TEST_ASSERT_MESSAGE(bytes_written, "No bytes written");
     free(tx_buf);
 
     // Cleanup
