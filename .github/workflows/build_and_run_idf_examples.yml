@@ -159,7 +159,17 @@ jobs:
           cd ${IDF_PATH}
 
           # Export compiler flags
-          export PEDANTIC_FLAGS="-DIDF_CI_BUILD -Werror -Werror=deprecated-declarations -Werror=unused-variable -Werror=unused-but-set-variable -Werror=unused-function"
+          PEDANTIC_FLAGS="-DIDF_CI_BUILD -Werror -Werror=deprecated-declarations -Werror=unused-variable -Werror=unused-function"
+          # IDF latest (6.2) and newer use -Werror=unused-but-set-variable=1 (esp-idf@71618c8).
+          # Older IDF releases use -Werror=unused-but-set-variable without =1.
+          case "${{ matrix.idf_ver }}" in
+            release-v5.*|release-v6.0|release-v6.1)
+              PEDANTIC_FLAGS="${PEDANTIC_FLAGS} -Werror=unused-but-set-variable"
+              ;;
+            *)
+              PEDANTIC_FLAGS="${PEDANTIC_FLAGS} -Werror=unused-but-set-variable=1"
+              ;;
+          esac
           export EXTRA_CFLAGS="${PEDANTIC_FLAGS} -Wstrict-prototypes"
           export EXTRA_CXXFLAGS="${PEDANTIC_FLAGS}"
 
