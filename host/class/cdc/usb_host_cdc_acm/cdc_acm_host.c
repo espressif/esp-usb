@@ -597,7 +597,7 @@ esp_err_t cdc_acm_host_open_v1_dispatch(uint16_t vid, uint16_t pid, uint8_t inte
         .vid = vid,
         .pid = pid,
         .interface_idx = interface_idx,
-        .dev_addr = dev_config->dev_addr,
+        .dev_addr = CDC_HOST_ANY_DEV_ADDR,
         .connection_timeout_ms = dev_config->connection_timeout_ms,
         .out_buffer_size = dev_config->out_buffer_size,
         .in_buffer_size = dev_config->in_buffer_size,

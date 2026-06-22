@@ -92,7 +92,6 @@ typedef struct {
     cdc_acm_host_dev_callback_t event_cb; /*!< Device event callback. Can be NULL. */
     cdc_acm_data_callback_t data_cb;      /*!< Data RX callback. Can be NULL for write-only devices. */
     void *user_arg;                       /*!< User argument passed to both callbacks. */
-    uint8_t dev_addr;                     /*!< USB device address to select, or CDC_HOST_ANY_DEV_ADDR to match any. */
 } cdc_acm_host_device_config_t;
 
 /**
