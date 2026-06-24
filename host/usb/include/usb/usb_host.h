@@ -44,7 +44,13 @@ typedef struct usb_host_client_handle_s *usb_host_client_handle_t;
  * @brief The type event in a client event message
  */
 typedef enum {
-    USB_HOST_CLIENT_EVENT_NEW_DEV,                  /**< A new device has been enumerated and added to the USB Host Library */
+    /**
+     * @brief A device is available to this client
+     *
+     * This can be a newly enumerated device, or an already visible device reported during client registration when
+     * existing-device enumeration is enabled.
+     */
+    USB_HOST_CLIENT_EVENT_NEW_DEV,
     USB_HOST_CLIENT_EVENT_DEV_GONE,                 /**< A device opened by the client is now gone */
     USB_HOST_CLIENT_EVENT_DEV_SUSPENDED,            /**< A device opened by the client is now suspended */
     USB_HOST_CLIENT_EVENT_DEV_RESUMED,              /**< A device opened by the client is now resumed */
@@ -157,7 +163,12 @@ typedef struct {
     int max_num_event_msg;      /**< Maximum number of event messages that can be stored (e.g., 3) */
     struct {
         uint32_t notify_dev_removed: 1;         /**< Whether the client should receive USB_HOST_CLIENT_EVENT_DEV_REMOVED events */
-        uint32_t reserved31: 31;                /**< Reserved for future use. Set to 0 */
+        /**
+         * Whether the client should receive USB_HOST_CLIENT_EVENT_NEW_DEV events for devices already visible to clients
+         * when registering. Existing-device events are queued during registration and subsequent event handling.
+         */
+        uint32_t enumerate_existing_devices: 1;
+        uint32_t reserved30: 30;                /**< Reserved for future use. Set to 0 */
     } flags;                                    /**< Client behavior flags */
     union {     // Note: Made into union or future expansion
         struct {
