@@ -71,8 +71,8 @@ host/usb/test/target_test/enum:
   depends_filepatterns:
     - 'host/usb/**'
   enable:
-    - if: SOC_USB_OTG_SUPPORTED == 1 and ENV_VAR_USB_COMP_MANAGED == "yes" and IDF_TARGET not in ["esp32s31"]
-      reason: Test uses FSLS PHY interface to emulate device attach/detach which the esp32s31 lacks
+    - if: SOC_USB_FSLS_PHY_NUM == 1 and ENV_VAR_USB_COMP_MANAGED == "yes"
+      reason: Test emulates device attach/detach via USB_SRP_BVALID GPIO matrix signal (only present on USB FS peripheral)
   disable:
     - if: IDF_VERSION < "5.5.3"
       reason: We will support component overriding only in service releases
