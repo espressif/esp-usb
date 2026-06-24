@@ -62,8 +62,12 @@ DEFINE_CRIT_SECTION_LOCK_STATIC(host_lock);
 #define PROCESS_REQUEST_PENDING_FLAG_HUB        (1 << 1)
 #define PROCESS_REQUEST_PENDING_FLAG_ENUM       (1 << 2)
 
+#define DEV_ADDR_MAP_LEN                        4
+
 #define SHORT_DESC_REQ_LEN                      8
 #define CTRL_TRANSFER_MAX_DATA_LEN              CONFIG_USB_HOST_CONTROL_TRANSFER_MAX_SIZE
+
+typedef uint32_t dev_addr_map_t[DEV_ADDR_MAP_LEN];
 
 typedef struct ep_wrapper_s ep_wrapper_t;
 typedef struct interface_s interface_t;
@@ -114,18 +118,20 @@ struct client_s {
             struct {
                 uint32_t handling_events: 1;
                 uint32_t taking_mux: 1;
-                uint32_t reserved6: 6;
+                uint32_t has_pending_new_dev: 1;
+                uint32_t reserved5: 5;
                 uint32_t num_intf_claimed: 8;
                 uint32_t reserved16: 16;
             };
             uint32_t val;
         } flags;
         uint32_t num_done_ctrl_xfer;
-        uint32_t opened_dev_addr_map[4];
+        dev_addr_map_t opened_dev_addr_map;
     } dynamic;
     // Mux protected members must be protected by host library the mux_lock when accessed
     struct {
         TAILQ_HEAD(tailhead_interfaces, interface_s) interface_tailq;
+        dev_addr_map_t pending_new_dev_addr_map;
     } mux_protected;
     // Constant members do no change after registration thus do not require a critical section
     struct {
@@ -156,6 +162,8 @@ typedef struct {
     // Mux protected members must be protected by host library the mux_lock when accessed
     struct {
         TAILQ_HEAD(tailhead_clients, client_s) client_tailq;  // List of all clients registered
+        // Devices whose NEW_DEV event has already been processed by the host lib
+        dev_addr_map_t client_visible_dev_addr_map;
     } mux_protected;
     // Constant members do no change after installation thus do not require a critical section
     struct {
@@ -174,28 +182,46 @@ const char *USB_HOST_TAG = "USB HOST";
 
 // ----------------------------------------------------- Helpers -------------------------------------------------------
 
-static inline void _record_client_opened_device(client_t *client_obj, uint8_t dev_addr)
+static inline void dev_addr_map_set(dev_addr_map_t dev_addr_map, uint8_t dev_addr)
 {
     assert(dev_addr != 0 && dev_addr <= 127);
-    client_obj->dynamic.opened_dev_addr_map[dev_addr / 32] |= (uint32_t)(1 << (dev_addr % 32));
+    dev_addr_map[dev_addr / 32] |= (1U << (dev_addr % 32));
 }
 
-static inline void _clear_client_opened_device(client_t *client_obj, uint8_t dev_addr)
+static inline void dev_addr_map_clear(dev_addr_map_t dev_addr_map, uint8_t dev_addr)
 {
     assert(dev_addr != 0 && dev_addr <= 127);
-    client_obj->dynamic.opened_dev_addr_map[dev_addr / 32] &= ~(uint32_t)(1 << (dev_addr % 32));
+    dev_addr_map[dev_addr / 32] &= ~(1U << (dev_addr % 32));
 }
 
-static inline bool _check_client_opened_device(client_t *client_obj, uint8_t dev_addr)
+static inline bool dev_addr_map_check(dev_addr_map_t dev_addr_map, uint8_t dev_addr)
 {
-    bool ret;
     assert(dev_addr <= 127);
-    if (dev_addr != 0) {
-        ret = client_obj->dynamic.opened_dev_addr_map[dev_addr / 32] & (uint32_t)(1 << (dev_addr % 32));
-    } else {
-        ret = false;
+    return (dev_addr != 0) ? ((dev_addr_map[dev_addr / 32] & (1U << (dev_addr % 32))) != 0) : false;
+}
+
+static inline void dev_addr_map_copy(dev_addr_map_t dst, const dev_addr_map_t src)
+{
+    for (size_t i = 0; i < DEV_ADDR_MAP_LEN; i++) {
+        dst[i] = src[i];
     }
-    return ret;
+}
+
+static inline void dev_addr_map_clear_all(dev_addr_map_t dev_addr_map)
+{
+    for (size_t i = 0; i < DEV_ADDR_MAP_LEN; i++) {
+        dev_addr_map[i] = 0;
+    }
+}
+
+static inline bool dev_addr_map_any(const dev_addr_map_t dev_addr_map)
+{
+    for (size_t i = 0; i < DEV_ADDR_MAP_LEN; i++) {
+        if (dev_addr_map[i] != 0) {
+            return true;
+        }
+    }
+    return false;
 }
 
 static bool _unblock_client(client_t *client_obj, bool in_isr)
@@ -269,6 +295,21 @@ static void stop_auto_suspend_timer(void)
     xTimerStop(p_host_lib_obj->constant.auto_suspend_timer, portMAX_DELAY);
 }
 
+static bool send_event_msg_to_client(client_t *client_obj, const usb_host_client_event_msg_t *event_msg, const char *error_msg)
+{
+    // The caller must hold mux_lock when calling this helper.
+    if (xQueueSend(client_obj->constant.event_msg_queue, event_msg, 0) == pdTRUE) {
+        HOST_ENTER_CRITICAL();
+        _unblock_client(client_obj, false);
+        HOST_EXIT_CRITICAL();
+        return true;
+    }
+    if (error_msg) {
+        ESP_LOGE(USB_HOST_TAG, "%s", error_msg);
+    }
+    return false;
+}
+
 static void send_event_msg_to_clients(const usb_host_client_event_msg_t *event_msg, bool send_to_all, uint8_t opened_dev_addr)
 {
     // Lock client list
@@ -279,22 +320,76 @@ static void send_event_msg_to_clients(const usb_host_client_event_msg_t *event_m
         if (!send_to_all) {
             // Check if client opened the device
             HOST_ENTER_CRITICAL();
-            bool send = _check_client_opened_device(client_obj, opened_dev_addr);
+            bool send = dev_addr_map_check(client_obj->dynamic.opened_dev_addr_map, opened_dev_addr);
             HOST_EXIT_CRITICAL();
             if (!send) {
                 continue;
             }
         }
-        // Send the event message
-        if (xQueueSend(client_obj->constant.event_msg_queue, event_msg, 0) == pdTRUE) {
-            HOST_ENTER_CRITICAL();
-            _unblock_client(client_obj, false);
-            HOST_EXIT_CRITICAL();
-        } else {
-            ESP_LOGE(USB_HOST_TAG, "Client event message queue full");
-        }
+        send_event_msg_to_client(client_obj, event_msg, "Client event message queue full");
     }
     // Unlock client list
+    xSemaphoreGive(p_host_lib_obj->constant.mux_lock);
+}
+
+static void send_pending_new_dev_events_to_client(client_t *client_obj)
+{
+    // The caller must hold mux_lock. Queue full is normal backpressure; pending bits are kept for a later retry.
+    for (uint8_t dev_addr = 1; dev_addr <= 127; dev_addr++) {
+        if (!dev_addr_map_check(client_obj->mux_protected.pending_new_dev_addr_map, dev_addr)) {
+            continue;
+        }
+        const usb_host_client_event_msg_t event_msg = {
+            .event = USB_HOST_CLIENT_EVENT_NEW_DEV,
+            .new_dev.address = dev_addr,
+        };
+        if (!send_event_msg_to_client(client_obj, &event_msg, NULL)) {
+            break;
+        }
+        dev_addr_map_clear(client_obj->mux_protected.pending_new_dev_addr_map, dev_addr);
+    }
+    const bool has_pending_new_dev = dev_addr_map_any(client_obj->mux_protected.pending_new_dev_addr_map);
+    HOST_ENTER_CRITICAL();
+    client_obj->dynamic.flags.has_pending_new_dev = has_pending_new_dev;
+    HOST_EXIT_CRITICAL();
+}
+
+static void send_new_dev_event_msg_to_clients(uint8_t dev_addr)
+{
+    xSemaphoreTake(p_host_lib_obj->constant.mux_lock, portMAX_DELAY);
+    // Mark visible first, then queue it as pending for every client so queue backpressure cannot drop discovery.
+    dev_addr_map_set(p_host_lib_obj->mux_protected.client_visible_dev_addr_map, dev_addr);
+    client_t *client_obj;
+    TAILQ_FOREACH(client_obj, &p_host_lib_obj->mux_protected.client_tailq, dynamic.tailq_entry) {
+        dev_addr_map_set(client_obj->mux_protected.pending_new_dev_addr_map, dev_addr);
+        send_pending_new_dev_events_to_client(client_obj);
+    }
+    xSemaphoreGive(p_host_lib_obj->constant.mux_lock);
+}
+
+static void clear_client_visible_device(uint8_t dev_addr)
+{
+    // Address 0 is the default control address and is never visible to host clients.
+    if (dev_addr == 0) {
+        return;
+    }
+    xSemaphoreTake(p_host_lib_obj->constant.mux_lock, portMAX_DELAY);
+    dev_addr_map_clear(p_host_lib_obj->mux_protected.client_visible_dev_addr_map, dev_addr);
+    client_t *client_obj;
+    TAILQ_FOREACH(client_obj, &p_host_lib_obj->mux_protected.client_tailq, dynamic.tailq_entry) {
+        dev_addr_map_clear(client_obj->mux_protected.pending_new_dev_addr_map, dev_addr);
+    }
+    xSemaphoreGive(p_host_lib_obj->constant.mux_lock);
+}
+
+static void clear_all_client_visible_devices(void)
+{
+    xSemaphoreTake(p_host_lib_obj->constant.mux_lock, portMAX_DELAY);
+    dev_addr_map_clear_all(p_host_lib_obj->mux_protected.client_visible_dev_addr_map);
+    client_t *client_obj;
+    TAILQ_FOREACH(client_obj, &p_host_lib_obj->mux_protected.client_tailq, dynamic.tailq_entry) {
+        dev_addr_map_clear_all(client_obj->mux_protected.pending_new_dev_addr_map);
+    }
     xSemaphoreGive(p_host_lib_obj->constant.mux_lock);
 }
 
@@ -315,7 +410,7 @@ static void send_removed_event_msg_to_clients(uint8_t dev_addr)
             continue;
         }
         HOST_ENTER_CRITICAL();
-        bool opened = _check_client_opened_device(client_obj, dev_addr);
+        bool opened = dev_addr_map_check(client_obj->dynamic.opened_dev_addr_map, dev_addr);
         HOST_EXIT_CRITICAL();
         if (opened) {
             continue;
@@ -381,19 +476,19 @@ static void usbh_event_callback(usbh_event_data_t *event_data, void *arg)
             // Device is a hub, we do not need to propagate the event to the clients
             break;
         }
-        // Prepare a NEW_DEV client event message, and send it to all clients
-        usb_host_client_event_msg_t event_msg = {
-            .event = USB_HOST_CLIENT_EVENT_NEW_DEV,
-            .new_dev.address = event_data->new_dev_data.dev_addr,
-        };
-        send_event_msg_to_clients(&event_msg, true, 0);
+        send_new_dev_event_msg_to_clients(event_data->new_dev_data.dev_addr);
         break;
     }
     case USBH_EVENT_DEV_GONE: {
+        if (event_data->dev_gone_data.dev_addr == 0) {
+            // Address 0 is used only during early enumeration and is never visible to host clients.
+            break;
+        }
         if (hub_dev_gone(event_data->dev_gone_data.dev_addr) == ESP_OK) {
             // Device is a hub, we do not need to propagate the event to the clients
             break;
         }
+        clear_client_visible_device(event_data->dev_gone_data.dev_addr);
         send_removed_event_msg_to_clients(event_data->dev_gone_data.dev_addr);
         // Prepare a DEV GONE event, send only to clients that have opened the device
         usb_host_client_event_msg_t event_msg = {
@@ -404,6 +499,11 @@ static void usbh_event_callback(usbh_event_data_t *event_data, void *arg)
         break;
     }
     case USBH_EVENT_DEV_REMOVED:
+        if (event_data->dev_removed_data.dev_addr == 0) {
+            // Address 0 is used only during early enumeration and is never visible to host clients.
+            break;
+        }
+        clear_client_visible_device(event_data->dev_removed_data.dev_addr);
         send_removed_event_msg_to_clients(event_data->dev_removed_data.dev_addr);
         break;
     case USBH_EVENT_DEV_FREE: {
@@ -1196,6 +1296,8 @@ esp_err_t usb_host_client_register(const usb_host_client_config_t *client_config
     p_host_lib_obj->dynamic.flags.num_clients++;
     HOST_EXIT_CRITICAL();
     TAILQ_INSERT_TAIL(&p_host_lib_obj->mux_protected.client_tailq, client_obj, dynamic.tailq_entry);
+    dev_addr_map_copy(client_obj->mux_protected.pending_new_dev_addr_map, p_host_lib_obj->mux_protected.client_visible_dev_addr_map);
+    send_pending_new_dev_events_to_client(client_obj);
     xSemaphoreGive(p_host_lib_obj->constant.mux_lock);
 
     // Write back client handle
@@ -1232,10 +1334,7 @@ esp_err_t usb_host_client_deregister(usb_host_client_handle_t client_hdl)
             client_obj->dynamic.flags.taking_mux ||
             client_obj->dynamic.flags.num_intf_claimed != 0 ||
             client_obj->dynamic.num_done_ctrl_xfer != 0 ||
-            client_obj->dynamic.opened_dev_addr_map[0] != 0 ||
-            client_obj->dynamic.opened_dev_addr_map[1] != 0 ||
-            client_obj->dynamic.opened_dev_addr_map[2] != 0 ||
-            client_obj->dynamic.opened_dev_addr_map[3] != 0) {
+            dev_addr_map_any(client_obj->dynamic.opened_dev_addr_map)) {
         can_deregister = false;
     } else {
         can_deregister = true;
@@ -1307,6 +1406,7 @@ esp_err_t usb_host_client_handle_events(usb_host_client_handle_t client_hdl, Tic
             urb->transfer.callback(&urb->transfer);
             HOST_ENTER_CRITICAL();
         }
+        const bool has_pending_new_dev = client_obj->dynamic.flags.has_pending_new_dev;
         HOST_EXIT_CRITICAL();
 
         // Handle event messages
@@ -1317,6 +1417,12 @@ esp_err_t usb_host_client_handle_events(usb_host_client_handle_t client_hdl, Tic
             assert(queue_ret == pdTRUE);
             (void)queue_ret;
             client_obj->constant.event_callback(&event_msg, client_obj->constant.callback_arg);
+        }
+
+        if (has_pending_new_dev) {
+            xSemaphoreTake(p_host_lib_obj->constant.mux_lock, portMAX_DELAY);
+            send_pending_new_dev_events_to_client(client_obj);
+            xSemaphoreGive(p_host_lib_obj->constant.mux_lock);
         }
 
         ret = ESP_OK;
@@ -1359,14 +1465,14 @@ esp_err_t usb_host_device_open(usb_host_client_handle_t client_hdl, uint8_t dev_
     }
 
     HOST_ENTER_CRITICAL();
-    if (_check_client_opened_device(client_obj, dev_addr)) {
+    if (dev_addr_map_check(client_obj->dynamic.opened_dev_addr_map, dev_addr)) {
         // Client has already opened the device. Close it and return an error
         ret = ESP_ERR_INVALID_STATE;
         HOST_EXIT_CRITICAL();
         goto already_opened;
     }
     // Record in client object that we have opened the device of this address
-    _record_client_opened_device(client_obj, dev_addr);
+    dev_addr_map_set(client_obj->dynamic.opened_dev_addr_map, dev_addr);
     HOST_EXIT_CRITICAL();
 
     *dev_hdl_ret = dev_hdl;
@@ -1405,14 +1511,14 @@ esp_err_t usb_host_device_close(usb_host_client_handle_t client_hdl, usb_device_
     HOST_ENTER_CRITICAL();
     uint8_t dev_addr;
     ESP_ERROR_CHECK(usbh_dev_get_addr(dev_hdl, &dev_addr));
-    if (!_check_client_opened_device(client_obj, dev_addr)) {
+    if (!dev_addr_map_check(client_obj->dynamic.opened_dev_addr_map, dev_addr)) {
         // Client never opened this device
         ret = ESP_ERR_NOT_FOUND;
         HOST_EXIT_CRITICAL();
         goto exit;
     }
     // Proceed to clear the record of the device form the client
-    _clear_client_opened_device(client_obj, dev_addr);
+    dev_addr_map_clear(client_obj->dynamic.opened_dev_addr_map, dev_addr);
     HOST_EXIT_CRITICAL();
 
     ESP_ERROR_CHECK(usbh_dev_close(dev_hdl));
@@ -1431,6 +1537,8 @@ esp_err_t usb_host_device_free_all(void)
 #if ENABLE_USB_HUBS
     hub_notify_all_free();
 #endif // ENABLE_USB_HUBS
+    // Existing-device enumeration must not report devices after the host has started freeing all device objects.
+    clear_all_client_visible_devices();
     ret = usbh_devs_mark_all_free();
     // If ESP_ERR_NOT_FINISHED is returned, caller must wait for USB_HOST_LIB_EVENT_FLAGS_ALL_FREE to confirm all devices are free
     return ret;
@@ -1796,7 +1904,7 @@ esp_err_t usb_host_interface_claim(usb_host_client_handle_t client_hdl, usb_devi
     uint8_t dev_addr;
     ESP_ERROR_CHECK(usbh_dev_get_addr(dev_hdl, &dev_addr));
     // Check if client actually opened device
-    HOST_CHECK_FROM_CRIT(_check_client_opened_device(client_obj, dev_addr), ESP_ERR_INVALID_STATE);
+    HOST_CHECK_FROM_CRIT(dev_addr_map_check(client_obj->dynamic.opened_dev_addr_map, dev_addr), ESP_ERR_INVALID_STATE);
     client_obj->dynamic.flags.taking_mux = 1;
     HOST_EXIT_CRITICAL();
 
@@ -1834,7 +1942,7 @@ esp_err_t usb_host_interface_release(usb_host_client_handle_t client_hdl, usb_de
     uint8_t dev_addr;
     ESP_ERROR_CHECK(usbh_dev_get_addr(dev_hdl, &dev_addr));
     // Check if client actually opened device
-    HOST_CHECK_FROM_CRIT(_check_client_opened_device(client_obj, dev_addr), ESP_ERR_INVALID_STATE);
+    HOST_CHECK_FROM_CRIT(dev_addr_map_check(client_obj->dynamic.opened_dev_addr_map, dev_addr), ESP_ERR_INVALID_STATE);
     client_obj->dynamic.flags.taking_mux = 1;
     HOST_EXIT_CRITICAL();
 
