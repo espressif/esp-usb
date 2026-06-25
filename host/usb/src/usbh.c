@@ -1138,7 +1138,7 @@ esp_err_t usbh_devs_halt_flush_all_sync(void)
     esp_err_t ret;
     USBH_CHECK(p_usbh_obj != NULL, ESP_ERR_INVALID_STATE);
 
-    // Try to acquire mutex, if busy, bail the auto supend in favour of low latency to enter the light sleep
+    // Wait for USBH to finish in-flight work so all pipes can be halted before light sleep
     if (xSemaphoreTake(p_usbh_obj->constant.mux_lock, 0) != pdTRUE) {
         return ESP_ERR_NOT_FINISHED;
     }

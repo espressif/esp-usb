@@ -44,12 +44,14 @@ struct cdc_dev_s {
         uint8_t *in_data_buffer_base;     // Pointer to IN data buffer in usb_transfer_t
         const usb_intf_desc_t *intf_desc; // Pointer to data interface descriptor
         SemaphoreHandle_t out_mux;        // OUT mutex
+        bool in_polling;                  // BULK IN poll transfer is submitted
     } data;
 
     struct {
         usb_transfer_t *xfer;             // IN notification transfer
         const usb_intf_desc_t *intf_desc; // Pointer to notification interface descriptor, can be NULL if there is no notification channel in the device
         cdc_acm_host_dev_callback_t cb;   // User's callback for device events
+        bool xfer_polling;                // INTR IN poll transfer is submitted
     } notif;                              // Structure with Notif pipe data
 
     usb_transfer_t *ctrl_transfer;        // CTRL (endpoint 0) transfer
