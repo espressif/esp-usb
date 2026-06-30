@@ -16,6 +16,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/semphr.h"
+#include "esp_private/critical_section.h"
 #include "usb/usb_host.h"
 #include "diskio_usb.h"
 #include "msc_common.h"
@@ -29,9 +30,9 @@
 #endif
 
 // MSC driver spin lock
-static portMUX_TYPE msc_lock = portMUX_INITIALIZER_UNLOCKED;
-#define MSC_ENTER_CRITICAL()    portENTER_CRITICAL(&msc_lock)
-#define MSC_EXIT_CRITICAL()     portEXIT_CRITICAL(&msc_lock)
+DEFINE_CRIT_SECTION_LOCK_STATIC(msc_lock);
+#define MSC_ENTER_CRITICAL()           esp_os_enter_critical(&msc_lock)
+#define MSC_EXIT_CRITICAL()            esp_os_exit_critical(&msc_lock)
 
 #define MSC_GOTO_ON_FALSE_CRITICAL(exp, err)    \
     do {                                        \

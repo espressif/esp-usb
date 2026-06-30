@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2025-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -19,6 +19,7 @@
 #include "esp_log.h"
 #include "esp_err.h"
 #include "esp_private/usb_phy.h"
+#include "esp_private/critical_section.h"
 //
 #include "unity.h"
 #include "tinyusb.h"
@@ -33,7 +34,10 @@ static SemaphoreHandle_t sem_done = NULL;
 TaskHandle_t test_task_handles[MULTIPLE_THREADS_TASKS_NUM];
 
 // Unlocked spinlock, ready to use
-static portMUX_TYPE _spinlock = portMUX_INITIALIZER_UNLOCKED;
+DEFINE_CRIT_SECTION_LOCK_STATIC(multitask_test_lock);
+#define TINYUSB_TASK_ENTER_CRITICAL()    esp_os_enter_critical(&multitask_test_lock)
+#define TINYUSB_TASK_EXIT_CRITICAL()     esp_os_exit_critical(&multitask_test_lock)
+
 static volatile int nb_of_success = 0;
 
 static void test_task_install(void *arg)
@@ -49,9 +53,9 @@ static void test_task_install(void *arg)
     if (tinyusb_driver_install(&tusb_cfg) == ESP_OK) {
         test_device_wait();
         TEST_ASSERT_EQUAL_MESSAGE(ESP_OK, tinyusb_driver_uninstall(), "Unable to uninstall driver after install in worker");
-        taskENTER_CRITICAL(&_spinlock);
+        TINYUSB_TASK_ENTER_CRITICAL();
         nb_of_success++;
-        taskEXIT_CRITICAL(&_spinlock);
+        TINYUSB_TASK_EXIT_CRITICAL();
     }
 
     // Notify the parent task that the task completed the job
@@ -68,9 +72,9 @@ static void test_task_uninstall(void *arg)
     ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
 
     if (tinyusb_driver_uninstall() == ESP_OK) {
-        taskENTER_CRITICAL(&_spinlock);
+        TINYUSB_TASK_ENTER_CRITICAL();
         nb_of_success++;
-        taskEXIT_CRITICAL(&_spinlock);
+        TINYUSB_TASK_EXIT_CRITICAL();
     }
 
     // Notify the parent task that the task completed the job
