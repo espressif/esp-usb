@@ -22,10 +22,19 @@ def test_usb_host_msc(dut: Tuple[IdfDut, IdfDut]) -> None:
     device = dut[0]
     host = dut[1]
 
-    # 1 Prepare USB device for MSC test
-    device.expect_exact('Press ENTER to see the list of tests.')
-    device.write('[usb_msc_device]')
-    device.expect_exact('USB initialization DONE')
+    tests = [
+        # Device test mode          Host test case group
+        ("default",                 "usb_msc"),
+        ("suspend_sudden_dconn",    "host_suspend_sudden_dconn"),
+    ]
 
-    # 2 Run MSC test
-    host.run_all_single_board_cases(group='usb_msc')
+    for dev_test_mode, host_test_case_group in tests:
+        # Prepare USB Device for test
+        device.expect_exact("Press ENTER to see the list of tests.")
+        # Only spiflash configuration is run in CI (no SDMMC)
+        device.write(f"[usb_msc_device][spiflash][{dev_test_mode}]")
+        device.expect_exact("USB initialization DONE")
+
+        # Run tests USB Host tests
+        host.run_all_single_board_cases(group=host_test_case_group)
+        device.serial.hard_reset()
