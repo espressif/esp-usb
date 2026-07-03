@@ -54,6 +54,7 @@ Currently, the Host Library and the underlying Host Stack has the following limi
     - The External Hub Driver: Remote Wakeup feature is not supported (External Hubs are active, even if there are no devices inserted).
     - The External Hub Driver: Doesn't handle error cases (overcurrent handling, errors during initialization etc. are not implemented yet).
     - The External Hub Driver: No Interface selection. The Driver uses the first available Interface with Hub Class code (09h).
+    - Light sleep: USB Host with a USB Device connected does not detect device reconnection during light sleep. Treats it as a suspend/resume cycle.
     :esp32s31 or esp32p4: - The External Hub Driver: No Transaction Translator layer (No FS/LS Devices support when a Hub is attached to HS Host).
 
 

@@ -1987,10 +1987,11 @@ esp_err_t usb_host_transfer_submit(usb_transfer_t *transfer)
     // Check if the root port is suspended (global suspend)
     if (hub_root_is_suspended()) {
         // Root port is suspended at the time we are submitting a transfer
-        ESP_LOGD(USB_HOST_TAG, "Resuming the root port");
+        ESP_LOGD(USB_HOST_TAG, "Resuming the root port by transfer submit");
 
         ret = usb_host_lib_root_port_resume();
         if (ret != ESP_OK) {
+            ESP_LOGW(USB_HOST_TAG, "Root port resume before transfer submit failed: %s", esp_err_to_name(ret));
             goto submit_err;
         }
     }
@@ -2032,10 +2033,11 @@ esp_err_t usb_host_transfer_submit_control(usb_host_client_handle_t client_hdl, 
     // Check if the root port is suspended (global suspend)
     if (hub_root_is_suspended()) {
         // Root port is suspended at the time we are submitting a ctrl transfer
-        ESP_LOGD(USB_HOST_TAG, "Resuming the root port");
+        ESP_LOGD(USB_HOST_TAG, "Resuming the root port by CTRL transfer submit");
 
         ret = usb_host_lib_root_port_resume();
         if (ret != ESP_OK) {
+            ESP_LOGW(USB_HOST_TAG, "Root port resume before control transfer submit failed: %s", esp_err_to_name(ret));
             goto submit_err;
         }
     }
