@@ -94,21 +94,40 @@ host/usb/test/target_test/enum:
 
 host/class/cdc/usb_host_cdc_acm/host_test:
   <<: *host_test_enable_rules
+  depends_filepatterns:
+    - 'host/class/cdc/**'
+    - 'host/usb/**'
 
 host/class/hid/usb_host_hid/host_test:
   <<: *host_test_enable_rules
+  depends_filepatterns:
+    - 'host/class/hid/**'
+    - 'host/usb/**'
 
 host/class/msc/usb_host_msc/host_test:
   <<: *host_test_enable_rules
+  depends_filepatterns:
+    - 'host/class/msc/**'
+    - 'host/usb/**'
 
 host/class/uvc/usb_host_uvc/host_test:
   <<: *host_test_enable_rules
+  depends_filepatterns:
+    - 'host/class/uvc/**'
+    - 'host/usb/**'
 
 host/class/uac/usb_host_uac/host_test:
   <<: *host_test_enable_rules
+  depends_filepatterns:
+    - 'host/class/uac/**'
+    - 'host/usb/**'
 
 host/usb/test/host_test/usb_host_layer_test:
   <<: *host_test_enable_rules
+  depends_filepatterns:
+    - 'host/usb/**'
 
 host/usb/test/host_test/usbh_layer_test:
   <<: *host_test_enable_rules
+  depends_filepatterns:
+    - 'host/usb/**'

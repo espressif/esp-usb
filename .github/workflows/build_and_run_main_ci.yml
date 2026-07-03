@@ -1,6 +1,7 @@
 # This is the main workflow for:
 #
 #   - build_and_run_test_app_usb.yml
+#   - build_and_run_host_test.yml
 #
 # It triggers reusable workflows with input arguments
 
@@ -57,7 +58,7 @@ jobs:
             echo "all_changed_files=${{ steps.changed-files.outputs.all_changed_files }}" >> $GITHUB_OUTPUT
           fi
 
-  build_run:
+  target_test:
     needs: get-changed-files
     uses: ./.github/workflows/build_and_run_test_app_usb.yml
     with:
@@ -68,4 +69,10 @@ jobs:
                       "release-v6.1",
                       "latest"]'
       idf_targets: '["esp32s2", "esp32p4"]'
+      changed_files: ${{ needs.get-changed-files.outputs.all_changed_files }}
+
+  host_test:
+    needs: get-changed-files
+    uses: ./.github/workflows/build_and_run_host_test.yml
+    with:
       changed_files: ${{ needs.get-changed-files.outputs.all_changed_files }}
