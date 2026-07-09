@@ -6,32 +6,27 @@
 
 
 #include "esp_log.h"
+#include "unity.h"
 #include "tinyusb.h"
 #include "tinyusb_default_config.h"
 #include "soc/soc_caps.h"
-#include "test_common.h"
 #include "esp_check.h"
 #include "driver/gpio.h"
 #include "tinyusb_msc.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "freertos/queue.h"
 #if SOC_SDMMC_HOST_SUPPORTED
 #include "sdmmc_cmd.h"
 #endif /* SOC_SDMMC_HOST_SUPPORTED */
 
 #if SOC_USB_OTG_SUPPORTED
 
-/* sd-card configuration to be done by user */
-#if SOC_SDMMC_HOST_SUPPORTED
-#define SDMMC_BUS_WIDTH 4 /* Select the bus width of SD or MMC interface (4 or 1).
-                            Note that even if 1 line mode is used, D3 pin of the SD card must
-                            have a pull-up resistor connected. Otherwise the card may enter
-                            SPI mode, the only way to recover from which is to cycle power to the card. */
-#define PIN_CMD         35 /* CMD GPIO number */
-#define PIN_CLK         36 /* CLK GPIO number */
-#define PIN_D0          37 /* D0 GPIO number */
-#define PIN_D1          38 /* D1 GPIO number (applicable when width SDMMC_BUS_WIDTH is 4) */
-#define PIN_D2          33 /* D2 GPIO number (applicable when width SDMMC_BUS_WIDTH is 4) */
-#define PIN_D3          34 /* D3 GPIO number (applicable when width SDMMC_BUS_WIDTH is 4) */
-#endif /* SOC_SDMMC_HOST_SUPPORTED */
+#define DEV_EVT_QUEUE_LENGTH                5
+
+static QueueHandle_t dev_evt_queue = NULL;
+static StaticQueue_t s_queue_buf;
+static uint8_t ucQueueStorage[DEV_EVT_QUEUE_LENGTH * sizeof(tinyusb_event_t)];
 
 static const char *TAG = "msc_example";
 
@@ -103,11 +98,43 @@ static char const *string_desc_arr[] = {
     //"Test MSC",                  // 4. MSC
 };
 
-static void storage_init(void)
+/**
+ * @brief TinyUSB device events handler
+ *
+ * @param[in] event Device event
+ * @param[in] arg User arguments
+ */
+static void device_event_handler(tinyusb_event_t *event, void *arg)
 {
+    switch (event->id) {
+    case TINYUSB_EVENT_ATTACHED:
+        ESP_LOGI(TAG, "TinyUSB event: Device attached");
+        break;
+    case TINYUSB_EVENT_DETACHED:
+        ESP_LOGI(TAG, "TinyUSB event: Device detached");
+        break;
+    case TINYUSB_EVENT_SUSPENDED:
+        ESP_LOGI(TAG, "TinyUSB event: Device suspended");
+        break;
+    case TINYUSB_EVENT_RESUMED:
+        ESP_LOGI(TAG, "TinyUSB event: Device resumed");
+        break;
+    default:
+        break;
+    }
+
+    xQueueSend(dev_evt_queue, event, 0);
+}
+
+static void usb_device_init(void)
+{
+    // Create static app message queue
+    dev_evt_queue = xQueueCreateStatic(DEV_EVT_QUEUE_LENGTH, sizeof(tinyusb_event_t), &(ucQueueStorage[0]), &s_queue_buf);
+    configASSERT(dev_evt_queue);
+
     ESP_LOGI(TAG, "USB MSC initialization");
 
-    tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG();
+    tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG(device_event_handler);
     tusb_cfg.descriptor.device = &descriptor_config;
     tusb_cfg.descriptor.full_speed_config = msc_fs_desc_configuration;
 #if (TUD_OPT_HIGH_SPEED)
@@ -134,9 +161,9 @@ static esp_err_t storage_init_spiflash(wl_handle_t *wl_handle)
     return wl_mount(data_partition, wl_handle);
 }
 
-void device_app(void)
+static void msc_mock_device_run(void)
 {
-    ESP_LOGI(TAG, "Initializing storage...");
+    ESP_LOGI(TAG, "Initialization");
 
     static wl_handle_t wl_handle = WL_INVALID_HANDLE;
     ESP_ERROR_CHECK(storage_init_spiflash(&wl_handle));
@@ -146,10 +173,87 @@ void device_app(void)
     };
     ESP_ERROR_CHECK(tinyusb_msc_new_storage_spiflash(&config, NULL));
 
-    storage_init();
-    while (1) {
-        vTaskDelay(100);
+    usb_device_init();
+}
+
+/**
+ * @brief Do a connection/disconnection delay
+ *
+ * @param[in] delay_ms Delay in ms
+ */
+static void dconn_conn_delay(size_t delay_ms)
+{
+    if (delay_ms > 0) {
+        vTaskDelay(pdMS_TO_TICKS(delay_ms));
     }
+}
+
+/**
+ * @brief Run MSC Device
+ * Device performs sudden disconnect followed by a connect upon receiving Suspend callback
+ *
+ * @param[in] dconn_delay_ms Delay in ms before disconnecting the port
+ * @param[in] conn_delay_ms Delay in ms before connecting the port back
+ */
+static void device_suspend_common(size_t dconn_delay_ms, size_t conn_delay_ms)
+{
+    tinyusb_event_id_t mask_event = UINT32_MAX;
+
+    while (1) {
+        tinyusb_event_t dev_event;
+        if (xQueueReceive(dev_evt_queue, &dev_event, portMAX_DELAY)) {
+
+            if (mask_event == dev_event.id) {
+                ESP_LOGI(TAG, "Event %d masked", dev_event.id);
+                mask_event = UINT32_MAX;    // Refresh masked event, allowing the device test app to handle further events without hard reset
+                continue;
+            }
+
+            switch (dev_event.id) {
+            case TINYUSB_EVENT_SUSPENDED:
+
+                // Optional delay before disconnection (depends on the test case whether sudden disconnect, or just disconnect)
+                dconn_conn_delay(dconn_delay_ms);
+
+                // Disconnect
+                TEST_ASSERT(tud_disconnect());
+                ESP_LOGI(TAG, "Triggering disconnect");
+
+                // Stay disconnected for a while and trigger connect
+                dconn_conn_delay(conn_delay_ms);
+
+                ESP_LOGI(TAG, "Triggering connect");
+                TEST_ASSERT(tud_connect());
+
+                // End of the test case: Mask next suspend event (auto suspend) from the device after uninstalling the cdc-acm host
+                mask_event = TINYUSB_EVENT_SUSPENDED;
+                break;
+            default:
+                break;
+            }
+        }
+    }
+}
+
+/**
+ * @brief USB MSC Device Mock
+ *
+ * We use this 'testcase' to provide MSC mock device for our DUT
+ */
+TEST_CASE("mock_device_app", "[usb_msc_device][spiflash][default][ignore]")
+{
+    msc_mock_device_run();
+
+    while (1) {
+        vTaskDelay(10);
+    }
+}
+
+TEST_CASE("mock_device_sudden_dconn", "[usb_msc_device][spiflash][suspend_sudden_dconn][ignore]")
+{
+    msc_mock_device_run();
+
+    device_suspend_common(0, 1000);
 }
 
 #if SOC_SDMMC_HOST_SUPPORTED
@@ -170,22 +274,22 @@ static esp_err_t storage_init_sdmmc(sdmmc_card_t **card)
     // Modify slot_config.gpio_cd and slot_config.gpio_wp if your board has these signals.
     sdmmc_slot_config_t slot_config = SDMMC_SLOT_CONFIG_DEFAULT();
 
-    if (SDMMC_BUS_WIDTH == 4) {
-        slot_config.width = 4;
-    } else {
-        slot_config.width = 1;
-    }
+#ifdef CONFIG_TEST_SDMMC_BUS_WIDTH_4
+    slot_config.width = 4;
+#else
+    slot_config.width = 1;
+#endif  // CONFIG_TEST_SDMMC_BUS_WIDTH_4
 
     // On chips where the GPIOs used for SD card can be configured, set the user defined values
 #ifdef CONFIG_SOC_SDMMC_USE_GPIO_MATRIX
-    slot_config.clk = PIN_CLK;
-    slot_config.cmd = PIN_CMD;
-    slot_config.d0 = PIN_D0;
-    if (SDMMC_BUS_WIDTH == 4) {
-        slot_config.d1 = PIN_D1;
-        slot_config.d2 = PIN_D2;
-        slot_config.d3 = PIN_D3;
-    }
+    slot_config.clk = CONFIG_TEST_SDMMC_PIN_CLK;
+    slot_config.cmd = CONFIG_TEST_SDMMC_PIN_CMD;
+    slot_config.d0 = CONFIG_TEST_SDMMC_PIN_D0;
+#ifdef CONFIG_TEST_SDMMC_BUS_WIDTH_4
+    slot_config.d1 = CONFIG_TEST_SDMMC_PIN_D1;
+    slot_config.d2 = CONFIG_TEST_SDMMC_PIN_D2;
+    slot_config.d3 = CONFIG_TEST_SDMMC_PIN_D3;
+#endif  // CONFIG_TEST_SDMMC_BUS_WIDTH_4
 #endif  // CONFIG_SOC_SDMMC_USE_GPIO_MATRIX
 
     // Enable internal pullups on enabled pins. The internal pullups
@@ -236,10 +340,23 @@ void device_app_sdmmc(void)
     };
     ESP_ERROR_CHECK(tinyusb_msc_new_storage_sdmmc(&config, NULL));
 
-    storage_init();
+    usb_device_init();
+}
+
+TEST_CASE("mock_device_app", "[usb_msc_device][sdmmc][default][ignore]")
+{
+    device_app_sdmmc();
+
     while (1) {
-        vTaskDelay(100);
+        vTaskDelay(10);
     }
+}
+
+TEST_CASE("mock_device_sudden_dconn", "[usb_msc_device][sdmmc][suspend_sudden_dconn][ignore]")
+{
+    device_app_sdmmc();
+
+    device_suspend_common(0, 1000);
 }
 #endif /* SOC_SDMMC_HOST_SUPPORTED */
 
