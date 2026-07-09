@@ -15,12 +15,16 @@ idf_component_mock(INCLUDE_DIRS "${original_usb_dir}/include"
                                 "${original_usb_dir}/include/usb"
                                 "${original_usb_dir}/private_include"
                                 "${original_esp_hw_support_dir}/include/esp_private"     # for USB PHY
+                                "include"                                              # public mock headers
                    MOCK_HEADER_FILES ${original_usb_dir}/private_include/enum.h
                                      ${original_usb_dir}/private_include/hcd.h
                                      ${original_usb_dir}/private_include/hub.h
                                      ${original_usb_dir}/private_include/usbh.h
                                      ${original_esp_hw_support_dir}/include/esp_private/usb_phy.h
                    REQUIRES freertos)
+
+# Mock-internal headers (not exported to test code)
+target_include_directories(${COMPONENT_LIB} PRIVATE "private_include")
 
 # We do not mock usb_host.c, we use the original implementation of it
 target_sources(${COMPONENT_LIB} PRIVATE "${original_usb_dir}/src/usb_host.c")
@@ -29,5 +33,8 @@ target_sources(${COMPONENT_LIB} PRIVATE "${original_usb_dir}/src/usb_private.c")
 # We do not mock usb_helpers. We use the original implementation
 # This way, we can test descriptor parsing
 target_sources(${COMPONENT_LIB} PRIVATE "${original_usb_dir}/src/usb_helpers.c")
+# Shared helpers to capture lower-layer callbacks and inject USBH/Enum events in host-layer tests
+target_sources(${COMPONENT_LIB} PRIVATE "mock_usb_host_layer_callbacks.c"
+                                        "mock_usb_host_layer_events.c")
 # This definition is missing for linux target, so we add it here
-target_compile_definitions(${COMPONENT_LIB} PRIVATE -DSOC_USB_OTG_PERIPH_NUM=2)
+target_compile_definitions(${COMPONENT_LIB} PUBLIC -DSOC_USB_OTG_PERIPH_NUM=2)
