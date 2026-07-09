@@ -15,6 +15,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/queue.h"
+#include "freertos/event_groups.h"
 #include "esp_idf_version.h"
 #include "esp_log.h"
 #include "esp_err.h"
@@ -100,7 +101,10 @@ static const cdc_acm_host_device_config_t default_dev_config = {
                 .dev_event_data = *event,
             },
         };
-        xQueueSend(app_queue, &test_event, 0);
+        if (app_queue)
+        {
+            xQueueSend(app_queue, &test_event, 0);
+        }
     },
     .data_cb = [](const uint8_t *data, size_t data_len, void *arg) -> bool {
         printf("Data received\n");
@@ -125,7 +129,10 @@ static const cdc_acm_host_driver_config_t driver_config_new_dev_cb = {
                 .usb_dev_hdl = usb_dev,
             },
         };
-        xQueueSend(app_queue, &test_event, 0);
+        if (app_queue)
+        {
+            xQueueSend(app_queue, &test_event, 0);
+        }
     }
 };
 
@@ -1545,6 +1552,29 @@ TEST_CASE("large_tx", "[cdc_acm]")
 #define TIMER_LIGHT_SLEEP_WAKEUP_TIME_US (5 * 1000 * 1000) // 5 seconds
 #define LIGHT_SLEEP_NUM_CYCLES           (5)
 
+static void light_sleep_enter_catch_impl(const char *file, int line)
+{
+    const esp_err_t light_sleep_err = esp_light_sleep_start();
+    if (light_sleep_err == ESP_ERR_SLEEP_REJECT) {
+        // Enter light sleep might be rejected, due to the other esp core being in a critical section
+        // Let the usb host lib handle current events and try to enter the light sleep again
+        printf("Light sleep rejected, re-entering light sleep");
+        snprintf(err_msg_buf, sizeof(err_msg_buf), "Second light sleep entry error at %s:%d\n", file, line);
+        taskYIELD();
+        TEST_ASSERT_EQUAL_MESSAGE(ESP_OK, esp_light_sleep_start(), err_msg_buf);
+    } else if (light_sleep_err != ESP_OK) {
+        // Other error occurred
+        snprintf(err_msg_buf, sizeof(err_msg_buf), "Light sleep entry error at %s:%d\n", file, line);
+        TEST_ASSERT_EQUAL_MESSAGE(ESP_OK, light_sleep_err, err_msg_buf);
+    } else {
+        // pass
+    }
+}
+/**
+ * @brief Enter light sleep and catch sleep rejected error
+ */
+#define light_sleep_enter_catch() light_sleep_enter_catch_impl(__FILE__, __LINE__)
+
 /**
  * @brief Test: Class driver usage with light sleep
  * #. open the device and setup light sleep timer wakeup source
@@ -1581,7 +1611,7 @@ TEST_CASE("light_sleep", "[cdc_acm][light_sleep]")
         nb_of_responses = 0;
 
         const int64_t t_before_us = esp_timer_get_time();               // Get timestamp before entering sleep
-        TEST_ASSERT_EQUAL(ESP_OK, esp_light_sleep_start());             // Enter light sleep mode
+        light_sleep_enter_catch();                                      // Enter light sleep
         const int64_t t_after_us = esp_timer_get_time();                // Get timestamp after waking up from sleep
         const uint32_t wakeup_cause = esp_sleep_get_wakeup_causes();    // Determine wake up reason
         TEST_ASSERT(wakeup_cause & BIT(ESP_SLEEP_WAKEUP_TIMER));        // Wake up reason must be timer
@@ -1599,6 +1629,124 @@ TEST_CASE("light_sleep", "[cdc_acm][light_sleep]")
         wait_for_app_event(&resume_event, pdMS_TO_TICKS(5000));
         printf("Returned from light sleep, reason: timer, t=%lld ms, slept for %lld ms\n", t_after_us / 1000, (t_after_us - t_before_us) / 1000);
     }
+
+    TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_close(cdc_dev));
+    TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_uninstall());
+    vTaskDelay(20); // Short delay to allow task to be cleaned up
+}
+
+#define STRESS_TX_BUF_SIZE              (8 * 1024)
+#define STRESS_IO_ITERATIONS            (16)
+#define STRESS_LIGHT_SLEEP_WAKEUP_US    (500 * 1000)        // 500 mS
+#define EVT_STRESS_IO_DONE              BIT0
+
+static EventGroupHandle_t s_stress_io_event_group = NULL;
+
+/**
+ * @brief Enter light sleep repeatedly while CDC stress I/O is running in another task.
+ */
+static void light_sleep_during_io_task(void *arg)
+{
+    TaskHandle_t main_task_hdl = (TaskHandle_t)arg;
+    TEST_ASSERT_EQUAL(pdTRUE, ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(1000)));
+    printf("Light sleep stress task started during CDC I/O\n");
+
+    while (!(xEventGroupGetBits(s_stress_io_event_group) & EVT_STRESS_IO_DONE)) {
+        const int64_t t_before_us = esp_timer_get_time();
+
+        light_sleep_enter_catch();
+
+        const int64_t t_after_us = esp_timer_get_time();
+        const uint32_t wakeup_cause = esp_sleep_get_wakeup_causes();
+        TEST_ASSERT(wakeup_cause & BIT(ESP_SLEEP_WAKEUP_TIMER));
+        printf("Returned from light sleep, slept %lld ms\n", (t_after_us - t_before_us) / 1000);
+
+        // Suspend event: Light sleep auto suspend
+        wait_for_app_event(&suspend_event, pdMS_TO_TICKS(5000));
+        // Resume event: Submit transfer auto resume
+        wait_for_app_event(&resume_event, pdMS_TO_TICKS(5000));
+    }
+
+    if (main_task_hdl != NULL) {
+        xTaskNotifyGive(main_task_hdl);
+    }
+    vTaskDelete(NULL);
+}
+
+/**
+ * @brief Test: Long CDC-ACM I/O with light sleep from another task
+ *
+ * #. open the device and start a light sleep task
+ * #. run many large blocking TX transfers while the other task enters light sleep
+ * #. expect auto-suspend/resume around light sleep and that the device still works afterward
+ * #. cleanup
+ */
+TEST_CASE("light_sleep_during_io", "[cdc_acm][light_sleep]")
+{
+    test_install_cdc_driver(&driver_config_new_dev_cb);
+
+    s_stress_io_event_group = xEventGroupCreate();
+    TEST_ASSERT_NOT_NULL(s_stress_io_event_group);
+
+    TaskHandle_t light_sleep_task_hdl = NULL;
+    TEST_ASSERT_EQUAL(pdTRUE, xTaskCreate(light_sleep_during_io_task, "ls_stress", 4096, (void *)xTaskGetCurrentTaskHandle(), 8, &light_sleep_task_hdl));
+    TEST_ASSERT_NOT_NULL(light_sleep_task_hdl);
+
+    TEST_ASSERT_EQUAL(ESP_OK, esp_sleep_enable_timer_wakeup(STRESS_LIGHT_SLEEP_WAKEUP_US));
+    printf("Light sleep timer wakeup source is ready\n");
+
+    uint8_t *stress_tx_buf = (uint8_t *)malloc(STRESS_TX_BUF_SIZE);
+    TEST_ASSERT_NOT_NULL(stress_tx_buf);
+    for (size_t i = 0; i < STRESS_TX_BUF_SIZE; i++) {
+        stress_tx_buf[i] = (uint8_t)(i & 0xFF);
+    }
+
+    bytes_received = 0;
+    cdc_acm_dev_hdl_t cdc_dev = NULL;
+    cdc_acm_host_device_config_t dev_config = default_dev_config;
+    dev_config.out_buffer_size = STRESS_TX_BUF_SIZE;
+    dev_config.in_buffer_size = STRESS_TX_BUF_SIZE;
+    dev_config.user_arg = stress_tx_buf;
+    dev_config.data_cb = [](const uint8_t *data, size_t data_len, void *arg) -> bool {
+        (void)arg;
+        (void)data;
+        if (data_len > 0)
+        {
+            bytes_received += data_len;
+        }
+        return true;
+    };
+
+    printf("Opening CDC-ACM device\n");
+    wait_for_app_event(&new_dev_event, 100);
+    TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_open(0x303A, 0x4002, 0, &dev_config, &cdc_dev)); // 0x303A:0x4002 (TinyUSB Dual CDC device)
+    TEST_ASSERT_NOT_NULL(cdc_dev);
+
+    uint32_t tx_ok = 0, tx_err = 0;
+    xTaskNotifyGive(light_sleep_task_hdl);
+    printf("Starting %d x %d byte blocking TX iter with concurrent light sleep\n", STRESS_IO_ITERATIONS, STRESS_TX_BUF_SIZE);
+
+    for (int i = 0; i < STRESS_IO_ITERATIONS; i++) {
+        esp_err_t err = cdc_acm_host_data_tx_blocking(cdc_dev, stress_tx_buf, STRESS_TX_BUF_SIZE, 500);
+        if (err == ESP_OK) {
+            tx_ok++;
+        } else {
+            tx_err++;
+        }
+    }
+
+    // Resume the port if not already auto-resumed
+    TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_root_port_resume());
+    // Wait for the light sleep task to finish
+    xEventGroupSetBits(s_stress_io_event_group, EVT_STRESS_IO_DONE);
+    TEST_ASSERT_EQUAL(pdTRUE, ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(5000)));
+
+    printf("Stress I/O finished: tx_ok=%lu tx_err=%lu rx_bytes=%lu\n",
+           (unsigned long)tx_ok, (unsigned long)tx_err, (unsigned long)bytes_received);
+
+    free(stress_tx_buf);
+    vEventGroupDelete(s_stress_io_event_group);
+    s_stress_io_event_group = NULL;
 
     TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_close(cdc_dev));
     TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_uninstall());
@@ -1640,7 +1788,7 @@ TEST_CASE("light_sleep_dconn_no_dev", "[light_sleep][host_suspend_dconn_no_dev]"
     vTaskDelay(10); // Wait until responses are processed
     TEST_ASSERT_EQUAL(NUM_ITERATIONS, nb_of_responses);
 
-    TEST_ASSERT_EQUAL(ESP_OK, esp_light_sleep_start());             // Enter light sleep
+    light_sleep_enter_catch();                                 // Enter light sleep
 
     // Port was disconnected during light sleep (by USB Device): Disconnect interrupt was not delivered during light sleep,
     // but after exiting light sleep

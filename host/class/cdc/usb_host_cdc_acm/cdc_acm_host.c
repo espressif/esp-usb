@@ -171,6 +171,43 @@ static esp_err_t cdc_acm_reset_transfer_endpoint(usb_device_handle_t dev_hdl, us
 }
 
 /**
+ * @brief Submit a continuous IN poll transfer if polling is not already active
+ *
+ * Both cdc_acm_resume() and IN transfer callbacks resubmit poll transfers. This helper
+ * ensures only one submit is in-flight and tolerates a stale in-flight URB flag when halt
+ * flush completion has not been processed yet.
+ *
+ * @param[in] xfer IN poll transfer
+ * @param[in,out] polling_active Driver flag tracking whether the poll transfer was submitted
+ * @param[in] xfer_name Short name used for debug logs
+ * @return
+ *    - ESP_OK: Already polling or IN transfer successfully submitted for polling
+ *    - Other errors passed from caller functions
+ */
+static esp_err_t cdc_acm_submit_poll(usb_transfer_t *xfer, bool *polling_active, const char *xfer_name)
+{
+    if (*polling_active) {
+        ESP_LOGD(TAG, "%s poll already active, skip submit", xfer_name);
+        return ESP_OK;
+    }
+
+    esp_err_t err = usb_host_transfer_submit(xfer);
+    if (err == ESP_OK) {
+        *polling_active = true;
+        return ESP_OK;
+    }
+
+    if (err == ESP_ERR_NOT_FINISHED) {
+        *polling_active = true;
+        ESP_LOGD(TAG, "%s poll already in-flight, treat as active", xfer_name);
+        return ESP_OK;
+    }
+
+    ESP_LOGE(TAG, "%s poll submit failed: %s", xfer_name, esp_err_to_name(err));
+    return err;
+}
+
+/**
  * @brief Start CDC device
  *
  * After this call, USB host peripheral will continuously poll IN endpoints.
@@ -202,7 +239,7 @@ static esp_err_t cdc_acm_start(cdc_dev_t *cdc_dev, cdc_acm_host_dev_callback_t e
         err, TAG, "Could not claim interface");
     if (cdc_dev->data.in_xfer) {
         ESP_LOGD(TAG, "Submitting poll for BULK IN transfer");
-        ESP_ERROR_CHECK(usb_host_transfer_submit(cdc_dev->data.in_xfer));
+        ESP_ERROR_CHECK(cdc_acm_submit_poll(cdc_dev->data.in_xfer, &cdc_dev->data.in_polling, "BULK IN"));
     }
 
     // If notification are supported, claim its interface and start polling its IN endpoint
@@ -217,7 +254,7 @@ static esp_err_t cdc_acm_start(cdc_dev_t *cdc_dev, cdc_acm_host_dev_callback_t e
                 err, TAG, "Could not claim interface");
         }
         ESP_LOGD(TAG, "Submitting poll for INTR IN transfer");
-        ESP_ERROR_CHECK(usb_host_transfer_submit(cdc_dev->notif.xfer));
+        ESP_ERROR_CHECK(cdc_acm_submit_poll(cdc_dev->notif.xfer, &cdc_dev->notif.xfer_polling, "INTR IN"));
     }
 
     // Everything OK, add the device into list and return
@@ -706,6 +743,8 @@ esp_err_t cdc_acm_host_close(cdc_acm_dev_hdl_t cdc_hdl)
     CDC_ACM_EXIT_CRITICAL();
 
     // Cancel polling of BULK IN and INTERRUPT IN
+    cdc_dev->data.in_polling = false;
+    cdc_dev->notif.xfer_polling = false;
     if (cdc_dev->data.in_xfer) {
         ESP_ERROR_CHECK(cdc_acm_reset_transfer_endpoint(cdc_dev->dev_hdl, cdc_dev->data.in_xfer));
     }
@@ -785,6 +824,7 @@ static void in_xfer_cb(usb_transfer_t *transfer)
 {
     ESP_LOGD(TAG, "in xfer cb");
     cdc_dev_t *cdc_dev = (cdc_dev_t *)transfer->context;
+    cdc_dev->data.in_polling = false;
 
     if (!cdc_acm_is_transfer_completed(transfer)) {
         return;
@@ -834,13 +874,14 @@ static void in_xfer_cb(usb_transfer_t *transfer)
     }
 
     ESP_LOGD(TAG, "Submitting poll for BULK IN transfer");
-    usb_host_transfer_submit(cdc_dev->data.in_xfer);
+    cdc_acm_submit_poll(cdc_dev->data.in_xfer, &cdc_dev->data.in_polling, "BULK IN");
 }
 
 static void notif_xfer_cb(usb_transfer_t *transfer)
 {
     ESP_LOGD(TAG, "notif xfer cb");
     cdc_dev_t *cdc_dev = (cdc_dev_t *)transfer->context;
+    cdc_dev->notif.xfer_polling = false;
 
     if (cdc_acm_is_transfer_completed(transfer)) {
         cdc_notification_t *notif = (cdc_notification_t *)transfer->data_buffer;
@@ -875,7 +916,7 @@ static void notif_xfer_cb(usb_transfer_t *transfer)
 
         // Start polling for new data again
         ESP_LOGD(TAG, "Submitting poll for INTR IN transfer");
-        usb_host_transfer_submit(cdc_dev->notif.xfer);
+        cdc_acm_submit_poll(cdc_dev->notif.xfer, &cdc_dev->notif.xfer_polling, "INTR IN");
     }
 }
 
@@ -901,12 +942,33 @@ static void cdc_acm_resume(cdc_dev_t *cdc_dev)
 
     if (cdc_dev->data.in_xfer) {
         ESP_LOGD(TAG, "Submitting poll for BULK IN transfer");
-        ESP_ERROR_CHECK(usb_host_transfer_submit(cdc_dev->data.in_xfer));
+        ESP_ERROR_CHECK(cdc_acm_submit_poll(cdc_dev->data.in_xfer, &cdc_dev->data.in_polling, "BULK IN"));
     }
 
     if (cdc_dev->notif.xfer) {
         ESP_LOGD(TAG, "Submitting poll for INTR IN transfer");
-        ESP_ERROR_CHECK(usb_host_transfer_submit(cdc_dev->notif.xfer));
+        ESP_ERROR_CHECK(cdc_acm_submit_poll(cdc_dev->notif.xfer, &cdc_dev->notif.xfer_polling, "INTR IN"));
+    }
+}
+
+/**
+ * @brief Mark IN poll transfers as stopped on device suspend
+ *
+ * The USB host library halts and flushes endpoints before delivering the suspend event.
+ * Clear driver polling state so cdc_acm_resume() will resubmit after resume.
+ *
+ * @param[in] cdc_dev CDC device handle
+ */
+static void cdc_acm_suspend_polling(cdc_dev_t *cdc_dev)
+{
+    assert(cdc_dev);
+
+    if (cdc_dev->data.in_xfer) {
+        cdc_dev->data.in_polling = false;
+    }
+
+    if (cdc_dev->notif.xfer) {
+        cdc_dev->notif.xfer_polling = false;
     }
 }
 #endif // CDC_HOST_SUSPEND_RESUME_API_SUPPORTED
@@ -957,17 +1019,20 @@ static void usb_event_cb(const usb_host_client_event_msg_t *event_msg, void *arg
         cdc_dev_t *cdc_dev;
         cdc_dev_t *tcdc_dev;
         SLIST_FOREACH_SAFE(cdc_dev, &p_cdc_acm_obj->cdc_devices_list, list_entry, tcdc_dev) {
-            if (cdc_dev->dev_hdl == event_msg->dev_suspend_resume.dev_hdl && cdc_dev->notif.cb) {
+            if (cdc_dev->dev_hdl == event_msg->dev_suspend_resume.dev_hdl) {
 
-                // The driver does not have to do anything to suspend the device,
-                // the usb host lib already halted and flushed all EPs
+                // The USB host library halts and flushes all EPs before this event.
+                // Mark polling as stopped so cdc_acm_resume() will resubmit after resume.
+                cdc_acm_suspend_polling(cdc_dev);
 
-                // The suspended device was opened by this driver: inform user about this
-                const cdc_acm_host_dev_event_data_t suspend_event = {
-                    .type = CDC_ACM_HOST_DEVICE_SUSPENDED,
-                    .data.cdc_hdl = (cdc_acm_dev_hdl_t) cdc_dev,
-                };
-                cdc_dev->notif.cb(&suspend_event, cdc_dev->cb_arg);
+                if (cdc_dev->notif.cb) {
+                    // The suspended device was opened by this driver: inform user about this
+                    const cdc_acm_host_dev_event_data_t suspend_event = {
+                        .type = CDC_ACM_HOST_DEVICE_SUSPENDED,
+                        .data.cdc_hdl = (cdc_acm_dev_hdl_t) cdc_dev,
+                    };
+                    cdc_dev->notif.cb(&suspend_event, cdc_dev->cb_arg);
+                }
             }
         }
         break;
