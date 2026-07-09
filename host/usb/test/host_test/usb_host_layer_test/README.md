@@ -1,6 +1,3 @@
-| Supported Targets | Linux |
-| ----------------- | ----- |
-
 # Description
 
 This directory contains test code for `USB Host layer` of USB Host stack. Namely:

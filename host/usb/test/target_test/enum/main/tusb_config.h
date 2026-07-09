@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2025-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -13,13 +13,6 @@ extern "C" {
 #endif
 
 //
-// TinyUSB Port selection
-//
-#if (CONFIG_IDF_TARGET_ESP32P4)
-#define CONFIG_TINYUSB_RHPORT_HS
-#endif // CONFIG_IDF_TARGET_ESP32P4
-
-//
 // TinyUSB Debug
 //
 #define CFG_TUSB_DEBUG              CONFIG_TINYUSB_DEBUG_LEVEL
@@ -27,11 +20,7 @@ extern "C" {
 //
 // TinyUSB Peripheral Port selection (build-time)
 //
-#ifdef CONFIG_TINYUSB_RHPORT_HS
-#   define CFG_TUSB_RHPORT1_MODE    OPT_MODE_DEVICE | OPT_MODE_HIGH_SPEED
-#else
-#   define CFG_TUSB_RHPORT0_MODE    OPT_MODE_DEVICE | OPT_MODE_FULL_SPEED
-#endif
+#define CFG_TUSB_RHPORT0_MODE    OPT_MODE_DEVICE | OPT_MODE_FULL_SPEED
 
 //
 // TinyUSB OS

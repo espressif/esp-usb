@@ -73,13 +73,13 @@ def send_data_to_intf(VID: int, PID: int, interface_index: int) -> None:
             pass
 
 #@pytest.mark.usb_device        Disable in CI, for now, not stable when running this test in Docker container
-@idf_parametrize('target', ['esp32s2', 'esp32s3', 'esp32p4'], indirect=['target'])
+@idf_parametrize('target', ['esp32s2', 'esp32s3', 'esp32h4', 'esp32p4', 'esp32s31'], indirect=['target'])
 def test_usb_device_vendor(dut: IdfDut) -> None:
     '''
     Running the test locally:
-    1. Build the test app for your DUT
+    1. Build the test app for your USB-OTG capable DUT
     2. Connect you DUT to your test runner (local machine) with USB port and flashing port
-    3. Run `pytest --target esp32s3`
+    3. Run `pytest --target <target>`
 
     Important note: On Windows you must manually assign a driver the device, otherwise it will never be configured.
                     On Linux this is automatic

@@ -1,6 +1,3 @@
-| Supported Targets | ESP32-H4 | ESP32-P4 | ESP32-S2 | ESP32-S3 |
-| ----------------- | -------- | -------- | -------- | -------- |
-
 # Espressif's Additions to TinyUSB - Runtime Configuration Test Application
 
 This directory contains Unity tests that validate Espressif-specific integration of TinyUSB.
