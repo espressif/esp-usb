@@ -10,14 +10,14 @@
  * Shared helpers for USB Host layer Linux host tests.
  *
  * Wraps usb_host_install()/usb_host_uninstall() with the CMock expectations
- * required by the mocked PHY, USBH, Enum, and Hub layers. Mock event/proc-req
- * injectors only work after the corresponding layer callback is registered at
- * install time, so tests should pass only the callback flags they need:
+ * required by the mocked PHY, USBH, Enum, and Hub layers. Mock event injectors
+ * only work after the corresponding layer callback is registered at install
+ * time, so tests should pass only the callback flags they need:
  *
  *   - Enum event tests  -> MOCK_CB_ENUM
  *   - Hub event tests   -> MOCK_CB_HUB
  *   - USBH/client tests -> MOCK_CB_USBH
- *   - Lib-only tests    -> MOCK_CB_NONE (or MOCK_CB_ALL for proc-req routing)
+ *   - Lib-only tests    -> MOCK_CB_NONE
  *
  * Typical usage in a Catch2 GIVEN block:
  *

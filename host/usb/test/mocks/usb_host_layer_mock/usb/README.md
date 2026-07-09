@@ -10,11 +10,11 @@ This component mocks all USB stack layers **below** the USB Host layer (`usb_hos
 | `Kconfig`                                        | —           | Mock-specific Kconfig options (see [Configuration](#configuration))                      |
 | `mock/mock_config.yaml`                          | —           | CMock plugins enabled for generated mocks                                                |
 | `include/mock_usb_host_layer_callbacks.h`        | **Public**  | CMock capture hooks (`usbh_register_mock_callback`, …)                                   |
-| `include/mock_usb_host_layer_events.h`           | **Public**  | Event and processing-request injectors                                                   |
+| `include/mock_usb_host_layer_events.h`           | **Public**  | Event injectors                                                                          |
 | `include/mock_usb_host_layer_test_helpers.h`     | **Public**  | Umbrella header that includes both public headers                                        |
 | `private_include/mock_usb_host_layer_internal.h` | **Private** | Shared callback storage between the two `.c` files                                       |
 | `mock_usb_host_layer_callbacks.c`                | —           | Callback capture implementation                                                          |
-| `mock_usb_host_layer_events.c`                   | —           | Event/proc-req injection implementation                                                  |
+| `mock_usb_host_layer_events.c`                   | —           | Event injection implementation                                                           |
 
 Consumer tests live in [`host/usb/test/host_test/usb_host_layer_test/`](../../host_test/usb_host_layer_test/).
 
@@ -53,14 +53,14 @@ They are split into two modules:
 
 Registered on mocked `usbh_install()` / `enum_install()` / `hub_install()` and matching uninstall paths. Stores the real callbacks that `usb_host.c` passes in:
 
-| Function                          | CMock registration                | Captures from `usb_host.c`                                                |
-| --------------------------------- | --------------------------------- | ------------------------------------------------------------------------- |
-| `usbh_register_mock_callback()`   | `usbh_install_AddCallback(...)`   | `usbh_event_callback`, `proc_req_callback`                                |
-| `usbh_deregister_mock_callback()` | `usbh_uninstall_AddCallback(...)` | Clears USBH callbacks                                                     |
-| `enum_register_mock_callback()`   | `enum_install_AddCallback(...)`   | `enum_event_callback`, `proc_req_callback`, `enum_filter_cb` (if enabled) |
-| `enum_deregister_mock_callback()` | `enum_uninstall_AddCallback(...)` | Clears Enum callbacks                                                     |
-| `hub_register_mock_callback()`    | `hub_install_AddCallback(...)`    | `hub_event_callback`, `proc_req_callback`                                 |
-| `hub_deregister_mock_callback()`  | `hub_uninstall_AddCallback(...)`  | Clears Hub callbacks                                                      |
+| Function                          | CMock registration                | Captures from `usb_host.c`                           |
+| --------------------------------- | --------------------------------- | ---------------------------------------------------- |
+| `usbh_register_mock_callback()`   | `usbh_install_AddCallback(...)`   | `usbh_event_callback`                                |
+| `usbh_deregister_mock_callback()` | `usbh_uninstall_AddCallback(...)` | Clears USBH callbacks                                |
+| `enum_register_mock_callback()`   | `enum_install_AddCallback(...)`   | `enum_event_callback`, `enum_filter_cb` (if enabled) |
+| `enum_deregister_mock_callback()` | `enum_uninstall_AddCallback(...)` | Clears Enum callbacks                                |
+| `hub_register_mock_callback()`    | `hub_install_AddCallback(...)`    | `hub_event_callback`                                 |
+| `hub_deregister_mock_callback()`  | `hub_uninstall_AddCallback(...)`  | Clears Hub callbacks                                 |
 
 When `CONFIG_USB_HOST_ENABLE_ENUM_FILTER_CALLBACK` is enabled:
 
@@ -68,7 +68,7 @@ When `CONFIG_USB_HOST_ENABLE_ENUM_FILTER_CALLBACK` is enabled:
 | ------------------------------------------ | ------------------------------------------------------------------------------------ |
 | `mock_usb_host_layer_get_enum_filter_cb()` | Returns the filter callback forwarded from `usb_host_install()` via `enum_install()` |
 
-### `mock_usb_host_layer_events.c` — event and processing-request injection
+### `mock_usb_host_layer_events.c` — event injection
 
 After install, tests call injectors to simulate what the lower layers would normally invoke on the Host layer.
 
@@ -102,14 +102,6 @@ After install, tests call injectors to simulate what the lower layers would norm
 | `enum_mock_event_reset_required()` | Calls `hub_node_reset()`                                  |
 | `enum_mock_event_completed()`      | Calls `hub_node_active()` and `usbh_devs_new_dev_event()` |
 | `enum_mock_event_canceled()`       | Calls `hub_node_disable()`                                |
-
-**Processing requests** (wake `usb_host_lib_handle_events()`):
-
-| Injector               | Triggers in `usb_host_lib_handle_events()` |
-| ---------------------- | ------------------------------------------ |
-| `usbh_mock_proc_req()` | `usbh_process()`                           |
-| `enum_mock_proc_req()` | `enum_process()`                           |
-| `hub_mock_proc_req()`  | `hub_process()`                            |
 
 All injectors return `ESP_ERR_INVALID_STATE` if the relevant callback was not captured (typically: Host not installed, or install expectations missing the `AddCallback` hooks).
 
@@ -212,8 +204,6 @@ usbh_devs_new_dev_event_ExpectAndReturn(dev_hdl, ESP_OK);
 REQUIRE(ESP_OK == enum_mock_event_completed(node_uid, dev_hdl));
 ```
 
-After processing-request injectors, call `usb_host_lib_handle_events()` and expect the corresponding `*_process()` mock.
-
 ## What you can test with these helpers
 
 The helpers are intended for **Host-layer behaviour** driven by lower-layer callbacks, without running real USBH/Enum/Hub code.
@@ -224,7 +214,7 @@ The helpers are intended for **Host-layer behaviour** driven by lower-layer call
 | Install config       | `root_port_unpowered`, `skip_phy_setup`, enum filter  | `usb_host_install_config_unit_test.cpp`   |
 | USBH event routing   | All `USBH_EVENT_*` injectors                          | `usb_host_usbh_events_unit_test.cpp`      |
 | Client event routing | Multi-client routing, `max_num_event_msg`, ownership  | `usb_host_client_events_unit_test.cpp`    |
-| Library events       | `ALL_FREE`, `NO_CLIENTS`, `AUTO_SUSPEND`, proc-req    | `usb_host_lib_events_unit_test.cpp`       |
+| Library events       | `ALL_FREE`, `NO_CLIENTS`, `AUTO_SUSPEND`              | `usb_host_lib_events_unit_test.cpp`       |
 | Enumeration handling | Hub node reset/active/disable, new-device propagation | `usb_host_enum_events_unit_test.cpp`      |
 | Hub handling         | Connect / reset / disconnect enumeration flow         | `usb_host_hub_events_unit_test.cpp`       |
 | Descriptor parsing   | `usb_helpers` descriptor utilities                    | `usb_helpers_descriptor_parsing_test.cpp` |

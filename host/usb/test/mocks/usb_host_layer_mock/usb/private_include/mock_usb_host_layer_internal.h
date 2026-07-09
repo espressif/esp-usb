@@ -9,14 +9,12 @@
 #include "enum.h"
 #include "hub.h"
 #include "usbh.h"
-#include "usb_private.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 typedef struct {
-    usb_proc_req_cb_t proc_req_cb;
     usbh_event_cb_t usbh_event_cb;
     enum_event_cb_t enum_event_cb;
     hub_event_cb_t hub_event_cb;

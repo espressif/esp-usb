@@ -31,7 +31,6 @@ esp_err_t usbh_register_mock_callback(const usbh_config_t *usbh_config, int call
     ESP_LOGD(MOCK_USB_HOST_LAYER_CB_TAG, "USBH register callback");
 
     s_callbacks.usbh_event_cb = usbh_config->event_cb;
-    s_callbacks.proc_req_cb = usbh_config->proc_req_cb;
     return ESP_OK;
 }
 
@@ -41,7 +40,6 @@ esp_err_t usbh_deregister_mock_callback(int call_count)
     ESP_LOGD(MOCK_USB_HOST_LAYER_CB_TAG, "USBH deregister callback");
 
     s_callbacks.usbh_event_cb = NULL;
-    s_callbacks.proc_req_cb = NULL;
     return ESP_OK;
 }
 
@@ -55,7 +53,6 @@ esp_err_t enum_register_mock_callback(enum_config_t *enum_config, void **client_
     *client_ret = &enum_client_ret;
 
     s_callbacks.enum_event_cb = enum_config->enum_event_cb;
-    s_callbacks.proc_req_cb = enum_config->proc_req_cb;
 #if ENABLE_ENUM_FILTER_CALLBACK
     s_callbacks.enum_filter_cb = enum_config->enum_filter_cb;
 #endif
@@ -68,7 +65,6 @@ esp_err_t enum_deregister_mock_callback(int call_count)
     ESP_LOGD(MOCK_USB_HOST_LAYER_CB_TAG, "Enum deregister callback");
 
     s_callbacks.enum_event_cb = NULL;
-    s_callbacks.proc_req_cb = NULL;
 #if ENABLE_ENUM_FILTER_CALLBACK
     s_callbacks.enum_filter_cb = NULL;
 #endif
@@ -92,7 +88,6 @@ esp_err_t hub_register_mock_callback(hub_config_t *hub_config, void **client_ret
     *client_ret = &hub_client_ret;
 
     s_callbacks.hub_event_cb = hub_config->event_cb;
-    s_callbacks.proc_req_cb = hub_config->proc_req_cb;
     return ESP_OK;
 }
 

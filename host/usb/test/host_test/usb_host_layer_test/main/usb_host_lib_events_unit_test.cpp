@@ -10,11 +10,6 @@
 #include "freertos/task.h"
 #include "usb_host_layer_test_fixture.hpp"
 
-extern "C" {
-#include "Mockusbh.h"
-#include "Mockhub.h"
-}
-
 namespace {
 
 bool wait_for_lib_event_flags(uint32_t expected_flags, TickType_t timeout_ticks)
@@ -66,9 +61,6 @@ void deregister_client(usb_host_client_handle_t client_hdl)
 SCENARIO("USB Host mock callback injectors require registration")
 {
     SECTION("Injectors return ESP_ERR_INVALID_STATE before install") {
-        REQUIRE(ESP_ERR_INVALID_STATE == usbh_mock_proc_req());
-        REQUIRE(ESP_ERR_INVALID_STATE == enum_mock_proc_req());
-        REQUIRE(ESP_ERR_INVALID_STATE == hub_mock_proc_req());
         REQUIRE(ESP_ERR_INVALID_STATE == hub_mock_event_connected(1));
         REQUIRE(ESP_ERR_INVALID_STATE == enum_mock_event_started(1, usb_host_layer_test::mock_device_handle()));
     }
@@ -183,26 +175,6 @@ SCENARIO("USB Host library NO_CLIENTS and ALL_FREE event routing")
             uint32_t lib_flags = usb_host_layer_test::drain_lib_events_flags();
             REQUIRE((lib_flags & USB_HOST_LIB_EVENT_FLAGS_NO_CLIENTS) != 0);
             REQUIRE((lib_flags & USB_HOST_LIB_EVENT_FLAGS_ALL_FREE) != 0);
-        }
-
-        usb_host_layer_test::drain_lib_events();
-    }
-}
-
-SCENARIO("USB Host library processing request routing")
-{
-    GIVEN("An installed USB Host library with layer proc-req callbacks registered") {
-        usb_host_layer_test::UsbHostLayerFixture host(usb_host_layer_test::MOCK_CB_ALL);
-        host.install();
-
-        SECTION("Processing requests from USBH, Hub, and Enum invoke layer process functions") {
-            usbh_process_ExpectAndReturn(ESP_OK);
-            hub_process_ExpectAndReturn(ESP_OK);
-            enum_process_ExpectAndReturn(ESP_OK);
-
-            REQUIRE(ESP_OK == usbh_mock_proc_req());
-            REQUIRE(ESP_OK == hub_mock_proc_req());
-            REQUIRE(ESP_OK == enum_mock_proc_req());
         }
 
         usb_host_layer_test::drain_lib_events();

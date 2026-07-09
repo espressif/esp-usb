@@ -53,7 +53,7 @@ GIVEN("An installed USB Host library with USBH callbacks registered") {
 | `MOCK_CB_USBH` | USBH injectors and client event tests         |
 | `MOCK_CB_ENUM` | Enum event injectors                          |
 | `MOCK_CB_HUB`  | Hub event injectors                           |
-| `MOCK_CB_ALL`  | Proc-req routing (USBH + Hub + Enum)          |
+| `MOCK_CB_ALL`  | All layer event injectors (USBH + Hub + Enum) |
 
 Pass a custom `usb_host_config_t` as the second constructor argument for `skip_phy_setup`, `root_port_unpowered`, multi-port `peripheral_map`, or `enum_filter_cb`. PHY and `hub_root_start` expectations follow the config automatically.
 
@@ -89,8 +89,6 @@ Default run (summary only):
 ```bash
 ./build/host_test_usb_host_layer.elf
 ```
-
-Expected: **22 test cases**, all passing.
 
 Verbose Catch2 output (sections, passed assertions, timings):
 

@@ -213,35 +213,6 @@ esp_err_t enum_mock_event_completed(unsigned int node_uid, usb_device_handle_t d
  */
 esp_err_t enum_mock_event_canceled(unsigned int node_uid, usb_device_handle_t dev_hdl);
 
-// ------------------------------------------------- Processing requests -----------------------------------------------
-
-/**
- * @brief Propagate USBH processing request
- *
- * @return
- *    - ESP_OK: Processing request propagated
- *    - ESP_ERR_INVALID_STATE: Processing request callback not registered, usb_register_mock_callback() must be called first
- */
-esp_err_t usbh_mock_proc_req(void);
-
-/**
- * @brief Propagate Enum processing request
- *
- * @return
- *    - ESP_OK: Processing request propagated
- *    - ESP_ERR_INVALID_STATE: Processing request callback not registered, enum_register_mock_callback() must be called first
- */
-esp_err_t enum_mock_proc_req(void);
-
-/**
- * @brief Propagate Hub processing request
- *
- * @return
- *    - ESP_OK: Processing request propagated
- *    - ESP_ERR_INVALID_STATE: Processing request callback not registered, hub_register_mock_callback() must be called first
- */
-esp_err_t hub_mock_proc_req(void);
-
 #ifdef __cplusplus
 }
 #endif

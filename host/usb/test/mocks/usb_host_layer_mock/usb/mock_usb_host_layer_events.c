@@ -277,37 +277,3 @@ esp_err_t enum_mock_event_canceled(unsigned int node_uid, usb_device_handle_t de
     invoke_enum_event(&event_data);
     return ESP_OK;
 }
-
-// ------------------------------------------------- Processing requests -----------------------------------------------
-
-static void invoke_proc_req(usb_proc_req_source_t source)
-{
-    callbacks()->proc_req_cb(source, false, NULL);
-}
-
-esp_err_t usbh_mock_proc_req(void)
-{
-    MOCK_USB_HOST_LAYER_EVENT_CHECK(callbacks()->proc_req_cb != NULL, ESP_ERR_INVALID_STATE);
-    ESP_LOGD(MOCK_USB_HOST_LAYER_EVENT_TAG, "USBH processing request");
-
-    invoke_proc_req(USB_PROC_REQ_SOURCE_USBH);
-    return ESP_OK;
-}
-
-esp_err_t enum_mock_proc_req(void)
-{
-    MOCK_USB_HOST_LAYER_EVENT_CHECK(callbacks()->proc_req_cb != NULL, ESP_ERR_INVALID_STATE);
-    ESP_LOGD(MOCK_USB_HOST_LAYER_EVENT_TAG, "Enum processing request");
-
-    invoke_proc_req(USB_PROC_REQ_SOURCE_ENUM);
-    return ESP_OK;
-}
-
-esp_err_t hub_mock_proc_req(void)
-{
-    MOCK_USB_HOST_LAYER_EVENT_CHECK(callbacks()->proc_req_cb != NULL, ESP_ERR_INVALID_STATE);
-    ESP_LOGD(MOCK_USB_HOST_LAYER_EVENT_TAG, "Hub processing request");
-
-    invoke_proc_req(USB_PROC_REQ_SOURCE_HUB);
-    return ESP_OK;
-}
