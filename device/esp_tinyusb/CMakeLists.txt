@@ -1,17 +1,46 @@
+if(IDF_BUILD_V2)
+    include(CMakeLists_v2.txt)
+    return()
+endif()
+
 idf_build_get_property(target IDF_TARGET)
 set(IDF_VERSION "${IDF_VERSION_MAJOR}.${IDF_VERSION_MINOR}.${IDF_VERSION_PATCH}")
 
+set(priv_includes
+    "include_private"
+    "tinyusb/src/device"
+)
+
 set(srcs
+    # esp_tinyusb core
     "descriptors_control.c"
     "tinyusb.c"
     "usb_descriptors.c"
     "tinyusb_task.c"
+
+    # TinyUSB core
+    "tinyusb/src/portable/synopsys/dwc2/dcd_dwc2.c"
+    "tinyusb/src/portable/synopsys/dwc2/dwc2_common.c"
+    "tinyusb/src/common/tusb_fifo.c"
+    "tinyusb/src/device/usbd.c"
+    "tinyusb/src/tusb.c"
+
+    # TinyUSB classes
+    "tinyusb/src/class/printer/printer_device.c"
+    "tinyusb/src/class/audio/audio_device.c"
+    "tinyusb/src/class/video/video_device.c"
+    "tinyusb/src/class/usbtmc/usbtmc_device.c"
     )
 
 # We don't use Kconfig based conditional as the Kconfig values are not evaluated yet
 # when components are being registered. Thus, always add the (private) requirements, regardless of Kconfig.
 # IDF version conditionals and Target conditionals are allowed for components
-set(priv_req esp_pm)
+set(priv_req esp_pm esp_netif)
+if(${target} STREQUAL "esp32p4")
+    list(APPEND priv_req
+                esp_mm # required by dcd_dwc2.c: #include "esp_cache.h"
+        )
+endif()
 set(req fatfs vfs)
 
 # USB-PHY driver
@@ -26,6 +55,7 @@ if(CONFIG_TINYUSB_CDC_ENABLED)
     list(APPEND srcs
         "cdc.c"
         "tinyusb_cdc_acm.c"
+        "tinyusb/src/class/cdc/cdc_device.c"
         )
     if(CONFIG_VFS_SUPPORT_IO)
         list(APPEND srcs
@@ -39,6 +69,7 @@ if(CONFIG_TINYUSB_MSC_ENABLED)
     list(APPEND srcs
         "tinyusb_msc.c"
         "storage_spiflash.c"
+        "tinyusb/src/class/msc/msc_device.c"
         )
     if(CONFIG_SOC_SDMMC_HOST_SUPPORTED)
         list(APPEND srcs
@@ -61,15 +92,60 @@ endif() # CONFIG_TINYUSB_MSC_ENABLED
 if(CONFIG_TINYUSB_NET_MODE_NCM)
     list(APPEND srcs
          "tinyusb_net.c"
+         "tinyusb/src/class/net/ncm_device.c"
          )
 endif() # CONFIG_TINYUSB_NET_MODE_NCM
 
+if(CONFIG_TINYUSB_NET_MODE_ECM_RNDIS)
+    list(APPEND srcs
+         "tinyusb/src/class/net/ecm_rndis_device.c"
+         "tinyusb/lib/networking/rndis_reports.c"
+         )
+    list(APPEND priv_includes "tinyusb/lib/networking")
+endif()
+
+if(CONFIG_TINYUSB_DFU_MODE_DFU)
+    list(APPEND srcs
+         "tinyusb/src/class/dfu/dfu_device.c"
+         )
+endif()
+
+if(CONFIG_TINYUSB_DFU_MODE_DFU_RUNTIME)
+    list(APPEND srcs
+         "tinyusb/src/class/dfu/dfu_rt_device.c"
+         )
+endif()
+
+if(CONFIG_TINYUSB_HID_COUNT GREATER 0)
+    list(APPEND srcs
+         "tinyusb/src/class/hid/hid_device.c"
+         )
+endif()
+
+if(CONFIG_TINYUSB_MIDI_COUNT GREATER 0)
+    list(APPEND srcs
+         "tinyusb/src/class/midi/midi_device.c"
+         "tinyusb/src/class/midi/midi2_device.c"
+         )
+endif()
+
+if(CONFIG_TINYUSB_BTH_ENABLED)
+    list(APPEND srcs
+         "tinyusb/src/class/bth/bth_device.c"
+         )
+endif()
+
+if(CONFIG_TINYUSB_VENDOR_COUNT GREATER 0)
+    list(APPEND srcs
+         "tinyusb/src/class/vendor/vendor_device.c"
+         )
+endif()
+
 # Software VBUS monitoring is needed for chips with HS USB-OTG peripheral
 if(${target} STREQUAL "esp32p4" OR ${target} STREQUAL "esp32s31")
-    list(APPEND srcs "tinyusb_vbus_monitor.c")
-
     # VBUS monitoring requires GPIO driver
     list(APPEND priv_req esp_driver_gpio)
+    list(APPEND srcs "tinyusb_vbus_monitor.c")
 endif() # esp32p4/esp32s31
 
 # TinyUSB PM locks
@@ -77,34 +153,13 @@ if(CONFIG_TINYUSB_PM)
     list(APPEND srcs "tinyusb_pm.c")
 endif()
 
-# USB Device light-sleep wakeup, must be also supported by the target
 if(CONFIG_TINYUSB_USB_OTG_WAKEUP)
     list(APPEND srcs "tinyusb_usb_wakeup.c")
 endif()
 
-# idf_component.yml is ignored when the component manager is disabled, so the
-# dependency on tinyusb must be declared here instead. It belongs in REQUIRES
-# (not PRIV_REQUIRES) because the public header tinyusb.h includes tusb.h.
-idf_build_get_property(idf_component_manager IDF_COMPONENT_MANAGER)
-if(NOT idf_component_manager)
-    list(APPEND req tinyusb)
-endif()
-
-# Determine whether tinyusb is fetched from component registry or from local path
-idf_build_get_property(build_components BUILD_COMPONENTS)
-if(tinyusb IN_LIST build_components)
-    set(tinyusb_name tinyusb) # Local component
-else()
-    set(tinyusb_name espressif__tinyusb) # Managed component
-endif()
-
 if(CONFIG_TINYUSB_MTP_ENABLED)
-    idf_component_get_property(tinyusb_dir ${tinyusb_name} COMPONENT_DIR)
-    if(NOT EXISTS "${tinyusb_dir}/src/class/mtp/mtp_device.c")
-        message(FATAL_ERROR "CONFIG_TINYUSB_MTP_ENABLED requires TinyUSB MTP device class support.
-        Please use a TinyUSB release that provides src/class/mtp/mtp_device.c or disable MTP.")
-    endif()
     list(APPEND srcs
+         "tinyusb/src/class/mtp/mtp_device.c"
          "mtp/tinyusb_mtp.c"
          "mtp/tinyusb_mtp_codec.c"
          "mtp/tinyusb_mtp_object_store.c"
@@ -117,12 +172,14 @@ if(CONFIG_TINYUSB_MTP_ENABLED)
 endif() # CONFIG_TINYUSB_MTP_ENABLED
 
 idf_component_register(SRCS ${srcs}
-                       INCLUDE_DIRS "include"
-                       PRIV_INCLUDE_DIRS "include_private"
+                       INCLUDE_DIRS "include" "tinyusb/src"
+                       PRIV_INCLUDE_DIRS ${priv_includes}
                        PRIV_REQUIRES ${priv_req}
-                       REQUIRES ${req}
+                       REQUIRES fatfs vfs freertos
                        )
 
-# Pass tusb_config.h from this component to TinyUSB
-idf_component_get_property(tusb_lib ${tinyusb_name} COMPONENT_LIB)
-target_include_directories(${tusb_lib} PRIVATE "include")
+string(TOUPPER "OPT_MCU_${target}" tusb_mcu)
+target_compile_options(${COMPONENT_LIB} PUBLIC "-DCFG_TUSB_MCU=${tusb_mcu}")
+
+# when no builtin class driver is enabled, an uint8_t data compared with `BUILTIN_DRIVER_COUNT` will always be false
+set_source_files_properties("tinyusb/src/device/usbd.c" PROPERTIES COMPILE_FLAGS "-Wno-type-limits")

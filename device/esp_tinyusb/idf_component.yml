@@ -14,9 +14,6 @@ targets:
   - esp32s31
 dependencies:
   idf: '>=5.3'
-  tinyusb:
-    version: '>=0.17.0~2' # 0.17.0~2 is the first version that supports deinit
-    public: true
 files:
   exclude:
     - "test_apps"
