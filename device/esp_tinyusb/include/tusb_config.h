@@ -89,6 +89,10 @@ extern "C" {
 #   define CONFIG_TINYUSB_DEBUG_LEVEL 0
 #endif
 
+#ifndef CONFIG_TINYUSB_DWC2_PTI_ENABLE
+#   define CONFIG_TINYUSB_DWC2_PTI_ENABLE 0
+#endif
+
 #define CFG_TUD_ENABLED                 1       // TinyUSB Device enabled
 
 #if (CONFIG_IDF_TARGET_ESP32P4) || (CONFIG_IDF_TARGET_ESP32S31)
@@ -101,6 +105,7 @@ extern "C" {
 //                              DMA & Cache
 // ------------------------------------------------------------------------
 #define CFG_TUD_DWC2_DMA_ENABLE     1       // Enable DMA mode
+#define CFG_TUD_DWC2_PTI_ENABLE     CONFIG_TINYUSB_DWC2_PTI_ENABLE
 
 // DCache maintenance is only needed when the SoC actually reaches internal
 // SRAM (where TinyUSB DMA buffers live) via the L1 cache. Just having an L1
