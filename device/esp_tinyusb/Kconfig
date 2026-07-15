@@ -6,6 +6,21 @@ menu "TinyUSB Stack"
         help
             Specify verbosity of TinyUSB log output.
 
+    config TINYUSB_DWC2_PTI_ENABLE
+        bool "Enable DWC2 Periodic Transfer Interrupt (PTI)"
+        default n
+        help
+            Enable Periodic Transfer Interrupt (PTI) in the DWC2 device controller
+            (DCTL.IgnrFrmNum) when using Buffer DMA.
+
+            When enabled, isochronous even/odd frame matching is ignored so a
+            transfer can be armed in the current or next (micro)frame. This is
+            required to schedule ISOC OUT on alternating 7/8 ms intervals
+            (Bluetooth HCI 7.5 ms) while keeping bInterval = 1.
+
+            PTI is available in Buffer DMA mode only, which is always used by
+            esp_tinyusb.
+
     menu "Power management"
         # Proxy configs normalize SOC caps across IDF releases:
         # - caps may be absent in older IDF (must stay hidden)
