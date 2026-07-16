@@ -1790,6 +1790,11 @@ TEST_CASE("light_sleep_dconn_no_dev", "[light_sleep][host_suspend_dconn_no_dev]"
 
     light_sleep_enter_catch();                                 // Enter light sleep
 
+    // Make sure there is no stale device is present right after exiting light sleep
+    usb_host_lib_info_t info;
+    TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_info(&info));
+    TEST_ASSERT_EQUAL(0, info.num_devices);
+
     // Port was disconnected during light sleep (by USB Device): Disconnect interrupt was not delivered during light sleep,
     // but after exiting light sleep
     // Expect just device disconnect, no suspend event

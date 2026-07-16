@@ -495,8 +495,15 @@ reset_err:
             break;
         case ROOT_PORT_STATE_NOT_POWERED: // The user turned off ports' power. Indicate to USBH that the device is gone
         case ROOT_PORT_STATE_ENABLED: // There is an enabled (active) device. Indicate to USBH that the device is gone
-        case ROOT_PORT_STATE_SUSPENDED: // The user called usb host suspend, Indicate to USBH that the device is suspended
             port_has_device = true;
+            break;
+        case ROOT_PORT_STATE_SUSPENDED: // Device disconnected while hub still marked suspended (e.g. during light sleep)
+            port_has_device = true;
+            // Clear stale suspended state so resume-by-transfer is not attempted on a recovery port
+            root_hub_port->dynamic.state = ROOT_PORT_STATE_ENABLED;
+#ifdef AUTO_PM_LIGHT_SLEEP
+            p_hub_driver_obj->dynamic.flags.light_sleep_auto_pm = 0;
+#endif // AUTO_PM_LIGHT_SLEEP
             break;
         default:
             abort();    // Should never occur
@@ -617,7 +624,8 @@ static void root_port_req(root_hub_port_t *root_hub_port)
             // Root port resumed correctly
             break;
         case ESP_ERR_INVALID_RESPONSE:
-            // Root port's state machine changed it's state during suspend command execution (port disconnect)
+        case ESP_ERR_INVALID_STATE:
+            // Root port's state machine changed during resume (port disconnect or stale hub suspend state).
             // The root port is already in recovery state, which was set by dconn event interrupt, no further action needed
             return;
         default:
@@ -926,7 +934,14 @@ bool hub_root_is_suspended(void)
 #endif
     assert(root_hub_port->constant.hdl);
     HUB_DRIVER_CHECK_FROM_CRIT(root_hub_port->dynamic.state == ROOT_PORT_STATE_SUSPENDED, false);
+    hcd_port_handle_t root_port_hdl = root_hub_port->constant.hdl;
     HUB_DRIVER_EXIT_CRITICAL();
+
+    // Hub suspend state can be stale if disconnect occurred before the hub event was processed
+    const hcd_port_state_t port_state = hcd_port_get_state(root_port_hdl);
+    if (port_state != HCD_PORT_STATE_SUSPENDED && port_state != HCD_PORT_STATE_SUSPENDING) {
+        return false;
+    }
 
     return true;
 }
@@ -978,18 +993,17 @@ esp_err_t hub_root_can_resume(void)
     const hcd_port_state_t port_state = hcd_port_get_state(root_hub_port->constant.hdl);
     esp_err_t ret;
     switch (port_state) {
+    case HCD_PORT_STATE_SUSPENDED:
+        ret = ESP_OK;
+        break;
     case HCD_PORT_STATE_RESUMING:
         // Root port is already issuing resume command and is within a RESUME_RECOVERY_MS or a RESUME_HOLD_MS timeout,
         // no need to issue the resume command again
         ret = ESP_ERR_TIMEOUT;
         break;
-    case HCD_PORT_STATE_SUSPENDING:
-        // Root port is within a SUSPEND_ENTRY_MS timeout
-        // We can't resume the port right now, as it would have caused an undefined state
-        ret = ESP_ERR_NOT_ALLOWED;
-        break;
     default:
-        ret = ESP_OK;
+        // Port disconnected, in recovery, or otherwise not resumable
+        ret = ESP_ERR_NOT_ALLOWED;
         break;
     }
 
