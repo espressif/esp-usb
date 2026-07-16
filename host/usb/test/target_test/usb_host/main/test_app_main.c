@@ -7,6 +7,7 @@
 #include "unity.h"
 #include "unity_test_runner.h"
 #include "unity_test_utils_memory.h"
+#include <string.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_newlib.h"
@@ -32,8 +33,31 @@
 #define TEST_PERIPHERAL_MAP     BIT0
 #endif // TEST_P4_OTG11
 
+static volatile bool s_reject_non_hub_devices_with_enum_filter;
+
+#define TEST_ENUM_FILTER_REJECTED_DOWNSTREAM_NAME   "Test USB Host enum filter rejected downstream device channel lifetime"
+
+static bool test_enum_filter_cb(const usb_device_desc_t *dev_desc, uint8_t *bConfigurationValue)
+{
+    if (s_reject_non_hub_devices_with_enum_filter && dev_desc->bDeviceClass != USB_CLASS_HUB) {
+        printf("Enum filter rejects non-hub device VID:PID %04x:%04x, class %02x, config %d\n",
+               dev_desc->idVendor,
+               dev_desc->idProduct,
+               dev_desc->bDeviceClass,
+               *bConfigurationValue);
+        return false;
+    }
+    return true;
+}
+
+void test_usb_host_reject_non_hub_devices_with_enum_filter(bool reject)
+{
+    s_reject_non_hub_devices_with_enum_filter = reject;
+}
+
 void setUp(void)
 {
+    s_reject_non_hub_devices_with_enum_filter = (Unity.CurrentTestName != NULL && strstr(Unity.CurrentTestName, TEST_ENUM_FILTER_REJECTED_DOWNSTREAM_NAME) != NULL);
     unity_utils_record_free_mem();
     dev_msc_init();
     // Install PHY separately
@@ -43,6 +67,7 @@ void setUp(void)
         .skip_phy_setup = true,
         .root_port_unpowered = false,
         .intr_flags = ESP_INTR_FLAG_LOWMED,
+        .enum_filter_cb = test_enum_filter_cb,
         .peripheral_map = TEST_PERIPHERAL_MAP,
     };
     ESP_ERROR_CHECK(usb_host_install(&host_config));
@@ -55,6 +80,7 @@ void tearDown(void)
     vTaskDelay(10);
     // Clean up USB Host
     printf("USB Host uninstall\n");
+    s_reject_non_hub_devices_with_enum_filter = false;
     ESP_ERROR_CHECK(usb_host_uninstall());
     test_delete_usb_phy();
     // Short delay to allow task to be cleaned up after client uninstall
