@@ -16,7 +16,6 @@
 #include "usb/usb_helpers.h"
 
 //#ifdef LIGHT_SLEEP_ENUM_PROBE
-//#warning "HELLO"
 
 #define PROBE_CTRL_TRANSFER_MAX_DATA_LEN    CONFIG_USB_HOST_CONTROL_TRANSFER_MAX_SIZE
 
@@ -122,8 +121,7 @@ static esp_err_t probe_validate_dev_desc(void)
         }
     }
 
-    const usb_device_desc_t *dev_desc =
-        (const usb_device_desc_t *)(ctrl_xfer->data_buffer + sizeof(usb_setup_packet_t));
+    const usb_device_desc_t *dev_desc = (const usb_device_desc_t *)(ctrl_xfer->data_buffer + sizeof(usb_setup_packet_t));
     if (dev_desc->bDescriptorType != USB_B_DESCRIPTOR_TYPE_DEVICE) {
         ESP_LOGE(PROBE_TAG, "Probe dev desc has wrong bDescriptorType");
         return ESP_ERR_INVALID_RESPONSE;

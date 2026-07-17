@@ -355,6 +355,49 @@ static esp_err_t dev_tree_node_remove_by_parent(ext_hub_handle_t parent, uint8_t
     return ESP_OK;
 }
 
+/**
+ * @brief Probe all connected devices, if they are in addressed state after returning from light sleep
+ *
+ * TODO: on esp32p4, once suspend/resume is supported also on the FS port, differentiate between FS and HS port
+ *       and perform probe only for the FS port
+ */
+static void usbh_devs_probe(void)
+{
+#ifdef AUTO_PM_LIGHT_SLEEP
+    bool light_sleep_probe_pending = false;
+    HUB_DRIVER_ENTER_CRITICAL();
+    if (p_hub_driver_obj->dynamic.flags.light_sleep_probe_pending) {
+        p_hub_driver_obj->dynamic.flags.light_sleep_probe_pending = 0;
+        light_sleep_probe_pending = true;
+    }
+    HUB_DRIVER_EXIT_CRITICAL();
+
+    if (!light_sleep_probe_pending) {
+        // No device is waiting to be probed
+        return;
+    }
+
+    dev_tree_node_t *dev_tree_iter;
+    unsigned int probe_uid = 0;
+    bool probe_uid_found = false;
+    TAILQ_FOREACH(dev_tree_iter, &p_hub_driver_obj->single_thread.dev_nodes_tailq, tailq_entry) {
+        // Only check root port devices (without external hubs)
+        if (dev_tree_iter->parent == NULL) {
+            probe_uid = dev_tree_iter->uid;
+            probe_uid_found = true;
+            break;
+        }
+    }
+    if (probe_uid_found) {
+        const esp_err_t probe_ret = probe_start(probe_uid);
+        if (probe_ret != ESP_OK) {
+            ESP_LOGW(HUB_DRIVER_TAG, "Light sleep probe not started: %s", esp_err_to_name(probe_ret));
+        }
+    }
+#endif // AUTO_PM_LIGHT_SLEEP
+}
+
+
 // ---------------------- Callbacks ------------------------
 
 static bool root_port_callback(hcd_port_handle_t port_hdl, hcd_port_event_t port_event, void *user_arg, bool in_isr)
@@ -648,34 +691,9 @@ static void root_port_req(root_hub_port_t *root_hub_port)
         // Clear all EPs and propagate the resumed event to clients
         usbh_devs_set_pm_actions_all(USBH_DEV_RESUME | USBH_DEV_RESUME_EVT);    // NOLINT(clang-analyzer-optin.core.EnumCastOutOfRange)
 
-#ifdef AUTO_PM_LIGHT_SLEEP
-        bool light_sleep_probe_pending = false;
-        HUB_DRIVER_ENTER_CRITICAL();
-        if (p_hub_driver_obj->dynamic.flags.light_sleep_probe_pending) {
-            p_hub_driver_obj->dynamic.flags.light_sleep_probe_pending = 0;
-            light_sleep_probe_pending = true;
-        }
-        HUB_DRIVER_EXIT_CRITICAL();
-
-        if (light_sleep_probe_pending) {
-            dev_tree_node_t *dev_tree_iter;
-            unsigned int probe_uid = 0;
-            bool probe_uid_found = false;
-            TAILQ_FOREACH(dev_tree_iter, &p_hub_driver_obj->single_thread.dev_nodes_tailq, tailq_entry) {
-                if (dev_tree_iter->parent == NULL) {
-                    probe_uid = dev_tree_iter->uid;
-                    probe_uid_found = true;
-                    break;
-                }
-            }
-            if (probe_uid_found) {
-                const esp_err_t probe_ret = probe_start(probe_uid);
-                if (probe_ret != ESP_OK) {
-                    ESP_LOGW(HUB_DRIVER_TAG, "Light sleep probe not started: %s", esp_err_to_name(probe_ret));
-                }
-            }
-        }
-#endif // AUTO_PM_LIGHT_SLEEP
+        // Probe connected devices, to check if disconnection (power cycle) did not happen during light sleep
+        // On FS ports (internal FSLS PHY) it's not possible to detect disconnect interrupt during light sleep
+        usbh_devs_probe();
     }
 #ifdef AUTO_PM_LIGHT_SLEEP
     if (port_reqs & PORT_REQ_EXIT_LIGHT_SLEEP) {
