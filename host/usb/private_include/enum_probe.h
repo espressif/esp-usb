@@ -13,7 +13,7 @@
 extern "C" {
 #endif
 
-#ifdef AUTO_PM_LIGHT_SLEEP
+#ifdef LIGHT_SLEEP_PROBE
 
 /**
  * @brief Probe driver configuration
@@ -81,7 +81,7 @@ esp_err_t probe_cancel(unsigned int uid);
  */
 esp_err_t probe_process(void);
 
-#endif // AUTO_PM_LIGHT_SLEEP
+#endif // LIGHT_SLEEP_PROBE
 
 #ifdef __cplusplus
 }

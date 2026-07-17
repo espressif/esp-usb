@@ -15,8 +15,9 @@
 #include "hub.h"
 #include "usb/usb_helpers.h"
 
-//#ifdef LIGHT_SLEEP_ENUM_PROBE
+#ifdef LIGHT_SLEEP_PROBE
 
+#warning "HELLO"
 #define PROBE_CTRL_TRANSFER_MAX_DATA_LEN    CONFIG_USB_HOST_CONTROL_TRANSFER_MAX_SIZE
 
 /**
@@ -303,4 +304,4 @@ esp_err_t probe_process(void)
     return ESP_OK;
 }
 
-//#endif // LIGHT_SLEEP_ENUM_PROBE
+#endif // LIGHT_SLEEP_PROBE

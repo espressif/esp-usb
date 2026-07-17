@@ -18,9 +18,9 @@
 #include "hcd.h"
 #include "hub.h"
 #include "usbh.h"
-#ifdef AUTO_PM_LIGHT_SLEEP
+#ifdef LIGHT_SLEEP_PROBE
 #include "enum_probe.h"
-#endif // AUTO_PM_LIGHT_SLEEP
+#endif // LIGHT_SLEEP_PROBE
 
 #if ENABLE_USB_HUBS
 #include "ext_hub.h"
@@ -109,7 +109,7 @@ typedef struct {
                 hub_flag_action_t actions: 8;       /**< Hub actions */
                 uint32_t light_sleep_auto_pm: 1;    /**< Root port was automatically suspended from light sleep callback, when entering light sleep */
                 uint32_t light_sleep_probe_pending: 1; /**< Root port resume after light sleep auto-suspend should run an enum probe */
-                uint32_t reserved22: 22;            /**< Reserved */
+                uint32_t reserved21: 21;            /**< Reserved */
             };
             uint32_t val;                           /**< Hub flag action value */
         } flags;                                    /**< Hub flags */
@@ -361,9 +361,9 @@ static esp_err_t dev_tree_node_remove_by_parent(ext_hub_handle_t parent, uint8_t
  * TODO: on esp32p4, once suspend/resume is supported also on the FS port, differentiate between FS and HS port
  *       and perform probe only for the FS port
  */
+#ifdef LIGHT_SLEEP_PROBE
 static void usbh_devs_probe(void)
 {
-#ifdef AUTO_PM_LIGHT_SLEEP
     bool light_sleep_probe_pending = false;
     HUB_DRIVER_ENTER_CRITICAL();
     if (p_hub_driver_obj->dynamic.flags.light_sleep_probe_pending) {
@@ -394,9 +394,8 @@ static void usbh_devs_probe(void)
             ESP_LOGW(HUB_DRIVER_TAG, "Light sleep probe not started: %s", esp_err_to_name(probe_ret));
         }
     }
-#endif // AUTO_PM_LIGHT_SLEEP
 }
-
+#endif // LIGHT_SLEEP_PROBE
 
 // ---------------------- Callbacks ------------------------
 
@@ -550,8 +549,10 @@ reset_err:
             root_hub_port->dynamic.state = ROOT_PORT_STATE_ENABLED;
 #ifdef AUTO_PM_LIGHT_SLEEP
             p_hub_driver_obj->dynamic.flags.light_sleep_auto_pm = 0;
-            p_hub_driver_obj->dynamic.flags.light_sleep_probe_pending = 0;
 #endif // AUTO_PM_LIGHT_SLEEP
+#ifdef LIGHT_SLEEP_PROBE
+            p_hub_driver_obj->dynamic.flags.light_sleep_probe_pending = 0;
+#endif // LIGHT_SLEEP_PROBE
             break;
         default:
             abort();    // Should never occur
@@ -693,7 +694,9 @@ static void root_port_req(root_hub_port_t *root_hub_port)
 
         // Probe connected devices, to check if disconnection (power cycle) did not happen during light sleep
         // On FS ports (internal FSLS PHY) it's not possible to detect disconnect interrupt during light sleep
+#ifdef LIGHT_SLEEP_PROBE
         usbh_devs_probe();
+#endif // LIGHT_SLEEP_PROBE
     }
 #ifdef AUTO_PM_LIGHT_SLEEP
     if (port_reqs & PORT_REQ_EXIT_LIGHT_SLEEP) {
@@ -706,7 +709,10 @@ static void root_port_req(root_hub_port_t *root_hub_port)
             // Clock gating will be disabled by recovery routine, nothing to do here
             // Deferred suspend event will not be delivered
             HUB_DRIVER_ENTER_CRITICAL();
+            p_hub_driver_obj->dynamic.flags.light_sleep_auto_pm = 0;
+#ifdef LIGHT_SLEEP_PROBE
             p_hub_driver_obj->dynamic.flags.light_sleep_probe_pending = 0;
+#endif // LIGHT_SLEEP_PROBE
             HUB_DRIVER_EXIT_CRITICAL();
             return;
         }
@@ -1197,22 +1203,15 @@ esp_err_t hub_root_light_sleep_suspend_bus(void)
 
     HUB_DRIVER_ENTER_CRITICAL();
     p_hub_driver_obj->dynamic.flags.light_sleep_auto_pm = 1;
+#ifdef LIGHT_SLEEP_PROBE
     p_hub_driver_obj->dynamic.flags.light_sleep_probe_pending = 1;
+#endif // LIGHT_SLEEP_PROBE
     root_hub_port->dynamic.state = ROOT_PORT_STATE_SUSPENDED;
     HUB_DRIVER_EXIT_CRITICAL();
     return ESP_OK;
 }
 
-esp_err_t hub_dev_gone_by_uid(unsigned int uid)
-{
-    HUB_DRIVER_CHECK(p_hub_driver_obj != NULL, ESP_ERR_INVALID_STATE);
-    dev_tree_node_t *dev_tree_node = dev_tree_node_get_by_uid(uid);
-    HUB_DRIVER_CHECK(dev_tree_node != NULL, ESP_ERR_NOT_FOUND);
-    return dev_tree_node_dev_gone(dev_tree_node->parent, dev_tree_node->port_num);
-}
-
 #endif // AUTO_PM_LIGHT_SLEEP
-
 
 esp_err_t hub_node_recycle(unsigned int node_uid)
 {
@@ -1392,6 +1391,16 @@ esp_err_t hub_notify_all_free(void)
     return ESP_OK;
 }
 #endif // ENABLE_USB_HUBS
+
+#ifdef LIGHT_SLEEP_PROBE
+esp_err_t hub_dev_gone_by_uid(unsigned int uid)
+{
+    HUB_DRIVER_CHECK(p_hub_driver_obj != NULL, ESP_ERR_INVALID_STATE);
+    dev_tree_node_t *dev_tree_node = dev_tree_node_get_by_uid(uid);
+    HUB_DRIVER_CHECK(dev_tree_node != NULL, ESP_ERR_NOT_FOUND);
+    return dev_tree_node_dev_gone(dev_tree_node->parent, dev_tree_node->port_num);
+}
+#endif // LIGHT_SLEEP_PROBE
 
 esp_err_t hub_process(void)
 {

@@ -201,9 +201,22 @@ menu "USB-OTG"
 
     menu "Power management"
 
+        # Hidden option
+        config USB_HOST_LIGHT_SLEEP_PROBE
+            bool
+            default n
+            help
+                Internal option: Enable light sleep probe. On Full speed root ports (using internal PHY),
+                It's not possible to register device disconnect followed by device connect. Thus the device acting as
+                suspended, could either be the same device after power cycle, or a fresh, not enumerated device.
+                To make sure the connected device is the enumerated device, issue a ctrl transfer to the device, making
+                sure the device is in addressed state.
+
         config USB_HOST_AUTO_PM_LIGHT_SLEEP
             bool "Automatically suspend root port before light sleep"
             depends on ESP_SLEEP_EVENT_CALLBACKS
+            #select USB_HOST_LIGHT_SLEEP_PROBE if SOC_USB_FSLS_PHY_NUM
+            select USB_HOST_LIGHT_SLEEP_PROBE if CONFIG_SOC_USB_FSLS_PHY_NUM >= 1
             default n
             help
                 Register light sleep event callbacks to automatically suspend the root port when the SoC

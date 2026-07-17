@@ -63,10 +63,8 @@ if(CONFIG_USB_HOST_HUBS_SUPPORTED)
                      "src/ext_port.c")
 endif()
 
-# Enum probe needed only for targets with Root ports using FSLS PHY
-if(CONFIG_USB_HOST_AUTO_PM_LIGHT_SLEEP AND CONFIG_SOC_USB_FSLS_PHY_NUM)
+if(CONFIG_USB_HOST_LIGHT_SLEEP_PROBE)
     list(APPEND srcs "src/enum_probe.c")
-    set(LIGHT_SLEEP_ENUM_PROBE ON)
 endif()
 
 idf_component_register(SRCS ${srcs}
