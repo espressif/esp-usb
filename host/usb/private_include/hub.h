@@ -228,6 +228,20 @@ esp_err_t hub_root_mark_exit_light_sleep(void);
  */
 esp_err_t hub_root_light_sleep_suspend_bus(void);
 
+/**
+ * @brief Report that a device is no longer present by its device-tree UID
+ *
+ * Propagates HUB_EVENT_DISCONNECTED for the node matching @p uid.
+ *
+ * @param[in] uid Device's node unique ID
+ *
+ * @return
+ *    - ESP_OK: Disconnect event propagated
+ *    - ESP_ERR_INVALID_STATE: Hub driver is not installed
+ *    - ESP_ERR_NOT_FOUND: Device tree node not found
+ */
+esp_err_t hub_dev_gone_by_uid(unsigned int uid);
+
 #endif // AUTO_PM_LIGHT_SLEEP
 
 /**

@@ -59,7 +59,8 @@ typedef struct urb_s urb_t;
 typedef enum {
     USB_PROC_REQ_SOURCE_USBH = 0x01,
     USB_PROC_REQ_SOURCE_HUB = 0x02,
-    USB_PROC_REQ_SOURCE_ENUM = 0x03
+    USB_PROC_REQ_SOURCE_ENUM = 0x03,
+    USB_PROC_REQ_SOURCE_PROBE = 0x04,
 } usb_proc_req_source_t;
 
 /**

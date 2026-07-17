@@ -18,6 +18,9 @@
 #include "hcd.h"
 #include "hub.h"
 #include "usbh.h"
+#ifdef AUTO_PM_LIGHT_SLEEP
+#include "enum_probe.h"
+#endif // AUTO_PM_LIGHT_SLEEP
 
 #if ENABLE_USB_HUBS
 #include "ext_hub.h"
@@ -105,7 +108,8 @@ typedef struct {
             struct {
                 hub_flag_action_t actions: 8;       /**< Hub actions */
                 uint32_t light_sleep_auto_pm: 1;    /**< Root port was automatically suspended from light sleep callback, when entering light sleep */
-                uint32_t reserved23: 23;            /**< Reserved */
+                uint32_t light_sleep_probe_pending: 1; /**< Root port resume after light sleep auto-suspend should run an enum probe */
+                uint32_t reserved22: 22;            /**< Reserved */
             };
             uint32_t val;                           /**< Hub flag action value */
         } flags;                                    /**< Hub flags */
@@ -503,6 +507,7 @@ reset_err:
             root_hub_port->dynamic.state = ROOT_PORT_STATE_ENABLED;
 #ifdef AUTO_PM_LIGHT_SLEEP
             p_hub_driver_obj->dynamic.flags.light_sleep_auto_pm = 0;
+            p_hub_driver_obj->dynamic.flags.light_sleep_probe_pending = 0;
 #endif // AUTO_PM_LIGHT_SLEEP
             break;
         default:
@@ -642,6 +647,35 @@ static void root_port_req(root_hub_port_t *root_hub_port)
         // Root port, including all the connected devices were resumed (global resume)
         // Clear all EPs and propagate the resumed event to clients
         usbh_devs_set_pm_actions_all(USBH_DEV_RESUME | USBH_DEV_RESUME_EVT);    // NOLINT(clang-analyzer-optin.core.EnumCastOutOfRange)
+
+#ifdef AUTO_PM_LIGHT_SLEEP
+        bool light_sleep_probe_pending = false;
+        HUB_DRIVER_ENTER_CRITICAL();
+        if (p_hub_driver_obj->dynamic.flags.light_sleep_probe_pending) {
+            p_hub_driver_obj->dynamic.flags.light_sleep_probe_pending = 0;
+            light_sleep_probe_pending = true;
+        }
+        HUB_DRIVER_EXIT_CRITICAL();
+
+        if (light_sleep_probe_pending) {
+            dev_tree_node_t *dev_tree_iter;
+            unsigned int probe_uid = 0;
+            bool probe_uid_found = false;
+            TAILQ_FOREACH(dev_tree_iter, &p_hub_driver_obj->single_thread.dev_nodes_tailq, tailq_entry) {
+                if (dev_tree_iter->parent == NULL) {
+                    probe_uid = dev_tree_iter->uid;
+                    probe_uid_found = true;
+                    break;
+                }
+            }
+            if (probe_uid_found) {
+                const esp_err_t probe_ret = probe_start(probe_uid);
+                if (probe_ret != ESP_OK) {
+                    ESP_LOGW(HUB_DRIVER_TAG, "Light sleep probe not started: %s", esp_err_to_name(probe_ret));
+                }
+            }
+        }
+#endif // AUTO_PM_LIGHT_SLEEP
     }
 #ifdef AUTO_PM_LIGHT_SLEEP
     if (port_reqs & PORT_REQ_EXIT_LIGHT_SLEEP) {
@@ -653,6 +687,9 @@ static void root_port_req(root_hub_port_t *root_hub_port)
             // That indicates, that the device has been disconnected during light sleep
             // Clock gating will be disabled by recovery routine, nothing to do here
             // Deferred suspend event will not be delivered
+            HUB_DRIVER_ENTER_CRITICAL();
+            p_hub_driver_obj->dynamic.flags.light_sleep_probe_pending = 0;
+            HUB_DRIVER_EXIT_CRITICAL();
             return;
         }
 
@@ -1142,9 +1179,18 @@ esp_err_t hub_root_light_sleep_suspend_bus(void)
 
     HUB_DRIVER_ENTER_CRITICAL();
     p_hub_driver_obj->dynamic.flags.light_sleep_auto_pm = 1;
+    p_hub_driver_obj->dynamic.flags.light_sleep_probe_pending = 1;
     root_hub_port->dynamic.state = ROOT_PORT_STATE_SUSPENDED;
     HUB_DRIVER_EXIT_CRITICAL();
     return ESP_OK;
+}
+
+esp_err_t hub_dev_gone_by_uid(unsigned int uid)
+{
+    HUB_DRIVER_CHECK(p_hub_driver_obj != NULL, ESP_ERR_INVALID_STATE);
+    dev_tree_node_t *dev_tree_node = dev_tree_node_get_by_uid(uid);
+    HUB_DRIVER_CHECK(dev_tree_node != NULL, ESP_ERR_NOT_FOUND);
+    return dev_tree_node_dev_gone(dev_tree_node->parent, dev_tree_node->port_num);
 }
 
 #endif // AUTO_PM_LIGHT_SLEEP
