@@ -1168,27 +1168,78 @@ unlock:
     xSemaphoreGive(p_usbh_obj->constant.mux_lock);
     return ret;
 }
+
 #endif // AUTO_PM_LIGHT_SLEEP
+
+/**
+ * @brief Decode PM related device control commands to device actions flags
+ *
+ * @param[in] device_ctrl Device control command
+ * @param[out] dev_actions_flags Pointer to resulting device actions flags
+ */
+static void usbh_pm_actions_decode(usbh_dev_ctrl_t device_ctrl, uint32_t *dev_actions_flags)
+{
+    if (!dev_actions_flags) {
+        return;
+    }
+
+    if (device_ctrl & USBH_DEV_SUSPEND) {
+        *dev_actions_flags |= (DEV_ACTION_EPn_HALT_FLUSH | DEV_ACTION_EP0_FLUSH);
+    }
+
+    if (device_ctrl & USBH_DEV_RESUME) {
+        *dev_actions_flags |= (DEV_ACTION_EP0_CLEAR | DEV_ACTION_EPn_CLEAR);
+    }
+
+    if (device_ctrl & USBH_DEV_SUSPEND_EVT) {
+        *dev_actions_flags |= DEV_ACTION_PROP_SUSPEND_EVT;
+    }
+
+    if (device_ctrl & USBH_DEV_RESUME_EVT) {
+        *dev_actions_flags |= DEV_ACTION_PROP_RESUME_EVT;
+    }
+}
+
+esp_err_t usbh_dev_set_pm_actions_by_uid(unsigned int uid, usbh_dev_ctrl_t device_ctrl)
+{
+    uint32_t dev_actions_flags = 0;
+    usbh_pm_actions_decode(device_ctrl, &dev_actions_flags);
+
+    device_t *dev_obj = NULL;
+    bool call_proc_req_cb = false;
+
+    USBH_ENTER_CRITICAL();
+    // Find device object from it's uid
+    dev_obj = _find_dev_from_uid(uid);
+    USBH_CHECK_FROM_CRIT(dev_obj != NULL, ESP_ERR_NOT_FOUND);
+
+    // Update device state
+    if (device_ctrl & USBH_DEV_SUSPEND_EVT) {
+        // Change device state to suspended and backup the current device state for resuming
+        dev_obj->dynamic.last_state = dev_obj->dynamic.state;
+        dev_obj->dynamic.state = USB_DEVICE_STATE_SUSPENDED;
+    }
+    if (device_ctrl & USBH_DEV_RESUME_EVT) {
+        // Set the device state, to the state in which it was before suspending
+        dev_obj->dynamic.state = dev_obj->dynamic.last_state;
+    }
+
+    call_proc_req_cb |= _dev_set_actions(dev_obj, dev_actions_flags);
+    USBH_EXIT_CRITICAL();
+
+    if (call_proc_req_cb) {
+        p_usbh_obj->constant.proc_req_cb(USB_PROC_REQ_SOURCE_USBH, false, p_usbh_obj->constant.proc_req_cb_arg);
+    }
+
+    return ESP_OK;
+
+}
 
 void usbh_devs_set_pm_actions_all(usbh_dev_ctrl_t device_ctrl)
 {
     // Decode the device_ctrl to dev_actions flags
     uint32_t dev_actions_flags = 0;
-    if (device_ctrl & USBH_DEV_SUSPEND) {
-        dev_actions_flags |= (DEV_ACTION_EPn_HALT_FLUSH | DEV_ACTION_EP0_FLUSH);
-    }
-
-    if (device_ctrl & USBH_DEV_RESUME) {
-        dev_actions_flags |= (DEV_ACTION_EP0_CLEAR | DEV_ACTION_EPn_CLEAR);
-    }
-
-    if (device_ctrl & USBH_DEV_SUSPEND_EVT) {
-        dev_actions_flags |= DEV_ACTION_PROP_SUSPEND_EVT;
-    }
-
-    if (device_ctrl & USBH_DEV_RESUME_EVT) {
-        dev_actions_flags |= DEV_ACTION_PROP_RESUME_EVT;
-    }
+    usbh_pm_actions_decode(device_ctrl, &dev_actions_flags);
 
     USBH_ENTER_CRITICAL();
     /*
@@ -1483,6 +1534,22 @@ esp_err_t usbh_dev_enum_unlock(usb_device_handle_t dev_hdl)
     USBH_EXIT_CRITICAL();
 
     return ret;
+}
+
+esp_err_t usbh_dev_enum_is_locked_by_uid(unsigned int uid, bool *is_locked)
+{
+    USBH_CHECK(is_locked != NULL, ESP_ERR_INVALID_ARG);
+
+    USBH_ENTER_CRITICAL();
+    device_t *dev_obj = _find_dev_from_uid(uid);
+    USBH_CHECK_FROM_CRIT(dev_obj != NULL, ESP_ERR_NOT_FOUND);
+    if (dev_obj->dynamic.flags.enum_lock) {
+        *is_locked = true;
+    } else {
+        *is_locked = false;
+    }
+    USBH_EXIT_CRITICAL();
+    return ESP_OK;
 }
 
 esp_err_t usbh_dev_set_ep0_mps(usb_device_handle_t dev_hdl, uint16_t wMaxPacketSize)
