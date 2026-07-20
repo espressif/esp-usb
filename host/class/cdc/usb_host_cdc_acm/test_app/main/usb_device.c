@@ -262,7 +262,6 @@ TEST_CASE("mock_dev_app_suspend_dconn_no_dev", "[cdc_acm_mock_dev][suspend_dconn
 static void device_suspend_reconnect(size_t dconn_delay_ms, size_t conn_delay_ms)
 {
     cdc_acm_mock_device_run();
-    tinyusb_event_id_t mask_event = UINT32_MAX;
     bool tinyusb_deinit = false;
 
     while (!tinyusb_deinit) {
