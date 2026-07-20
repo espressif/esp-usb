@@ -28,7 +28,7 @@
 #include "esp_private/sleep_event.h"        // For light sleep event callbacks
 #endif // AUTO_PM_LIGHT_SLEEP
 #ifdef LIGHT_SLEEP_PROBE
-#include "enum_probe.h"
+#include "usb_host_probe.h"
 #endif // LIGHT_SLEEP_PROBE
 
 #if SOC_USB_OTG_SUPPORTED

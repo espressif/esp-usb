@@ -1501,7 +1501,6 @@ esp_err_t usbh_dev_enum_lock(usb_device_handle_t dev_hdl)
         }
     }
     if (ep_found) {
-        esp_rom_printf("AA\n");
         ret = ESP_ERR_INVALID_STATE;
         goto exit;
     }
@@ -1511,7 +1510,6 @@ esp_err_t usbh_dev_enum_lock(usb_device_handle_t dev_hdl)
         dev_obj->dynamic.flags.enum_lock = true;
         ret = ESP_OK;
     } else {
-        esp_rom_printf("BB %d %d\n", dev_obj->dynamic.flags.enum_lock, dev_obj->dynamic.open_count);
         ret = ESP_ERR_INVALID_STATE;
     }
     USBH_EXIT_CRITICAL();

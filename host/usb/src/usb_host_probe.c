@@ -11,7 +11,7 @@
 #include "usb_private.h"
 #include "usbh.h"
 #include "enum.h"
-#include "enum_probe.h"
+#include "usb_host_probe.h"
 #include "hub.h"
 #include "usb/usb_helpers.h"
 
@@ -217,7 +217,7 @@ esp_err_t probe_install(probe_config_t *config, void **client_ret)
     p_probe_driver = probe_drv;
     *client_ret = (void *)probe_drv;
 
-    ESP_LOGI(PROBE_TAG, "Enum probe installed");
+    ESP_LOGI(PROBE_TAG, "USB Host probe installed");
     return ESP_OK;
 }
 

@@ -64,7 +64,7 @@ if(CONFIG_USB_HOST_HUBS_SUPPORTED)
 endif()
 
 if(CONFIG_USB_HOST_LIGHT_SLEEP_PROBE)
-    list(APPEND srcs "src/enum_probe.c")
+    list(APPEND srcs "src/usb_host_probe.c")
 endif()
 
 idf_component_register(SRCS ${srcs}

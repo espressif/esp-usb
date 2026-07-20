@@ -1298,7 +1298,6 @@ esp_err_t enum_cancel(unsigned int uid)
 esp_err_t enum_is_idle(void)
 {
     ENUM_CHECK(p_enum_driver != NULL, ESP_ERR_INVALID_STATE);
-    printf("ENUM STAGE = %d\n", p_enum_driver->single_thread.stage);
     return (p_enum_driver->single_thread.stage == ENUM_STAGE_IDLE) ? ESP_OK : ESP_ERR_INVALID_STATE;
 }
 

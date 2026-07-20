@@ -19,7 +19,7 @@
 #include "hub.h"
 #include "usbh.h"
 #ifdef LIGHT_SLEEP_PROBE
-#include "enum_probe.h"
+#include "usb_host_probe.h"
 #endif // LIGHT_SLEEP_PROBE
 
 #if ENABLE_USB_HUBS
