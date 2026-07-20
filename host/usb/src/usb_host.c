@@ -481,7 +481,12 @@ static void hub_event_callback(hub_event_data_t *event_data, void *arg)
         enum_start(event_data->connected.uid);
         break;
     case HUB_EVENT_RESET_COMPLETED:
-        ESP_ERROR_CHECK(enum_proceed(event_data->reset_completed.uid));
+        bool enum_locked;
+        usbh_dev_enum_is_locked_by_uid(event_data->reset_completed.uid, &enum_locked);
+        if (enum_locked) {
+            // Proceed with enum only when enum lock is taken
+            ESP_ERROR_CHECK(enum_proceed(event_data->reset_completed.uid));
+        }
         break;
     case HUB_EVENT_DISCONNECTED:
         // Cancel enumeration process
@@ -524,6 +529,31 @@ static void enum_event_callback(enum_event_data_t *event_data, void *arg)
         break;
     }
 }
+
+#ifdef LIGHT_SLEEP_PROBE
+static void probe_event_callback(probe_event_data_t *event_data, void *arg)
+{
+    probe_event_t event = event_data->event;
+
+    switch (event) {
+    case PROBE_EVENT_PASSED:
+        ESP_LOGI(USB_HOST_TAG, "PROBE_EVENT_PASSED");
+        // Send resume event only to those device which passed the probe
+        ESP_ERROR_CHECK_WITHOUT_ABORT(usbh_dev_set_pm_actions_by_uid(event_data->passed.uid, USBH_DEV_RESUME_EVT));
+        break;
+    case PROBE_EVENT_FAILED:
+        ESP_LOGI(USB_HOST_TAG, "PROBE_EVENT_FAILED");
+        // Connected device underwent a power cycle during light sleep, or it's different (not enumerated) device
+        // Remove the device
+        hub_node_reset(event_data->failed.uid);
+        //hub_dev_gone_by_uid(event_data->failed.uid);
+        break;
+    default:
+        abort();    // Should never occur
+        break;
+    }
+}
+#endif // LIGHT_SLEEP_PROBE
 
 // ------------------- Client Related ----------------------
 
@@ -781,6 +811,8 @@ esp_err_t usb_host_install(const usb_host_config_t *config)
     probe_config_t probe_config = {
         .proc_req_cb = proc_req_callback,
         .proc_req_cb_arg = NULL,
+        .probe_event_cb = probe_event_callback,
+        .probe_event_cb_arg = NULL,
     };
     ret = probe_install(&probe_config, &host_lib_obj->constant.probe_client);
     if (ret != ESP_OK) {

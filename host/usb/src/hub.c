@@ -688,13 +688,18 @@ static void root_port_req(root_hub_port_t *root_hub_port)
         root_hub_port->dynamic.state = ROOT_PORT_STATE_ENABLED;
         HUB_DRIVER_EXIT_CRITICAL();
 
+#ifndef LIGHT_SLEEP_PROBE
         // Root port, including all the connected devices were resumed (global resume)
         // Clear all EPs and propagate the resumed event to clients
         usbh_devs_set_pm_actions_all(USBH_DEV_RESUME | USBH_DEV_RESUME_EVT);    // NOLINT(clang-analyzer-optin.core.EnumCastOutOfRange)
 
         // Probe connected devices, to check if disconnection (power cycle) did not happen during light sleep
         // On FS ports (internal FSLS PHY) it's not possible to detect disconnect interrupt during light sleep
-#ifdef LIGHT_SLEEP_PROBE
+
+#else   // LIGHT_SLEEP_PROBE
+
+        // Only WH resume, events will be delivered by the probe event, based on the device presence
+        usbh_devs_set_pm_actions_all(USBH_DEV_RESUME);
         usbh_devs_probe();
 #endif // LIGHT_SLEEP_PROBE
     }
@@ -1263,6 +1268,7 @@ esp_err_t hub_node_reset(unsigned int node_uid)
             ESP_LOGE(HUB_DRIVER_TAG, "Failed to issue root port reset");
         } else {
             ret = dev_tree_node_reset_completed(NULL, dev_tree_node->port_num);
+            printf("Reset completed\n");
         }
     } else {
 #if ENABLE_USB_HUBS

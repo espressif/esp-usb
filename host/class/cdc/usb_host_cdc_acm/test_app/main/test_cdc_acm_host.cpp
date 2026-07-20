@@ -1823,6 +1823,69 @@ TEST_CASE("light_sleep_dconn_no_dev", "[light_sleep][host_suspend_dconn_no_dev]"
     vTaskDelay(20); // Short delay to allow task to be cleaned up
 }
 
+/**
+ * @brief Test: Device reconnection during light sleep
+ */
+TEST_CASE("light_sleep_dconn_dev_reconnect", "[light_sleep][host_suspend_dev_reconnect]")
+{
+    nb_of_responses = 0;
+    test_install_cdc_driver(&driver_config_new_dev_cb);
+
+    TEST_ASSERT_EQUAL(ESP_OK, esp_sleep_enable_timer_wakeup(TIMER_LIGHT_SLEEP_WAKEUP_TIME_US));
+    printf("Light sleep timer wakeup source is ready\n");
+
+    cdc_acm_dev_hdl_t cdc_dev = NULL;
+    cdc_acm_host_device_config_t dev_config = default_dev_config;
+
+    printf("Opening CDC-ACM device\n");
+    wait_for_app_event(&new_dev_event, 100);
+    TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_open(0x303A, 0x4002, 0, &dev_config, &cdc_dev)); // 0x303A:0x4002 (TinyUSB Dual CDC device)
+    TEST_ASSERT_NOT_NULL(cdc_dev);
+
+    for (int i = 0; i < NUM_ITERATIONS; i++) {
+        TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_data_tx_blocking(cdc_dev, tx_buf, sizeof(tx_buf), 1000));
+    }
+    vTaskDelay(10); // Wait until responses are processed
+    TEST_ASSERT_EQUAL(NUM_ITERATIONS, nb_of_responses);
+
+    light_sleep_enter_catch();                                 // Enter light sleep
+
+    // Port was reconnected during light sleep (by USB Device): No disconnect interrupt is delivered on FS/LS Root ports
+    // Expect suspend event
+    wait_for_app_event(&suspend_event, pdMS_TO_TICKS(5000));
+
+    // Manually resume the root port, usb_host_lib automatically probes device if it's in addressed state
+    TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_root_port_resume());
+
+    // Probe check would not pass (device not in addressed state), expect NO device event
+    // TODO: Do we want no device event, or device gone?
+    wait_for_no_app_event(pdMS_TO_TICKS(2000));
+
+    TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_close(cdc_dev));
+    cdc_dev = NULL;
+    nb_of_responses = 0;
+
+    // Toggle power, to get new device enumeration
+    force_conn_state(false, 50);
+    force_conn_state(true, 50);
+
+    wait_for_app_event(&new_dev_event, pdMS_TO_TICKS(5000));
+
+    // Open the device again
+    printf("Opening CDC-ACM device\n");
+    TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_open(0x303A, 0x4002, 0, &dev_config, &cdc_dev)); // 0x303A:0x4002 (TinyUSB Dual CDC device)
+    TEST_ASSERT_NOT_NULL(cdc_dev);
+    for (int i = 0; i < NUM_ITERATIONS; i++) {
+        TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_data_tx_blocking(cdc_dev, tx_buf, sizeof(tx_buf), 1000));
+    }
+    vTaskDelay(10); // Wait until responses are processed
+    TEST_ASSERT_EQUAL(NUM_ITERATIONS, nb_of_responses);
+
+    TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_close(cdc_dev));
+    TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_uninstall());
+    vTaskDelay(20); // Short delay to allow task to be cleaned up
+}
+
 #endif // CONFIG_ESP_SLEEP_EVENT_CALLBACKS && CDC_HOST_SUSPEND_RESUME_API_SUPPORTED
 
 #define TIMER_DEEP_SLEEP_WAKEUP_TIME_US  (3 * 1000 * 1000) // 3 seconds

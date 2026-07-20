@@ -13,7 +13,31 @@
 extern "C" {
 #endif
 
-#ifdef LIGHT_SLEEP_PROBE
+typedef enum {
+    PROBE_EVENT_PASSED,
+    PROBE_EVENT_FAILED,
+} probe_event_t;
+
+typedef struct {
+    probe_event_t event;
+    union {
+        struct {
+            unsigned int uid;
+        } passed;
+        struct {
+            unsigned int uid;
+        } failed;
+    };
+} probe_event_data_t;
+
+// ---------------------- Callbacks ------------------------
+
+/**
+ * @brief Callback used to indicate that the USBH has an event
+ *
+ * @note This callback is called from within usbh_process()
+ */
+typedef void (*probe_event_cb_t)(probe_event_data_t *event_data, void *arg);
 
 /**
  * @brief Probe driver configuration
@@ -21,6 +45,8 @@ extern "C" {
 typedef struct {
     usb_proc_req_cb_t proc_req_cb;      /**< Processing request callback */
     void *proc_req_cb_arg;              /**< Processing request callback argument */
+    probe_event_cb_t probe_event_cb;    /**< Probe event callback */
+    void *probe_event_cb_arg;           /**< Probe event callback argument */
 } probe_config_t;
 
 /**
@@ -80,8 +106,6 @@ esp_err_t probe_cancel(unsigned int uid);
  *    - ESP_ERR_INVALID_STATE: Probe driver is not installed
  */
 esp_err_t probe_process(void);
-
-#endif // LIGHT_SLEEP_PROBE
 
 #ifdef __cplusplus
 }

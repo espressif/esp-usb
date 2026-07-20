@@ -215,8 +215,7 @@ menu "USB-OTG"
         config USB_HOST_AUTO_PM_LIGHT_SLEEP
             bool "Automatically suspend root port before light sleep"
             depends on ESP_SLEEP_EVENT_CALLBACKS
-            #select USB_HOST_LIGHT_SLEEP_PROBE if SOC_USB_FSLS_PHY_NUM
-            select USB_HOST_LIGHT_SLEEP_PROBE if CONFIG_SOC_USB_FSLS_PHY_NUM >= 1
+            select USB_HOST_LIGHT_SLEEP_PROBE if SOC_USB_FSLS_PHY_NUM > 0
             default n
             help
                 Register light sleep event callbacks to automatically suspend the root port when the SoC

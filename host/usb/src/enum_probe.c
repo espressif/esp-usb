@@ -15,9 +15,6 @@
 #include "hub.h"
 #include "usb/usb_helpers.h"
 
-#ifdef LIGHT_SLEEP_PROBE
-
-#warning "HELLO"
 #define PROBE_CTRL_TRANSFER_MAX_DATA_LEN    CONFIG_USB_HOST_CONTROL_TRANSFER_MAX_SIZE
 
 /**
@@ -45,13 +42,14 @@ typedef struct {
         uint8_t ep0_mps;
         int expect_num_bytes;               /**< Expected number of bytes for IN transfers stages. Set to 0 for OUT transfer */
         bool passed;                        /**< Flag indicating, that the probing passed */
-        unsigned int failed_uid;            /**< Unique node ID of device which failed the probing */
     } single_thread;                        /**< Single thread members don't require a critical section as long as they are never accessed from multiple threads */
 
     struct {
         urb_t *urb;                         /**< URB used for probe control transfers. Max data length of 8 for LS devices, 64 for FS/HS devices */
         usb_proc_req_cb_t proc_req_cb;      /**< USB Host process request callback. Refer to proc_req_callback() in usb_host.c */
         void *proc_req_cb_arg;              /**< USB Host process request callback argument */
+        probe_event_cb_t probe_event_cb;    /**< Probe event callback */
+        void *probe_event_cb_arg;           /**< Probe event callback argument */
     } constant;                             /**< Constant members. Do not change after installation thus do not require a critical section or mutex */
 } probe_driver_t;
 
@@ -141,18 +139,40 @@ static esp_err_t probe_stage_done(void)
         ESP_ERROR_CHECK(usbh_dev_close(dev_hdl));
     }
 
+    // Cleanup
     p_probe_driver->single_thread.node_uid = 0;
     p_probe_driver->single_thread.dev_hdl = NULL;
     p_probe_driver->single_thread.passed = false;
     p_probe_driver->single_thread.expect_num_bytes = 0;
     p_probe_driver->constant.urb->transfer.context = NULL;
+    p_probe_driver->single_thread.stage = PROBE_STAGE_IDLE;
 
-    if (!passed) {
-        ESP_LOGW(PROBE_TAG, "Post-light-sleep probe failed for uid %u", node_uid);
-        p_probe_driver->single_thread.failed_uid = node_uid;
-    } else {
+    // Deliver event
+    probe_event_data_t event_data = {};
+    if (passed) {
         ESP_LOGI(PROBE_TAG, "Post-light-sleep probe passed for uid %u", node_uid);
+
+        const probe_event_data_t passed_event_data = {
+            .event = PROBE_EVENT_PASSED,
+            .passed = {
+                .uid = node_uid,
+            },
+        };
+        event_data = passed_event_data;
+    } else {
+        ESP_LOGW(PROBE_TAG, "Post-light-sleep probe failed for uid %u", node_uid);
+
+        const probe_event_data_t failed_event_data = {
+            .event = PROBE_EVENT_FAILED,
+            .failed = {
+                .uid = node_uid,
+            },
+        };
+        event_data = failed_event_data;
     }
+
+    // Call event callback
+    p_probe_driver->constant.probe_event_cb(&event_data, p_probe_driver->constant.probe_event_cb_arg);
 
     return ESP_OK;
 }
@@ -166,18 +186,6 @@ static void probe_advance_after_check_dev_desc(bool check_ok)
 
     // Request processing
     p_probe_driver->constant.proc_req_cb(USB_PROC_REQ_SOURCE_PROBE, false, p_probe_driver->constant.proc_req_cb_arg);
-}
-
-static void probe_finish_done_stage(void)
-{
-    ESP_ERROR_CHECK(probe_stage_done());
-    p_probe_driver->single_thread.stage = PROBE_STAGE_IDLE;
-
-    if (p_probe_driver->single_thread.failed_uid != 0) {
-        const unsigned int failed_uid = p_probe_driver->single_thread.failed_uid;
-        p_probe_driver->single_thread.failed_uid = 0;
-        hub_dev_gone_by_uid(failed_uid);
-    }
 }
 
 // -------------------------- Public API ---------------------------------------
@@ -202,6 +210,8 @@ esp_err_t probe_install(probe_config_t *config, void **client_ret)
     probe_drv->constant.urb = urb;
     probe_drv->constant.proc_req_cb = config->proc_req_cb;
     probe_drv->constant.proc_req_cb_arg = config->proc_req_cb_arg;
+    probe_drv->constant.probe_event_cb = config->probe_event_cb;
+    probe_drv->constant.probe_event_cb_arg = config->probe_event_cb_arg;
     probe_drv->single_thread.stage = PROBE_STAGE_IDLE;
 
     p_probe_driver = probe_drv;
@@ -294,14 +304,12 @@ esp_err_t probe_process(void)
         probe_advance_after_check_dev_desc(res == ESP_OK);
         break;
     case PROBE_STAGE_DONE:
-        probe_finish_done_stage();
+        probe_stage_done();
         break;
     default:
-        abort();
+        //abort();
         break;
     }
 
     return ESP_OK;
 }
-
-#endif // LIGHT_SLEEP_PROBE
