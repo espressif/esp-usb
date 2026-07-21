@@ -1218,6 +1218,7 @@ esp_err_t hub_root_light_sleep_suspend_bus(void)
 
 #endif // AUTO_PM_LIGHT_SLEEP
 
+
 esp_err_t hub_node_recycle(unsigned int node_uid)
 {
     HUB_DRIVER_ENTER_CRITICAL();

@@ -151,15 +151,6 @@ esp_err_t enum_cancel(unsigned int uid);
  */
 esp_err_t enum_process(void);
 
-/**
- * @brief Check whether the enumeration driver is idle
- *
- * @return
- *    - ESP_OK: Enumeration driver is idle
- *    - ESP_ERR_INVALID_STATE: Enumeration driver is not installed or busy
- */
-esp_err_t enum_is_idle(void);
-
 #ifdef __cplusplus
 }
 #endif

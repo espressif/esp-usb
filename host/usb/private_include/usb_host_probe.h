@@ -13,19 +13,22 @@
 extern "C" {
 #endif
 
+/**
+ * @brief Event data object for Probe driver events
+ */
 typedef enum {
-    PROBE_EVENT_PASSED,
-    PROBE_EVENT_FAILED,
+    PROBE_EVENT_PASSED,             /**< Post-light-sleep probe succeeded; device is still present */
+    PROBE_EVENT_FAILED,             /**< Post-light-sleep probe failed; device is absent or changed */
 } probe_event_t;
 
 typedef struct {
-    probe_event_t event;
+    probe_event_t event;            /**< Probe driver event */
     union {
         struct {
-            unsigned int uid;
+            unsigned int uid;       /**< Unique node ID (probe passed) */
         } passed;
         struct {
-            unsigned int uid;
+            unsigned int uid;       /**< Unique node ID (probe failed) */
         } failed;
     };
 } probe_event_data_t;
@@ -33,9 +36,9 @@ typedef struct {
 // ---------------------- Callbacks ------------------------
 
 /**
- * @brief Callback used to indicate that the USBH has an event
+ * @brief Callback used to indicate that the Probe driver has an event
  *
- * @note This callback is called from within usbh_process()
+ * @note This callback is called from within probe_process()
  */
 typedef void (*probe_event_cb_t)(probe_event_data_t *event_data, void *arg);
 

@@ -1139,7 +1139,7 @@ static void enum_control_transfer_complete(usb_transfer_t *ctrl_xfer)
 esp_err_t enum_install(enum_config_t *config, void **client_ret)
 {
     ENUM_CHECK(p_enum_driver == NULL, ESP_ERR_INVALID_STATE);
-    ENUM_CHECK(config != NULL, ESP_ERR_INVALID_ARG);
+    ENUM_CHECK(config != NULL && client_ret != NULL, ESP_ERR_INVALID_ARG);
 
     esp_err_t ret;
     enum_driver_t *enum_drv = heap_caps_calloc(1, sizeof(enum_driver_t), MALLOC_CAP_DEFAULT);
@@ -1293,12 +1293,6 @@ esp_err_t enum_cancel(unsigned int uid)
     }
 
     return ESP_OK;
-}
-
-esp_err_t enum_is_idle(void)
-{
-    ENUM_CHECK(p_enum_driver != NULL, ESP_ERR_INVALID_STATE);
-    return (p_enum_driver->single_thread.stage == ENUM_STAGE_IDLE) ? ESP_OK : ESP_ERR_INVALID_STATE;
 }
 
 esp_err_t enum_process(void)
