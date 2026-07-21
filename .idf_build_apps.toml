@@ -1,6 +1,7 @@
 exclude = [
     "static_analysis",
     "device/esp_tinyusb/test_apps/usb_cv",
+    "device/esp_tinyusb/tinyusb",
 ]
 recursive = true
 manifest_file = ".build-test-rules.yml"

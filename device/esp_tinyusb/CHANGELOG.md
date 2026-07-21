@@ -1,3 +1,7 @@
+## [Unreleased]
+
+- TODO write this note
+
 ## 2.2.1
 
 - esp_tinyusb: Add an explicit `tinyusb` dependency when the IDF component manager is disabled
@@ -23,7 +27,7 @@
 
 ## 2.0.1
 
-- esp_tinyusb: Added ESP32H4 support
+- esp_tinyusb: Added ESP32-H4 support
 - esp_tinyusb: Fixed an assertion failure on the GetOtherSpeedDescriptor() request for ESP32-P4 when the OTG1.1 port is used
 - MSC: Added dynamic member and storage operation multitask protection
 - MSC: Used `esp_vfs_fat_register_cfg` function prototype for esp-idf v5.3 and higher

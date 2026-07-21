@@ -61,8 +61,7 @@ jobs:
     needs: get-changed-files
     uses: ./.github/workflows/build_and_run_test_app_usb.yml
     with:
-      idf_releases: '["release-v5.2",
-                      "release-v5.3",
+      idf_releases: '["release-v5.3",
                       "release-v5.4",
                       "release-v5.5",
                       "release-v6.0",

@@ -114,8 +114,7 @@ extern "C" {
 // Enable dcd_dcache clean/invalidate/clean_invalidate calls
 #   define CFG_TUD_MEM_DCACHE_ENABLE    1
 #define CFG_TUD_MEM_DCACHE_LINE_SIZE    CONFIG_CACHE_L1_CACHE_LINE_SIZE
-// NOTE: starting with esp-idf v5.3 there is specific attribute present: DRAM_DMA_ALIGNED_ATTR
-#   define CFG_TUSB_MEM_SECTION         __attribute__((aligned(CONFIG_CACHE_L1_CACHE_LINE_SIZE))) DRAM_ATTR
+#   define CFG_TUSB_MEM_SECTION         DRAM_DMA_ALIGNED_ATTR
 #else
 #   define CFG_TUD_MEM_DCACHE_ENABLE    0
 #   define CFG_TUD_MEM_CACHE_ENABLE     0
