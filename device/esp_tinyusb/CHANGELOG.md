@@ -1,3 +1,7 @@
+## Unreleased
+
+- esp_tinyusb: Added `tinyusb_set_otg_suspend_state()` and `tinyusb_clear_otg_wakeup_status()` wrappers for USB light-sleep wakeup on high-speed UTMI ports
+
 ## 2.2.1
 
 - esp_tinyusb: Add an explicit `tinyusb` dependency when the IDF component manager is disabled

@@ -166,10 +166,42 @@ esp_err_t tinyusb_driver_uninstall(void);
  *
  * @return
  *      - ESP_OK on success
- *      - ESP_ERR_INVALID_STATE if remote wakeup is not enabled by the host
+ *      - ESP_ERR_INVALID_STATE if the TinyUSB driver is not installed, or remote wakeup is not enabled by the host
  *      - ESP_FAIL if the remote wakeup request cannot be sent
  */
 esp_err_t tinyusb_remote_wakeup(void);
+
+/**
+ * @brief Set USB OTG suspend state for light-sleep wakeup handling.
+ *
+ * Call with `true` before entering light sleep while the USB bus is suspended,
+ * and with `false` after waking up.
+ *
+ * @note Only supported on targets and IDF releases that provide USB wakeup through
+ *       the UTMI PHY, Also configure `esp_sleep_enable_usb_wakeup()`
+ *       and keep the USB connection power domain on during light sleep.
+ *
+ * @param[in] in_suspend `true` when entering light sleep during USB suspend.
+ *
+ * @return
+ *      - ESP_OK on success
+ *      - ESP_ERR_INVALID_STATE if the TinyUSB driver is not installed
+ *      - ESP_ERR_NOT_SUPPORTED if USB wakeup is not supported on the current target or IDF release
+ */
+esp_err_t tinyusb_set_otg_suspend_state(bool in_suspend);
+
+/**
+ * @brief Clear USB OTG wakeup status after waking from light sleep.
+ *
+ * @note Only supported on targets and IDF releases that provide USB wakeup through
+ *       the UTMI PHY.
+ *
+ * @return
+ *      - ESP_OK on success
+ *      - ESP_ERR_INVALID_STATE if the TinyUSB driver is not installed
+ *      - ESP_ERR_NOT_SUPPORTED if USB wakeup is not supported on the current target or IDF release
+ */
+esp_err_t tinyusb_clear_otg_wakeup_status(void);
 
 #ifdef __cplusplus
 }
