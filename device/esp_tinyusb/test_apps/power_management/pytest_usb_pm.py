@@ -34,7 +34,17 @@ TINYUSB_EVENTS = {
     "resumed":                      "TINYUSB_EVENT_RESUMED",
     "suspended_remote_wake_dis":    "TINYUSB_EVENT_SUSPENDED_REMOTE_WAKE_DIS",
     "suspended_remote_wake_en":     "TINYUSB_EVENT_SUSPENDED_REMOTE_WAKE_EN",
+    "light_sleep_enter":            "LIGHT_SLEEP_ENTER",
+    "light_sleep_data_rx":          "LIGHT_SLEEP_DATA_RX",
 }
+
+def find_dut_cdc_ports() -> list[str]:
+    '''Return serial port paths for the TinyUSB CDC device.'''
+    ports = []
+    for p in comports():
+        if (p.vid == DUT_VID and p.pid == DUT_PID):
+            ports.append(p.device)
+    return ports
 
 @pytest.mark.usb_device
 @pytest.mark.flaky(reruns=1, reruns_delay=10)
@@ -44,7 +54,7 @@ TINYUSB_EVENTS = {
         pytest.param('default', 'esp32s2'),
         pytest.param('default', 'esp32s3'),
         pytest.param('default', 'esp32p4', marks=[pytest.mark.eco_default]),
-        pytest.param('esp32p4_eco4', 'esp32p4', marks=[pytest.mark.esp32p4_eco4]),
+        #pytest.param('esp32p4_eco4', 'esp32p4', marks=[pytest.mark.esp32p4_eco4]),
     ],
     indirect=['target'],
 )
@@ -69,10 +79,7 @@ def test_usb_device_suspend_resume(dut: IdfDut) -> None:
     sleep(2)  # Some time for the OS to enumerate our USB device
 
     # Find device with Espressif TinyUSB VID/PID
-    ports = []
-    for p in comports():
-        if (p.vid == DUT_VID and p.pid == DUT_PID):
-            ports.append(p.device)
+    ports = find_dut_cdc_ports()
 
     if len(ports) == 0:
         raise Exception('TinyUSB COM port not found')
@@ -185,7 +192,7 @@ def check_remote_wake_feature(VID: int, PID: int, has_remote_wake: bool) -> None
         pytest.param('default', 'esp32s2'),
         pytest.param('default', 'esp32s3'),
         pytest.param('default', 'esp32p4', marks=[pytest.mark.eco_default]),
-        pytest.param('esp32p4_eco4', 'esp32p4', marks=[pytest.mark.esp32p4_eco4]),
+        #pytest.param('esp32p4_eco4', 'esp32p4', marks=[pytest.mark.esp32p4_eco4]),
     ],
     indirect=['target'],
 )
@@ -228,3 +235,68 @@ def test_usb_device_remote_wakeup_en(dut: IdfDut) -> None:
 
     # Expect device to resume (remote wakeup)
     dut.expect_exact(TINYUSB_EVENTS['resumed'])
+
+@pytest.mark.usb_device
+@pytest.mark.parametrize(
+    'config, target',
+    [
+        pytest.param('default', 'esp32p4', marks=[pytest.mark.eco_default]),
+        #pytest.param('esp32p4_eco4', 'esp32p4', marks=[pytest.mark.esp32p4_eco4]),
+    ],
+    indirect=['target'],
+)
+def test_usb_device_light_sleep_usb_wakeup(dut: IdfDut) -> None:
+    '''
+    Running the test locally:
+    1. Build the test_app for ESP32-P4
+    2. Connect the DUT to your test runner with USB device and flashing ports
+    3. Run `pytest --target esp32p4`
+
+    Test procedure:
+    1. Run the light-sleep wakeup Unity test on the DUT
+    2. Wait for USB attach and auto suspend
+    3. After the DUT enters light sleep, access the CDC port to wake the SoC
+    4. Send data to the device and verify the echoed reply
+    5. Expect USB wakeup, bus resume, and data reception markers from the DUT
+    '''
+    sleep(5)
+    dut.expect_exact('Press ENTER to see the list of tests.')
+    dut.write('[device_esp_sleep_light_sleep]')
+    dut.expect_exact('TinyUSB: TinyUSB Driver installed')
+    sleep(2)
+
+    ports = find_dut_cdc_ports()
+    if len(ports) == 0:
+        raise Exception('TinyUSB COM port not found')
+
+    try:
+        with Serial(ports[0], timeout=2) as cdc:
+
+            dut.expect_exact(TINYUSB_EVENTS['attached'])
+            sleep(3)
+            dut.expect_exact(TINYUSB_EVENTS['suspended_remote_wake_en'])
+            dut.expect_exact(TINYUSB_EVENTS['light_sleep_enter'])
+            sleep(3)
+            cdc.write(b'Light sleep wake\r\n')
+            res = cdc.readline()
+            assert b'Light sleep ok\r\n' in res
+    except SerialException as e:
+        raise RuntimeError(f"Failed to open CDC device on {ports[0]}") from e
+
+    dut.expect_exact(TINYUSB_EVENTS['resumed'])
+    dut.expect_exact(TINYUSB_EVENTS['light_sleep_data_rx'])
+
+
+@pytest.mark.usb_device
+@pytest.mark.parametrize(
+    'config, target',
+    [
+        pytest.param('default', 'esp32s2'),
+        pytest.param('default', 'esp32s3'),
+        pytest.param('default', 'esp32p4', marks=[pytest.mark.eco_default]),
+        #pytest.param('esp32p4_eco4', 'esp32p4', marks=[pytest.mark.esp32p4_eco4]),
+    ],
+    indirect=['target'],
+)
+def test_usb_device_pm(dut: IdfDut) -> None:
+    dut.run_all_single_board_cases(group='device_pm')

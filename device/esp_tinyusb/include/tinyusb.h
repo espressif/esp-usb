@@ -171,6 +171,38 @@ esp_err_t tinyusb_driver_uninstall(void);
  */
 esp_err_t tinyusb_remote_wakeup(void);
 
+/**
+ * @brief Set USB OTG suspend state for light-sleep wakeup handling.
+ *
+ * Call with `true` before entering light sleep while the USB bus is suspended,
+ * and with `false` after waking up.
+ *
+ * @note Only supported on high-speed USB ports that use the UTMI PHY
+ *       (for example `TINYUSB_PORT_HIGH_SPEED_0` on ESP32-P4, or the default
+ *       port on ESP32-S31). Also configure `esp_sleep_enable_usb_wakeup()` and
+ *       keep the USB connection power domain on during light sleep.
+ *
+ * @param[in] in_suspend `true` when entering light sleep during USB suspend.
+ *
+ * @return
+ *      - ESP_OK on success
+ *      - ESP_ERR_INVALID_STATE if the TinyUSB driver is not installed
+ *      - ESP_ERR_NOT_SUPPORTED if the current port does not use the UTMI PHY
+ */
+esp_err_t tinyusb_set_otg_suspend_state(bool in_suspend);
+
+/**
+ * @brief Clear USB OTG wakeup status after waking from light sleep.
+ *
+ * @note Only supported on high-speed USB ports that use the UTMI PHY.
+ *
+ * @return
+ *      - ESP_OK on success
+ *      - ESP_ERR_INVALID_STATE if the TinyUSB driver is not installed
+ *      - ESP_ERR_NOT_SUPPORTED if the current port does not use the UTMI PHY
+ */
+esp_err_t tinyusb_clear_otg_wakeup_status(void);
+
 #ifdef __cplusplus
 }
 #endif

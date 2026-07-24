@@ -253,6 +253,35 @@ If any descriptor field is set to `NULL`, default descriptor will be assigned du
   }
 ```
 
+### Light sleep with USB wakeup
+
+On high-speed UTMI ports (ESP32-P4 HS port and ESP32-S31), the device can wake
+from light sleep on USB activity while the bus is suspended. The feature is **NOT** available on FS/LS only ports due to PHY limitations.
+
+Before using light sleep, configure the sleep subsystem:
+
+```c
+  ESP_ERROR_CHECK(esp_sleep_cpu_retention_init());
+  ESP_ERROR_CHECK(esp_sleep_enable_usb_wakeup());
+  ESP_ERROR_CHECK(esp_sleep_pd_config(ESP_PD_DOMAIN_CNNT, ESP_PD_OPTION_ON));
+```
+
+When the host suspends the device, prepare the UTMI PHY, enter light sleep, and
+restore the PHY state afterward:
+
+```c
+  void tud_suspend_cb(bool remote_wakeup_en)
+  {
+      ESP_ERROR_CHECK(tinyusb_set_otg_suspend_state(true));
+      esp_err_t err = esp_light_sleep_start();
+      if (err != ESP_OK) {
+          // Handle ESP_ERR_SLEEP_REJECT or other errors as needed
+      }
+      ESP_ERROR_CHECK(tinyusb_set_otg_suspend_state(false));
+      ESP_ERROR_CHECK(tinyusb_clear_otg_wakeup_status());
+  }
+```
+
 ### USB PHY configuration & Self-Powered Device
 
 USB 2.0 requires self‑powered devices to sense VBUS and only present the pull‑up (attach) when VBUS is valid. If VBUS falls out of range, the device must detach and must not back‑power the bus. TinyUSB uses VBUS presence to drive connect/disconnect events in the DCD layer, so the VBUS sense signal must be correct. More information is available [here](https://docs.espressif.com/projects/esp-usb/en/latest/esp32p4/usb_device.html#self-powered-device).
