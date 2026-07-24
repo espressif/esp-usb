@@ -26,10 +26,6 @@
 #include "tusb_config.h"
 #include "sdkconfig.h"
 
-#if (SOC_PM_SUPPORT_USB_WAKEUP && SOC_PM_SUPPORT_CNNT_PD)
-#include "esp_rom_serial_output.h"
-#endif
-
 #define TINYUSB_CDC_RX_BUFSIZE                  CONFIG_TINYUSB_CDC_RX_BUFSIZE
 #define SUSPEND_RESUME_TEST_ITERATIONS          5
 #define DEVICE_EVENT_WAIT_MS                    5000
@@ -384,7 +380,7 @@ TEST_CASE("tinyusb_light_sleep_usb_wakeup", "[esp_tinyusb][device_esp_sleep_ligh
     // Prepare for light sleep entry
     printf("LIGHT_SLEEP_ENTER\n");
     fflush(stdout);
-    esp_rom_output_tx_wait_idle(CONFIG_ESP_CONSOLE_UART_NUM);
+    vTaskDelay(10);
 
     // Enter light light sleep
     TEST_ASSERT_EQUAL(ESP_OK, tinyusb_set_otg_suspend_state(true));
