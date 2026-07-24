@@ -265,7 +265,7 @@ esp_err_t tinyusb_remote_wakeup(void)
     return ESP_OK;
 }
 
-#if SOC_USB_UTMI_PHY_NUM
+#if SOC_PM_SUPPORT_USB_WAKEUP && SOC_USB_UTMI_PHY_NUM
 /**
  * @brief Check whether the installed TinyUSB port supports USB light-sleep wakeup.
  *
@@ -281,30 +281,30 @@ static bool tinyusb_port_supports_usb_wakeup(void)
     return true;
 #endif // (SOC_USB_OTG_PERIPH_NUM > 1)
 }
-#endif // SOC_USB_UTMI_PHY_NUM
+#endif // SOC_PM_SUPPORT_USB_WAKEUP && SOC_USB_UTMI_PHY_NUM
 
 esp_err_t tinyusb_set_otg_suspend_state(bool in_suspend)
 {
     ESP_RETURN_ON_FALSE(tud_inited(), ESP_ERR_INVALID_STATE, TAG, "TinyUSB driver is not installed");
-#if !SOC_USB_UTMI_PHY_NUM
-    ESP_RETURN_ON_FALSE(false, ESP_ERR_NOT_SUPPORTED, TAG, "USB wakeup is only supported on high-speed UTMI ports");
+#if !SOC_PM_SUPPORT_USB_WAKEUP
+    return ESP_ERR_NOT_SUPPORTED;
 #else
     ESP_RETURN_ON_FALSE(tinyusb_port_supports_usb_wakeup(), ESP_ERR_NOT_SUPPORTED, TAG, "USB wakeup is only supported on high-speed UTMI ports");
 
     usb_phy_set_otg_suspend_state(in_suspend);
     return ESP_OK;
-#endif // !SOC_USB_UTMI_PHY_NUM
+#endif // !SOC_PM_SUPPORT_USB_WAKEUP
 }
 
 esp_err_t tinyusb_clear_otg_wakeup_status(void)
 {
     ESP_RETURN_ON_FALSE(tud_inited(), ESP_ERR_INVALID_STATE, TAG, "TinyUSB driver is not installed");
-#if !SOC_USB_UTMI_PHY_NUM
-    ESP_RETURN_ON_FALSE(false, ESP_ERR_NOT_SUPPORTED, TAG, "USB wakeup is only supported on high-speed UTMI ports");
+#if !SOC_PM_SUPPORT_USB_WAKEUP
+    return ESP_ERR_NOT_SUPPORTED;
 #else
     ESP_RETURN_ON_FALSE(tinyusb_port_supports_usb_wakeup(), ESP_ERR_NOT_SUPPORTED, TAG, "USB wakeup is only supported on high-speed UTMI ports");
 
     usb_phy_clear_otg_wakeup_status();
     return ESP_OK;
-#endif // !SOC_USB_UTMI_PHY_NUM
+#endif // !SOC_PM_SUPPORT_USB_WAKEUP
 }

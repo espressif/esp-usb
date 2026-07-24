@@ -32,6 +32,7 @@
 #define EVENT_BITS_SUSPENDED_REMOTE_WAKE_EN     (1U << 1)   /**< Device suspended with remote wakeup enabled event */
 #define EVENT_BITS_SUSPENDED_REMOTE_WAKE_DIS    (1U << 2)   /**< Device suspended with remote wakeup disabled event */
 #define EVENT_BITS_RESUMED                      (1U << 3)   /**< Device resumed event */
+#define EVENT_BITS_DATA_RX                      (1U << 4)   /**< CDC data received event */
 
 static char err_msg_buf[128];
 const static char *TAG = "PM_Device";
@@ -184,6 +185,16 @@ static void tinyusb_cdc_rx_callback_dmy(int itf, cdcacm_event_t *event)
 }
 
 /**
+ * @brief CDC Device RX callback for tinyusb_light_sleep_usb_wakeup test case
+ */
+static void tinyusb_light_sleep_cdc_rx_callback(int itf, cdcacm_event_t *event)
+{
+    if (main_task_hdl != NULL) {
+        xTaskNotify(main_task_hdl, EVENT_BITS_DATA_RX, eSetBits);
+    }
+}
+
+/**
  * @brief Device event handler for tinyusb_remote_wakeup_reporting test case
  */
 static void test_remote_wake_event_handler(tinyusb_event_t *event, void *arg)
@@ -315,7 +326,7 @@ TEST_CASE("tinyusb_usb_wakeup_api", "[esp_tinyusb][device_esp_sleep][device_pm]"
     tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG();
     TEST_ASSERT_EQUAL(ESP_OK, tinyusb_driver_install(&tusb_cfg));
 
-#if SOC_USB_UTMI_PHY_NUM
+#if SOC_PM_SUPPORT_USB_WAKEUP && SOC_USB_UTMI_PHY_NUM
     TEST_ASSERT_EQUAL(ESP_OK, tinyusb_set_otg_suspend_state(true));
     TEST_ASSERT_EQUAL(ESP_OK, tinyusb_set_otg_suspend_state(false));
     TEST_ASSERT_EQUAL(ESP_OK, tinyusb_clear_otg_wakeup_status());
@@ -331,7 +342,7 @@ TEST_CASE("tinyusb_usb_wakeup_api", "[esp_tinyusb][device_esp_sleep][device_pm]"
 #else
     TEST_ASSERT_EQUAL(ESP_ERR_NOT_SUPPORTED, tinyusb_set_otg_suspend_state(true));
     TEST_ASSERT_EQUAL(ESP_ERR_NOT_SUPPORTED, tinyusb_clear_otg_wakeup_status());
-#endif // SOC_USB_UTMI_PHY_NUM
+#endif // SOC_PM_SUPPORT_USB_WAKEUP && SOC_USB_UTMI_PHY_NUM
 }
 
 /**
@@ -360,7 +371,7 @@ TEST_CASE("tinyusb_light_sleep_usb_wakeup", "[esp_tinyusb][device_esp_sleep_ligh
 #endif // TUD_OPT_HIGH_SPEED
 
     TEST_ASSERT_EQUAL(ESP_OK, tinyusb_driver_install(&tusb_cfg));
-    acm_cfg.callback_rx = &tinyusb_cdc_rx_callback;
+    acm_cfg.callback_rx = &tinyusb_light_sleep_cdc_rx_callback;
     TEST_ASSERT_EQUAL(ESP_OK, tinyusb_cdcacm_init(&acm_cfg));
 
     expect_device_event(EVENT_BITS_ATTACHED, pdMS_TO_TICKS(DEVICE_EVENT_WAIT_MS));
@@ -377,12 +388,32 @@ TEST_CASE("tinyusb_light_sleep_usb_wakeup", "[esp_tinyusb][device_esp_sleep_ligh
     TEST_ASSERT_TRUE_MESSAGE(wakeup_causes & BIT(ESP_SLEEP_WAKEUP_USB),
                              "Expected to wake from USB during light sleep");
 
+    uint32_t notify_bits = 0;
     expect_device_event(EVENT_BITS_RESUMED, pdMS_TO_TICKS(DEVICE_EVENT_WAIT_MS));
 
     TEST_ASSERT_EQUAL(ESP_OK, tinyusb_set_otg_suspend_state(false));
     TEST_ASSERT_EQUAL(ESP_OK, tinyusb_clear_otg_wakeup_status());
     TEST_ASSERT_EQUAL(ESP_OK, esp_sleep_disable_usb_wakeup());
     TEST_ASSERT_EQUAL(ESP_OK, esp_sleep_cpu_retention_deinit());
+
+    if (!(notify_bits & EVENT_BITS_DATA_RX)) {
+        expect_device_event(EVENT_BITS_DATA_RX, pdMS_TO_TICKS(10000));
+    }
+
+    uint8_t buf[TINYUSB_CDC_RX_BUFSIZE + 1];
+    size_t rx_size = 0;
+    const char expect_message[] = "Light sleep wake\r\n";
+    const char send_message[] = "Light sleep ok\r\n";
+
+    ESP_ERROR_CHECK(tinyusb_cdcacm_read(TINYUSB_CDC_ACM_0, buf, TINYUSB_CDC_RX_BUFSIZE, &rx_size));
+    TEST_ASSERT_GREATER_THAN(0, rx_size);
+    ESP_LOGI(TAG, "Intf %d, RX %d bytes", TINYUSB_CDC_ACM_0, rx_size);
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(expect_message, buf, sizeof(expect_message) - 1);
+
+    strncpy((char *)buf, send_message, sizeof(send_message) - 1);
+    TEST_ASSERT_EQUAL(sizeof(send_message) - 1, tinyusb_cdcacm_write_queue(TINYUSB_CDC_ACM_0, buf, sizeof(send_message) - 1));
+    TEST_ASSERT_EQUAL(ESP_OK, tinyusb_cdcacm_write_flush(TINYUSB_CDC_ACM_0, 0));
+    printf("LIGHT_SLEEP_DATA_RX\n");
 
 #endif // SOC_PM_SUPPORT_USB_WAKEUP && SOC_PM_SUPPORT_CNNT_PD
 }
