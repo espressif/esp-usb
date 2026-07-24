@@ -10,6 +10,7 @@ The tests focus on:
 - Power management of the USB Device
 - Testing tinyusb suspend/resume callbacks delivery
 - Testing remote wakeup signalizing by the device
+- Testing USB light-sleep wakeup on high-speed ports
 
 ## Running the test locally on Linux host PC:
 

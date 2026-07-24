@@ -29,6 +29,8 @@ Features
     - Vendor specific class
     - Composite devices
     - VBUS monitoring for self-powered devices
+    - Remote wakeup
+    :esp32p4 or esp32s31: - Light sleep wakeup on USB activity while suspended (high-speed ports only)
 
 .. Todo: Refactor USB hardware connect into a separate guide
 
@@ -260,6 +262,72 @@ On the {IDF_TARGET_NAME}, this will require using a GPIO to act as a voltage sen
 
 To use this feature, set :cpp:member:`tinyusb_phy_config_t::self_powered` to ``true`` and :cpp:member:`tinyusb_phy_config_t::vbus_monitor_io` to the GPIO used for VBUS monitoring through :cpp:member:`tinyusb_config_t::phy`.
 
+Power Management
+----------------
+
+Suspend and Resume Events
+^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Suspend and resume device events are optional and disabled by default. Enable the following Kconfig options to receive them through the USB Device Event callback (:cpp:member:`tinyusb_config_t::event_cb`):
+
+- :ref:`CONFIG_TINYUSB_SUSPEND_CALLBACK` enables :cpp:enumerator:`TINYUSB_EVENT_SUSPENDED`
+- :ref:`CONFIG_TINYUSB_RESUME_CALLBACK` enables :cpp:enumerator:`TINYUSB_EVENT_RESUMED`
+
+When these options are enabled, esp_tinyusb provides strong implementations of :cpp:func:`tud_suspend_cb` and :cpp:func:`tud_resume_cb`. User applications **must not** define these callbacks themselves, or a linker error will occur due to multiple definitions.
+
+If the Kconfig options are disabled, users may implement :cpp:func:`tud_suspend_cb` and :cpp:func:`tud_resume_cb` directly in the application instead.
+
+Remote Wakeup
+^^^^^^^^^^^^^
+
+When the host suspends the device and enables remote wakeup, the device can signal resume with :cpp:func:`tinyusb_remote_wakeup`. Call this function only while the device is suspended and the host has enabled remote wakeup for the current suspend cycle.
+
+Light Sleep with USB Wakeup
+^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+.. only:: not esp32p4 and not esp32s31
+
+    On targets with full-speed port, the USB device peripheral can **NOT** be used as a light sleep wake-up source due to USB PHY limitations. This feature is only supported on hight-speed ports.
+
+.. only:: esp32p4 or esp32s31
+
+    On targets with high-speed port with UTMI PHY, the USB device peripheral can be used as a light sleep wake-up source while the bus is suspended.
+
+    .. only:: esp32p4
+
+        {IDF_TARGET_NAME} having two ports, this his feature is available only on the high-speed port and **NOT** available on the full-speed port
+
+    Sleep subsystem configuration
+    """""""""""""""""""""""""""""
+
+    Before using light sleep, configure the sleep subsystem:
+
+    .. code-block:: c
+
+        esp_sleep_cpu_retention_init();
+        esp_sleep_enable_usb_wakeup();
+        esp_sleep_pd_config(ESP_PD_DOMAIN_CNNT, ESP_PD_OPTION_ON);
+
+    Suspend callback flow
+    """""""""""""""""""""
+
+    When the host suspends the device, prepare the UTMI PHY, enter light sleep, and restore the PHY state afterward. A typical implementation uses :cpp:func:`tud_suspend_cb`:
+
+    .. code-block:: c
+
+        void tud_suspend_cb(bool remote_wakeup_en)
+        {
+            (void) remote_wakeup_en;
+
+            ESP_ERROR_CHECK(tinyusb_set_otg_suspend_state(true));
+            esp_err_t err = esp_light_sleep_start();
+            if (err != ESP_OK) {
+                // Handle ESP_ERR_SLEEP_REJECT or other errors as needed
+            }
+            ESP_ERROR_CHECK(tinyusb_set_otg_suspend_state(false));
+            ESP_ERROR_CHECK(tinyusb_clear_otg_wakeup_status());
+        }
+
 USB Serial Device (CDC-ACM)
 ---------------------------
 
@@ -462,7 +530,11 @@ For better visibility, the examples can be found in ESP-IDF's GitHub repository 
 - `tusb_msc <https://github.com/espressif/esp-idf/tree/master/examples/peripherals/usb/device/tusb_msc>`__ demonstrates how to use the USB capabilities to create a Mass Storage Device that can be recognized by USB-hosts, allowing access to its internal data storage, with support for SPI Flash and SD MMC Card storage media.
 - `tusb_composite_msc_serialdevice <https://github.com/espressif/esp-idf/tree/master/examples/peripherals/usb/device/tusb_composite_msc_serialdevice>`__ demonstrates how to set up {IDF_TARGET_NAME} to function simultaneously as both a USB Serial Device and an MSC device (SPI-Flash as the storage media) using the TinyUSB component.
 
-.. only:: not esp32p4 and not esp32h4
+.. only:: esp32p4 or esp32s31
+
+    - `tusb_cdc_acm_wakeup <https://github.com/espressif/esp-idf/tree/master/examples/peripherals/usb/device/tusb_cdc_acm_wakeup>`__ demonstrates how to enter light sleep while the USB bus is suspended and wake on USB activity.
+
+.. only:: not esp32h4
 
   - `tusb_ncm <https://github.com/espressif/esp-idf/tree/master/examples/peripherals/usb/device/tusb_ncm>`__ demonstrates how to transmit Wi-Fi data to a Linux or Windows host via USB using the Network Control Model (NCM), a sub-class of Communication Device Class (CDC) USB Device for Ethernet-over-USB applications, with the help of a TinyUSB component.
 

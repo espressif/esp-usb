@@ -30,11 +30,21 @@ DUT_PID = 0x4002
 # Tinyusb device events from device event handler
 TINYUSB_EVENTS = {
     "attached":                     "TINYUSB_EVENT_ATTACHED",
-    "suspended":                    "TINYUSB_EVENT_SUSPENDED",
+    "detached":                     "TINYUSB_EVENT_DETACHED",
     "resumed":                      "TINYUSB_EVENT_RESUMED",
     "suspended_remote_wake_dis":    "TINYUSB_EVENT_SUSPENDED_REMOTE_WAKE_DIS",
     "suspended_remote_wake_en":     "TINYUSB_EVENT_SUSPENDED_REMOTE_WAKE_EN",
+    "light_sleep_enter":            "LIGHT_SLEEP_ENTER",
+    "light_sleep_data_rx":          "LIGHT_SLEEP_DATA_RX",
 }
+
+def find_dut_cdc_ports() -> list[str]:
+    '''Return serial port paths for the TinyUSB CDC device.'''
+    ports = []
+    for p in comports():
+        if (p.vid == DUT_VID and p.pid == DUT_PID):
+            ports.append(p.device)
+    return ports
 
 @pytest.mark.usb_device
 @pytest.mark.flaky(reruns=1, reruns_delay=10)
@@ -69,10 +79,7 @@ def test_usb_device_suspend_resume(dut: IdfDut) -> None:
     sleep(2)  # Some time for the OS to enumerate our USB device
 
     # Find device with Espressif TinyUSB VID/PID
-    ports = []
-    for p in comports():
-        if (p.vid == DUT_VID and p.pid == DUT_PID):
-            ports.append(p.device)
+    ports = find_dut_cdc_ports()
 
     if len(ports) == 0:
         raise Exception('TinyUSB COM port not found')
@@ -85,9 +92,9 @@ def test_usb_device_suspend_resume(dut: IdfDut) -> None:
             # This expect_exact is ignored by pytest when running second rerun of flaky test (unknown reason),
             # making the test fail in further steps, adding explicit sleep(3) to wait for the suspend events
             sleep(3)
-            dut.expect_exact(TINYUSB_EVENTS['suspended'])
+            dut.expect_exact(TINYUSB_EVENTS['suspended_remote_wake_en'])
 
-            for i in range(0, 5):
+            for i in range(5):
                 print(f"Power cycle iteration {i}.")
 
                 # Resume the device by accessing it
@@ -98,13 +105,18 @@ def test_usb_device_suspend_resume(dut: IdfDut) -> None:
                 dut.expect_exact(TINYUSB_EVENTS['resumed'])
 
                 # Wait for auto suspend (set to 3 seconds)
-                dut.expect_exact(TINYUSB_EVENTS['suspended'])
+                dut.expect_exact(TINYUSB_EVENTS['suspended_remote_wake_en'])
 
                 # Stay suspended for a while
                 sleep(2)
 
     except SerialException as e:
         raise RuntimeError(f"Failed to open CDC device on {ports[0]}") from e
+
+    # Wait for the test app to finish
+    dut.expect_exact('PM_Device_main_app: Cleanup')
+    dut.expect_exact(TINYUSB_EVENTS['detached'])
+    sleep(1)
 
 def set_remote_wake_on_device(VID: int, PID: int) -> None:
     '''
@@ -228,3 +240,86 @@ def test_usb_device_remote_wakeup_en(dut: IdfDut) -> None:
 
     # Expect device to resume (remote wakeup)
     dut.expect_exact(TINYUSB_EVENTS['resumed'])
+
+    # Wait for the test app to finish
+    dut.expect_exact('PM_Device_main_app: Cleanup')
+    dut.expect_exact(TINYUSB_EVENTS['detached'])
+    sleep(1)
+
+@pytest.mark.usb_device
+@pytest.mark.parametrize(
+    'config, target',
+    [
+        # Only HS port targets
+        pytest.param('default', 'esp32p4', marks=[pytest.mark.eco_default]),
+        pytest.param('esp32p4_eco4', 'esp32p4', marks=[pytest.mark.esp32p4_eco4]),
+    ],
+    indirect=['target'],
+)
+def test_usb_device_light_sleep_usb_wakeup(dut: IdfDut) -> None:
+    '''
+    Running the test locally:
+    1. Build the test_app for ESP32-P4
+    2. Connect the DUT to your test runner with USB device and flashing ports
+    3. Run `pytest --target esp32p4`
+
+    Test procedure:
+    1. Run the light-sleep wakeup Unity test on the DUT
+    2. Wait for USB attach and auto suspend
+    3. After the DUT enters light sleep, access the CDC port to wake the SoC
+    4. Send data to the device and verify the echoed reply
+    5. Expect USB wakeup, bus resume, and data reception markers from the DUT
+    '''
+    sleep(5)
+    dut.expect_exact('Press ENTER to see the list of tests.')
+    dut.write('[device_esp_sleep_light_sleep]')
+
+    # Check if the DUT has SOC caps for the test run. SOC_PM_SUPPORT_USB_WAKEUP is not defined in older releases
+    has_soc_cap = dut.app.sdkconfig.get('SOC_PM_SUPPORT_USB_WAKEUP') and dut.app.sdkconfig.get('SOC_PM_SUPPORT_CNNT_PD')
+
+    if not has_soc_cap:
+        if dut.expect_exact('USB light sleep wakeup is supported only on USB HS-port capable targets'):
+            # Ignore the test
+            return
+
+    dut.expect_exact('TinyUSB: TinyUSB Driver installed')
+    sleep(2)
+
+    ports = find_dut_cdc_ports()
+    if len(ports) == 0:
+        raise Exception('TinyUSB COM port not found')
+
+    try:
+        with Serial(ports[0], timeout=2) as cdc:
+
+            dut.expect_exact(TINYUSB_EVENTS['attached'])
+            dut.expect_exact(TINYUSB_EVENTS['suspended_remote_wake_en'])
+            dut.expect_exact(TINYUSB_EVENTS['light_sleep_enter'])
+            # Stay in light sleep for some time
+            sleep(3)
+            cdc.write(b'Light sleep wake\r\n')
+            res = cdc.readline()
+            assert b'Light sleep ok\r\n' in res
+    except SerialException as e:
+        raise RuntimeError(f"Failed to open CDC device on {ports[0]}") from e
+
+    dut.expect_exact(TINYUSB_EVENTS['resumed'])
+    dut.expect_exact(TINYUSB_EVENTS['light_sleep_data_rx'])
+    # Wait for the test app to finish
+    dut.expect_exact('PM_Device_main_app: Cleanup')
+    dut.expect_exact(TINYUSB_EVENTS['detached'])
+    sleep(1)
+
+@pytest.mark.usb_device
+@pytest.mark.parametrize(
+    'config, target',
+    [
+        pytest.param('default', 'esp32s2'),
+        pytest.param('default', 'esp32s3'),
+        pytest.param('default', 'esp32p4', marks=[pytest.mark.eco_default]),
+        pytest.param('esp32p4_eco4', 'esp32p4', marks=[pytest.mark.esp32p4_eco4]),
+    ],
+    indirect=['target'],
+)
+def test_usb_device_pm(dut: IdfDut) -> None:
+    dut.run_all_single_board_cases(group='device_pm')
