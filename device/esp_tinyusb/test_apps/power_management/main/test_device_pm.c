@@ -11,7 +11,6 @@
 #include <string.h>
 #include "esp_system.h"
 #include "esp_sleep.h"
-#include "esp_rom_serial_output.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/event_groups.h"
@@ -26,6 +25,10 @@
 #include "tinyusb_cdc_acm.h"
 #include "tusb_config.h"
 #include "sdkconfig.h"
+
+#if (SOC_PM_SUPPORT_USB_WAKEUP && SOC_PM_SUPPORT_CNNT_PD)
+#include "esp_rom_serial_output.h"
+#endif
 
 #define TINYUSB_CDC_RX_BUFSIZE                  CONFIG_TINYUSB_CDC_RX_BUFSIZE
 #define SUSPEND_RESUME_TEST_ITERATIONS          5
@@ -285,6 +288,9 @@ TEST_CASE("tinyusb_suspend_resume_events", "[esp_tinyusb][device_pm_suspend_resu
  */
 TEST_CASE("tinyusb_remote_wakeup_reporting", "[esp_tinyusb][device_pm_remote_wake]")
 {
+    // Call esp_tinyusb public API before installing the Tinyusb
+    TEST_ASSERT_EQUAL(ESP_ERR_INVALID_STATE, tinyusb_remote_wakeup());
+
     // Install and initialize cdc
     test_pm_init_tinyusb_cdc(NULL);
 
@@ -317,26 +323,38 @@ TEST_CASE("tinyusb_remote_wakeup_reporting", "[esp_tinyusb][device_pm_remote_wak
  */
 TEST_CASE("tinyusb_usb_wakeup_api", "[esp_tinyusb][device_esp_sleep][device_pm]")
 {
+    // Try to call esp_tinyusb public API without installing the driver, expect invalid state
     TEST_ASSERT_EQUAL(ESP_ERR_INVALID_STATE, tinyusb_set_otg_suspend_state(true));
     TEST_ASSERT_EQUAL(ESP_ERR_INVALID_STATE, tinyusb_clear_otg_wakeup_status());
 
+    // Install tinyusb
     tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG();
     TEST_ASSERT_EQUAL(ESP_OK, tinyusb_driver_install(&tusb_cfg));
 
 #if SOC_PM_SUPPORT_USB_WAKEUP && SOC_USB_UTMI_PHY_NUM
+    // Cal esp_sleep for HS port capable targets
+    TEST_ASSERT_EQUAL(ESP_OK, esp_sleep_enable_usb_wakeup());
+    TEST_ASSERT_EQUAL(ESP_OK, esp_sleep_disable_usb_wakeup());
+    // Call esp_tinyusb public API, when HS port is in use
     TEST_ASSERT_EQUAL(ESP_OK, tinyusb_set_otg_suspend_state(true));
     TEST_ASSERT_EQUAL(ESP_OK, tinyusb_set_otg_suspend_state(false));
     TEST_ASSERT_EQUAL(ESP_OK, tinyusb_clear_otg_wakeup_status());
 
 #if CONFIG_IDF_TARGET_ESP32P4
+    // For esp32p4 uninstall the driver with the default config and install it again with FS port enabled
     TEST_ASSERT_EQUAL(ESP_OK, tinyusb_driver_uninstall());
 
     tusb_cfg = TINYUSB_CONFIG_FULL_SPEED(NULL, NULL);
     TEST_ASSERT_EQUAL(ESP_OK, tinyusb_driver_install(&tusb_cfg));
+    // Call esp_tinyusb public API, expect not supported error for esp32p4 FS port
     TEST_ASSERT_EQUAL(ESP_ERR_NOT_SUPPORTED, tinyusb_set_otg_suspend_state(true));
     TEST_ASSERT_EQUAL(ESP_ERR_NOT_SUPPORTED, tinyusb_clear_otg_wakeup_status());
 #endif // CONFIG_IDF_TARGET_ESP32P4
 #else
+    // Cal esp_sleep for FS port capable targets
+    TEST_ASSERT_EQUAL(ESP_ERR_NOT_SUPPORTED, esp_sleep_enable_usb_wakeup());
+    TEST_ASSERT_EQUAL(ESP_ERR_NOT_SUPPORTED, esp_sleep_disable_usb_wakeup());
+    // Call esp_tinyusb public API, expect not supported error for FS port targets
     TEST_ASSERT_EQUAL(ESP_ERR_NOT_SUPPORTED, tinyusb_set_otg_suspend_state(true));
     TEST_ASSERT_EQUAL(ESP_ERR_NOT_SUPPORTED, tinyusb_clear_otg_wakeup_status());
 #endif // SOC_PM_SUPPORT_USB_WAKEUP && SOC_USB_UTMI_PHY_NUM
@@ -350,36 +368,46 @@ TEST_CASE("tinyusb_usb_wakeup_api", "[esp_tinyusb][device_esp_sleep][device_pm]"
  */
 TEST_CASE("tinyusb_light_sleep_usb_wakeup", "[esp_tinyusb][device_esp_sleep_light_sleep]")
 {
+    // Ignore the test for USB FS port only targets
 #if !(SOC_PM_SUPPORT_USB_WAKEUP && SOC_PM_SUPPORT_CNNT_PD)
     TEST_IGNORE_MESSAGE("USB light sleep wakeup is supported only on USB HS-port capable targets");
 #else
+    // Enable ESP sleep wakeup source and power domains
     TEST_ASSERT_EQUAL(ESP_OK, esp_sleep_cpu_retention_init());
     TEST_ASSERT_EQUAL(ESP_OK, esp_sleep_enable_usb_wakeup());
     TEST_ASSERT_EQUAL(ESP_OK, esp_sleep_pd_config(ESP_PD_DOMAIN_CNNT, ESP_PD_OPTION_ON));
 
+    // Install and initialize cdc
     test_pm_init_tinyusb_cdc(tinyusb_cdc_rx_callback);
 
+    // Expect attach and suspend events
     expect_device_event(EVENT_BITS_ATTACHED, pdMS_TO_TICKS(DEVICE_EVENT_WAIT_MS));
     expect_device_event(EVENT_BITS_SUSPENDED_REMOTE_WAKE_EN, pdMS_TO_TICKS(DEVICE_EVENT_WAIT_MS));
 
+    // Prepare for light sleep entry
     printf("LIGHT_SLEEP_ENTER\n");
     fflush(stdout);
     esp_rom_output_tx_wait_idle(CONFIG_ESP_CONSOLE_UART_NUM);
 
+    // Enter light light sleep
     TEST_ASSERT_EQUAL(ESP_OK, tinyusb_set_otg_suspend_state(true));
     TEST_ASSERT_EQUAL(ESP_OK, esp_light_sleep_start());
 
+    // Pytest wakes up the SoC, find out the wakeup reason
     const uint32_t wakeup_causes = esp_sleep_get_wakeup_causes();
     TEST_ASSERT_TRUE_MESSAGE(wakeup_causes & BIT(ESP_SLEEP_WAKEUP_USB),
                              "Expected to wake from USB during light sleep");
 
+    // Expect resume event
     expect_device_event(EVENT_BITS_RESUMED, pdMS_TO_TICKS(DEVICE_EVENT_WAIT_MS));
 
+    // Disable all light sleep related settings
     TEST_ASSERT_EQUAL(ESP_OK, tinyusb_set_otg_suspend_state(false));
     TEST_ASSERT_EQUAL(ESP_OK, tinyusb_clear_otg_wakeup_status());
     TEST_ASSERT_EQUAL(ESP_OK, esp_sleep_disable_usb_wakeup());
     TEST_ASSERT_EQUAL(ESP_OK, esp_sleep_cpu_retention_deinit());
 
+    // Wait for the data from the Pytest to be received
     if (pdTRUE != xSemaphoreTake(rx_data_sem, 0)) {
         TEST_ASSERT_EQUAL(pdTRUE, xSemaphoreTake(rx_data_sem, pdMS_TO_TICKS(10000)));
     }
@@ -389,11 +417,13 @@ TEST_CASE("tinyusb_light_sleep_usb_wakeup", "[esp_tinyusb][device_esp_sleep_ligh
     const char expect_message[] = "Light sleep wake\r\n";
     const char send_message[] = "Light sleep ok\r\n";
 
+    // Read the data and validate
     TEST_ASSERT_EQUAL(ESP_OK, tinyusb_cdcacm_read(TINYUSB_CDC_ACM_0, buf, TINYUSB_CDC_RX_BUFSIZE, &rx_size));
     TEST_ASSERT_GREATER_THAN(0, rx_size);
     ESP_LOGI(TAG, "Intf %d, RX %d bytes", TINYUSB_CDC_ACM_0, rx_size);
     TEST_ASSERT_EQUAL_UINT8_ARRAY(expect_message, buf, sizeof(expect_message) - 1);
 
+    // Reply back
     strncpy((char *)buf, send_message, sizeof(send_message) - 1);
     TEST_ASSERT_EQUAL(sizeof(send_message) - 1, tinyusb_cdcacm_write_queue(TINYUSB_CDC_ACM_0, buf, sizeof(send_message) - 1));
     TEST_ASSERT_EQUAL(ESP_OK, tinyusb_cdcacm_write_flush(TINYUSB_CDC_ACM_0, 0));

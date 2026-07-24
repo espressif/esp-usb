@@ -250,6 +250,7 @@ esp_err_t tinyusb_driver_uninstall(void)
 
 esp_err_t tinyusb_remote_wakeup(void)
 {
+    ESP_RETURN_ON_FALSE(tud_inited(), ESP_ERR_INVALID_STATE, TAG, "TinyUSB driver is not installed");
     // Check if the remote wakeup flag was set by the esp_tinyusb's suspend callback
     // In case of user-defined suspend callback, user manages remote wakeup capability on it's own
 #ifdef CONFIG_TINYUSB_SUSPEND_CALLBACK

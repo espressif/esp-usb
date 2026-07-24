@@ -166,7 +166,7 @@ esp_err_t tinyusb_driver_uninstall(void);
  *
  * @return
  *      - ESP_OK on success
- *      - ESP_ERR_INVALID_STATE if remote wakeup is not enabled by the host
+ *      - ESP_ERR_INVALID_STATE if the TinyUSB driver is not installed, or remote wakeup is not enabled by the host
  *      - ESP_FAIL if the remote wakeup request cannot be sent
  */
 esp_err_t tinyusb_remote_wakeup(void);
@@ -178,8 +178,7 @@ esp_err_t tinyusb_remote_wakeup(void);
  * and with `false` after waking up.
  *
  * @note Only supported on targets and IDF releases that provide USB wakeup through
- *       the UTMI PHY (for example `TINYUSB_PORT_HIGH_SPEED_0` on ESP32-P4, or the
- *       default port on ESP32-S31). Also configure `esp_sleep_enable_usb_wakeup()`
+ *       the UTMI PHY, Also configure `esp_sleep_enable_usb_wakeup()`
  *       and keep the USB connection power domain on during light sleep.
  *
  * @param[in] in_suspend `true` when entering light sleep during USB suspend.
