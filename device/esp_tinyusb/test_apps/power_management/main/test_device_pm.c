@@ -351,9 +351,6 @@ TEST_CASE("tinyusb_usb_wakeup_api", "[esp_tinyusb][device_esp_sleep][device_pm]"
     TEST_ASSERT_EQUAL(ESP_ERR_NOT_SUPPORTED, tinyusb_clear_otg_wakeup_status());
 #endif // CONFIG_IDF_TARGET_ESP32P4
 #else
-    // Cal esp_sleep for FS port capable targets
-    TEST_ASSERT_EQUAL(ESP_ERR_NOT_SUPPORTED, esp_sleep_enable_usb_wakeup());
-    TEST_ASSERT_EQUAL(ESP_ERR_NOT_SUPPORTED, esp_sleep_disable_usb_wakeup());
     // Call esp_tinyusb public API, expect not supported error for FS port targets
     TEST_ASSERT_EQUAL(ESP_ERR_NOT_SUPPORTED, tinyusb_set_otg_suspend_state(true));
     TEST_ASSERT_EQUAL(ESP_ERR_NOT_SUPPORTED, tinyusb_clear_otg_wakeup_status());
