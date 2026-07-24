@@ -14,8 +14,11 @@
 #include "esp_rom_serial_output.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/event_groups.h"
+#include "freertos/semphr.h"
 #include "esp_log.h"
 #include "esp_err.h"
+#include "esp_bit_defs.h"
 
 #include "unity.h"
 #include "tinyusb.h"
@@ -28,15 +31,22 @@
 #define SUSPEND_RESUME_TEST_ITERATIONS          5
 #define DEVICE_EVENT_WAIT_MS                    5000
 
-#define EVENT_BITS_ATTACHED                     (1U << 0)   /**< Device attached event */
-#define EVENT_BITS_SUSPENDED_REMOTE_WAKE_EN     (1U << 1)   /**< Device suspended with remote wakeup enabled event */
-#define EVENT_BITS_SUSPENDED_REMOTE_WAKE_DIS    (1U << 2)   /**< Device suspended with remote wakeup disabled event */
-#define EVENT_BITS_RESUMED                      (1U << 3)   /**< Device resumed event */
-#define EVENT_BITS_DATA_RX                      (1U << 4)   /**< CDC data received event */
+#define EVENT_BITS_ATTACHED                     BIT0   /**< Device attached event */
+#define EVENT_BITS_SUSPENDED_REMOTE_WAKE_EN     BIT1   /**< Device suspended with remote wakeup enabled event */
+#define EVENT_BITS_SUSPENDED_REMOTE_WAKE_DIS    BIT2   /**< Device suspended with remote wakeup disabled event */
+#define EVENT_BITS_RESUMED                      BIT3   /**< Device resumed event */
+#define DEVICE_EVENT_BITS_ALL   (EVENT_BITS_ATTACHED | EVENT_BITS_SUSPENDED_REMOTE_WAKE_EN | \
+                                 EVENT_BITS_SUSPENDED_REMOTE_WAKE_DIS | EVENT_BITS_RESUMED)
 
 static char err_msg_buf[128];
 const static char *TAG = "PM_Device";
-static TaskHandle_t main_task_hdl = NULL;
+
+// Static event group for device event delivery
+static EventGroupHandle_t device_event_group = NULL;
+static StaticEventGroup_t device_event_group_buffer;
+// Static binary semaphore for RX data callback
+static SemaphoreHandle_t rx_data_sem = NULL;
+static StaticSemaphore_t rx_data_sem_buffer;
 
 static const tusb_desc_device_t cdc_device_descriptor = {
     .bLength = sizeof(cdc_device_descriptor),
@@ -84,120 +94,40 @@ static const uint8_t cdc_desc_configuration_remote_wakeup[] = {
 };
 
 /**
+ * @brief Initialize freertos primitives for the test
+ *
+ * Event group bits for device events delivery (suspend, resume, attach, detach)
+ * Semaphore for RX callback notifications
+ */
+static void test_pm_sync_init(void)
+{
+    if (device_event_group == NULL) {
+        device_event_group = xEventGroupCreateStatic(&device_event_group_buffer);
+    }
+    xEventGroupClearBits(device_event_group, DEVICE_EVENT_BITS_ALL);
+
+    if (rx_data_sem == NULL) {
+        rx_data_sem = xSemaphoreCreateBinaryStatic(&rx_data_sem_buffer);
+    }
+    while (xSemaphoreTake(rx_data_sem, 0) == pdTRUE) {
+    }
+}
+
+/**
  * @brief CDC Device RX callback for tinyusb_suspend_resume_events test case
  */
 static void tinyusb_cdc_rx_callback(int itf, cdcacm_event_t *event)
 {
-    if (main_task_hdl != NULL) {
+    if (rx_data_sem != NULL) {
         ESP_LOGI(TAG, "RX data cb");
-        xTaskNotifyGive(main_task_hdl);
+        xSemaphoreGive(rx_data_sem);
     }
 }
 
 /**
- * @brief Device event handler for tinyusb_suspend_resume_events test case
+ * @brief Device event handler providing event group bits
  */
-static void test_suspend_resume_event_handler(tinyusb_event_t *event, void *arg)
-{
-    switch (event->id) {
-    case TINYUSB_EVENT_ATTACHED:
-        printf("TINYUSB_EVENT_ATTACHED\n");
-        break;
-    case TINYUSB_EVENT_DETACHED:
-        printf("TINYUSB_EVENT_DETACHED\n");
-        break;
-    case TINYUSB_EVENT_SUSPENDED:
-        printf("TINYUSB_EVENT_SUSPENDED\n");
-        break;
-    case TINYUSB_EVENT_RESUMED:
-        printf("TINYUSB_EVENT_RESUMED\n");
-        break;
-    default:
-        break;
-    }
-}
-
-/**
- * @brief Tinyusb power management suspend/resume events
- *
- * Tests TINYUSB_EVENT_SUSPENDED and TINYUSB_EVENT_RESUMED esp_tinyusb events
- *
- * Pytest expects TINYUSB_EVENT_SUSPENDED event - because of auto suspend
- * Pytest sends data to device to resume it
- * Device resumes, receives and validates the data, sends a response and goes to suspended state (auto suspend)
- * Pytest expect TINYUSB_EVENT_SUSPENDED ...
- */
-TEST_CASE("tinyusb_suspend_resume_events", "[esp_tinyusb][device_pm_suspend_resume]")
-{
-    // Get current task handle for task notification from the RX callback
-    main_task_hdl = xTaskGetCurrentTaskHandle();
-
-    // Install TinyUSB driver
-    tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG(test_suspend_resume_event_handler);
-    tusb_cfg.descriptor.device = &cdc_device_descriptor;
-    tusb_cfg.descriptor.full_speed_config = cdc_desc_configuration_remote_wakeup;
-#if (TUD_OPT_HIGH_SPEED)
-    tusb_cfg.descriptor.qualifier = &device_qualifier;
-    tusb_cfg.descriptor.high_speed_config = cdc_desc_configuration_remote_wakeup;
-#endif // TUD_OPT_HIGH_SPEED
-
-    TEST_ASSERT_EQUAL(ESP_OK, tinyusb_driver_install(&tusb_cfg));
-    acm_cfg.callback_rx = &tinyusb_cdc_rx_callback;
-
-    // Init CDC device
-    TEST_ASSERT_FALSE(tinyusb_cdcacm_initialized(TINYUSB_CDC_ACM_0));
-    TEST_ASSERT_EQUAL(ESP_OK, tinyusb_cdcacm_init(&acm_cfg));
-    TEST_ASSERT_TRUE(tinyusb_cdcacm_initialized(TINYUSB_CDC_ACM_0));
-
-    uint8_t buf[TINYUSB_CDC_RX_BUFSIZE + 1];
-    const char expect_reply[] = "Time to resume\r\n";
-    const char send_message[] = "Time to suspend\r\n";
-
-    int test_iterations = 0;
-    do {
-        // Wait for new data from the host (Sent by pytest)
-        if (pdTRUE == ulTaskNotifyTake(true, pdMS_TO_TICKS(10000))) {
-
-            size_t rx_size = 0;
-            ESP_ERROR_CHECK(tinyusb_cdcacm_read(TINYUSB_CDC_ACM_0, buf, TINYUSB_CDC_RX_BUFSIZE, &rx_size));
-            if (rx_size > 0) {
-                ESP_LOGI(TAG, "Intf %d, RX %d bytes", TINYUSB_CDC_ACM_0, rx_size);
-                // Check if received string is equal to expect_reply string
-                TEST_ASSERT_EQUAL_UINT8_ARRAY(expect_reply, buf, sizeof(expect_reply) - 1);
-
-                // Reply to the host with send_message string
-                strncpy((char *)buf, send_message, sizeof(send_message) - 1);
-                tinyusb_cdcacm_write_queue(TINYUSB_CDC_ACM_0, buf, sizeof(send_message) - 1);
-                tinyusb_cdcacm_write_flush(TINYUSB_CDC_ACM_0, 0);
-                test_iterations++;
-            }
-        } else {
-            TEST_FAIL_MESSAGE("RX Data CB not received on time");
-        }
-    } while (test_iterations <= SUSPEND_RESUME_TEST_ITERATIONS);
-}
-
-/**
- * @brief Dummy CDC Device RX callback for tinyusb_remote_wakeup_reporting test case
- */
-static void tinyusb_cdc_rx_callback_dmy(int itf, cdcacm_event_t *event)
-{
-}
-
-/**
- * @brief CDC Device RX callback for tinyusb_light_sleep_usb_wakeup test case
- */
-static void tinyusb_light_sleep_cdc_rx_callback(int itf, cdcacm_event_t *event)
-{
-    if (main_task_hdl != NULL) {
-        xTaskNotify(main_task_hdl, EVENT_BITS_DATA_RX, eSetBits);
-    }
-}
-
-/**
- * @brief Device event handler for tinyusb_remote_wakeup_reporting test case
- */
-static void test_remote_wake_event_handler(tinyusb_event_t *event, void *arg)
+static void device_event_handler(tinyusb_event_t *event, void *arg)
 {
     uint32_t event_bits = UINT32_MAX;
 
@@ -208,6 +138,7 @@ static void test_remote_wake_event_handler(tinyusb_event_t *event, void *arg)
         break;
     case TINYUSB_EVENT_DETACHED:
         printf("TINYUSB_EVENT_DETACHED\n");
+        // No event bits for detached event
         return;
     case TINYUSB_EVENT_SUSPENDED:
         if (event->suspended.remote_wakeup) {
@@ -226,8 +157,8 @@ static void test_remote_wake_event_handler(tinyusb_event_t *event, void *arg)
         return;
     }
 
-    if (main_task_hdl) {
-        xTaskNotify(main_task_hdl, event_bits, eSetBits);
+    if (device_event_group != NULL) {
+        xEventGroupSetBits(device_event_group, event_bits);
     }
 }
 
@@ -241,23 +172,104 @@ static void test_remote_wake_event_handler(tinyusb_event_t *event, void *arg)
  */
 static void expect_device_event_impl(const uint32_t expected_event, TickType_t ticks, const char *file, int line)
 {
-    uint32_t notify_bits = 0;
-    if (pdTRUE == xTaskNotifyWait(0, UINT32_MAX, &notify_bits, ticks)) {
-        if (expected_event != notify_bits) {
-            snprintf(err_msg_buf, sizeof(err_msg_buf),
-                     "Unexpected event at %s:%d\n %ld expected, %ld delivered\n",
-                     file, line, expected_event, notify_bits);
-            TEST_FAIL_MESSAGE(err_msg_buf);
-        }
-    } else {
+    const EventBits_t bits = xEventGroupWaitBits(device_event_group, expected_event, pdTRUE, pdTRUE, ticks);
+    if ((bits & expected_event) == expected_event) {
+        return;
+    }
+
+    if (bits != 0) {
         snprintf(err_msg_buf, sizeof(err_msg_buf),
-                 "Event %ld at %s:%d\n was not delivered on time",
-                 expected_event, file, line);
+                 "Unexpected event at %s:%d\n %ld expected, %ld delivered\n",
+                 file, line, expected_event, (uint32_t)bits);
         TEST_FAIL_MESSAGE(err_msg_buf);
     }
+
+    snprintf(err_msg_buf, sizeof(err_msg_buf),
+             "Event %ld at %s:%d\n was not delivered on time",
+             expected_event, file, line);
+    TEST_FAIL_MESSAGE(err_msg_buf);
 }
 #define expect_device_event(expected_event, ticks) expect_device_event_impl((expected_event), (ticks), __FILE__, __LINE__)
 
+/**
+ * @brief Install TinyUSB driver and initialize CDC ACM for PM tests
+ *
+ * @param[in] rx_cb     Optional CDC RX callback (may be NULL)
+ *
+ * @return tinyusb_config_t used for driver install (for reuse on reinstall)
+ */
+static tinyusb_config_t test_pm_init_tinyusb_cdc(tusb_cdcacm_callback_t rx_cb)
+{
+    // Initialize freertos primitives
+    test_pm_sync_init();
+
+    tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG(device_event_handler);
+    tusb_cfg.descriptor.device = &cdc_device_descriptor;
+    tusb_cfg.descriptor.full_speed_config = cdc_desc_configuration_remote_wakeup;
+#if (TUD_OPT_HIGH_SPEED)
+    tusb_cfg.descriptor.qualifier = &device_qualifier;
+    tusb_cfg.descriptor.high_speed_config = cdc_desc_configuration_remote_wakeup;
+#endif // TUD_OPT_HIGH_SPEED
+
+    TEST_ASSERT_EQUAL(ESP_OK, tinyusb_driver_install(&tusb_cfg));
+    acm_cfg.callback_rx = rx_cb;
+    TEST_ASSERT_FALSE(tinyusb_cdcacm_initialized(TINYUSB_CDC_ACM_0));
+    TEST_ASSERT_EQUAL(ESP_OK, tinyusb_cdcacm_init(&acm_cfg));
+    TEST_ASSERT_TRUE(tinyusb_cdcacm_initialized(TINYUSB_CDC_ACM_0));
+
+    return tusb_cfg;
+}
+
+/**
+ * @brief Tinyusb power management suspend/resume events
+ *
+ * Tests TINYUSB_EVENT_SUSPENDED and TINYUSB_EVENT_RESUMED esp_tinyusb events
+ *
+ * Pytest expects TINYUSB_EVENT_SUSPENDED event - because of auto suspend
+ * Pytest sends data to device to resume it
+ * Device resumes, receives and validates the data, sends a response and goes to suspended state (auto suspend)
+ * Pytest expect TINYUSB_EVENT_SUSPENDED ...
+ */
+TEST_CASE("tinyusb_suspend_resume_events", "[esp_tinyusb][device_pm_suspend_resume]")
+{
+    // Install and initialize cdc
+    test_pm_init_tinyusb_cdc(tinyusb_cdc_rx_callback);
+
+    uint8_t buf[TINYUSB_CDC_RX_BUFSIZE + 1];
+    const char expect_reply[] = "Time to resume\r\n";
+    const char send_message[] = "Time to suspend\r\n";
+
+    // Expect attach event
+    expect_device_event(EVENT_BITS_ATTACHED, pdMS_TO_TICKS(DEVICE_EVENT_WAIT_MS));
+
+    int test_iterations = 0;
+    do {
+        expect_device_event(EVENT_BITS_SUSPENDED_REMOTE_WAKE_EN, pdMS_TO_TICKS(DEVICE_EVENT_WAIT_MS));
+        // Wait for new data from the host (Sent by pytest)
+        if (pdTRUE == xSemaphoreTake(rx_data_sem, pdMS_TO_TICKS(10000))) {
+
+            expect_device_event(EVENT_BITS_RESUMED, pdMS_TO_TICKS(DEVICE_EVENT_WAIT_MS));
+            size_t rx_size = 0;
+            TEST_ASSERT_EQUAL(ESP_OK, tinyusb_cdcacm_read(TINYUSB_CDC_ACM_0, buf, TINYUSB_CDC_RX_BUFSIZE, &rx_size));
+            if (rx_size > 0) {
+                ESP_LOGI(TAG, "Intf %d, RX %d bytes", TINYUSB_CDC_ACM_0, rx_size);
+                // Check if received string is equal to expect_reply string
+                TEST_ASSERT_EQUAL_UINT8_ARRAY(expect_reply, buf, sizeof(expect_reply) - 1);
+
+                // Reply to the host with send_message string
+                strncpy((char *)buf, send_message, sizeof(send_message) - 1);
+                tinyusb_cdcacm_write_queue(TINYUSB_CDC_ACM_0, buf, sizeof(send_message) - 1);
+                tinyusb_cdcacm_write_flush(TINYUSB_CDC_ACM_0, 0);
+                test_iterations++;
+            }
+        } else {
+            TEST_FAIL_MESSAGE("RX Data CB not received on time");
+        }
+    } while (test_iterations < SUSPEND_RESUME_TEST_ITERATIONS);
+
+    // Wait for the last auto suspend to finish the pytest
+    expect_device_event(EVENT_BITS_SUSPENDED_REMOTE_WAKE_EN, pdMS_TO_TICKS(DEVICE_EVENT_WAIT_MS));
+}
 
 /**
  * @brief Tinyusb power management remote wakeup
@@ -273,28 +285,13 @@ static void expect_device_event_impl(const uint32_t expected_event, TickType_t t
  */
 TEST_CASE("tinyusb_remote_wakeup_reporting", "[esp_tinyusb][device_pm_remote_wake]")
 {
-    // Get current tak handle for the device event handler
-    main_task_hdl = xTaskGetCurrentTaskHandle();
+    // Install and initialize cdc
+    test_pm_init_tinyusb_cdc(NULL);
 
-    // Install TinyUSB driver, device with remote wakeup enabled
-    tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG(test_remote_wake_event_handler);
-    tusb_cfg.descriptor.device = &cdc_device_descriptor;
-    tusb_cfg.descriptor.full_speed_config = cdc_desc_configuration_remote_wakeup;
-#if (TUD_OPT_HIGH_SPEED)
-    tusb_cfg.descriptor.qualifier = &device_qualifier;
-    tusb_cfg.descriptor.high_speed_config = cdc_desc_configuration_remote_wakeup;
-#endif // TUD_OPT_HIGH_SPEED
-
-    TEST_ASSERT_EQUAL(ESP_OK, tinyusb_driver_install(&tusb_cfg));
-    acm_cfg.callback_rx = &tinyusb_cdc_rx_callback_dmy;
-
-    // Init CDC device
-    TEST_ASSERT_FALSE(tinyusb_cdcacm_initialized(TINYUSB_CDC_ACM_0));
-    TEST_ASSERT_EQUAL(ESP_OK, tinyusb_cdcacm_init(&acm_cfg));
-    TEST_ASSERT_TRUE(tinyusb_cdcacm_initialized(TINYUSB_CDC_ACM_0));
-
-    // Expect attach event and auto suspend event with remote wakeup disabled by default
+    // Expect attach event
     expect_device_event(EVENT_BITS_ATTACHED, pdMS_TO_TICKS(DEVICE_EVENT_WAIT_MS));
+    // Expect auto suspend event with remote wakeup disabled by default
+    // pytest never opend tty device, just uses pyusb to interact with the device thus Linux host cdc-acm driver does not automatically enable remote wakeup
     expect_device_event(EVENT_BITS_SUSPENDED_REMOTE_WAKE_DIS, pdMS_TO_TICKS(DEVICE_EVENT_WAIT_MS));
 
     // Try to signalize remote wakeup, when the host did not enable it
@@ -360,19 +357,7 @@ TEST_CASE("tinyusb_light_sleep_usb_wakeup", "[esp_tinyusb][device_esp_sleep_ligh
     TEST_ASSERT_EQUAL(ESP_OK, esp_sleep_enable_usb_wakeup());
     TEST_ASSERT_EQUAL(ESP_OK, esp_sleep_pd_config(ESP_PD_DOMAIN_CNNT, ESP_PD_OPTION_ON));
 
-    main_task_hdl = xTaskGetCurrentTaskHandle();
-
-    tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG(test_remote_wake_event_handler);
-    tusb_cfg.descriptor.device = &cdc_device_descriptor;
-    tusb_cfg.descriptor.full_speed_config = cdc_desc_configuration_remote_wakeup;
-#if (TUD_OPT_HIGH_SPEED)
-    tusb_cfg.descriptor.qualifier = &device_qualifier;
-    tusb_cfg.descriptor.high_speed_config = cdc_desc_configuration_remote_wakeup;
-#endif // TUD_OPT_HIGH_SPEED
-
-    TEST_ASSERT_EQUAL(ESP_OK, tinyusb_driver_install(&tusb_cfg));
-    acm_cfg.callback_rx = &tinyusb_light_sleep_cdc_rx_callback;
-    TEST_ASSERT_EQUAL(ESP_OK, tinyusb_cdcacm_init(&acm_cfg));
+    test_pm_init_tinyusb_cdc(tinyusb_cdc_rx_callback);
 
     expect_device_event(EVENT_BITS_ATTACHED, pdMS_TO_TICKS(DEVICE_EVENT_WAIT_MS));
     expect_device_event(EVENT_BITS_SUSPENDED_REMOTE_WAKE_EN, pdMS_TO_TICKS(DEVICE_EVENT_WAIT_MS));
@@ -388,7 +373,6 @@ TEST_CASE("tinyusb_light_sleep_usb_wakeup", "[esp_tinyusb][device_esp_sleep_ligh
     TEST_ASSERT_TRUE_MESSAGE(wakeup_causes & BIT(ESP_SLEEP_WAKEUP_USB),
                              "Expected to wake from USB during light sleep");
 
-    uint32_t notify_bits = 0;
     expect_device_event(EVENT_BITS_RESUMED, pdMS_TO_TICKS(DEVICE_EVENT_WAIT_MS));
 
     TEST_ASSERT_EQUAL(ESP_OK, tinyusb_set_otg_suspend_state(false));
@@ -396,8 +380,8 @@ TEST_CASE("tinyusb_light_sleep_usb_wakeup", "[esp_tinyusb][device_esp_sleep_ligh
     TEST_ASSERT_EQUAL(ESP_OK, esp_sleep_disable_usb_wakeup());
     TEST_ASSERT_EQUAL(ESP_OK, esp_sleep_cpu_retention_deinit());
 
-    if (!(notify_bits & EVENT_BITS_DATA_RX)) {
-        expect_device_event(EVENT_BITS_DATA_RX, pdMS_TO_TICKS(10000));
+    if (pdTRUE != xSemaphoreTake(rx_data_sem, 0)) {
+        TEST_ASSERT_EQUAL(pdTRUE, xSemaphoreTake(rx_data_sem, pdMS_TO_TICKS(10000)));
     }
 
     uint8_t buf[TINYUSB_CDC_RX_BUFSIZE + 1];
@@ -405,7 +389,7 @@ TEST_CASE("tinyusb_light_sleep_usb_wakeup", "[esp_tinyusb][device_esp_sleep_ligh
     const char expect_message[] = "Light sleep wake\r\n";
     const char send_message[] = "Light sleep ok\r\n";
 
-    ESP_ERROR_CHECK(tinyusb_cdcacm_read(TINYUSB_CDC_ACM_0, buf, TINYUSB_CDC_RX_BUFSIZE, &rx_size));
+    TEST_ASSERT_EQUAL(ESP_OK, tinyusb_cdcacm_read(TINYUSB_CDC_ACM_0, buf, TINYUSB_CDC_RX_BUFSIZE, &rx_size));
     TEST_ASSERT_GREATER_THAN(0, rx_size);
     ESP_LOGI(TAG, "Intf %d, RX %d bytes", TINYUSB_CDC_ACM_0, rx_size);
     TEST_ASSERT_EQUAL_UINT8_ARRAY(expect_message, buf, sizeof(expect_message) - 1);

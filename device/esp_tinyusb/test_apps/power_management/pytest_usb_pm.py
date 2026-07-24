@@ -30,7 +30,6 @@ DUT_PID = 0x4002
 # Tinyusb device events from device event handler
 TINYUSB_EVENTS = {
     "attached":                     "TINYUSB_EVENT_ATTACHED",
-    "suspended":                    "TINYUSB_EVENT_SUSPENDED",
     "resumed":                      "TINYUSB_EVENT_RESUMED",
     "suspended_remote_wake_dis":    "TINYUSB_EVENT_SUSPENDED_REMOTE_WAKE_DIS",
     "suspended_remote_wake_en":     "TINYUSB_EVENT_SUSPENDED_REMOTE_WAKE_EN",
@@ -92,9 +91,9 @@ def test_usb_device_suspend_resume(dut: IdfDut) -> None:
             # This expect_exact is ignored by pytest when running second rerun of flaky test (unknown reason),
             # making the test fail in further steps, adding explicit sleep(3) to wait for the suspend events
             sleep(3)
-            dut.expect_exact(TINYUSB_EVENTS['suspended'])
+            dut.expect_exact(TINYUSB_EVENTS['suspended_remote_wake_en'])
 
-            for i in range(0, 5):
+            for i in range(5):
                 print(f"Power cycle iteration {i}.")
 
                 # Resume the device by accessing it
@@ -105,13 +104,16 @@ def test_usb_device_suspend_resume(dut: IdfDut) -> None:
                 dut.expect_exact(TINYUSB_EVENTS['resumed'])
 
                 # Wait for auto suspend (set to 3 seconds)
-                dut.expect_exact(TINYUSB_EVENTS['suspended'])
+                dut.expect_exact(TINYUSB_EVENTS['suspended_remote_wake_en'])
 
                 # Stay suspended for a while
                 sleep(2)
 
     except SerialException as e:
         raise RuntimeError(f"Failed to open CDC device on {ports[0]}") from e
+
+    # Wait for the test app to finish
+    dut.expect_exact('PM_Device_main_app: Cleanup')
 
 def set_remote_wake_on_device(VID: int, PID: int) -> None:
     '''
@@ -235,6 +237,10 @@ def test_usb_device_remote_wakeup_en(dut: IdfDut) -> None:
 
     # Expect device to resume (remote wakeup)
     dut.expect_exact(TINYUSB_EVENTS['resumed'])
+
+    # Wait for the test app to finish
+    dut.expect_exact('PM_Device_main_app: Cleanup')
+    sleep(1)
 
 @pytest.mark.usb_device
 @pytest.mark.parametrize(
