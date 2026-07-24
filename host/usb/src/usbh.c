@@ -1169,6 +1169,8 @@ unlock:
     return ret;
 }
 
+#endif // AUTO_PM_LIGHT_SLEEP
+
 /**
  * @brief Decode PM related device control commands to device actions flags
  *
@@ -1198,11 +1200,8 @@ static void usbh_pm_actions_decode(usbh_dev_ctrl_t device_ctrl, uint32_t *dev_ac
     }
 }
 
-#endif // AUTO_PM_LIGHT_SLEEP
-
 esp_err_t usbh_dev_set_pm_actions_by_uid(unsigned int uid, usbh_dev_ctrl_t device_ctrl)
 {
-    esp_err_t ret = ESP_OK;
     uint32_t dev_actions_flags = 0;
     usbh_pm_actions_decode(device_ctrl, &dev_actions_flags);
 
