@@ -327,6 +327,22 @@ esp_err_t hub_dev_new(uint8_t dev_addr);
  */
 esp_err_t hub_dev_gone(uint8_t dev_addr);
 
+#ifdef LIGHT_SLEEP_PROBE
+/**
+ * @brief Report that a device is no longer present by its device-tree UID
+ *
+ * Propagates HUB_EVENT_DISCONNECTED for the node matching @p uid.
+ *
+ * @param[in] uid Device's node unique ID
+ *
+ * @return
+ *    - ESP_OK: Disconnect event propagated
+ *    - ESP_ERR_INVALID_STATE: Hub driver is not installed
+ *    - ESP_ERR_NOT_FOUND: Device tree node not found
+ */
+esp_err_t hub_dev_gone_by_uid(unsigned int uid);
+#endif // LIGHT_SLEEP_PROBE
+
 #if ENABLE_USB_HUBS
 /**
  * @brief Notify Hub driver that all devices should be freed
