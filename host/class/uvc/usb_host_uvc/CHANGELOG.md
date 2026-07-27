@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed ISOC handling so empty packets with invalid UVC payload headers do not discard the current frame.
 - Fixed basic UVC stream example to support MJPEG frame buffer size estimation
 - Fixed `uvc_host_stream_close()` aborting the whole system (`ESP_ERROR_CHECK`) when the device is stalled or disconnected; interface release failure is now logged and cleanup continues (https://github.com/espressif/esp-usb/issues/529)
+- NULL-check VC header parse results and clamp frame-interval reads to descriptor `bLength` (BBP 573)
 
 ## [2.5.1] - 2026-05-25
 

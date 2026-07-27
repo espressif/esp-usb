@@ -5,14 +5,58 @@
  */
 
 #include <inttypes.h>
+#include <stddef.h>
 #include <string.h> // strncmp for guid format parsing
 #include <math.h>   // fabsf for float comparison
+#include <sys/param.h> // MIN
 #include "usb/usb_helpers.h"
 #include "usb/uvc_host.h"
 #include "uvc_check_priv.h"
 #include "uvc_descriptors_priv.h"
+#include "usb_types_uvc.h"
 
 #define FLOAT_EQUAL(a, b) (fabsf(a - b) < 0.0001f) // For comparing float values with acceptable difference (epsilon value)
+
+/**
+ * @brief Byte offset of the first dwFrameInterval dword inside a frame descriptor
+ */
+static size_t uvc_desc_frame_interval_array_offset(const uvc_frame_desc_t *frame_desc)
+{
+    switch (frame_desc->bDescriptorSubType) {
+    case UVC_VS_DESC_SUBTYPE_FRAME_FRAME_BASED:
+        return offsetof(uvc_frame_desc_t, frame_based.dwFrameInterval);
+    case UVC_VS_DESC_SUBTYPE_FRAME_UNCOMPRESSED:
+    case UVC_VS_DESC_SUBTYPE_FRAME_MJPEG:
+        return offsetof(uvc_frame_desc_t, mjpeg_uncompressed.dwFrameInterval);
+    default:
+        return 0;
+    }
+}
+
+/**
+ * @brief True if bLength covers continuous min/max/step interval fields
+ */
+static bool uvc_desc_frame_has_continuous_intervals(const uvc_frame_desc_t *frame_desc)
+{
+    const size_t offset = uvc_desc_frame_interval_array_offset(frame_desc);
+    return offset > 0 && frame_desc->bLength >= offset + (3 * sizeof(uint32_t));
+}
+
+/**
+ * @brief Clamp discrete bFrameIntervalType to what bLength can actually hold
+ */
+static uint8_t uvc_desc_frame_discrete_interval_count(const uvc_frame_desc_t *frame_desc, uint8_t declared)
+{
+    if (declared == 0) {
+        return 0;
+    }
+    const size_t offset = uvc_desc_frame_interval_array_offset(frame_desc);
+    if (offset == 0 || frame_desc->bLength <= offset) {
+        return 0;
+    }
+    const size_t avail = (frame_desc->bLength - offset) / sizeof(uint32_t);
+    return (uint8_t)MIN((size_t)declared, avail);
+}
 
 /**
  * @brief Get the safe wTotalLength for VS interface header parsing
@@ -208,6 +252,9 @@ static bool uvc_desc_format_is_equal(const uvc_frame_desc_t *frame_desc, const u
         case UVC_VS_DESC_SUBTYPE_FRAME_FRAME_BASED:
             bFrameIntervalType = frame_desc->frame_based.bFrameIntervalType;
             if (bFrameIntervalType == 0) {
+                if (!uvc_desc_frame_has_continuous_intervals(frame_desc)) {
+                    return false;
+                }
 
                 dwMinFrameInterval = frame_desc->frame_based.dwMinFrameInterval;
                 dwMaxFrameInterval = frame_desc->frame_based.dwMaxFrameInterval;
@@ -218,11 +265,15 @@ static bool uvc_desc_format_is_equal(const uvc_frame_desc_t *frame_desc, const u
                     if (FLOAT_EQUAL(vs_format->fps, UVC_DESC_DWFRAMEINTERVAL_TO_FPS(current_frame_interval))) {
                         return true;
                     }
+                    if (dwFrameIntervalStep == 0) {
+                        break;
+                    }
                     current_frame_interval += dwFrameIntervalStep;
                 }
             } else {
                 // This stream support discrete Frame Intervals. Check supported intervals
-                for (int i = 0; i < bFrameIntervalType; i++) {
+                const uint8_t interval_count = uvc_desc_frame_discrete_interval_count(frame_desc, bFrameIntervalType);
+                for (int i = 0; i < interval_count; i++) {
                     if (FLOAT_EQUAL(vs_format->fps, UVC_DESC_DWFRAMEINTERVAL_TO_FPS(frame_desc->frame_based.dwFrameInterval[i]))) {
                         return true;
                     }
@@ -233,6 +284,9 @@ static bool uvc_desc_format_is_equal(const uvc_frame_desc_t *frame_desc, const u
         case UVC_VS_DESC_SUBTYPE_FRAME_MJPEG:
             bFrameIntervalType = frame_desc->mjpeg_uncompressed.bFrameIntervalType;
             if (bFrameIntervalType == 0) {
+                if (!uvc_desc_frame_has_continuous_intervals(frame_desc)) {
+                    return false;
+                }
 
                 dwMinFrameInterval = frame_desc->mjpeg_uncompressed.dwMinFrameInterval;
                 dwMaxFrameInterval = frame_desc->mjpeg_uncompressed.dwMaxFrameInterval;
@@ -243,11 +297,15 @@ static bool uvc_desc_format_is_equal(const uvc_frame_desc_t *frame_desc, const u
                     if (FLOAT_EQUAL(vs_format->fps, UVC_DESC_DWFRAMEINTERVAL_TO_FPS(current_frame_interval))) {
                         return true;
                     }
+                    if (dwFrameIntervalStep == 0) {
+                        break;
+                    }
                     current_frame_interval += dwFrameIntervalStep;
                 }
             } else {
                 // This stream support discrete Frame Intervals. Check supported intervals
-                for (int i = 0; i < bFrameIntervalType; i++) {
+                const uint8_t interval_count = uvc_desc_frame_discrete_interval_count(frame_desc, bFrameIntervalType);
+                for (int i = 0; i < interval_count; i++) {
                     if (FLOAT_EQUAL(vs_format->fps, UVC_DESC_DWFRAMEINTERVAL_TO_FPS(frame_desc->mjpeg_uncompressed.dwFrameInterval[i]))) {
                         return true;
                     }
@@ -331,6 +389,9 @@ static const uvc_vc_header_desc_t *uvc_desc_get_control_interface_header(const u
             if (uvc_idx == uvc_iad_idx) {
                 // This is the IAD that we are looking for. Find its first Video Control interface header descriptor
                 header_desc_ret = (const uvc_vc_header_desc_t *)usb_parse_next_descriptor_of_type(current_desc, cfg_desc->wTotalLength, UVC_CS_INTERFACE, &offset);
+                // Peer may omit the class header after a Video IAD (BBP 573 NULL deref).
+                UVC_CHECK(header_desc_ret, NULL);
+                UVC_CHECK(header_desc_ret->bLength >= offsetof(uvc_vc_header_desc_t, baInterfaceNr), NULL);
                 UVC_CHECK(header_desc_ret->bDescriptorSubType == UVC_VC_DESC_SUBTYPE_HEADER, NULL);
                 break;
             } else {
@@ -493,11 +554,16 @@ esp_err_t uvc_desc_get_frame_list(const usb_config_desc_t *config_desc, uint8_t 
                 frame_info->default_interval = this_frame->mjpeg_uncompressed.dwDefaultFrameInterval;
                 frame_info->interval_type = this_frame->mjpeg_uncompressed.bFrameIntervalType;
                 if (frame_info->interval_type == 0) {
+                    if (!uvc_desc_frame_has_continuous_intervals(this_frame)) {
+                        break;
+                    }
                     frame_info->interval_min = this_frame->mjpeg_uncompressed.dwMinFrameInterval;
                     frame_info->interval_max = this_frame->mjpeg_uncompressed.dwMaxFrameInterval;
                     frame_info->interval_step = this_frame->mjpeg_uncompressed.dwFrameIntervalStep;
                 } else {
-                    for (int i = 0; i < CONFIG_UVC_INTERVAL_ARRAY_SIZE; i ++) {
+                    const uint8_t interval_count = uvc_desc_frame_discrete_interval_count(this_frame, frame_info->interval_type);
+                    frame_info->interval_type = interval_count;
+                    for (int i = 0; i < MIN(interval_count, CONFIG_UVC_INTERVAL_ARRAY_SIZE); i++) {
                         frame_info->interval[i] = this_frame->mjpeg_uncompressed.dwFrameInterval[i];
                     }
                 }
@@ -507,11 +573,16 @@ esp_err_t uvc_desc_get_frame_list(const usb_config_desc_t *config_desc, uint8_t 
                 frame_info->default_interval = this_frame->frame_based.dwDefaultFrameInterval;
                 frame_info->interval_type = this_frame->frame_based.bFrameIntervalType;
                 if (frame_info->interval_type == 0) {
+                    if (!uvc_desc_frame_has_continuous_intervals(this_frame)) {
+                        break;
+                    }
                     frame_info->interval_min = this_frame->frame_based.dwMinFrameInterval;
                     frame_info->interval_max = this_frame->frame_based.dwMaxFrameInterval;
                     frame_info->interval_step = this_frame->frame_based.dwFrameIntervalStep;
                 } else {
-                    for (int i = 0; i < CONFIG_UVC_INTERVAL_ARRAY_SIZE; i ++) {
+                    const uint8_t interval_count = uvc_desc_frame_discrete_interval_count(this_frame, frame_info->interval_type);
+                    frame_info->interval_type = interval_count;
+                    for (int i = 0; i < MIN(interval_count, CONFIG_UVC_INTERVAL_ARRAY_SIZE); i++) {
                         frame_info->interval[i] = this_frame->frame_based.dwFrameInterval[i];
                     }
                 }
