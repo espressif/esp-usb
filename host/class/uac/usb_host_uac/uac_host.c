@@ -851,19 +851,28 @@ static esp_err_t uac_host_interface_add(uac_device_t *uac_device, uint8_t iface_
                                                                                                    iface_alt->connected_terminal,
                                                                                                    !(ep_desc->bEndpointAddress & UAC_EP_DIR_IN));
                 if (feature_unit_desc) {
-                    iface_alt->feature_unit = feature_unit_desc->bUnitID;
-                    uint8_t ch_num = 0;
-                    for (size_t i = 0; i < (feature_unit_desc->bLength - 7) / feature_unit_desc->bControlSize; i++) {
-                        if (feature_unit_desc->bmaControls[i * feature_unit_desc->bControlSize] & UAC_FU_CONTROL_POS_VOLUME) {
-                            iface_alt->vol_ch_map |= (1 << ch_num);
+                    // Reject peer-controlled bControlSize == 0 (divide-by-zero) and
+                    // descriptors whose bLength cannot hold the fixed header (BBP 575).
+                    if (feature_unit_desc->bControlSize == 0 || feature_unit_desc->bLength < 7) {
+                        ESP_LOGW(TAG, "Invalid Feature Unit descriptor (bLength=%u bControlSize=%u), skipping controls",
+                                 feature_unit_desc->bLength,
+                                 feature_unit_desc->bControlSize);
+                    } else {
+                        iface_alt->feature_unit = feature_unit_desc->bUnitID;
+                        uint8_t ch_num = 0;
+                        const size_t controls_bytes = feature_unit_desc->bLength - 7;
+                        for (size_t i = 0; i < controls_bytes / feature_unit_desc->bControlSize; i++) {
+                            if (feature_unit_desc->bmaControls[i * feature_unit_desc->bControlSize] & UAC_FU_CONTROL_POS_VOLUME) {
+                                iface_alt->vol_ch_map |= (1 << ch_num);
+                            }
+                            if (feature_unit_desc->bmaControls[i * feature_unit_desc->bControlSize] & UAC_FU_CONTROL_POS_MUTE) {
+                                iface_alt->mute_ch_map |= (1 << ch_num);
+                            }
+                            ch_num++;
                         }
-                        if (feature_unit_desc->bmaControls[i * feature_unit_desc->bControlSize] & UAC_FU_CONTROL_POS_MUTE) {
-                            iface_alt->mute_ch_map |= (1 << ch_num);
-                        }
-                        ch_num++;
+                        ESP_LOGD(TAG, "UAC %s Feature Unit ID %d, Volume Ch Map %02X, Mute Ch Map %02X", uac_iface->dev_info.type == UAC_STREAM_RX ? "RX" : "TX",
+                                 feature_unit_desc->bUnitID, iface_alt->vol_ch_map, iface_alt->mute_ch_map);
                     }
-                    ESP_LOGD(TAG, "UAC %s Feature Unit ID %d, Volume Ch Map %02X, Mute Ch Map %02X", uac_iface->dev_info.type == UAC_STREAM_RX ? "RX" : "TX",
-                             feature_unit_desc->bUnitID, iface_alt->vol_ch_map, iface_alt->mute_ch_map);
                 }
                 ESP_LOGD(TAG, "UAC Endpoint 0x%02X, Max Packet Size %d, Attributes 0x%02X, Interval %d", USB_EP_DESC_GET_EP_NUM(ep_desc), ep_desc->wMaxPacketSize, ep_desc->bmAttributes, ep_desc->bInterval);
                 break;
