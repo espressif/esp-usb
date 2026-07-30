@@ -13,17 +13,19 @@ from serial.tools.list_ports import comports
     [
         pytest.param('default', 'esp32s2',),
         pytest.param('default', 'esp32s3',),
+        pytest.param('default', 'esp32h4'),
         pytest.param('default', 'esp32p4', marks=[pytest.mark.eco_default]),
         pytest.param('esp32p4_eco4', 'esp32p4', marks=[pytest.mark.esp32p4_eco4]),
+        pytest.param('default', 'esp32s31'),
     ],
     indirect=['target'],
 )
 def test_usb_device_cdc(dut: IdfDut) -> None:
     '''
     Running the test locally:
-    1. Build the test_app for your DUT (ESP32-S2/S3/P4)
+    1. Build the test app for your USB-OTG capable DUT
     2. Connect you DUT to your test runner (local machine) with USB port and flashing port
-    3. Run `pytest --target esp32s3`
+    3. Run `pytest --target <target>`
 
     Test procedure:
     1. Run the test on the DUT

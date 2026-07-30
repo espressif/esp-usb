@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2025-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -76,8 +76,13 @@ bool mock_dev_setup(mock_dev_cfg_t *cfg)
     if (mock_device_test_stop == NULL) {
         return false;
     }
+    // Always initialize the FS peripheral
+    const tusb_rhport_init_t rh_port_init = {
+        .role = TUSB_ROLE_DEVICE,
+        .speed = TUSB_SPEED_FULL,
+    };
     // Init tusb device stack
-    if (!tusb_init()) {
+    if (!tusb_rhport_init(0, &rh_port_init)) {
         return false;
     }
     // Create task for device stack handling

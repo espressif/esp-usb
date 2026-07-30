@@ -6,7 +6,7 @@ from pytest_embedded_idf.dut import IdfDut
 from pytest_embedded_idf.utils import idf_parametrize
 
 # No runner marker. We don't have a runner for UVC target tests yet.
-@idf_parametrize('target', ['esp32s2', 'esp32s3', 'esp32p4'], indirect=['target'])
+@idf_parametrize('target', ['esp32s2', 'esp32s3', 'esp32h4', 'esp32p4', 'esp32s31'], indirect=['target'])
 def test_usb_host_uvc(dut: IdfDut) -> None:
     dut.expect_exact('Press ENTER to see the list of tests.')
     dut.write('[uvc]')

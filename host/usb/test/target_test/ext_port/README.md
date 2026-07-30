@@ -1,6 +1,3 @@
-| Supported Targets | ESP32-P4 | ESP32-S2 | ESP32-S3 |
-| ----------------- | -------- | -------- | -------- |
-
 # USB: External Port test application
 
 Testing the External Port Driver logic.

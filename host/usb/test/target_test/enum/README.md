@@ -1,6 +1,3 @@
-| Supported Targets | ESP32-P4 | ESP32-S2 | ESP32-S3 |
-| ----------------- | -------- | -------- | -------- |
-
 # USB: Enumeration Driver - Local Test with emulated device based on TinyUSB
 
 ## Introduction
@@ -16,6 +13,8 @@ To verify the process how Enumeration Driver handles different scenarios the art
 ## Test Hardware requirements
 
 For testing purpose two esp32-cpu based hardware with USB-OTG support are required (One for Host, one for Device (mocked dev)):
+
+> **USB OTG 1.1 (FS) requirement:** The Mocked Device uses the internal Full-Speed USB OTG 1.1 peripheral and emulates USB attach/detach by driving OTG signals through the GPIO matrix (`esp_rom_gpio_connect_in_signal()` in [mock_dev.c](main/mock_dev.c)). This test can only be run on targets with an internal FS USB OTG 1.1 PHY. High-Speed-only targets (e.g. ESP32-S31) are not supported.
 
 ```
 +----------------+
@@ -224,7 +223,7 @@ To run the example on the Host:
 
 ```bash
 cd examples/peripherals/usb/host/usb_host_lib
-idf.py set-target esp32s3
+idf.py set-target <target>
 idf.py -p /dev/ttyACM0 flash monitor
 ```
 
@@ -234,9 +233,9 @@ To run the Device part:
 
 ```bash
 cd components/usb/test_apps/enum
-idf.py set-target esp32s3
+idf.py set-target <target>
 idf.py build
-pytest --target=esp32s3 --port=/dev/ttyUSB0
+pytest --target=<target> --port=/dev/ttyUSB0
 ```
 
 After running the pytest on the device, the debug output from the Host works as the usb_host_lib example:

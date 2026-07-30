@@ -24,6 +24,7 @@ void setUp(void)
         .controller = USB_PHY_CTRL_OTG,
         .target = USB_PHY_TARGET_INT,
         .otg_mode = USB_OTG_MODE_DEVICE,
+        .otg_speed = USB_PHY_SPEED_FULL,
     };
     TEST_ASSERT_EQUAL_MESSAGE(ESP_OK, usb_new_phy(&phy_config, &phy_hdl), "Failed to init USB Device PHY");
 }
