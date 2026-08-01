@@ -926,10 +926,10 @@ esp_err_t uvc_host_stream_close(uvc_host_stream_hdl_t stream_hdl)
     // legitimately returns an error (e.g. ESP_ERR_INVALID_STATE). That is a normal runtime
     // condition, and this close path is exactly what the application needs to recover from it.
     // Log the failure and continue the cleanup so the stream resources are still freed.
-    esp_err_t rel_ret = usb_host_interface_release(p_uvc_host_driver->usb_client_hdl, uvc_stream->constant.dev_hdl, uvc_stream->constant.bInterfaceNumber);
-    if (rel_ret != ESP_OK) {
-        ESP_LOGE(TAG, "Interface release failed: %s (device gone?), continuing cleanup", esp_err_to_name(rel_ret));
-    }
+esp_err_t rel_ret = usb_host_interface_release(p_uvc_host_driver->usb_client_hdl, uvc_stream->constant.dev_hdl, uvc_stream->constant.bInterfaceNumber);
+if (rel_ret != ESP_OK) {
+    ESP_LOGW(TAG, "Interface release failed: %s (device gone?), continuing cleanup", esp_err_to_name(rel_ret));
+}
 
     UVC_ENTER_CRITICAL();
     SLIST_REMOVE(&p_uvc_host_driver->uvc_stream_list, uvc_stream, uvc_host_stream_s, list_entry);
