@@ -1,3 +1,7 @@
+## Unreleased
+
+- esp_tinyusb: Added support for exposing already-mounted VFS/FATFS paths through Media Transfer Protocol
+
 ## 2.2.1
 
 - esp_tinyusb: Add an explicit `tinyusb` dependency when the IDF component manager is disabled

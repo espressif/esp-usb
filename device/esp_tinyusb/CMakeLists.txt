@@ -44,7 +44,6 @@ if(CONFIG_TINYUSB_MSC_ENABLED)
     endif() # CONFIG_SOC_SDMMC_HOST_SUPPORTED
 endif() # CONFIG_TINYUSB_MSC_ENABLED
 
-
 if(CONFIG_TINYUSB_NET_MODE_NCM)
     list(APPEND srcs
          "tinyusb_net.c"
@@ -85,6 +84,15 @@ if(tinyusb IN_LIST build_components)
 else()
     set(tinyusb_name espressif__tinyusb) # Managed component
 endif()
+
+if(CONFIG_TINYUSB_MTP_ENABLED)
+    idf_component_get_property(tinyusb_dir ${tinyusb_name} COMPONENT_DIR)
+    if(NOT EXISTS "${tinyusb_dir}/src/class/mtp/mtp_device.c")
+        message(FATAL_ERROR "CONFIG_TINYUSB_MTP_ENABLED requires TinyUSB MTP device class support.
+        Please use a TinyUSB release that provides src/class/mtp/mtp_device.c or disable MTP.")
+    endif()
+    target_sources(${COMPONENT_LIB} PRIVATE "tinyusb_mtp.c")
+endif() # CONFIG_TINYUSB_MTP_ENABLED
 
 # Pass tusb_config.h from this component to TinyUSB
 idf_component_get_property(tusb_lib ${tinyusb_name} COMPONENT_LIB)

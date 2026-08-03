@@ -124,6 +124,13 @@ menu "TinyUSB Stack"
             default "Espressif MSC Device"
             help
                 Name of the MSC device.
+
+        config TINYUSB_DESC_MTP_STRING
+            depends on TINYUSB_MTP_ENABLED
+            string "MTP Device String"
+            default "Espressif MTP Device"
+            help
+                Name of the MTP device.
     endmenu # "Descriptor configuration"
 
     menu "Mass Storage Class (MSC)"
@@ -150,6 +157,52 @@ menu "TinyUSB Stack"
             help
                 MSC Mount Path of storage.
     endmenu # "Mass Storage Class"
+
+    menu "Media Transfer Protocol (MTP)"
+        config TINYUSB_MTP_ENABLED
+            bool "Enable TinyUSB MTP feature"
+            default n
+            help
+                Enable TinyUSB MTP feature. MTP exposes files through already-mounted
+                VFS/FATFS paths and does not take block-device ownership.
+
+        config TINYUSB_MTP_EP_BUFSIZE
+            depends on TINYUSB_MTP_ENABLED
+            int "MTP endpoint buffer size"
+            default 4096 if IDF_TARGET_ESP32P4 || IDF_TARGET_ESP32S31
+            default 512
+            range 512 8192 if IDF_TARGET_ESP32S2 || IDF_TARGET_ESP32S3 || IDF_TARGET_ESP32H4
+            range 512 32768 if IDF_TARGET_ESP32P4 || IDF_TARGET_ESP32S31
+            help
+                MTP bulk endpoint transfer buffer size, in bytes. Larger values improve
+                large file transfer throughput at the cost of RAM.
+
+        config TINYUSB_MTP_MAX_STORAGES
+            depends on TINYUSB_MTP_ENABLED
+            int "Maximum MTP storage count"
+            default 3
+            range 1 3 if IDF_TARGET_ESP32S2 || IDF_TARGET_ESP32S3 || IDF_TARGET_ESP32H4
+            range 1 8 if IDF_TARGET_ESP32P4 || IDF_TARGET_ESP32S31
+            help
+                Maximum number of mounted VFS/FATFS paths that can be registered as MTP storages.
+
+        config TINYUSB_MTP_MAX_OBJECTS
+            depends on TINYUSB_MTP_ENABLED
+            int "Maximum cached MTP object count"
+            default 512
+            range 32 1024 if IDF_TARGET_ESP32S2 || IDF_TARGET_ESP32S3 || IDF_TARGET_ESP32H4
+            range 32 4096 if IDF_TARGET_ESP32P4 || IDF_TARGET_ESP32S31
+            help
+                Maximum number of file or directory object handles cached by the MTP backend.
+
+        config TINYUSB_MTP_TRACE_WRITES
+            depends on TINYUSB_MTP_ENABLED
+            bool "Trace MTP file-transfer operations"
+            default n
+            help
+                Enable concise logs for host read, write, edit, delete, rename, and unsupported
+                MTP operations. This is intended for manual host compatibility debugging.
+    endmenu # "Media Transfer Protocol"
 
     menu "Communication Device Class (CDC)"
         config TINYUSB_CDC_ENABLED
