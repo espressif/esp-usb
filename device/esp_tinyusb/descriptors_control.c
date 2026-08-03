@@ -203,8 +203,8 @@ esp_err_t tinyusb_descriptors_set(tinyusb_port_t port, const tinyusb_desc_config
 
     // Full-speed configuration descriptor
     if (config->full_speed_config == NULL) {
-#if (CFG_TUD_CDC > 0 || CFG_TUD_MSC > 0 || CFG_TUD_NCM > 0)
-        // We provide default config descriptors only for CDC, MSC and NCM classes
+#if (CFG_TUD_CDC > 0 || CFG_TUD_MSC > 0 || CFG_TUD_MTP > 0 || CFG_TUD_NCM > 0)
+        // We provide default config descriptors only for CDC, MSC, MTP and NCM classes
         ESP_LOGW(TAG, "No Full-speed configuration descriptor provided, using default.");
         s_desc_cfg.fs_cfg = descriptor_fs_cfg_default;
 #else
@@ -220,8 +220,8 @@ esp_err_t tinyusb_descriptors_set(tinyusb_port_t port, const tinyusb_desc_config
     // Needed for multi-port chips (e.g. P4 HS port) and HS-only single-port chips (e.g. S31)
     if (TINYUSB_PORT_IS_HS(port)) {
         if (config->high_speed_config == NULL) {
-#if (CFG_TUD_CDC > 0 || CFG_TUD_MSC > 0 || CFG_TUD_NCM > 0)
-            // We provide default config descriptors only for CDC, MSC and NCM classes
+#if (CFG_TUD_CDC > 0 || CFG_TUD_MSC > 0 || CFG_TUD_MTP > 0 || CFG_TUD_NCM > 0)
+            // We provide default config descriptors only for CDC, MSC, MTP and NCM classes
             ESP_LOGW(TAG, "No High-speed configuration descriptor provided, using default.");
             s_desc_cfg.hs_cfg = descriptor_hs_cfg_default;
 #else

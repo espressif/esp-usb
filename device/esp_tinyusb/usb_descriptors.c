@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2020-2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2020-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -13,11 +13,11 @@
  * Same VID/PID with different interface e.g MSC (first), then CDC (later) will possibly cause system error on PC.
  *
  * Auto ProductID layout's Bitmap:
- *   [MSB]         HID | MSC | CDC          [LSB]
+ *   [MSB]         MTP | HID | MSC | CDC          [LSB]
  */
 #define _PID_MAP(itf, n) ((CFG_TUD_##itf) << (n))
 #define USB_TUSB_PID (0x4000 | _PID_MAP(CDC, 0) | _PID_MAP(MSC, 1) | _PID_MAP(HID, 2) | \
-    _PID_MAP(MIDI, 3) | _PID_MAP(AUDIO, 4) | _PID_MAP(VENDOR, 5) )
+    _PID_MAP(MIDI, 3) | _PID_MAP(AUDIO, 4) | _PID_MAP(VENDOR, 5) | _PID_MAP(MTP, 6) )
 
 /**** Kconfig driven Descriptor ****/
 
@@ -102,6 +102,10 @@ const char *descriptor_str_default[] = {
     CONFIG_TINYUSB_DESC_MSC_STRING,          // 5: MSC Interface
 #endif
 
+#if CONFIG_TINYUSB_MTP_ENABLED
+    "Espressif MTP Device",                  // MTP Interface
+#endif
+
 #if CONFIG_TINYUSB_NET_MODE_ECM_RNDIS || CONFIG_TINYUSB_NET_MODE_NCM
     "USB net",                               // 6. NET Interface
     "",                                      // 7. MAC
@@ -129,6 +133,10 @@ enum {
     ITF_NUM_MSC,
 #endif
 
+#if CFG_TUD_MTP
+    ITF_NUM_MTP,
+#endif
+
 #if CFG_TUD_NCM
     ITF_NUM_NET,
     ITF_NUM_NET_DATA,
@@ -149,6 +157,7 @@ enum {
     TUSB_DESC_TOTAL_LEN = TUD_CONFIG_DESC_LEN +
                           CFG_TUD_CDC * TUD_CDC_DESC_LEN +
                           CFG_TUD_MSC * TUD_MSC_DESC_LEN +
+                          CFG_TUD_MTP * TUD_MTP_DESC_LEN +
                           CFG_TUD_NCM * TUD_CDC_NCM_DESC_LEN +
                           CFG_TUD_VENDOR * TUD_VENDOR_DESC_LEN
 };
@@ -169,6 +178,11 @@ enum {
 
 #if CFG_TUD_MSC
     EPNUM_MSC,
+#endif
+
+#if CFG_TUD_MTP
+    EPNUM_MTP_EVT,
+    EPNUM_MTP,
 #endif
 
 #if CFG_TUD_NCM
@@ -197,6 +211,10 @@ enum {
 
 #if CFG_TUD_MSC
     STRID_MSC_INTERFACE,
+#endif
+
+#if CFG_TUD_MTP
+    STRID_MTP_INTERFACE,
 #endif
 
 #if CFG_TUD_NCM
@@ -229,9 +247,15 @@ uint8_t const descriptor_fs_cfg_default[] = {
     TUD_MSC_DESCRIPTOR(ITF_NUM_MSC, STRID_MSC_INTERFACE, EPNUM_MSC, 0x80 | EPNUM_MSC, 64),
 #endif
 
+#if CFG_TUD_MTP
+    // Interface number, string index, EP event, EP event size, EP event polling, EP Out & EP In address, EP size
+    TUD_MTP_DESCRIPTOR(ITF_NUM_MTP, STRID_MTP_INTERFACE, 0x80 | EPNUM_MTP_EVT, 64, 1, EPNUM_MTP, 0x80 | EPNUM_MTP, 64),
+#endif
+
 #if CFG_TUD_NCM
-    // Interface number, description string index, MAC address string index, EP notification address and size, EP data address (out, in), and size, max segment size.
-    TUD_CDC_NCM_DESCRIPTOR(ITF_NUM_NET, STRID_NET_INTERFACE, STRID_MAC, (0x80 | EPNUM_NET_NOTIF), 64, EPNUM_NET_DATA, (0x80 | EPNUM_NET_DATA), 64, CFG_TUD_NET_MTU),
+    // Interface number, string indices, notification EP, data EPs, EP size, and max segment size.
+    TUD_CDC_NCM_DESCRIPTOR(ITF_NUM_NET, STRID_NET_INTERFACE, STRID_MAC, (0x80 | EPNUM_NET_NOTIF), 64,
+                           EPNUM_NET_DATA, (0x80 | EPNUM_NET_DATA), 64, CFG_TUD_NET_MTU),
 #endif
 
 #if CFG_TUD_VENDOR
@@ -265,9 +289,15 @@ uint8_t const descriptor_hs_cfg_default[] = {
     TUD_MSC_DESCRIPTOR(ITF_NUM_MSC, STRID_MSC_INTERFACE, EPNUM_MSC, 0x80 | EPNUM_MSC, 512),
 #endif
 
+#if CFG_TUD_MTP
+    // Interface number, string index, EP event, EP event size, EP event polling, EP Out & EP In address, EP size
+    TUD_MTP_DESCRIPTOR(ITF_NUM_MTP, STRID_MTP_INTERFACE, 0x80 | EPNUM_MTP_EVT, 64, 1, EPNUM_MTP, 0x80 | EPNUM_MTP, 512),
+#endif
+
 #if CFG_TUD_NCM
-    // Interface number, description string index, MAC address string index, EP notification address and size, EP data address (out, in), and size, max segment size.
-    TUD_CDC_NCM_DESCRIPTOR(ITF_NUM_NET, STRID_NET_INTERFACE, STRID_MAC, (0x80 | EPNUM_NET_NOTIF), 64, EPNUM_NET_DATA, (0x80 | EPNUM_NET_DATA), 512, CFG_TUD_NET_MTU),
+    // Interface number, string indices, notification EP, data EPs, EP size, and max segment size.
+    TUD_CDC_NCM_DESCRIPTOR(ITF_NUM_NET, STRID_NET_INTERFACE, STRID_MAC, (0x80 | EPNUM_NET_NOTIF), 64,
+                           EPNUM_NET_DATA, (0x80 | EPNUM_NET_DATA), 512, CFG_TUD_NET_MTU),
 #endif
 
 #if CFG_TUD_VENDOR

@@ -44,6 +44,12 @@ if(CONFIG_TINYUSB_MSC_ENABLED)
     endif() # CONFIG_SOC_SDMMC_HOST_SUPPORTED
 endif() # CONFIG_TINYUSB_MSC_ENABLED
 
+if(CONFIG_TINYUSB_MTP_ENABLED)
+    list(APPEND srcs
+        "tinyusb_mtp.c"
+        )
+endif() # CONFIG_TINYUSB_MTP_ENABLED
+
 
 if(CONFIG_TINYUSB_NET_MODE_NCM)
     list(APPEND srcs
