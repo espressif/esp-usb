@@ -141,7 +141,6 @@ typedef struct {
     bool installed;
     bool session_open;
     uint32_t next_object_handle;
-    SemaphoreHandle_t lock;
     char *manufacturer;
     char *model;
     char *version;
@@ -176,6 +175,10 @@ typedef struct {
 } mtp_payload_builder_t;
 
 static tinyusb_mtp_ctx_t s_mtp;
+// Lifetime mutex: created on first install and never deleted, so TinyUSB callbacks
+// cannot race a vSemaphoreDelete()/NULL lock during uninstall.
+static SemaphoreHandle_t s_mtp_mutex;
+static portMUX_TYPE s_mtp_mutex_init_lock = portMUX_INITIALIZER_UNLOCKED;
 
 static int32_t mtp_get_device_info(tud_mtp_cb_data_t *cb_data);
 static int32_t mtp_open_close_session(tud_mtp_cb_data_t *cb_data);
@@ -464,16 +467,38 @@ static char *mtp_strdup_or_default(const char *value, const char *fallback)
 
 static void mtp_lock(void)
 {
-    if (s_mtp.lock) {
-        xSemaphoreTake(s_mtp.lock, portMAX_DELAY);
+    // Mutex is process-lifetime after first install; callbacks before install no-op.
+    if (s_mtp_mutex) {
+        xSemaphoreTake(s_mtp_mutex, portMAX_DELAY);
     }
 }
 
 static void mtp_unlock(void)
 {
-    if (s_mtp.lock) {
-        xSemaphoreGive(s_mtp.lock);
+    if (s_mtp_mutex) {
+        xSemaphoreGive(s_mtp_mutex);
     }
+}
+
+static bool mtp_is_installed_locked(void)
+{
+    return s_mtp.installed;
+}
+
+static bool mtp_driver_is_installed(void)
+{
+    if (s_mtp_mutex == NULL) {
+        return false;
+    }
+    mtp_lock();
+    bool installed = s_mtp.installed;
+    mtp_unlock();
+    return installed;
+}
+
+static int32_t mtp_require_session_locked(void)
+{
+    return s_mtp.session_open ? MTP_RESP_OK : MTP_RESP_SESSION_NOT_OPEN;
 }
 
 static void mtp_free_driver_strings(void)
@@ -1548,11 +1573,27 @@ static int32_t mtp_dispatch(tud_mtp_cb_data_t *cb_data)
 
 esp_err_t tinyusb_mtp_install_driver(const tinyusb_mtp_driver_config_t *config)
 {
-    ESP_RETURN_ON_FALSE(!s_mtp.installed, ESP_ERR_INVALID_STATE, TAG, "MTP driver already installed");
+    if (s_mtp_mutex == NULL) {
+        SemaphoreHandle_t mutex = xSemaphoreCreateMutex();
+        ESP_RETURN_ON_FALSE(mutex != NULL, ESP_ERR_NO_MEM, TAG, "failed to create MTP lock");
+        portENTER_CRITICAL(&s_mtp_mutex_init_lock);
+        if (s_mtp_mutex == NULL) {
+            s_mtp_mutex = mutex;
+            mutex = NULL;
+        }
+        portEXIT_CRITICAL(&s_mtp_mutex_init_lock);
+        if (mutex) {
+            vSemaphoreDelete(mutex);
+        }
+    }
+
+    mtp_lock();
+    if (s_mtp.installed) {
+        mtp_unlock();
+        return ESP_ERR_INVALID_STATE;
+    }
 
     memset(&s_mtp, 0, sizeof(s_mtp));
-    s_mtp.lock = xSemaphoreCreateMutex();
-    ESP_RETURN_ON_FALSE(s_mtp.lock != NULL, ESP_ERR_NO_MEM, TAG, "failed to create MTP lock");
 
     s_mtp.manufacturer = mtp_strdup_or_default(config ? config->manufacturer : NULL, MTP_DEFAULT_MANUFACTURER);
     s_mtp.model = mtp_strdup_or_default(config ? config->model : NULL, MTP_DEFAULT_MODEL);
@@ -1561,22 +1602,30 @@ esp_err_t tinyusb_mtp_install_driver(const tinyusb_mtp_driver_config_t *config)
     s_mtp.friendly_name = mtp_strdup_or_default(config ? config->friendly_name : NULL, MTP_DEFAULT_FRIENDLY_NAME);
     if (!s_mtp.manufacturer || !s_mtp.model || !s_mtp.version || !s_mtp.serial || !s_mtp.friendly_name) {
         mtp_free_driver_strings();
-        vSemaphoreDelete(s_mtp.lock);
         memset(&s_mtp, 0, sizeof(s_mtp));
+        mtp_unlock();
         return ESP_ERR_NO_MEM;
     }
 
     s_mtp.next_object_handle = 1;
     s_mtp.installed = true;
+    mtp_unlock();
     ESP_LOGI(TAG, "MTP driver installed");
     return ESP_OK;
 }
 
 esp_err_t tinyusb_mtp_uninstall_driver(void)
 {
-    ESP_RETURN_ON_FALSE(s_mtp.installed, ESP_ERR_INVALID_STATE, TAG, "MTP driver is not installed");
+    // TinyUSB class callbacks run from the TinyUSB task; tear down only after that task stops.
+    ESP_RETURN_ON_FALSE(!tud_inited(), ESP_ERR_INVALID_STATE, TAG, "stop TinyUSB before uninstalling MTP");
+    ESP_RETURN_ON_FALSE(s_mtp_mutex != NULL, ESP_ERR_INVALID_STATE, TAG, "MTP driver is not installed");
 
     mtp_lock();
+    if (!s_mtp.installed) {
+        mtp_unlock();
+        return ESP_ERR_INVALID_STATE;
+    }
+
     mtp_abort_pending_write_locked(MTP_RESP_TRANSACTION_CANCELLED);
     mtp_clear_active_read();
     mtp_clear_active_edit();
@@ -1594,16 +1643,14 @@ esp_err_t tinyusb_mtp_uninstall_driver(void)
         free(s_mtp.storages[i].display_name);
     }
     mtp_free_driver_strings();
-    mtp_unlock();
-    SemaphoreHandle_t lock = s_mtp.lock;
-    vSemaphoreDelete(lock);
     memset(&s_mtp, 0, sizeof(s_mtp));
+    mtp_unlock();
     return ESP_OK;
 }
 
 esp_err_t tinyusb_mtp_register_storage(const tinyusb_mtp_storage_config_t *config, tinyusb_mtp_storage_handle_t *handle)
 {
-    ESP_RETURN_ON_FALSE(s_mtp.installed, ESP_ERR_INVALID_STATE, TAG, "MTP driver is not installed");
+    ESP_RETURN_ON_FALSE(mtp_driver_is_installed(), ESP_ERR_INVALID_STATE, TAG, "MTP driver is not installed");
     ESP_RETURN_ON_FALSE(config && config->base_path && config->base_path[0] == '/', ESP_ERR_INVALID_ARG, TAG, "invalid MTP storage path");
 
     uint64_t total = 0;
@@ -1659,10 +1706,14 @@ esp_err_t tinyusb_mtp_register_storage(const tinyusb_mtp_storage_config_t *confi
 
 esp_err_t tinyusb_mtp_unregister_storage(tinyusb_mtp_storage_handle_t handle)
 {
-    ESP_RETURN_ON_FALSE(s_mtp.installed, ESP_ERR_INVALID_STATE, TAG, "MTP driver is not installed");
+    ESP_RETURN_ON_FALSE(mtp_driver_is_installed(), ESP_ERR_INVALID_STATE, TAG, "MTP driver is not installed");
     ESP_RETURN_ON_FALSE(handle, ESP_ERR_INVALID_ARG, TAG, "invalid MTP storage handle");
 
     mtp_lock();
+    if (!mtp_is_installed_locked()) {
+        mtp_unlock();
+        return ESP_ERR_INVALID_STATE;
+    }
     if (!handle->used) {
         mtp_unlock();
         return ESP_ERR_INVALID_ARG;
@@ -1689,14 +1740,19 @@ esp_err_t tinyusb_mtp_unregister_storage(tinyusb_mtp_storage_handle_t handle)
 bool tud_mtp_request_cancel_cb(tud_mtp_request_cb_data_t *cb_data)
 {
     (void)cb_data;
+    if (!mtp_driver_is_installed()) {
+        return true;
+    }
     mtp_lock();
-    mtp_abort_pending_write_locked(MTP_RESP_TRANSACTION_CANCELLED);
-    mtp_clear_active_read();
-    mtp_clear_active_edit();
-    mtp_clear_partial_write();
-    mtp_clear_active_buffer();
-    mtp_clear_deferred_response();
-    mtp_clear_pending_prop_set();
+    if (mtp_is_installed_locked()) {
+        mtp_abort_pending_write_locked(MTP_RESP_TRANSACTION_CANCELLED);
+        mtp_clear_active_read();
+        mtp_clear_active_edit();
+        mtp_clear_partial_write();
+        mtp_clear_active_buffer();
+        mtp_clear_deferred_response();
+        mtp_clear_pending_prop_set();
+    }
     mtp_unlock();
     return true;
 }
@@ -1704,15 +1760,20 @@ bool tud_mtp_request_cancel_cb(tud_mtp_request_cb_data_t *cb_data)
 bool tud_mtp_request_device_reset_cb(tud_mtp_request_cb_data_t *cb_data)
 {
     (void)cb_data;
+    if (!mtp_driver_is_installed()) {
+        return true;
+    }
     mtp_lock();
-    s_mtp.session_open = false;
-    mtp_abort_pending_write_locked(MTP_RESP_TRANSACTION_CANCELLED);
-    mtp_clear_active_read();
-    mtp_clear_active_edit();
-    mtp_clear_partial_write();
-    mtp_clear_active_buffer();
-    mtp_clear_deferred_response();
-    mtp_clear_pending_prop_set();
+    if (mtp_is_installed_locked()) {
+        s_mtp.session_open = false;
+        mtp_abort_pending_write_locked(MTP_RESP_TRANSACTION_CANCELLED);
+        mtp_clear_active_read();
+        mtp_clear_active_edit();
+        mtp_clear_partial_write();
+        mtp_clear_active_buffer();
+        mtp_clear_deferred_response();
+        mtp_clear_pending_prop_set();
+    }
     mtp_unlock();
     return true;
 }
@@ -1739,7 +1800,7 @@ bool tud_mtp_request_vendor_cb(tud_mtp_request_cb_data_t *cb_data)
 
 int32_t tud_mtp_command_received_cb(tud_mtp_cb_data_t *cb_data)
 {
-    int32_t resp_code = s_mtp.installed ? mtp_dispatch(cb_data) : MTP_RESP_DEVICE_BUSY;
+    int32_t resp_code = mtp_driver_is_installed() ? mtp_dispatch(cb_data) : MTP_RESP_DEVICE_BUSY;
     mtp_trace_request_result(cb_data, resp_code);
     if (resp_code > MTP_RESP_UNDEFINED) {
         cb_data->io_container.header->code = (uint16_t)resp_code;
@@ -1750,13 +1811,15 @@ int32_t tud_mtp_command_received_cb(tud_mtp_cb_data_t *cb_data)
 
 int32_t tud_mtp_data_xfer_cb(tud_mtp_cb_data_t *cb_data)
 {
-    int32_t resp_code = s_mtp.installed ? mtp_dispatch(cb_data) : MTP_RESP_DEVICE_BUSY;
+    int32_t resp_code = mtp_driver_is_installed() ? mtp_dispatch(cb_data) : MTP_RESP_DEVICE_BUSY;
     mtp_trace_request_result(cb_data, resp_code);
     if (resp_code > MTP_RESP_UNDEFINED) {
         uint16_t op_code = cb_data->command_container->header.code;
         if (cb_data->phase == MTP_PHASE_DATA && mtp_should_defer_data_response(op_code) && mtp_data_phase_will_complete(cb_data)) {
             mtp_lock();
-            mtp_defer_response_locked(op_code, resp_code);
+            if (mtp_is_installed_locked()) {
+                mtp_defer_response_locked(op_code, resp_code);
+            }
             mtp_unlock();
             return 0;
         }
@@ -2451,12 +2514,11 @@ static int32_t mtp_delete_object(tud_mtp_cb_data_t *cb_data)
 static int32_t mtp_begin_edit_object(tud_mtp_cb_data_t *cb_data)
 {
     const mtp_container_command_t *command = cb_data->command_container;
-    if (!s_mtp.session_open) {
-        return MTP_RESP_SESSION_NOT_OPEN;
-    }
-
     mtp_lock();
-    int32_t ret = mtp_begin_edit_object_locked(command->params[0]);
+    int32_t ret = mtp_require_session_locked();
+    if (ret == MTP_RESP_OK) {
+        ret = mtp_begin_edit_object_locked(command->params[0]);
+    }
     mtp_unlock();
     return ret;
 }
@@ -2467,10 +2529,6 @@ static int32_t mtp_send_partial_object(tud_mtp_cb_data_t *cb_data)
     mtp_container_info_t *container = &cb_data->io_container;
     uint32_t handle = command->params[0];
 
-    if (!s_mtp.session_open) {
-        return MTP_RESP_SESSION_NOT_OPEN;
-    }
-
     if (cb_data->phase == MTP_PHASE_COMMAND) {
         uint64_t offset = (uint64_t)command->params[1] | ((uint64_t)command->params[2] << 32);
         uint32_t data_len = command->params[3];
@@ -2478,9 +2536,14 @@ static int32_t mtp_send_partial_object(tud_mtp_cb_data_t *cb_data)
             return MTP_RESP_OBJECT_TOO_LARGE;
         }
         mtp_lock();
+        int32_t ret = mtp_require_session_locked();
+        if (ret != MTP_RESP_OK) {
+            mtp_unlock();
+            return ret;
+        }
         mtp_clear_partial_write();
         mtp_object_t *object = NULL;
-        int32_t ret = mtp_get_active_edit_object_locked(handle, &object);
+        ret = mtp_get_active_edit_object_locked(handle, &object);
         if (ret == MTP_RESP_OK && offset > (uint64_t)LONG_MAX) {
             ESP_LOGW(TAG, "MTP partial write offset is too large: offset=%" PRIu64, offset);
             ret = MTP_RESP_OBJECT_TOO_LARGE;
@@ -2544,15 +2607,16 @@ static int32_t mtp_send_partial_object(tud_mtp_cb_data_t *cb_data)
 static int32_t mtp_truncate_object(tud_mtp_cb_data_t *cb_data)
 {
     const mtp_container_command_t *command = cb_data->command_container;
-    if (!s_mtp.session_open) {
-        return MTP_RESP_SESSION_NOT_OPEN;
-    }
-
     uint32_t handle = command->params[0];
     uint64_t length = (uint64_t)command->params[1] | ((uint64_t)command->params[2] << 32);
     mtp_lock();
+    int32_t ret = mtp_require_session_locked();
+    if (ret != MTP_RESP_OK) {
+        mtp_unlock();
+        return ret;
+    }
     mtp_object_t *object = NULL;
-    int32_t ret = mtp_get_active_edit_object_locked(handle, &object);
+    ret = mtp_get_active_edit_object_locked(handle, &object);
     if (ret == MTP_RESP_OK) {
         ret = mtp_truncate_object_locked(object, length);
     }
@@ -2563,14 +2627,15 @@ static int32_t mtp_truncate_object(tud_mtp_cb_data_t *cb_data)
 static int32_t mtp_end_edit_object(tud_mtp_cb_data_t *cb_data)
 {
     const mtp_container_command_t *command = cb_data->command_container;
-    if (!s_mtp.session_open) {
-        return MTP_RESP_SESSION_NOT_OPEN;
-    }
-
     uint32_t handle = command->params[0];
     mtp_lock();
+    int32_t ret = mtp_require_session_locked();
+    if (ret != MTP_RESP_OK) {
+        mtp_unlock();
+        return ret;
+    }
     mtp_object_t *object = NULL;
-    int32_t ret = mtp_get_active_edit_object_locked(handle, &object);
+    ret = mtp_get_active_edit_object_locked(handle, &object);
     if (ret == MTP_RESP_OK) {
         ret = mtp_update_object_stat_locked(object);
         if (ret == MTP_RESP_OK) {
@@ -2588,11 +2653,14 @@ static int32_t mtp_end_edit_object(tud_mtp_cb_data_t *cb_data)
 static int32_t mtp_send_object_info(tud_mtp_cb_data_t *cb_data)
 {
     const mtp_container_command_t *command = cb_data->command_container;
-    if (!s_mtp.session_open) {
-        return MTP_RESP_SESSION_NOT_OPEN;
-    }
 
     if (cb_data->phase == MTP_PHASE_COMMAND) {
+        mtp_lock();
+        int32_t session_ret = mtp_require_session_locked();
+        mtp_unlock();
+        if (session_ret != MTP_RESP_OK) {
+            return session_ret;
+        }
         (void)tud_mtp_data_receive(&cb_data->io_container);
         return 0;
     }
@@ -2614,6 +2682,11 @@ static int32_t mtp_send_object_info(tud_mtp_cb_data_t *cb_data)
     mtp_object_info_header_t *info = (mtp_object_info_header_t *)cb_data->io_container.payload;
     uint32_t storage_id = command->params[0] == MTP_ROOT_PARENT ? info->storage_id : command->params[0];
     mtp_lock();
+    int32_t session_ret = mtp_require_session_locked();
+    if (session_ret != MTP_RESP_OK) {
+        mtp_unlock();
+        return session_ret;
+    }
     struct tinyusb_mtp_storage_s *storage = mtp_storage_from_id(storage_id);
     if (storage == NULL) {
         mtp_unlock();
@@ -3345,15 +3418,17 @@ static int32_t mtp_set_object_prop_value(tud_mtp_cb_data_t *cb_data)
 {
     const mtp_container_command_t *command = cb_data->command_container;
     uint16_t prop_code = (uint16_t)command->params[1];
-    if (!s_mtp.session_open) {
-        return MTP_RESP_SESSION_NOT_OPEN;
-    }
     if (!mtp_object_prop_accepts_set(prop_code)) {
         return MTP_RESP_OBJECT_PROP_NOT_SUPPORTED;
     }
 
     if (cb_data->phase == MTP_PHASE_COMMAND) {
         mtp_lock();
+        int32_t session_ret = mtp_require_session_locked();
+        if (session_ret != MTP_RESP_OK) {
+            mtp_unlock();
+            return session_ret;
+        }
         mtp_clear_pending_prop_set();
         mtp_unlock();
         if (!tud_mtp_data_receive(&cb_data->io_container)) {
@@ -3382,16 +3457,19 @@ static int32_t mtp_set_object_prop_value(tud_mtp_cb_data_t *cb_data)
             response = MTP_RESP_INVALID_OBJECT_PROP_VALUE;
         } else {
             mtp_lock();
-            mtp_object_t *object = mtp_object_from_handle(command->params[0]);
-            if (object == NULL) {
-                response = MTP_RESP_INVALID_OBJECT_HANDLE;
-            } else if (prop_code == MTP_OBJ_PROP_OBJECT_FILE_NAME) {
-                response = mtp_rename_object_locked(object, new_name);
-            } else {
-                // Windows may set Name/DisplayName without the file extension after uploading; keep the real file path unchanged.
-                MTP_TRACEI("MTP display property accepted without rename: handle=%" PRIu32 " prop=0x%04x value=%s path=%s",
-                           command->params[0], prop_code, new_name, object->path);
-                response = MTP_RESP_OK;
+            response = mtp_require_session_locked();
+            if (response == MTP_RESP_OK) {
+                mtp_object_t *object = mtp_object_from_handle(command->params[0]);
+                if (object == NULL) {
+                    response = MTP_RESP_INVALID_OBJECT_HANDLE;
+                } else if (prop_code == MTP_OBJ_PROP_OBJECT_FILE_NAME) {
+                    response = mtp_rename_object_locked(object, new_name);
+                } else {
+                    // Windows may set Name/DisplayName without the file extension after uploading; keep the real file path unchanged.
+                    MTP_TRACEI("MTP display property accepted without rename: handle=%" PRIu32 " prop=0x%04x value=%s path=%s",
+                               command->params[0], prop_code, new_name, object->path);
+                    response = MTP_RESP_OK;
+                }
             }
             mtp_unlock();
         }
@@ -3471,16 +3549,20 @@ esp_err_t tinyusb_mtp_test_delete_object(uint32_t object_handle)
             .payload_bytes = sizeof(payload),
         },
     };
+    mtp_lock();
     bool session_was_open = s_mtp.session_open;
     s_mtp.session_open = true;
+    mtp_unlock();
     int32_t ret = mtp_delete_object(&cb_data);
+    mtp_lock();
     s_mtp.session_open = session_was_open;
+    mtp_unlock();
     return ret == MTP_RESP_OK ? ESP_OK : ESP_FAIL;
 }
 
 static esp_err_t tinyusb_mtp_test_set_string_property(uint32_t object_handle, uint16_t prop_code, const char *value)
 {
-    ESP_RETURN_ON_FALSE(s_mtp.installed, ESP_ERR_INVALID_STATE, TAG, "MTP driver is not installed");
+    ESP_RETURN_ON_FALSE(mtp_driver_is_installed(), ESP_ERR_INVALID_STATE, TAG, "MTP driver is not installed");
     ESP_RETURN_ON_FALSE(value && mtp_name_is_safe(value), ESP_ERR_INVALID_ARG, TAG, "invalid MTP test property value");
 
     uint8_t payload[1U + UINT8_MAX * sizeof(uint16_t)] = { 0 };
@@ -3513,10 +3595,14 @@ static esp_err_t tinyusb_mtp_test_set_string_property(uint32_t object_handle, ui
         .total_xferred_bytes = sizeof(mtp_container_header_t) + payload_len,
     };
 
+    mtp_lock();
     bool session_was_open = s_mtp.session_open;
     s_mtp.session_open = true;
+    mtp_unlock();
     int32_t ret = mtp_set_object_prop_value(&cb_data);
+    mtp_lock();
     s_mtp.session_open = session_was_open;
+    mtp_unlock();
     return ret == MTP_RESP_OK ? ESP_OK : ESP_FAIL;
 }
 
@@ -3532,7 +3618,7 @@ esp_err_t tinyusb_mtp_test_set_object_file_name(uint32_t object_handle, const ch
 
 esp_err_t tinyusb_mtp_test_begin_edit_object(uint32_t object_handle)
 {
-    ESP_RETURN_ON_FALSE(s_mtp.installed, ESP_ERR_INVALID_STATE, TAG, "MTP driver is not installed");
+    ESP_RETURN_ON_FALSE(mtp_driver_is_installed(), ESP_ERR_INVALID_STATE, TAG, "MTP driver is not installed");
 
     mtp_lock();
     int32_t ret = mtp_begin_edit_object_locked(object_handle);
@@ -3542,7 +3628,7 @@ esp_err_t tinyusb_mtp_test_begin_edit_object(uint32_t object_handle)
 
 esp_err_t tinyusb_mtp_test_write_partial_object(uint32_t object_handle, uint64_t offset, const void *data, size_t size)
 {
-    ESP_RETURN_ON_FALSE(s_mtp.installed, ESP_ERR_INVALID_STATE, TAG, "MTP driver is not installed");
+    ESP_RETURN_ON_FALSE(mtp_driver_is_installed(), ESP_ERR_INVALID_STATE, TAG, "MTP driver is not installed");
     ESP_RETURN_ON_FALSE(data || size == 0, ESP_ERR_INVALID_ARG, TAG, "invalid MTP partial write test buffer");
 
     mtp_lock();
@@ -3557,7 +3643,7 @@ esp_err_t tinyusb_mtp_test_write_partial_object(uint32_t object_handle, uint64_t
 
 esp_err_t tinyusb_mtp_test_truncate_object(uint32_t object_handle, uint64_t size)
 {
-    ESP_RETURN_ON_FALSE(s_mtp.installed, ESP_ERR_INVALID_STATE, TAG, "MTP driver is not installed");
+    ESP_RETURN_ON_FALSE(mtp_driver_is_installed(), ESP_ERR_INVALID_STATE, TAG, "MTP driver is not installed");
 
     mtp_lock();
     mtp_object_t *object = NULL;
@@ -3571,7 +3657,7 @@ esp_err_t tinyusb_mtp_test_truncate_object(uint32_t object_handle, uint64_t size
 
 esp_err_t tinyusb_mtp_test_end_edit_object(uint32_t object_handle)
 {
-    ESP_RETURN_ON_FALSE(s_mtp.installed, ESP_ERR_INVALID_STATE, TAG, "MTP driver is not installed");
+    ESP_RETURN_ON_FALSE(mtp_driver_is_installed(), ESP_ERR_INVALID_STATE, TAG, "MTP driver is not installed");
 
     mtp_lock();
     mtp_object_t *object = NULL;

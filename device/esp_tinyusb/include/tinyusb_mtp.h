@@ -64,9 +64,12 @@ esp_err_t tinyusb_mtp_install_driver(const tinyusb_mtp_driver_config_t *config);
 /**
  * @brief Uninstall the TinyUSB MTP class driver glue.
  *
+ * Call tinyusb_driver_uninstall() first. MTP class callbacks run from the
+ * TinyUSB task, so uninstalling while the stack is still initialized is rejected.
+ *
  * @return
  *      - ESP_OK on success
- *      - ESP_ERR_INVALID_STATE if the driver is not installed
+ *      - ESP_ERR_INVALID_STATE if the driver is not installed or TinyUSB is still active
  */
 esp_err_t tinyusb_mtp_uninstall_driver(void);
 
