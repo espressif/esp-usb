@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2024-2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2024-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -82,7 +82,6 @@ static void stream_callback(const uvc_host_stream_event_data_t *event, void *use
     case UVC_HOST_DEVICE_DISCONNECTED:
         ESP_LOGI(TAG, "Device suddenly disconnected");
         dev_connected = false;
-        device_count--;
         ESP_ERROR_CHECK(uvc_host_stream_close(event->device_disconnected.stream_hdl));
         break;
     case UVC_HOST_FRAME_BUFFER_OVERFLOW:
@@ -335,6 +334,12 @@ static void uvc_event_cb(const uvc_host_driver_event_data_t *event, void *user_c
         start_uvc_frame_handling_tasks();
         break;
     }
+    case UVC_HOST_DRIVER_EVENT_DEVICE_DISCONNECTED:
+        ESP_LOGI(TAG, "Device disconnected, addr: %d, stream index: %d",
+                 event->device_disconnected.dev_addr, event->device_disconnected.uvc_stream_index);
+        dev_connected = false;
+        device_count = 0;
+        break;
     default:
         break;
     }
