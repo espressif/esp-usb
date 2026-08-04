@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2024-2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2024-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -46,8 +46,8 @@
 
 static const char *TAG = "UVC example";
 static QueueHandle_t rx_frames_queue[EXAMPLE_NUMBER_OF_STREAMS];
-static int device_count = 0;
 static bool dev_connected = false;
+static bool frame_handling_tasks_started = false;
 static uvc_host_frame_info_t *frame_info_list[EXAMPLE_NUMBER_OF_STREAMS] = {NULL};
 static size_t frame_info_list_size[EXAMPLE_NUMBER_OF_STREAMS] = {0};
 
@@ -82,7 +82,6 @@ static void stream_callback(const uvc_host_stream_event_data_t *event, void *use
     case UVC_HOST_DEVICE_DISCONNECTED:
         ESP_LOGI(TAG, "Device suddenly disconnected");
         dev_connected = false;
-        device_count--;
         ESP_ERROR_CHECK(uvc_host_stream_close(event->device_disconnected.stream_hdl));
         break;
     case UVC_HOST_FRAME_BUFFER_OVERFLOW:
@@ -315,16 +314,22 @@ static void uvc_event_cb(const uvc_host_driver_event_data_t *event, void *user_c
             ESP_LOGW(TAG, "Stream index %d is out of range. Max supported is %d", stream_index, EXAMPLE_NUMBER_OF_STREAMS - 1);
             break;
         }
-        device_count++;
-        if (device_count > 1) {
-            ESP_LOGW(TAG, "Multiple devices connected. ignoring additional devices.");
+        if (frame_handling_tasks_started) {
+            ESP_LOGI(TAG, "Frame handling tasks already running, ignoring additional connection event");
             break;
         }
 
         frame_info_list_size[stream_index] = event->device_connected.frame_info_num;
         frame_info_list[stream_index] = calloc(frame_info_list_size[stream_index], sizeof(uvc_host_frame_info_t));
         assert(frame_info_list[stream_index]);
-        uvc_host_get_frame_list(event->device_connected.dev_addr, stream_index, (uvc_host_frame_info_t (*)[])frame_info_list[stream_index], &frame_info_list_size[stream_index]);
+        esp_err_t err = uvc_host_get_frame_list(event->device_connected.dev_addr, stream_index, (uvc_host_frame_info_t (*)[])frame_info_list[stream_index], &frame_info_list_size[stream_index]);
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to get frame list: %s", esp_err_to_name(err));
+            free(frame_info_list[stream_index]);
+            frame_info_list[stream_index] = NULL;
+            frame_info_list_size[stream_index] = 0;
+            break;
+        }
         for (int i = 0; i < frame_info_list_size[stream_index]; i++) {
             ESP_LOGI(TAG, "Camera format: %s %d*%d@%.1ffps",
                      FORMAT_STR[frame_info_list[stream_index][i].format],
@@ -333,8 +338,17 @@ static void uvc_event_cb(const uvc_host_driver_event_data_t *event, void *user_c
                      UVC_DESC_DWFRAMEINTERVAL_TO_FPS(frame_info_list[stream_index][i].default_interval));
         }
         start_uvc_frame_handling_tasks();
+        frame_handling_tasks_started = true;
+        free(frame_info_list[stream_index]);
+        frame_info_list[stream_index] = NULL;
+        frame_info_list_size[stream_index] = 0;
         break;
     }
+    case UVC_HOST_DRIVER_EVENT_DEVICE_DISCONNECTED:
+        ESP_LOGI(TAG, "Device disconnected, addr: %d, stream index: %d",
+                 event->device_disconnected.dev_addr, event->device_disconnected.uvc_stream_index);
+        dev_connected = false;
+        break;
     default:
         break;
     }

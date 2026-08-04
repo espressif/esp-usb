@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2025-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -14,6 +14,15 @@ extern "C" {
 #include "Mockusb_host.h"
 }
 
+static esp_err_t usb_host_client_register_uvc_mock_callback(const usb_host_client_config_t *client_config,
+                                                            usb_host_client_handle_t *client_hdl_ret, int call_count)
+{
+    REQUIRE(client_config != nullptr);
+    REQUIRE(client_config->flags.notify_dev_removed == 1);
+    REQUIRE(client_config->max_num_event_msg >= 5);
+    return usb_host_client_register_mock_callback(client_config, client_hdl_ret, call_count);
+}
+
 esp_err_t test_uvc_host_install(const uvc_host_driver_config_t *driver_config)
 {
     // Allocation of CTRL transfer (common for all devices)
@@ -24,7 +33,7 @@ esp_err_t test_uvc_host_install(const uvc_host_driver_config_t *driver_config)
 
     // Client registration
     usb_host_client_register_ExpectAnyArgsAndReturn(ESP_OK);
-    usb_host_client_register_AddCallback(usb_host_client_register_mock_callback);
+    usb_host_client_register_AddCallback(usb_host_client_register_uvc_mock_callback);
 
     // Client processing
     usb_host_client_handle_events_ExpectAnyArgsAndReturn(ESP_OK);

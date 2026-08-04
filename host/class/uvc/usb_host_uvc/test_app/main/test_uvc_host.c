@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2025-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -19,6 +19,12 @@
 #include "usb/usb_host.h"
 #include "usb/uvc_host.h"
 #include "esp_private/uvc_esp_video.h"
+
+#ifdef CONFIG_SPIRAM
+#define UVC_FRAME_HEAP_CAPS  MALLOC_CAP_SPIRAM
+#else
+#define UVC_FRAME_HEAP_CAPS  0
+#endif
 
 void usb_lib_task(void *arg)
 {
@@ -114,11 +120,14 @@ TEST_CASE("Open with default FPS", "[uvc]")
         .advanced = {
             .number_of_frame_buffers = 3,
             .frame_size = 0,
-            .frame_heap_caps = 0,
+            .frame_heap_caps = UVC_FRAME_HEAP_CAPS,
             .number_of_urbs = 4,
             .urb_size = 10 * 1024,
         },
     };
+    stream_config.vs_format.h_res++; // Set to invalid value
+    TEST_ASSERT_EQUAL(ESP_ERR_NOT_FOUND, uvc_host_stream_open(&stream_config, 1000, &stream));
+    stream_config.vs_format.h_res--; // Set to valid value
     TEST_ASSERT_EQUAL(ESP_OK, uvc_host_stream_open(&stream_config, 1000, &stream));
     TEST_ASSERT_NOT_NULL(stream);
     vTaskDelay(10);
@@ -166,13 +175,15 @@ TEST_CASE("Open with default format", "[uvc]")
     uvc_host_stream_format_t format_set;
     TEST_ASSERT_EQUAL(ESP_OK, uvc_host_stream_format_get(stream, &format_set));
     printf("\tDefault format: %dx%d@%2.0f, %d\n", format_set.h_res, format_set.v_res, format_set.fps, format_set.format);
+
+    TEST_ASSERT_EQUAL(ESP_OK, uvc_host_stream_close(stream));
+    TEST_ASSERT_EQUAL(ESP_OK, uvc_host_uninstall());
+
     TEST_ASSERT_EQUAL(640,                format_set.h_res);
     TEST_ASSERT_EQUAL(480,                format_set.v_res);
     TEST_ASSERT_EQUAL(30,                 format_set.fps);
     TEST_ASSERT_EQUAL(UVC_VS_FORMAT_YUY2, format_set.format);
 
-    TEST_ASSERT_EQUAL(ESP_OK, uvc_host_stream_close(stream));
-    TEST_ASSERT_EQUAL(ESP_OK, uvc_host_uninstall());
     vTaskDelay(20); // Short delay to allow task to be cleaned up
 }
 
@@ -217,7 +228,7 @@ TEST_CASE("Open and change format", "[uvc]")
         .advanced = {
             .number_of_frame_buffers = 3,
             .frame_size = 0,
-            .frame_heap_caps = 0,
+            .frame_heap_caps = UVC_FRAME_HEAP_CAPS,
             .number_of_urbs = 4,
             .urb_size = 10 * 1024,
         },
@@ -356,7 +367,7 @@ TEST_CASE("Streaming with user-provided frame buffers", "[uvc]")
 
     printf("Allocating %d * %d KB buffers for streaming test\n", num_buffers, buffer_size / 1024);
     for (int i = 0; i < num_buffers; i++) {
-#if CONFIG_SPIRAM
+#ifdef CONFIG_SPIRAM
         user_buffers[i] = heap_caps_malloc(buffer_size, MALLOC_CAP_SPIRAM);
 #else
         user_buffers[i] = heap_caps_malloc(buffer_size, MALLOC_CAP_DEFAULT);
@@ -391,7 +402,7 @@ TEST_CASE("Streaming with user-provided frame buffers", "[uvc]")
         .advanced = {
             .number_of_frame_buffers = num_buffers,
             .frame_size = buffer_size,
-            .frame_heap_caps = 0,
+            .frame_heap_caps = UVC_FRAME_HEAP_CAPS,
             .number_of_urbs = 4,
             .urb_size = 10 * 1024,
             .user_frame_buffers = user_buffers,
@@ -437,9 +448,9 @@ TEST_CASE("Uninstall uvc driver immediately after install", "[uvc]")
     vTaskDelay(20); // Short delay to allow task to be cleaned up
 
     TEST_ASSERT_EQUAL(ESP_OK, uvc_host_uninstall());
-    printf("UVC driver uninstalled\n");
     // Wait for the task to be deleted
     vTaskDelay(100);
+    printf("UVC driver uninstalled\n");
 
     // Round 2 without uvc background task running
     // Create a task that will handle USB library events

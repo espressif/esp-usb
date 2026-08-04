@@ -47,6 +47,12 @@ static void ctrl_xfer_cb(usb_transfer_t *transfer);
 void isoc_transfer_callback(usb_transfer_t *transfer);
 void bulk_transfer_callback(usb_transfer_t *transfer);
 
+typedef struct uvc_known_device_s {
+    SLIST_ENTRY(uvc_known_device_s) list_entry;
+    uint8_t dev_addr;                         /*!< USB device address reported by USB Host */
+    uint8_t uvc_stream_index;                 /*!< UVC function index reported to the user */
+} uvc_known_device_t;
+
 // UVC driver object
 typedef struct {
     usb_host_client_handle_t usb_client_hdl;    /*!< USB Host handle reused for all UVC devices in the system */
@@ -57,44 +63,164 @@ typedef struct {
     uvc_host_driver_event_callback_t user_cb;   /*!< Callback function to handle events */
     void *user_ctx;
     SLIST_HEAD(list_dev, uvc_host_stream_s) uvc_stream_list;   /*!< List of open streams */
+    SLIST_HEAD(list_known_dev, uvc_known_device_s) uvc_device_list; /*!< List of discovered UVC functions used for driver-level disconnect reporting */
 } uvc_host_driver_t;
 
 static uvc_host_driver_t *p_uvc_host_driver = NULL;
 
+static esp_err_t uvc_known_device_add(uint8_t dev_addr, uint8_t uvc_stream_index)
+{
+    uvc_host_driver_t *uvc_obj = UVC_ATOMIC_LOAD(p_uvc_host_driver);
+    if (!uvc_obj) {
+        ESP_LOGE(TAG, "UVC driver is not installed while tracking device removal");
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    uvc_known_device_t *known_dev = calloc(1, sizeof(uvc_known_device_t));
+    if (!known_dev) {
+        ESP_LOGE(TAG, "No memory to track UVC device addr %d stream index %d", dev_addr, uvc_stream_index);
+        return ESP_ERR_NO_MEM;
+    }
+
+    bool duplicate = false;
+    known_dev->dev_addr = dev_addr;
+    known_dev->uvc_stream_index = uvc_stream_index;
+
+    UVC_ENTER_CRITICAL();
+    uvc_known_device_t *iter;
+    SLIST_FOREACH(iter, &uvc_obj->uvc_device_list, list_entry) {
+        if (iter->dev_addr == dev_addr && iter->uvc_stream_index == uvc_stream_index) {
+            duplicate = true;
+            break;
+        }
+    }
+    if (!duplicate) {
+        SLIST_INSERT_HEAD(&uvc_obj->uvc_device_list, known_dev, list_entry);
+    }
+    UVC_EXIT_CRITICAL();
+
+    if (duplicate) {
+        free(known_dev);
+    }
+    return ESP_OK;
+}
+
+static bool uvc_known_device_take(uint8_t dev_addr, bool match_stream_index, uint8_t uvc_stream_index, uint8_t *uvc_stream_index_ret)
+{
+    uvc_host_driver_t *uvc_obj = UVC_ATOMIC_LOAD(p_uvc_host_driver);
+    if (!uvc_obj) {
+        return false;
+    }
+
+    uvc_known_device_t *known_dev;
+    uvc_known_device_t *removed_dev = NULL;
+
+    UVC_ENTER_CRITICAL();
+    SLIST_FOREACH(known_dev, &uvc_obj->uvc_device_list, list_entry) {
+        if (known_dev->dev_addr == dev_addr && (!match_stream_index || known_dev->uvc_stream_index == uvc_stream_index)) {
+            removed_dev = known_dev;
+            if (uvc_stream_index_ret) {
+                *uvc_stream_index_ret = known_dev->uvc_stream_index;
+            }
+            SLIST_REMOVE(&uvc_obj->uvc_device_list, known_dev, uvc_known_device_s, list_entry);
+            break;
+        }
+    }
+    UVC_EXIT_CRITICAL();
+
+    if (removed_dev) {
+        free(removed_dev);
+        return true;
+    }
+    return false;
+}
+
+static void uvc_known_devices_purge(uvc_host_driver_t *uvc_obj)
+{
+    assert(uvc_obj);
+    uvc_known_device_t *devices_to_free;
+
+    UVC_ENTER_CRITICAL();
+    devices_to_free = SLIST_FIRST(&uvc_obj->uvc_device_list);
+    SLIST_INIT(&uvc_obj->uvc_device_list);
+    UVC_EXIT_CRITICAL();
+
+    while (devices_to_free) {
+        uvc_known_device_t *known_dev = devices_to_free;
+        devices_to_free = SLIST_NEXT(known_dev, list_entry);
+        free(known_dev);
+    }
+}
+
+static void uvc_host_driver_disconnected_event_send(uint8_t dev_addr, uint8_t uvc_stream_index)
+{
+    uvc_host_driver_t *uvc_obj = UVC_ATOMIC_LOAD(p_uvc_host_driver);
+    if (!uvc_obj || !uvc_obj->user_cb) {
+        return;
+    }
+
+    // The driver disconnect event is device/function-level; per-stream cleanup is reported through UVC_HOST_DEVICE_DISCONNECTED.
+    const uvc_host_driver_event_data_t disconn_event = {
+        .type = UVC_HOST_DRIVER_EVENT_DEVICE_DISCONNECTED,
+        .device_disconnected = {
+            .dev_addr = dev_addr,
+            .uvc_stream_index = uvc_stream_index,
+        },
+    };
+    uvc_obj->user_cb(&disconn_event, uvc_obj->user_ctx);
+}
+
+static bool uvc_known_devices_remove_by_addr(uint8_t dev_addr)
+{
+    uint8_t uvc_stream_index = 0;
+    bool uvc_device_found = false;
+
+    while (uvc_known_device_take(dev_addr, false, 0, &uvc_stream_index)) {
+        uvc_device_found = true;
+        ESP_LOGD(TAG, "UVC device removed, addr: %d, stream index: %d", dev_addr, uvc_stream_index);
+        uvc_host_driver_disconnected_event_send(dev_addr, uvc_stream_index);
+    }
+
+    return uvc_device_found;
+}
+
 static esp_err_t uvc_host_interface_check(uint8_t addr, const usb_config_desc_t *config_desc)
 {
     assert(config_desc);
-    size_t total_length = config_desc->wTotalLength;
+    const size_t total_length = config_desc->wTotalLength;
     int iface_offset = 0;
     bool is_uvc_interface = false;
     uint8_t uvc_stream_index = 0;
+    uvc_host_driver_event_callback_t user_cb = p_uvc_host_driver->user_cb;
 
     // Get first Interface descriptor
-    // Check every uac stream interface
+    // Check every UVC stream interface
     const usb_standard_desc_t *current_desc = (const usb_standard_desc_t *)config_desc;
     while ((current_desc = usb_parse_next_descriptor_of_type((const usb_standard_desc_t *)current_desc, total_length, USB_B_DESCRIPTOR_TYPE_INTERFACE, &iface_offset))) {
         const usb_intf_desc_t *iface_desc = (const usb_intf_desc_t *)current_desc;
-        if (USB_CLASS_VIDEO == iface_desc->bInterfaceClass && UVC_SC_VIDEOCONTROL == iface_desc->bInterfaceSubClass) {
-            // notify user about the connected Interfaces
-            is_uvc_interface = true;
-
-            if (p_uvc_host_driver->user_cb) {
-                size_t frame_info_num = 0;
-                if (uvc_desc_get_frame_list(config_desc, uvc_stream_index, NULL, &frame_info_num) != ESP_OK) {
-                    ESP_LOGE(TAG, "Failed to get frame list for uvc_stream_index %d", uvc_stream_index);
-                    return ESP_FAIL;
-                }
-
-                const uvc_host_driver_event_data_t conn_event = {
-                    .type = UVC_HOST_DRIVER_EVENT_DEVICE_CONNECTED,
-                    .device_connected.dev_addr = addr,
-                    .device_connected.uvc_stream_index = uvc_stream_index,
-                    .device_connected.frame_info_num = frame_info_num
-                };
-                p_uvc_host_driver->user_cb(&conn_event, p_uvc_host_driver->user_ctx);
-            }
-            uvc_stream_index++;
+        if (USB_CLASS_VIDEO != iface_desc->bInterfaceClass || UVC_SC_VIDEOCONTROL != iface_desc->bInterfaceSubClass) {
+            continue;
         }
+
+        is_uvc_interface = true;
+
+        if (user_cb) {
+            size_t frame_info_num = 0;
+            ESP_RETURN_ON_ERROR(uvc_desc_get_frame_list(config_desc, uvc_stream_index, NULL, &frame_info_num),
+                                TAG, "Failed to get frame list for uvc_stream_index %d", uvc_stream_index);
+
+            // Remember discovered UVC functions so DEV_REMOVED can be mapped back to a driver disconnect event.
+            ESP_RETURN_ON_ERROR(uvc_known_device_add(addr, uvc_stream_index), TAG, "Failed to track UVC device removal");
+
+            const uvc_host_driver_event_data_t conn_event = {
+                .type = UVC_HOST_DRIVER_EVENT_DEVICE_CONNECTED,
+                .device_connected.dev_addr = addr,
+                .device_connected.uvc_stream_index = uvc_stream_index,
+                .device_connected.frame_info_num = frame_info_num
+            };
+            user_cb(&conn_event, p_uvc_host_driver->user_ctx);
+        }
+        uvc_stream_index++;
     }
 
     return is_uvc_interface ? ESP_OK : ESP_ERR_NOT_FOUND;
@@ -119,7 +245,7 @@ static esp_err_t uvc_host_device_connected(uint8_t addr)
         ESP_RETURN_ON_ERROR(usb_host_device_close(p_uvc_host_driver->usb_client_hdl, dev_hdl), TAG, "Unable to close USB device");
     }
 
-    // Create UAC interfaces list in RAM, connected to the particular USB dev
+    // Create UVC interfaces list in RAM, connected to the particular USB dev
     if (is_uvc_device) {
 #ifdef CONFIG_UVC_PRINTF_CONFIGURATION_DESCRIPTOR
         usb_print_config_descriptor(config_desc, &uvc_print_desc);
@@ -211,12 +337,17 @@ static void usb_event_cb(const usb_host_client_event_msg_t *event_msg, void *arg
         break;
     case USB_HOST_CLIENT_EVENT_DEV_GONE: {
         ESP_LOGD(TAG, "Device suddenly disconnected");
-        // Find UVC pseudo-devices associated with this USB device and close them
+        // Find open UVC streams associated with this USB device and notify their owners.
         uvc_stream_t *uvc_stream;
         uvc_stream_t *tusb_stream;
+        bool stream_found = false;
+        uint8_t dev_addr = UVC_HOST_ANY_DEV_ADDR;
         // We are using 'SAFE' version of 'SLIST_FOREACH' which enables user to close the disconnected device in the callback
         SLIST_FOREACH_SAFE(uvc_stream, &p_uvc_host_driver->uvc_stream_list, list_entry, tusb_stream) {
             if (uvc_stream->constant.dev_hdl == event_msg->dev_gone.dev_hdl) {
+                stream_found = true;
+                dev_addr = uvc_stream->constant.dev_addr;
+                const uint8_t uvc_stream_index = uvc_stream->constant.uvc_stream_index;
                 // The suddenly disconnected device was opened by this driver: pause the stream and inform user about this
                 ESP_ERROR_CHECK(uvc_host_stream_pause(uvc_stream)); // This should never fail
                 if (uvc_stream->constant.stream_cb) {
@@ -226,10 +357,25 @@ static void usb_event_cb(const usb_host_client_event_msg_t *event_msg, void *arg
                     };
                     uvc_stream->constant.stream_cb(&disconn_event, uvc_stream->constant.cb_arg);
                 }
+                if (uvc_known_device_take(dev_addr, true, uvc_stream_index, NULL)) {
+                    uvc_host_driver_disconnected_event_send(dev_addr, uvc_stream_index);
+                }
             }
+        }
+        if (stream_found) {
+            // DEV_REMOVED is not sent to clients that opened the device, so report any unopened UVC functions from the DEV_GONE path.
+            uvc_known_devices_remove_by_addr(dev_addr);
         }
         break;
     }
+#ifdef USB_HOST_DEV_REMOVED_SUPPORTED
+    case USB_HOST_CLIENT_EVENT_DEV_REMOVED:
+        ESP_LOGD(TAG, "Device removed, addr: %d", event_msg->dev_removed.address);
+        if (!uvc_known_devices_remove_by_addr(event_msg->dev_removed.address)) {
+            ESP_LOGD(TAG, "Removed USB device addr %d was not tracked as UVC", event_msg->dev_removed.address);
+        }
+        break;
+#endif
 #ifdef UVC_HOST_SUSPEND_RESUME_API_SUPPORTED
     case USB_HOST_CLIENT_EVENT_DEV_SUSPENDED: {
         ESP_LOGD(TAG, "Device suspended");
@@ -486,6 +632,7 @@ static esp_err_t uvc_find_and_open_usb_device(uint8_t dev_addr, uint16_t vid, ui
                 (dev_addr == dev_info.dev_addr || dev_addr == UVC_HOST_ANY_DEV_ADDR)) {
             // Return path 1: t
             (*dev)->constant.dev_hdl = uvc_stream->constant.dev_hdl;
+            (*dev)->constant.dev_addr = dev_info.dev_addr;
             return ESP_OK;
         }
     }
@@ -524,6 +671,7 @@ static esp_err_t uvc_find_and_open_usb_device(uint8_t dev_addr, uint16_t vid, ui
                         (dev_addr == dev_addr_list[i] || dev_addr == UVC_HOST_ANY_DEV_ADDR)) {
                     // Return path 2:
                     (*dev)->constant.dev_hdl = current_device;
+                    (*dev)->constant.dev_addr = dev_addr_list[i];
                     return ESP_OK;
                 }
             }
@@ -652,7 +800,12 @@ esp_err_t uvc_host_install(const uvc_host_driver_config_t *driver_config)
     usb_host_client_handle_t usb_client = NULL;
     const usb_host_client_config_t client_config = {
         .is_synchronous = false,
-        .max_num_event_msg = 3,
+        .max_num_event_msg = 5,
+#ifdef USB_HOST_DEV_REMOVED_SUPPORTED
+        .flags = {
+            .notify_dev_removed = 1,
+        },
+#endif
         .async.client_event_callback = usb_event_cb,
         .async.callback_arg = NULL
     };
@@ -660,6 +813,7 @@ esp_err_t uvc_host_install(const uvc_host_driver_config_t *driver_config)
 
     // Initialize UVC driver structure
     SLIST_INIT(&(uvc_obj->uvc_stream_list));
+    SLIST_INIT(&(uvc_obj->uvc_device_list));
     uvc_obj->driver_status = driver_status;
     uvc_obj->open_close_mutex = mutex;
     uvc_obj->usb_client_hdl = usb_client;
@@ -744,6 +898,7 @@ esp_err_t uvc_host_uninstall()
 
     ESP_LOGD(TAG, "Deregistering client");
     ESP_ERROR_CHECK(usb_host_client_deregister(uvc_obj->usb_client_hdl));
+    uvc_known_devices_purge(uvc_obj);
 
     // Free remaining resources and return
     vEventGroupDelete(uvc_obj->driver_status);
@@ -811,6 +966,7 @@ esp_err_t uvc_host_stream_open(const uvc_host_stream_config_t *stream_config, in
     if (ESP_OK != ret) {
         goto not_found;
     }
+    uvc_stream->constant.uvc_stream_index = stream_config->usb.uvc_stream_index;
 
     // Find the streaming interface and endpoint and claim it
     const usb_ep_desc_t *ep_desc;
