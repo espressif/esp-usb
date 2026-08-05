@@ -1,0 +1,28 @@
+## IDF Component Manager Manifest File
+version: "0.1.0"
+description: USB Host CDC common driver
+tags:
+  - usb
+  - usb_host
+  - cdc
+url: https://github.com/espressif/esp-usb/tree/master/host/class/cdc/usb_host_cdc_common
+issues: "https://github.com/espressif/esp-usb/issues"
+repository: "https://github.com/espressif/esp-usb.git"
+repository_info:
+  path: "host/class/cdc/usb_host_cdc_common"
+dependencies:
+  idf: ">=5.0"
+  espressif/usb:
+    version: "^1.5.0"
+    public: true
+    override_path: "../../../usb"
+    rules:
+     - if: "idf_version >=6.0"
+     - if: target not in ["linux"]
+targets:
+  - esp32s2
+  - esp32s3
+  - esp32p4
+  - esp32h4
+  - esp32s31
+  - linux
