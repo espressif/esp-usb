@@ -12,7 +12,11 @@ repository_info:
   path: "host/class/cdc/usb_host_cdc_acm"
 dependencies:
   idf: ">=5.0"
-  usb:
+  espressif/usb_host_cdc_common:
+    version: "^0.1.0"
+    override_path: "../usb_host_cdc_common"
+    public: true
+  espressif/usb:
     version: "^1.0.0"
     public: true
     override_path: "../../../usb"
