@@ -47,7 +47,7 @@ typedef enum {
 typedef enum {
     CDC_HOST_COMMON_PORT_EVENT_ERROR = 0,
     CDC_HOST_COMMON_PORT_EVENT_NOTIFICATION,
-    CDC_HOST_COMMON_PORT_EVENT_DISCONNECTED,            /*!< An opened CDC port belongs to a removed device and must be treated as closed. */
+    CDC_HOST_COMMON_PORT_EVENT_DISCONNECTED,            /*!< Port belongs to a removed device. Close from this callback, or treat the handle as invalid afterwards (common auto-closes). */
 #ifdef CDC_HOST_COMMON_SUSPEND_RESUME_API_SUPPORTED
     CDC_HOST_COMMON_PORT_EVENT_SUSPENDED,
     CDC_HOST_COMMON_PORT_EVENT_RESUMED,

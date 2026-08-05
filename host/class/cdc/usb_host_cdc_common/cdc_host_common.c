@@ -123,13 +123,21 @@ static void cdc_common_port_close_locked(cdc_host_common_driver_t *driver, cdc_h
 
 static bool port_is_opened(cdc_host_common_port_t *port)
 {
+    if (!p_cdc_common || !port) {
+        return false;
+    }
+
+    bool found = false;
+    CDC_COMMON_ENTER_CRITICAL();
     cdc_host_common_port_t *current = NULL;
     SLIST_FOREACH(current, &p_cdc_common->port_list, list_entry) {
         if (current == port) {
-            return true;
+            found = true;
+            break;
         }
     }
-    return false;
+    CDC_COMMON_EXIT_CRITICAL();
+    return found;
 }
 
 static bool cdc_common_interface_is_opened(cdc_host_common_driver_t *driver, cdc_host_common_dev_t *dev, uint8_t intf_num)
@@ -307,7 +315,9 @@ static void cdc_common_port_event(cdc_host_common_port_t *port, const cdc_host_c
 
 static void cdc_common_disconnect_removed_ports(cdc_host_common_driver_t *driver, usb_device_handle_t dev_hdl, uint8_t dev_addr)
 {
-    // Notify each opened CDC port on the removed device before the common layer frees its port object.
+    // Notify each opened CDC port on the removed device. Upper layers may call
+    // cdc_host_common_close() from the callback; otherwise the common layer closes
+    // the port after the callback returns.
     while (true) {
         cdc_host_common_port_t *port = NULL;
         cdc_host_common_port_event_cb_t event_cb = NULL;
@@ -317,31 +327,30 @@ static void cdc_common_disconnect_removed_ports(cdc_host_common_driver_t *driver
         SLIST_FOREACH(port, &driver->port_list, list_entry) {
             bool dev_matched = port->dev && ((dev_hdl && port->dev->dev_hdl == dev_hdl) || (!dev_hdl && dev_addr && port->dev->dev_addr == dev_addr));
             if (dev_matched && !port->to_close) {
-                // Reserve the port for the internal disconnect close before notifying upper layers.
-                port->to_close = true;
                 event_cb = port->event_cb;
                 user_arg = port->user_arg;
                 break;
             }
         }
-        xSemaphoreGive(driver->open_close_mutex);
-
         if (!port) {
+            xSemaphoreGive(driver->open_close_mutex);
             break;
         }
+        xSemaphoreGive(driver->open_close_mutex);
 
-        cdc_host_common_port_event_data_t event = {
-            .type = CDC_HOST_COMMON_PORT_EVENT_DISCONNECTED,
-            .data.port = (cdc_host_common_port_handle_t)port,
-        };
         if (event_cb) {
-            // The port is already marked closing, so call the saved callback directly instead of cdc_common_port_event().
+            cdc_host_common_port_event_data_t event = {
+                .type = CDC_HOST_COMMON_PORT_EVENT_DISCONNECTED,
+                .data.port = (cdc_host_common_port_handle_t)port,
+            };
+            // Call the saved callback directly so a concurrent close that clears
+            // port->event_cb cannot drop the disconnect notification.
             event_cb((cdc_host_common_port_handle_t)port, &event, user_arg);
         }
 
         xSemaphoreTake(driver->open_close_mutex, portMAX_DELAY);
         if (port_is_opened(port)) {
-            // Release claimed interfaces before closing the gone device handle.
+            // User did not close from the callback; tear the port down here.
             cdc_common_port_close_locked(driver, port);
         }
         xSemaphoreGive(driver->open_close_mutex);
@@ -458,6 +467,10 @@ static void in_xfer_cb(usb_transfer_t *transfer)
         cdc_common_reset_in_transfer(port);
     }
 
+    if (port->to_close) {
+        return;
+    }
+
     ESP_LOGD(TAG, "Submitting poll for BULK IN transfer");
     cdc_common_submit_poll(port->data.in_xfer, &port->data.in_polling, "BULK IN");
 }
@@ -476,6 +489,9 @@ static void notif_xfer_cb(usb_transfer_t *transfer)
             },
         };
         cdc_common_port_event(port, &event);
+        if (port->to_close) {
+            return;
+        }
         ESP_LOGD(TAG, "Submitting poll for INTR IN transfer");
         cdc_common_submit_poll(port->notif.xfer, &port->notif.polling, "INTR IN");
     }
@@ -738,13 +754,18 @@ static void cdc_common_port_close_locked(cdc_host_common_driver_t *driver, cdc_h
     port->event_cb = NULL;
     port->user_arg = NULL;
 
-    CDC_COMMON_ENTER_CRITICAL();
-    SLIST_REMOVE(&driver->port_list, port, cdc_host_common_port_s, list_entry);
-    CDC_COMMON_EXIT_CRITICAL();
-
+    // Serialize with TX/CTRL before unlinking so in-flight callers that already
+    // passed port_is_opened() finish (or observe to_close) before free.
     if (port->data.out_mux) {
         xSemaphoreTake(port->data.out_mux, portMAX_DELAY);
     }
+    if (port->ctrl_mux) {
+        xSemaphoreTake(port->ctrl_mux, portMAX_DELAY);
+    }
+
+    CDC_COMMON_ENTER_CRITICAL();
+    SLIST_REMOVE(&driver->port_list, port, cdc_host_common_port_s, list_entry);
+    CDC_COMMON_EXIT_CRITICAL();
 
     usb_device_handle_t dev_hdl = port->dev ? port->dev->dev_hdl : NULL;
     cdc_common_suspend_polling(port);
@@ -769,6 +790,13 @@ static void cdc_common_port_close_locked(cdc_host_common_driver_t *driver, cdc_h
     }
 
     free(port->cdc_func_desc);
+    // Drop the mutexes before deleting them; never vSemaphoreDelete a held mutex.
+    if (port->data.out_mux) {
+        xSemaphoreGive(port->data.out_mux);
+    }
+    if (port->ctrl_mux) {
+        xSemaphoreGive(port->ctrl_mux);
+    }
     cdc_common_transfers_free(port);
     if (port->dev) {
         cdc_common_dev_ref_give(driver, port->dev);
@@ -1071,27 +1099,52 @@ exit:
 
 esp_err_t cdc_host_common_tx_blocking(cdc_host_common_port_handle_t port_hdl, const uint8_t *data, size_t data_len, uint32_t timeout_ms)
 {
-    ESP_RETURN_ON_FALSE(port_hdl && data && data_len > 0, ESP_ERR_INVALID_ARG, TAG, "invalid TX argument");
+    esp_err_t ret = ESP_OK;
+    ESP_RETURN_ON_FALSE(p_cdc_common && port_hdl && data && data_len > 0, ESP_ERR_INVALID_ARG, TAG, "invalid TX argument");
     cdc_host_common_port_t *port = (cdc_host_common_port_t *)port_hdl;
-    ESP_RETURN_ON_FALSE(port_is_opened(port), ESP_ERR_INVALID_ARG, TAG, "invalid CDC common port");
-    ESP_RETURN_ON_FALSE(port->data.out_xfer, ESP_ERR_NOT_SUPPORTED, TAG, "CDC port is read-only");
-    ESP_RETURN_ON_FALSE(!port->data.tx_ringbuf, ESP_ERR_INVALID_STATE, TAG, "TX ringbuffer is enabled");
 
-    const size_t buffer_size = port->data.out_xfer->data_buffer_size;
-    const uint8_t *data_ptr = data;
-    size_t remaining = data_len;
     TickType_t start_ticks = xTaskGetTickCount();
     TickType_t timeout_ticks = pdMS_TO_TICKS(timeout_ms);
     int remaining_timeout_ticks = timeout_ticks;
 
-    BaseType_t taken = xSemaphoreTake(port->data.out_mux, remaining_timeout_ticks);
+    // Lock order: open_close_mutex -> out_mux (same as close) to avoid UAF on teardown.
+    BaseType_t taken = xSemaphoreTake(p_cdc_common->open_close_mutex, remaining_timeout_ticks);
     if (taken != pdTRUE) {
         return ESP_ERR_TIMEOUT;
     }
+    if (!port_is_opened(port) || port->to_close) {
+        xSemaphoreGive(p_cdc_common->open_close_mutex);
+        return ESP_ERR_INVALID_ARG;
+    }
+    ESP_GOTO_ON_FALSE(port->data.out_xfer, ESP_ERR_NOT_SUPPORTED, exit_open_close, TAG, "CDC port is read-only");
+    ESP_GOTO_ON_FALSE(!port->data.tx_ringbuf, ESP_ERR_INVALID_STATE, exit_open_close, TAG, "TX ringbuffer is enabled");
 
-    esp_err_t ret = ESP_OK;
+    remaining_timeout_ticks = timeout_ticks - (xTaskGetTickCount() - start_ticks);
+    if (remaining_timeout_ticks < 0) {
+        xSemaphoreGive(p_cdc_common->open_close_mutex);
+        return ESP_ERR_TIMEOUT;
+    }
+    taken = xSemaphoreTake(port->data.out_mux, remaining_timeout_ticks);
+    if (taken != pdTRUE) {
+        xSemaphoreGive(p_cdc_common->open_close_mutex);
+        return ESP_ERR_TIMEOUT;
+    }
+    xSemaphoreGive(p_cdc_common->open_close_mutex);
+
+    const size_t buffer_size = port->data.out_xfer->data_buffer_size;
+    const uint8_t *data_ptr = data;
+    size_t remaining = data_len;
     while (remaining > 0) {
+        if (port->to_close) {
+            ret = ESP_ERR_INVALID_STATE;
+            goto unblock;
+        }
         size_t chunk_size = (remaining > buffer_size) ? buffer_size : remaining;
+        remaining_timeout_ticks = timeout_ticks - (xTaskGetTickCount() - start_ticks);
+        if (remaining_timeout_ticks < 0) {
+            ret = ESP_ERR_TIMEOUT;
+            goto unblock;
+        }
         xSemaphoreTake(port->data.out_done_sem, 0);
         memcpy(port->data.out_xfer->data_buffer, data_ptr, chunk_size);
         port->data.out_xfer->num_bytes = chunk_size;
@@ -1101,7 +1154,7 @@ esp_err_t cdc_host_common_tx_blocking(cdc_host_common_port_handle_t port_hdl, co
         taken = xSemaphoreTake(port->data.out_done_sem, remaining_timeout_ticks);
         remaining_timeout_ticks = timeout_ticks - (xTaskGetTickCount() - start_ticks);
         if (!taken || remaining_timeout_ticks < 0) {
-            if (port->dev->dev_hdl) {
+            if (port->dev && port->dev->dev_hdl) {
                 cdc_common_reset_transfer_endpoint(port->dev->dev_hdl, port->data.out_xfer);
             }
             ESP_LOGW(TAG, "TX transfer timeout");
@@ -1117,26 +1170,46 @@ esp_err_t cdc_host_common_tx_blocking(cdc_host_common_port_handle_t port_hdl, co
 unblock:
     xSemaphoreGive(port->data.out_mux);
     return ret;
+
+exit_open_close:
+    xSemaphoreGive(p_cdc_common->open_close_mutex);
+    return ret;
 }
 
 esp_err_t cdc_host_common_write_bytes(cdc_host_common_port_handle_t port_hdl, const uint8_t *data, size_t data_len, TickType_t ticks_to_wait)
 {
-    ESP_RETURN_ON_FALSE(port_hdl && data && data_len > 0, ESP_ERR_INVALID_ARG, TAG, "invalid write argument");
+    esp_err_t ret = ESP_OK;
+    ESP_RETURN_ON_FALSE(p_cdc_common && port_hdl && data && data_len > 0, ESP_ERR_INVALID_ARG, TAG, "invalid write argument");
     cdc_host_common_port_t *port = (cdc_host_common_port_t *)port_hdl;
-    ESP_RETURN_ON_FALSE(port_is_opened(port), ESP_ERR_INVALID_ARG, TAG, "invalid CDC common port");
-    ESP_RETURN_ON_FALSE(port->data.out_xfer, ESP_ERR_NOT_SUPPORTED, TAG, "CDC port is read-only");
+
+    BaseType_t taken = xSemaphoreTake(p_cdc_common->open_close_mutex, ticks_to_wait);
+    if (taken != pdTRUE) {
+        return ESP_ERR_TIMEOUT;
+    }
+    if (!port_is_opened(port) || port->to_close) {
+        xSemaphoreGive(p_cdc_common->open_close_mutex);
+        return ESP_ERR_INVALID_ARG;
+    }
+    ESP_GOTO_ON_FALSE(port->data.out_xfer, ESP_ERR_NOT_SUPPORTED, exit_open_close, TAG, "CDC port is read-only");
 
     if (!port->data.tx_ringbuf) {
+        xSemaphoreGive(p_cdc_common->open_close_mutex);
         uint32_t timeout_ms = (ticks_to_wait == portMAX_DELAY) ? CDC_COMMON_TX_TIMEOUT_MS : pdTICKS_TO_MS(ticks_to_wait);
         return cdc_host_common_tx_blocking(port_hdl, data, data_len, timeout_ms);
     }
 
-    BaseType_t taken = xSemaphoreTake(port->data.out_mux, ticks_to_wait);
+    taken = xSemaphoreTake(port->data.out_mux, ticks_to_wait);
     if (taken != pdTRUE) {
+        xSemaphoreGive(p_cdc_common->open_close_mutex);
         return ESP_ERR_TIMEOUT;
     }
+    xSemaphoreGive(p_cdc_common->open_close_mutex);
 
-    esp_err_t ret = cdc_common_ringbuf_push(port->data.tx_ringbuf, data, data_len, ticks_to_wait);
+    if (port->to_close) {
+        ret = ESP_ERR_INVALID_STATE;
+        goto unblock;
+    }
+    ret = cdc_common_ringbuf_push(port->data.tx_ringbuf, data, data_len, ticks_to_wait);
     ESP_GOTO_ON_ERROR(ret, unblock, TAG, "CDC TX ringbuffer push failed");
 
     if (xSemaphoreTake(port->data.out_done_sem, 0) == pdTRUE) {
@@ -1145,6 +1218,10 @@ esp_err_t cdc_host_common_write_bytes(cdc_host_common_port_handle_t port_hdl, co
 
 unblock:
     xSemaphoreGive(port->data.out_mux);
+    return ret;
+
+exit_open_close:
+    xSemaphoreGive(p_cdc_common->open_close_mutex);
     return ret;
 }
 
@@ -1199,16 +1276,31 @@ esp_err_t cdc_host_common_flush_rx_buffer(cdc_host_common_port_handle_t port_hdl
 
 esp_err_t cdc_host_common_flush_tx_buffer(cdc_host_common_port_handle_t port_hdl)
 {
-    ESP_RETURN_ON_FALSE(port_hdl, ESP_ERR_INVALID_ARG, TAG, "port is NULL");
+    ESP_RETURN_ON_FALSE(p_cdc_common && port_hdl, ESP_ERR_INVALID_ARG, TAG, "port is NULL");
     cdc_host_common_port_t *port = (cdc_host_common_port_t *)port_hdl;
-    ESP_RETURN_ON_FALSE(port_is_opened(port), ESP_ERR_INVALID_ARG, TAG, "invalid CDC common port");
-    ESP_RETURN_ON_FALSE(port->data.tx_ringbuf, ESP_ERR_NOT_SUPPORTED, TAG, "TX ringbuffer is not created");
 
-    BaseType_t taken = xSemaphoreTake(port->data.out_mux, pdMS_TO_TICKS(CDC_COMMON_TX_TIMEOUT_MS));
+    BaseType_t taken = xSemaphoreTake(p_cdc_common->open_close_mutex, pdMS_TO_TICKS(CDC_COMMON_TX_TIMEOUT_MS));
     if (taken != pdTRUE) {
         ESP_LOGW(TAG, "CDC TX ringbuffer flush timeout");
         return ESP_ERR_TIMEOUT;
     }
+    if (!port_is_opened(port) || port->to_close) {
+        xSemaphoreGive(p_cdc_common->open_close_mutex);
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (!port->data.tx_ringbuf) {
+        xSemaphoreGive(p_cdc_common->open_close_mutex);
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+
+    taken = xSemaphoreTake(port->data.out_mux, pdMS_TO_TICKS(CDC_COMMON_TX_TIMEOUT_MS));
+    if (taken != pdTRUE) {
+        xSemaphoreGive(p_cdc_common->open_close_mutex);
+        ESP_LOGW(TAG, "CDC TX ringbuffer flush timeout");
+        return ESP_ERR_TIMEOUT;
+    }
+    xSemaphoreGive(p_cdc_common->open_close_mutex);
+
     cdc_common_ringbuf_flush(port->data.tx_ringbuf);
     xSemaphoreGive(port->data.out_mux);
     return ESP_OK;
@@ -1230,21 +1322,36 @@ esp_err_t cdc_host_common_get_rx_buffer_size(cdc_host_common_port_handle_t port_
 esp_err_t cdc_host_common_send_control(cdc_host_common_port_handle_t port_hdl, uint8_t bmRequestType, uint8_t bRequest, uint16_t wValue,
                                        uint16_t wIndex, uint16_t wLength, uint8_t *data)
 {
-    ESP_RETURN_ON_FALSE(port_hdl, ESP_ERR_INVALID_ARG, TAG, "port is NULL");
+    esp_err_t ret = ESP_OK;
+    ESP_RETURN_ON_FALSE(p_cdc_common && port_hdl, ESP_ERR_INVALID_ARG, TAG, "port is NULL");
     if (wLength > 0) {
         ESP_RETURN_ON_FALSE(data, ESP_ERR_INVALID_ARG, TAG, "data is NULL");
     }
     cdc_host_common_port_t *port = (cdc_host_common_port_t *)port_hdl;
-    ESP_RETURN_ON_FALSE(port_is_opened(port), ESP_ERR_INVALID_ARG, TAG, "invalid CDC common port");
-    ESP_RETURN_ON_FALSE(port->dev && port->dev->dev_hdl, ESP_ERR_INVALID_STATE, TAG, "CDC device is not open");
-    ESP_RETURN_ON_FALSE(port->ctrl_xfer->data_buffer_size >= wLength + sizeof(usb_setup_packet_t), ESP_ERR_INVALID_SIZE, TAG, "Control payload is too large");
 
-    BaseType_t taken = xSemaphoreTake(port->ctrl_mux, pdMS_TO_TICKS(CDC_COMMON_CTRL_TIMEOUT_MS));
+    BaseType_t taken = xSemaphoreTake(p_cdc_common->open_close_mutex, pdMS_TO_TICKS(CDC_COMMON_CTRL_TIMEOUT_MS));
     if (!taken) {
         return ESP_ERR_TIMEOUT;
     }
+    if (!port_is_opened(port) || port->to_close) {
+        xSemaphoreGive(p_cdc_common->open_close_mutex);
+        return ESP_ERR_INVALID_ARG;
+    }
+    ESP_GOTO_ON_FALSE(port->dev && port->dev->dev_hdl, ESP_ERR_INVALID_STATE, exit_open_close, TAG, "CDC device is not open");
+    ESP_GOTO_ON_FALSE(port->ctrl_xfer->data_buffer_size >= wLength + sizeof(usb_setup_packet_t), ESP_ERR_INVALID_SIZE, exit_open_close, TAG,
+                      "Control payload is too large");
 
-    esp_err_t ret;
+    taken = xSemaphoreTake(port->ctrl_mux, pdMS_TO_TICKS(CDC_COMMON_CTRL_TIMEOUT_MS));
+    if (!taken) {
+        xSemaphoreGive(p_cdc_common->open_close_mutex);
+        return ESP_ERR_TIMEOUT;
+    }
+    xSemaphoreGive(p_cdc_common->open_close_mutex);
+
+    if (port->to_close) {
+        ret = ESP_ERR_INVALID_STATE;
+        goto unblock;
+    }
     usb_setup_packet_t *req = (usb_setup_packet_t *)port->ctrl_xfer->data_buffer;
     uint8_t *start_of_data = (uint8_t *)req + sizeof(usb_setup_packet_t);
     req->bmRequestType = bmRequestType;
@@ -1275,6 +1382,10 @@ esp_err_t cdc_host_common_send_control(cdc_host_common_port_handle_t port_hdl, u
 
 unblock:
     xSemaphoreGive(port->ctrl_mux);
+    return ret;
+
+exit_open_close:
+    xSemaphoreGive(p_cdc_common->open_close_mutex);
     return ret;
 }
 
@@ -1358,25 +1469,40 @@ void cdc_host_common_desc_print(cdc_host_common_port_handle_t port_hdl)
 #ifdef CDC_HOST_COMMON_REMOTE_WAKE_SUPPORTED
 esp_err_t cdc_host_common_enable_remote_wakeup(cdc_host_common_port_handle_t port_hdl, bool enable)
 {
-    ESP_RETURN_ON_FALSE(port_hdl, ESP_ERR_INVALID_ARG, TAG, "port is NULL");
+    esp_err_t ret = ESP_OK;
+    ESP_RETURN_ON_FALSE(p_cdc_common && port_hdl, ESP_ERR_INVALID_ARG, TAG, "port is NULL");
     cdc_host_common_port_t *port = (cdc_host_common_port_t *)port_hdl;
-    ESP_RETURN_ON_FALSE(port_is_opened(port), ESP_ERR_INVALID_ARG, TAG, "invalid CDC common port");
-    ESP_RETURN_ON_FALSE(port->dev && port->dev->dev_hdl, ESP_ERR_INVALID_STATE, TAG, "CDC device is not open");
 
-    const usb_config_desc_t *config_desc;
-    ESP_RETURN_ON_ERROR(usb_host_get_active_config_descriptor(port->dev->dev_hdl, &config_desc), TAG, "Unable to get configuration descriptor");
-    ESP_RETURN_ON_FALSE((config_desc->bmAttributes & USB_BM_ATTRIBUTES_WAKEUP), ESP_ERR_NOT_SUPPORTED, TAG, "Device does not support remote wakeup");
-
-    if (port->dev->remote_wakeup_enabled == enable) {
-        return ESP_OK;
-    }
-
-    BaseType_t taken = xSemaphoreTake(port->ctrl_mux, pdMS_TO_TICKS(CDC_COMMON_CTRL_TIMEOUT_MS));
+    BaseType_t taken = xSemaphoreTake(p_cdc_common->open_close_mutex, pdMS_TO_TICKS(CDC_COMMON_CTRL_TIMEOUT_MS));
     if (!taken) {
         return ESP_ERR_TIMEOUT;
     }
+    if (!port_is_opened(port) || port->to_close) {
+        xSemaphoreGive(p_cdc_common->open_close_mutex);
+        return ESP_ERR_INVALID_ARG;
+    }
+    ESP_GOTO_ON_FALSE(port->dev && port->dev->dev_hdl, ESP_ERR_INVALID_STATE, exit_open_close, TAG, "CDC device is not open");
 
-    esp_err_t ret;
+    const usb_config_desc_t *config_desc;
+    ESP_GOTO_ON_ERROR(usb_host_get_active_config_descriptor(port->dev->dev_hdl, &config_desc), exit_open_close, TAG, "Unable to get configuration descriptor");
+    ESP_GOTO_ON_FALSE((config_desc->bmAttributes & USB_BM_ATTRIBUTES_WAKEUP), ESP_ERR_NOT_SUPPORTED, exit_open_close, TAG, "Device does not support remote wakeup");
+
+    if (port->dev->remote_wakeup_enabled == enable) {
+        xSemaphoreGive(p_cdc_common->open_close_mutex);
+        return ESP_OK;
+    }
+
+    taken = xSemaphoreTake(port->ctrl_mux, pdMS_TO_TICKS(CDC_COMMON_CTRL_TIMEOUT_MS));
+    if (!taken) {
+        xSemaphoreGive(p_cdc_common->open_close_mutex);
+        return ESP_ERR_TIMEOUT;
+    }
+    xSemaphoreGive(p_cdc_common->open_close_mutex);
+
+    if (port->to_close) {
+        ret = ESP_ERR_INVALID_STATE;
+        goto unlock;
+    }
     usb_setup_packet_t *req = (usb_setup_packet_t *)port->ctrl_xfer->data_buffer;
     if (enable) {
         USB_SETUP_PACKET_INIT_SET_FEATURE(req, DEVICE_REMOTE_WAKEUP);
@@ -1397,6 +1523,10 @@ esp_err_t cdc_host_common_enable_remote_wakeup(cdc_host_common_port_handle_t por
 
 unlock:
     xSemaphoreGive(port->ctrl_mux);
+    return ret;
+
+exit_open_close:
+    xSemaphoreGive(p_cdc_common->open_close_mutex);
     return ret;
 }
 #endif

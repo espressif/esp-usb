@@ -54,12 +54,12 @@ static bool acm_data_cb(cdc_host_common_port_handle_t common_port, const uint8_t
 static void acm_event_cb(cdc_host_common_port_handle_t common_port, const cdc_host_common_port_event_data_t *event, void *user_arg)
 {
     cdc_dev_t *cdc_dev = (cdc_dev_t *)user_arg;
-    if (!cdc_dev->event_cb) {
-        return;
-    }
 
     switch (event->type) {
     case CDC_HOST_COMMON_PORT_EVENT_ERROR: {
+        if (!cdc_dev->event_cb) {
+            return;
+        }
         const cdc_acm_host_dev_event_data_t acm_event = {
             .type = CDC_ACM_HOST_ERROR,
             .data.error = event->data.error,
@@ -68,6 +68,9 @@ static void acm_event_cb(cdc_host_common_port_handle_t common_port, const cdc_ho
         break;
     }
     case CDC_HOST_COMMON_PORT_EVENT_NOTIFICATION: {
+        if (!cdc_dev->event_cb) {
+            return;
+        }
         if (event->data.notification.data_len < sizeof(cdc_notification_t)) {
             ESP_LOGW(TAG, "Short CDC notification: %zu", event->data.notification.data_len);
             return;
@@ -100,15 +103,46 @@ static void acm_event_cb(cdc_host_common_port_handle_t common_port, const cdc_ho
         break;
     }
     case CDC_HOST_COMMON_PORT_EVENT_DISCONNECTED: {
-        const cdc_acm_host_dev_event_data_t disconn_event = {
-            .type = CDC_ACM_HOST_DEVICE_DISCONNECTED,
-            .data.cdc_hdl = (cdc_acm_dev_hdl_t)cdc_dev,
-        };
-        cdc_dev->event_cb(&disconn_event, cdc_dev->cb_arg);
+        // Snapshot callbacks under the ACM lock. The common layer may free the
+        // underlying port after this callback returns, so drop common_port if the
+        // user does not close synchronously (existing VCP drivers do close here).
+        cdc_acm_host_dev_callback_t event_cb = NULL;
+        void *cb_arg = NULL;
+        if (p_cdc_acm_obj) {
+            xSemaphoreTake(p_cdc_acm_obj->open_close_mutex, portMAX_DELAY);
+            event_cb = cdc_dev->event_cb;
+            cb_arg = cdc_dev->cb_arg;
+            xSemaphoreGive(p_cdc_acm_obj->open_close_mutex);
+        } else {
+            event_cb = cdc_dev->event_cb;
+            cb_arg = cdc_dev->cb_arg;
+        }
+
+        if (event_cb) {
+            const cdc_acm_host_dev_event_data_t disconn_event = {
+                .type = CDC_ACM_HOST_DEVICE_DISCONNECTED,
+                .data.cdc_hdl = (cdc_acm_dev_hdl_t)cdc_dev,
+            };
+            event_cb(&disconn_event, cb_arg);
+        }
+
+        // If the user deferred cdc_acm_host_close(), the common port will be
+        // auto-closed next. Clear the dangling reference while the ACM object
+        // still exists (pointer compare only if the user already closed).
+        if (p_cdc_acm_obj) {
+            xSemaphoreTake(p_cdc_acm_obj->open_close_mutex, portMAX_DELAY);
+            if (cdc_acm_device_is_open(cdc_dev)) {
+                cdc_dev->common_port = NULL;
+            }
+            xSemaphoreGive(p_cdc_acm_obj->open_close_mutex);
+        }
         break;
     }
 #ifdef CDC_HOST_SUSPEND_RESUME_API_SUPPORTED
     case CDC_HOST_COMMON_PORT_EVENT_SUSPENDED: {
+        if (!cdc_dev->event_cb) {
+            return;
+        }
         const cdc_acm_host_dev_event_data_t suspend_event = {
             .type = CDC_ACM_HOST_DEVICE_SUSPENDED,
             .data.cdc_hdl = (cdc_acm_dev_hdl_t)cdc_dev,
@@ -117,6 +151,9 @@ static void acm_event_cb(cdc_host_common_port_handle_t common_port, const cdc_ho
         break;
     }
     case CDC_HOST_COMMON_PORT_EVENT_RESUMED: {
+        if (!cdc_dev->event_cb) {
+            return;
+        }
         const cdc_acm_host_dev_event_data_t resume_event = {
             .type = CDC_ACM_HOST_DEVICE_RESUMED,
             .data.cdc_hdl = (cdc_acm_dev_hdl_t)cdc_dev,
@@ -148,13 +185,21 @@ static void acm_dev_event_cb(const cdc_host_common_dev_event_data_t *event, void
 
 static bool cdc_acm_device_is_open(cdc_dev_t *cdc_hdl)
 {
+    if (!p_cdc_acm_obj || !cdc_hdl) {
+        return false;
+    }
+
+    bool found = false;
+    CDC_ACM_ENTER_CRITICAL();
     cdc_dev_t *current = NULL;
     SLIST_FOREACH(current, &p_cdc_acm_obj->cdc_devices_list, list_entry) {
         if (current == cdc_hdl) {
-            return true;
+            found = true;
+            break;
         }
     }
-    return false;
+    CDC_ACM_EXIT_CRITICAL();
+    return found;
 }
 
 esp_err_t cdc_acm_host_install(const cdc_acm_host_driver_config_t *driver_config)
@@ -295,7 +340,7 @@ esp_err_t cdc_acm_host_open_v2(const cdc_acm_host_open_config_t *open_config, cd
     ESP_GOTO_ON_ERROR(cdc_host_common_open(p_cdc_acm_obj->common_driver, &common_config, &cdc_dev->common_port),
                       unlock, TAG, "Failed to open CDC common port");
     ESP_GOTO_ON_ERROR(cdc_host_common_get_intf_desc(cdc_dev->common_port, &cdc_dev->notif.intf_desc, &cdc_dev->data.intf_desc),
-                      unlock, TAG, "Failed to get CDC interface descriptors");
+                      open_err, TAG, "Failed to get CDC interface descriptors");
 
     const usb_standard_desc_t *acm_desc = NULL;
     if (cdc_host_common_cdc_desc_get(cdc_dev->common_port, USB_CDC_DESC_SUBTYPE_ACM, &acm_desc) == ESP_OK) {
@@ -312,15 +357,15 @@ esp_err_t cdc_acm_host_open_v2(const cdc_acm_host_open_config_t *open_config, cd
     xSemaphoreGive(p_cdc_acm_obj->open_close_mutex);
     return ESP_OK;
 
+open_err:
+    if (cdc_dev->common_port) {
+        cdc_host_common_close(cdc_dev->common_port);
+        cdc_dev->common_port = NULL;
+    }
 unlock:
     xSemaphoreGive(p_cdc_acm_obj->open_close_mutex);
 err:
-    if (cdc_dev) {
-        if (cdc_dev->common_port) {
-            cdc_host_common_close(cdc_dev->common_port);
-        }
-        free(cdc_dev);
-    }
+    free(cdc_dev);
     *cdc_hdl_ret = NULL;
     return ret;
 }
@@ -346,8 +391,11 @@ esp_err_t cdc_acm_host_close(cdc_acm_dev_hdl_t cdc_hdl)
     if (cdc_dev->intf_func.del) {
         cdc_dev->intf_func.del(cdc_dev);
     }
-    esp_err_t ret = cdc_host_common_close(cdc_dev->common_port);
-    cdc_dev->common_port = NULL;
+    esp_err_t ret = ESP_OK;
+    if (cdc_dev->common_port) {
+        ret = cdc_host_common_close(cdc_dev->common_port);
+        cdc_dev->common_port = NULL;
+    }
     free(cdc_dev);
     xSemaphoreGive(p_cdc_acm_obj->open_close_mutex);
     return ret;
