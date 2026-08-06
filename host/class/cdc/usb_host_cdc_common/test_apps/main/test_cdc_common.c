@@ -433,6 +433,80 @@ TEST_CASE("cdc_common_close_null_invalid_handle", "[cdc_common][auto][close][bou
     TEST_ASSERT_EQUAL(ESP_OK, uninstall_common_driver());
 }
 
+static esp_err_t idempotent_close_ret = ESP_FAIL;
+static bool idempotent_close_seen = false;
+
+static void idempotent_close_event_cb(cdc_host_common_port_handle_t port,
+                                      const cdc_host_common_port_event_data_t *event,
+                                      void *user_arg)
+{
+    (void)user_arg;
+    // ESP_LOGI(TAG, "idempotent_close_event_cb");
+    if (event->type == CDC_HOST_COMMON_PORT_EVENT_DISCONNECTED) {
+        // We are inside the DISCONNECTED cb: the port is still registered and
+        // flagged `to_close`, so this second close must be idempotent.
+        idempotent_close_ret = cdc_host_common_close(port);
+        idempotent_close_seen = true;
+    }
+    common_port_event_cb(port, event, user_arg);
+}
+
+TEST_CASE("cdc_common_close_idempotent_during_disconnect", "[cdc_common][auto][close][functional]")
+{
+    UPDATE_LEAK_THRESHOLD(-40);
+    idempotent_close_ret = ESP_FAIL;
+    idempotent_close_seen = false;
+
+    TEST_ASSERT_NOT_NULL((test_event_group = xEventGroupCreate()));
+    TEST_ASSERT_EQUAL(ESP_OK, install_common_driver(common_dev_event_cb, NULL));
+
+    if (!wait_for_cdc_device(TEST_WAIT_DEV_MS)) {
+        ESP_LOGW(TAG, "No CDC device connected; skipping idempotent-close regression");
+        vEventGroupDelete(test_event_group);
+        test_event_group = NULL;
+        TEST_ASSERT_EQUAL(ESP_OK, uninstall_common_driver());
+        return;
+    }
+
+    cdc_host_common_open_config_t config = CDC_COMMON_OPEN_DEFAULT_CONFIG(get_test_dev_addr(), TEST_INTERFACE_0,
+                                                                          common_data_cb, idempotent_close_event_cb, NULL);
+    esp_err_t ret = cdc_host_common_open(test_driver, &config, &test_port1);
+    if (ret != ESP_OK) {
+        ESP_LOGW(TAG, "CDC common open skipped, ret: %s", esp_err_to_name(ret));
+        vEventGroupDelete(test_event_group);
+        test_event_group = NULL;
+        TEST_ASSERT_EQUAL(ESP_OK, uninstall_common_driver());
+        return;
+    }
+    TEST_ASSERT_NOT_NULL(test_port1);
+
+    // Precondition: an unknown pointer must still be rejected even while a
+    // legitimately opened port exists.
+    TEST_ASSERT_EQUAL(ESP_ERR_INVALID_ARG,
+                      cdc_host_common_close((cdc_host_common_port_handle_t)0xDEADBEEF));
+
+    // Force disconnect via root port power toggle to drive the DISCONNECTED cb.
+    ESP_LOGI(TAG, "Forcing root port power OFF to trigger DISCONNECTED callback");
+    TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_set_root_port_power(false));
+
+    EventBits_t bits = xEventGroupWaitBits(test_event_group, EVENT_DISCONNECT,
+                                           pdFALSE, pdFALSE, pdMS_TO_TICKS(5000));
+    TEST_ASSERT_MESSAGE(bits & EVENT_DISCONNECT, "DISCONNECTED event not delivered");
+    TEST_ASSERT_TRUE_MESSAGE(idempotent_close_seen, "DISCONNECTED cb did not run");
+    TEST_ASSERT_EQUAL_MESSAGE(ESP_OK, idempotent_close_ret,
+                              "Re-entrant close during DISCONNECTED must be idempotent");
+    // common layer freed the port right after cb returned; the callback clears it.
+    TEST_ASSERT_NULL(test_port1);
+
+    // Restore power for subsequent tests.
+    vTaskDelay(pdMS_TO_TICKS(100));
+    TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_set_root_port_power(true));
+
+    vEventGroupDelete(test_event_group);
+    test_event_group = NULL;
+    TEST_ASSERT_EQUAL(ESP_OK, uninstall_common_driver());
+}
+
 TEST_CASE("cdc_common_write_read_invalid_args", "[cdc_common][auto][read-write][boundary]")
 {
     UPDATE_LEAK_THRESHOLD(-40);
@@ -446,10 +520,6 @@ TEST_CASE("cdc_common_write_read_invalid_args", "[cdc_common][auto][read-write][
     TEST_ASSERT_EQUAL(ESP_ERR_INVALID_ARG, cdc_host_common_write_bytes(invalid_port, NULL, length, pdMS_TO_TICKS(1000)));
     TEST_ASSERT_EQUAL(ESP_ERR_INVALID_ARG, cdc_host_common_write_bytes(invalid_port, data, 0, pdMS_TO_TICKS(1000)));
     TEST_ASSERT_EQUAL(ESP_ERR_INVALID_ARG, cdc_host_common_write_bytes(invalid_port, data, length, pdMS_TO_TICKS(1000)));
-    TEST_ASSERT_EQUAL(ESP_ERR_INVALID_ARG, cdc_host_common_tx_blocking(NULL, data, length, 1000));
-    TEST_ASSERT_EQUAL(ESP_ERR_INVALID_ARG, cdc_host_common_tx_blocking(invalid_port, NULL, length, 1000));
-    TEST_ASSERT_EQUAL(ESP_ERR_INVALID_ARG, cdc_host_common_tx_blocking(invalid_port, data, 0, 1000));
-    TEST_ASSERT_EQUAL(ESP_ERR_INVALID_ARG, cdc_host_common_tx_blocking(invalid_port, data, length, 1000));
 
     TEST_ASSERT_EQUAL(ESP_ERR_INVALID_ARG, cdc_host_common_read_bytes(NULL, data, &length, pdMS_TO_TICKS(1000)));
     TEST_ASSERT_EQUAL(0, length);

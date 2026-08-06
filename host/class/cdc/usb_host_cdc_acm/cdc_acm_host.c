@@ -42,6 +42,8 @@ static const cdc_acm_host_driver_config_t cdc_acm_driver_config_default = {
     .new_dev_cb = NULL,
 };
 
+static bool cdc_acm_device_is_open(cdc_dev_t *cdc_hdl);
+
 static bool acm_data_cb(cdc_host_common_port_handle_t common_port, const uint8_t *data, size_t data_len, void *user_arg)
 {
     cdc_dev_t *cdc_dev = (cdc_dev_t *)user_arg;
@@ -99,12 +101,33 @@ static void acm_event_cb(cdc_host_common_port_handle_t common_port, const cdc_ho
         }
         break;
     }
+    case CDC_HOST_COMMON_PORT_EVENT_RX_OVERFLOW: {
+        cdc_dev->serial_state.bOverRun = 1;
+        const cdc_acm_host_dev_event_data_t overrun_event = {
+            .type = CDC_ACM_HOST_SERIAL_STATE,
+            .data.serial_state = cdc_dev->serial_state,
+        };
+        cdc_dev->event_cb(&overrun_event, cdc_dev->cb_arg);
+        break;
+    }
     case CDC_HOST_COMMON_PORT_EVENT_DISCONNECTED: {
         const cdc_acm_host_dev_event_data_t disconn_event = {
             .type = CDC_ACM_HOST_DEVICE_DISCONNECTED,
             .data.cdc_hdl = (cdc_acm_dev_hdl_t)cdc_dev,
         };
         cdc_dev->event_cb(&disconn_event, cdc_dev->cb_arg);
+        xSemaphoreTake(p_cdc_acm_obj->open_close_mutex, portMAX_DELAY);
+        if (cdc_acm_device_is_open(cdc_dev)) {
+            CDC_ACM_ENTER_CRITICAL();
+            SLIST_REMOVE(&p_cdc_acm_obj->cdc_devices_list, cdc_dev, cdc_dev_s, list_entry);
+            CDC_ACM_EXIT_CRITICAL();
+            if (cdc_dev->intf_func.del) {
+                cdc_dev->intf_func.del(cdc_dev);
+            }
+            cdc_dev->common_port = NULL;
+            free(cdc_dev);
+        }
+        xSemaphoreGive(p_cdc_acm_obj->open_close_mutex);
         break;
     }
 #ifdef CDC_HOST_SUSPEND_RESUME_API_SUPPORTED
@@ -356,7 +379,7 @@ esp_err_t cdc_acm_host_close(cdc_acm_dev_hdl_t cdc_hdl)
 esp_err_t cdc_acm_host_data_tx_blocking(cdc_acm_dev_hdl_t cdc_hdl, const uint8_t *data, size_t data_len, uint32_t timeout_ms)
 {
     CDC_ACM_CHECK(cdc_hdl, ESP_ERR_INVALID_ARG);
-    return cdc_host_common_tx_blocking(((cdc_dev_t *)cdc_hdl)->common_port, data, data_len, timeout_ms);
+    return cdc_host_common_write_bytes(((cdc_dev_t *)cdc_hdl)->common_port, data, data_len, pdMS_TO_TICKS(timeout_ms));
 }
 
 esp_err_t cdc_acm_host_send_custom_request(cdc_acm_dev_hdl_t cdc_hdl, uint8_t bmRequestType, uint8_t bRequest, uint16_t wValue,

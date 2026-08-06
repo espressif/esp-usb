@@ -75,7 +75,11 @@ static cdc_host_common_func_array_t *cdc_parse_functional_descriptors(const usb_
     }
     *desc_cnt = func_desc_cnt;
 
-    cdc_host_common_func_array_t *func_desc = malloc(func_desc_cnt * sizeof(usb_standard_desc_t *));
+    if (func_desc_cnt == 0) {
+        return NULL;
+    }
+
+    cdc_host_common_func_array_t *func_desc = malloc(func_desc_cnt * sizeof(**func_desc));
     if (!func_desc) {
         ESP_LOGE(TAG, "Out of memory for functional descriptors");
         return NULL;

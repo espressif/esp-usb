@@ -13,16 +13,9 @@ repository_info:
 dependencies:
   idf: ">=5.0"
   espressif/usb_host_cdc_common:
-    version: "^0.1.0"
+    version: "^1.0.0"
     override_path: "../usb_host_cdc_common"
     public: true
-  espressif/usb:
-    version: "^1.0.0"
-    public: true
-    override_path: "../../../usb"
-    rules:
-     - if: "idf_version >=6.0"
-     - if: target not in ["linux"]
 targets:
   - esp32s2
   - esp32s3
