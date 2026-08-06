@@ -19,7 +19,7 @@
 
 static const char *TAG = "cdc_acm";
 
-#define CDC_ACM_CTRL_TRANSFER_SIZE (64)
+#define CDC_ACM_CTRL_DATA_SIZE (64)
 
 static portMUX_TYPE cdc_acm_lock = portMUX_INITIALIZER_UNLOCKED;
 #define CDC_ACM_ENTER_CRITICAL() portENTER_CRITICAL(&cdc_acm_lock)
@@ -282,7 +282,7 @@ esp_err_t cdc_acm_host_open_v2(const cdc_acm_host_open_config_t *open_config, cd
         .dev_addr = open_config->dev_addr,
         .interface_idx = open_config->interface_idx,
         .connection_timeout_ms = open_config->connection_timeout_ms,
-        .ctrl_buffer_size = CDC_ACM_CTRL_TRANSFER_SIZE,
+        .ctrl_buffer_size = CDC_ACM_CTRL_DATA_SIZE,
         .in_buffer_size = open_config->in_buffer_size,
         .out_buffer_size = open_config->out_buffer_size,
         .flags = CDC_HOST_COMMON_OPEN_FLAG_NONE,
