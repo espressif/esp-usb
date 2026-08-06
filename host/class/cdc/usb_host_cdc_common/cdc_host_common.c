@@ -16,6 +16,7 @@
 #include "freertos/ringbuf.h"
 #include "soc/soc_caps.h"
 #include "esp_check.h"
+#include "esp_idf_version.h"
 #include "esp_bit_defs.h"
 #include "esp_log.h"
 #include "esp_heap_caps.h"
@@ -41,6 +42,12 @@ static const char *TAG = "cdc_common";
 static portMUX_TYPE cdc_common_lock = portMUX_INITIALIZER_UNLOCKED;
 #define CDC_COMMON_ENTER_CRITICAL()      portENTER_CRITICAL(&cdc_common_lock)
 #define CDC_COMMON_EXIT_CRITICAL()       portEXIT_CRITICAL(&cdc_common_lock)
+
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(6, 0, 0)
+#define USB_EVENT_SUPPORT_REMOVED 1
+#else
+#define USB_EVENT_SUPPORT_REMOVED 0
+#endif
 
 typedef struct cdc_host_common_dev_s {
     usb_device_handle_t dev_hdl;
@@ -89,6 +96,7 @@ typedef struct cdc_host_common_port_s {
     usb_transfer_t *ctrl_xfer;
     SemaphoreHandle_t ctrl_done_sem;
     SemaphoreHandle_t ctrl_mux;
+    size_t ctrl_data_size;
     cdc_comm_protocol_t comm_protocol;
     cdc_data_protocol_t data_protocol;
     int cdc_func_desc_cnt;
@@ -812,9 +820,11 @@ esp_err_t cdc_host_common_acquire(const cdc_host_common_driver_config_t *config,
     const usb_host_client_config_t client_config = {
         .is_synchronous = false,
         .max_num_event_msg = 5,
+#if USB_EVENT_SUPPORT_REMOVED
         .flags = {
             .notify_dev_removed = 1,
         },
+#endif
         .async.client_event_callback = usb_event_cb,
         .async.callback_arg = NULL,
     };
@@ -892,7 +902,9 @@ esp_err_t cdc_host_common_release(cdc_host_common_driver_handle_t driver_hdl)
     }
 
     xEventGroupSetBits(driver->event_group, CDC_COMMON_TEARDOWN);
+#ifndef CONFIG_IDF_TARGET_LINUX
     usb_host_client_unblock(driver->client_hdl);
+#endif
     esp_err_t ret = xEventGroupWaitBits(driver->event_group, CDC_COMMON_TEARDOWN_COMPLETE, pdFALSE, pdFALSE,
                                         pdMS_TO_TICKS(1000)) ? ESP_OK : ESP_ERR_NOT_FINISHED;
     vEventGroupDelete(driver->event_group);
@@ -993,6 +1005,7 @@ esp_err_t cdc_host_common_open(cdc_host_common_driver_handle_t driver_hdl, const
                       err_port, TAG, "Failed to allocate CDC ringbuffers");
 
     const size_t ctrl_data_size = open_config->ctrl_buffer_size ? open_config->ctrl_buffer_size : CDC_COMMON_CTRL_DATA_SIZE_DEFAULT;
+    port->ctrl_data_size = ctrl_data_size;
     const size_t in_buf_size = ((open_config->data_cb || open_config->rx_ringbuf_size) && open_config->in_buffer_size == 0) ?
                                USB_EP_DESC_GET_MPS(cdc_info.in_ep) : open_config->in_buffer_size;
     ESP_GOTO_ON_ERROR(cdc_common_transfers_allocate(port, cdc_info.notif_ep, cdc_info.in_ep, in_buf_size, cdc_info.out_ep,
@@ -1022,7 +1035,9 @@ esp_err_t cdc_host_common_open(cdc_host_common_driver_handle_t driver_hdl, const
         ESP_GOTO_ON_ERROR(cdc_common_submit_poll(port->notif.xfer, &port->notif.polling, "INTR IN"), err_started, TAG, "Failed to submit notification poll");
     }
 
+#ifndef CONFIG_IDF_TARGET_LINUX
     usb_host_client_unblock(driver->client_hdl);
+#endif
     *port_ret = (cdc_host_common_port_handle_t)port;
     xSemaphoreGive(driver->open_close_mutex);
     return ESP_OK;
@@ -1238,7 +1253,7 @@ esp_err_t cdc_host_common_send_control(cdc_host_common_port_handle_t port_hdl, u
     cdc_host_common_port_t *port = (cdc_host_common_port_t *)port_hdl;
     ESP_RETURN_ON_FALSE(port_is_opened(port), ESP_ERR_INVALID_ARG, TAG, "invalid CDC common port");
     ESP_RETURN_ON_FALSE(port->dev && port->dev->dev_hdl, ESP_ERR_INVALID_STATE, TAG, "CDC device is not open");
-    ESP_RETURN_ON_FALSE(port->ctrl_xfer->data_buffer_size >= wLength + sizeof(usb_setup_packet_t), ESP_ERR_INVALID_SIZE, TAG, "Control payload is too large");
+    ESP_RETURN_ON_FALSE(wLength <= port->ctrl_data_size, ESP_ERR_INVALID_SIZE, TAG, "Control payload is too large");
 
     BaseType_t taken = xSemaphoreTake(port->ctrl_mux, pdMS_TO_TICKS(CDC_COMMON_CTRL_TIMEOUT_MS));
     if (!taken) {
@@ -1472,11 +1487,20 @@ static void usb_event_cb(const usb_host_client_event_msg_t *event_msg, void *arg
         break;
     }
     case USB_HOST_CLIENT_EVENT_DEV_GONE:
-    case USB_HOST_CLIENT_EVENT_DEV_REMOVED: {
+#if USB_EVENT_SUPPORT_REMOVED
+    case USB_HOST_CLIENT_EVENT_DEV_REMOVED:
+#endif
+    {
         usb_device_handle_t dev_hdl = NULL;
         uint8_t dev_addr = 0;
 
-        if (event_msg->event == USB_HOST_CLIENT_EVENT_DEV_GONE) {
+#if USB_EVENT_SUPPORT_REMOVED
+        if (event_msg->event == USB_HOST_CLIENT_EVENT_DEV_REMOVED) {
+            dev_addr = event_msg->dev_removed.address;
+            ESP_LOGW(TAG, "USB device removed, address: %d", dev_addr);
+        } else
+#endif
+        {
             dev_hdl = event_msg->dev_gone.dev_hdl;
             usb_device_info_t device_info;
             esp_err_t ret = usb_host_device_info(dev_hdl, &device_info);
@@ -1486,9 +1510,6 @@ static void usb_event_cb(const usb_host_client_event_msg_t *event_msg, void *arg
             } else {
                 ESP_LOGW(TAG, "Failed to get disconnected USB device info: %s", esp_err_to_name(ret));
             }
-        } else {
-            dev_addr = event_msg->dev_removed.address;
-            ESP_LOGW(TAG, "USB device removed, address: %d", dev_addr);
         }
 
         // GONE is the common-layer device removal event. DEV_REMOVED callers do not have a stable device handle.
