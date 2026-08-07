@@ -93,9 +93,9 @@ esp_err_t test_uvc_host_stream_open(const uvc_host_stream_config_t *stream_confi
     return uvc_host_stream_open(stream_config, timeout, stream_hdl_ret);
 }
 
-esp_err_t test_uvc_host_stream_close(uvc_host_stream_hdl_t stream_hdl)
+esp_err_t test_uvc_host_stream_close(uvc_host_stream_hdl_t stream_hdl, esp_err_t interface_release_ret)
 {
-    usb_host_interface_release_ExpectAnyArgsAndReturn(ESP_OK); // Release data interface
+    usb_host_interface_release_ExpectAnyArgsAndReturn(interface_release_ret); // Release data interface
     usb_host_transfer_free_Stub(usb_host_transfer_free_mock_callback); // Free all transfers
     usb_host_device_close_ExpectAnyArgsAndReturn(ESP_OK);      // Close the device
 

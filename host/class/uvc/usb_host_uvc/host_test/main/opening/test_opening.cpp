@@ -133,6 +133,12 @@ SCENARIO("Test mocked device opening and closing", "[opening]")
             REQUIRE(ESP_OK == test_uvc_host_stream_close(stream));
         }
 
+        THEN("Stream close cleans up after interface release failure") {
+            uvc_host_stream_hdl_t stream = nullptr;
+            REQUIRE(ESP_OK == test_uvc_host_stream_open(&stream_config, 0, &stream, true));
+            REQUIRE(ESP_OK == test_uvc_host_stream_close(stream, ESP_ERR_INVALID_STATE));
+        }
+
         THEN("Multiple streams can be opened") {
             uvc_host_stream_hdl_t stream[10];
 

@@ -922,7 +922,7 @@ esp_err_t uvc_host_stream_close(uvc_host_stream_hdl_t stream_hdl)
     }
 
     // Release all interfaces
-    ESP_ERROR_CHECK(usb_host_interface_release(p_uvc_host_driver->usb_client_hdl, uvc_stream->constant.dev_hdl, uvc_stream->constant.bInterfaceNumber));
+    ESP_ERROR_CHECK_WITHOUT_ABORT(usb_host_interface_release(p_uvc_host_driver->usb_client_hdl, uvc_stream->constant.dev_hdl, uvc_stream->constant.bInterfaceNumber));
 
     UVC_ENTER_CRITICAL();
     SLIST_REMOVE(&p_uvc_host_driver->uvc_stream_list, uvc_stream, uvc_host_stream_s, list_entry);
