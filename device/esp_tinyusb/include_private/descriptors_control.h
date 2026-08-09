@@ -12,7 +12,7 @@
 extern "C" {
 #endif
 
-#define USB_STRING_DESCRIPTOR_ARRAY_SIZE            8 // Max 8 string descriptors for a device. LANGID, Manufacturer, Product, Serial number + 4 user defined
+#define USB_STRING_DESCRIPTOR_ARRAY_SIZE            16 // LANGID, manufacturer/product/serial and class/user strings
 
 /**
  * @brief Check the TinyUSB configuration

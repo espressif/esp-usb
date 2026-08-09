@@ -5,6 +5,7 @@ set(srcs
     "descriptors_control.c"
     "tinyusb.c"
     "usb_descriptors.c"
+    "runtime_composite.c"
     "tinyusb_task.c"
     )
 

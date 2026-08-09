@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2020-2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2020-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -7,6 +7,7 @@
 #include "usb_descriptors.h"
 #include "sdkconfig.h"
 #include "tinyusb.h"
+#include "runtime_composite.h"
 
 /*
  * A combination of interfaces must have a unique product id, since PC will save device driver after the first plug.
@@ -285,6 +286,10 @@ uint8_t const descriptor_hs_cfg_default[] = {
 #if CFG_TUD_NCM
 uint8_t tusb_get_mac_string_id(void)
 {
+    uint8_t runtime_mac_id = tinyusb_runtime_get_net_mac_string_id();
+    if (runtime_mac_id != 0) {
+        return runtime_mac_id;
+    }
     return STRID_MAC;
 }
 #endif

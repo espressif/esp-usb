@@ -43,8 +43,12 @@ typedef struct {
     const tusb_desc_device_t *dev;      /*!< Pointer to device descriptor. */
     const uint8_t *fs_cfg;              /*!< Pointer to Full-speed configuration descriptor, always present. */
     const uint8_t *hs_cfg;              /*!< Pointer to High-speed configuration descriptor, NULL when device Full-speed only. */
+    tusb_desc_device_t *dev_owned;      /*!< Owned device descriptor copy. */
+    uint8_t *fs_cfg_owned;              /*!< Owned Full-speed configuration descriptor copy. */
+    uint8_t *hs_cfg_owned;              /*!< Owned High-speed configuration descriptor copy. */
 #if (TUD_OPT_HIGH_SPEED)
     const tusb_desc_device_qualifier_t *qualifier;            /*!< Pointer to Qualifier descriptor. */
+    tusb_desc_device_qualifier_t *qualifier_owned;            /*!< Owned Qualifier descriptor copy. */
     uint8_t *other_speed;               /*!< Pointer for other speed configuration descriptor. */
 #endif // TUD_OPT_HIGH_SPEED
     const char *str[USB_STRING_DESCRIPTOR_ARRAY_SIZE];  /*!< Pointer to array of UTF-8 strings. */
@@ -52,6 +56,36 @@ typedef struct {
 } tinyusb_descriptors_map_t;
 
 static tinyusb_descriptors_map_t s_desc_cfg;
+
+static esp_err_t copy_device_desc(const tusb_desc_device_t *src)
+{
+    s_desc_cfg.dev_owned = malloc(sizeof(tusb_desc_device_t));
+    ESP_RETURN_ON_FALSE(s_desc_cfg.dev_owned, ESP_ERR_NO_MEM, TAG, "Device descriptor allocation error");
+    memcpy(s_desc_cfg.dev_owned, src, sizeof(tusb_desc_device_t));
+    s_desc_cfg.dev = s_desc_cfg.dev_owned;
+    return ESP_OK;
+}
+
+static esp_err_t copy_config_desc(const uint8_t *src, uint8_t **owned, const uint8_t **dst)
+{
+    uint16_t len = ((const tusb_desc_configuration_t *)src)->wTotalLength;
+    *owned = malloc(len);
+    ESP_RETURN_ON_FALSE(*owned, ESP_ERR_NO_MEM, TAG, "Configuration descriptor allocation error");
+    memcpy(*owned, src, len);
+    *dst = *owned;
+    return ESP_OK;
+}
+
+#if (TUD_OPT_HIGH_SPEED)
+static esp_err_t copy_qualifier_desc(const tusb_desc_device_qualifier_t *src)
+{
+    s_desc_cfg.qualifier_owned = malloc(sizeof(tusb_desc_device_qualifier_t));
+    ESP_RETURN_ON_FALSE(s_desc_cfg.qualifier_owned, ESP_ERR_NO_MEM, TAG, "Qualifier descriptor allocation error");
+    memcpy(s_desc_cfg.qualifier_owned, src, sizeof(tusb_desc_device_qualifier_t));
+    s_desc_cfg.qualifier = s_desc_cfg.qualifier_owned;
+    return ESP_OK;
+}
+#endif
 
 // =============================================================================
 // CALLBACKS
@@ -191,14 +225,15 @@ esp_err_t tinyusb_descriptors_set(tinyusb_port_t port, const tinyusb_desc_config
     esp_err_t ret;
     const char **pstr_desc;
     // Flush descriptors control struct
+    tinyusb_descriptors_free();
     memset(&s_desc_cfg, 0x00, sizeof(tinyusb_descriptors_map_t));
 
     // Device Descriptor
     if (config->device == NULL) {
         ESP_LOGW(TAG, "No Device descriptor provided, using default.");
-        s_desc_cfg.dev = &descriptor_dev_default;
+        ESP_GOTO_ON_ERROR(copy_device_desc(&descriptor_dev_default), fail, TAG, "Device descriptor setup failed");
     } else {
-        s_desc_cfg.dev = config->device;
+        ESP_GOTO_ON_ERROR(copy_device_desc(config->device), fail, TAG, "Device descriptor setup failed");
     }
 
     // Full-speed configuration descriptor
@@ -206,13 +241,13 @@ esp_err_t tinyusb_descriptors_set(tinyusb_port_t port, const tinyusb_desc_config
 #if (CFG_TUD_CDC > 0 || CFG_TUD_MSC > 0 || CFG_TUD_NCM > 0)
         // We provide default config descriptors only for CDC, MSC and NCM classes
         ESP_LOGW(TAG, "No Full-speed configuration descriptor provided, using default.");
-        s_desc_cfg.fs_cfg = descriptor_fs_cfg_default;
+        ESP_GOTO_ON_ERROR(copy_config_desc(descriptor_fs_cfg_default, &s_desc_cfg.fs_cfg_owned, &s_desc_cfg.fs_cfg), fail, TAG, "Full-speed descriptor setup failed");
 #else
         // Default configuration descriptor must be provided via config structure
         ESP_GOTO_ON_FALSE(config->full_speed_config, ESP_ERR_INVALID_ARG, fail, TAG, "Full-speed configuration descriptor must be provided for this device");
 #endif
     } else {
-        s_desc_cfg.fs_cfg = config->full_speed_config;
+        ESP_GOTO_ON_ERROR(copy_config_desc(config->full_speed_config, &s_desc_cfg.fs_cfg_owned, &s_desc_cfg.fs_cfg), fail, TAG, "Full-speed descriptor setup failed");
     }
 
 #if (TUD_OPT_HIGH_SPEED)
@@ -223,22 +258,22 @@ esp_err_t tinyusb_descriptors_set(tinyusb_port_t port, const tinyusb_desc_config
 #if (CFG_TUD_CDC > 0 || CFG_TUD_MSC > 0 || CFG_TUD_NCM > 0)
             // We provide default config descriptors only for CDC, MSC and NCM classes
             ESP_LOGW(TAG, "No High-speed configuration descriptor provided, using default.");
-            s_desc_cfg.hs_cfg = descriptor_hs_cfg_default;
+            ESP_GOTO_ON_ERROR(copy_config_desc(descriptor_hs_cfg_default, &s_desc_cfg.hs_cfg_owned, &s_desc_cfg.hs_cfg), fail, TAG, "High-speed descriptor setup failed");
 #else
             // High-speed configuration descriptor must be provided via config structure
             ESP_GOTO_ON_FALSE(config->high_speed_config, ESP_ERR_INVALID_ARG, fail, TAG, "High-speed configuration descriptor must be provided for this device");
 #endif
         } else {
-            s_desc_cfg.hs_cfg = config->high_speed_config;
+            ESP_GOTO_ON_ERROR(copy_config_desc(config->high_speed_config, &s_desc_cfg.hs_cfg_owned, &s_desc_cfg.hs_cfg), fail, TAG, "High-speed descriptor setup failed");
         }
 
         // Device Qualifier Descriptor
         if (config->qualifier == NULL) {
             // Get default qualifier if device descriptor is default
             ESP_LOGW(TAG, "No Qualifier descriptor provided, using default.");
-            s_desc_cfg.qualifier = &descriptor_qualifier_default;
+            ESP_GOTO_ON_ERROR(copy_qualifier_desc(&descriptor_qualifier_default), fail, TAG, "Qualifier descriptor setup failed");
         } else {
-            s_desc_cfg.qualifier = config->qualifier;
+            ESP_GOTO_ON_ERROR(copy_qualifier_desc(config->qualifier), fail, TAG, "Qualifier descriptor setup failed");
         }
         // Other Speed Descriptor buffer allocation, will be used for other speed configuration descriptor request
         uint16_t other_speed_buf_size = MAX(((tusb_desc_configuration_t *)s_desc_cfg.fs_cfg)->wTotalLength,
@@ -298,9 +333,7 @@ esp_err_t tinyusb_descriptors_set(tinyusb_port_t port, const tinyusb_desc_config
     return ESP_OK;
 
 fail:
-#if (TUD_OPT_HIGH_SPEED)
-    free(s_desc_cfg.other_speed);
-#endif // TUD_OPT_HIGH_SPEED
+    tinyusb_descriptors_free();
     return ret;
 }
 
@@ -312,9 +345,12 @@ void tinyusb_descriptors_set_string(const char *str, int str_idx)
 
 void tinyusb_descriptors_free(void)
 {
+    free(s_desc_cfg.dev_owned);
+    free(s_desc_cfg.fs_cfg_owned);
+    free(s_desc_cfg.hs_cfg_owned);
 #if (TUD_OPT_HIGH_SPEED)
-    if (s_desc_cfg.other_speed) {
-        free(s_desc_cfg.other_speed);
-    }
+    free(s_desc_cfg.qualifier_owned);
+    free(s_desc_cfg.other_speed);
 #endif // TUD_OPT_HIGH_SPEED
+    memset(&s_desc_cfg, 0, sizeof(s_desc_cfg));
 }

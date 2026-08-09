@@ -12,7 +12,11 @@
 #include "tinyusb.h"
 #include "tinyusb_task.h"
 #include "tinyusb_vbus_monitor.h"
+#include "runtime_composite.h"
+#include "descriptors_control.h"
 #include "tusb.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 #if (CONFIG_TINYUSB_MSC_ENABLED)
 #include "tinyusb_msc.h"
@@ -51,7 +55,9 @@ static tinyusb_ctx_t s_ctx; // TinyUSB context
 void tud_mount_cb(void)
 {
 #if (CONFIG_TINYUSB_MSC_ENABLED)
-    msc_storage_mount_to_usb();
+    if (!tinyusb_runtime_is_active() || tinyusb_runtime_has_class(TINYUSB_RUNTIME_CLASS_MSC)) {
+        msc_storage_mount_to_usb();
+    }
 #endif // CONFIG_TINYUSB_MSC_ENABLED
     tinyusb_event_t event = {
         .id = TINYUSB_EVENT_ATTACHED,
@@ -74,7 +80,9 @@ void tud_mount_cb(void)
 void tud_umount_cb(void)
 {
 #if (CONFIG_TINYUSB_MSC_ENABLED)
-    msc_storage_mount_to_app();
+    if (!tinyusb_runtime_is_active() || tinyusb_runtime_has_class(TINYUSB_RUNTIME_CLASS_MSC)) {
+        msc_storage_mount_to_app();
+    }
 #endif // CONFIG_TINYUSB_MSC_ENABLED
     tinyusb_event_t event = {
         .id = TINYUSB_EVENT_DETACHED,
@@ -231,9 +239,58 @@ del_phy:
     return ret;
 }
 
+esp_err_t tinyusb_driver_install_runtime(const tinyusb_config_t *config,
+                                         const tinyusb_runtime_config_t *runtime)
+{
+    ESP_RETURN_ON_ERROR(tinyusb_check_config(config), TAG, "TinyUSB configuration check failed");
+
+    tinyusb_runtime_desc_t runtime_desc;
+    ESP_RETURN_ON_ERROR(tinyusb_runtime_descriptor_build(config->port, runtime, &runtime_desc),
+                        TAG, "Runtime descriptor build failed");
+
+    tinyusb_config_t runtime_config = *config;
+    runtime_config.descriptor = runtime_desc.desc_cfg;
+
+    esp_err_t ret = tinyusb_driver_install(&runtime_config);
+    tinyusb_runtime_descriptor_free(&runtime_desc);
+    if (ret == ESP_OK) {
+        tinyusb_runtime_set_active(true);
+    } else {
+        tinyusb_runtime_deactivate();
+    }
+    return ret;
+}
+
+esp_err_t tinyusb_driver_reconfigure(const tinyusb_runtime_config_t *runtime)
+{
+    ESP_RETURN_ON_FALSE(tinyusb_runtime_is_active(), ESP_ERR_INVALID_STATE, TAG, "TinyUSB runtime mode is not active");
+    ESP_RETURN_ON_FALSE(tud_inited(), ESP_ERR_INVALID_STATE, TAG, "TinyUSB stack is not initialized");
+
+    tinyusb_runtime_desc_t runtime_desc;
+    ESP_RETURN_ON_ERROR(tinyusb_runtime_descriptor_build(s_ctx.port, runtime, &runtime_desc),
+                        TAG, "Runtime descriptor build failed");
+
+    if (tud_mounted()) {
+        if (!tud_disconnect()) {
+            tinyusb_runtime_descriptor_free(&runtime_desc);
+            return ESP_FAIL;
+        }
+        vTaskDelay(pdMS_TO_TICKS(50));
+    }
+
+    esp_err_t ret = tinyusb_descriptors_set(s_ctx.port, &runtime_desc.desc_cfg);
+    tinyusb_runtime_descriptor_free(&runtime_desc);
+    ESP_RETURN_ON_ERROR(ret, TAG, "Unable to activate runtime descriptor");
+    tinyusb_runtime_set_active(true);
+
+    ESP_RETURN_ON_FALSE(tud_connect(), ESP_FAIL, TAG, "Unable to reconnect USB device");
+    return ESP_OK;
+}
+
 esp_err_t tinyusb_driver_uninstall(void)
 {
     ESP_RETURN_ON_ERROR(tinyusb_task_stop(), TAG, "Deinit TinyUSB task failed");
+    tinyusb_runtime_deactivate();
     if (s_ctx.phy_hdl) {
         ESP_RETURN_ON_ERROR(usb_del_phy(s_ctx.phy_hdl), TAG, "Unable to delete PHY");
         s_ctx.phy_hdl = NULL;
