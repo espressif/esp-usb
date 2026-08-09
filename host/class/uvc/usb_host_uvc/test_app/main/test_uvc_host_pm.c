@@ -145,9 +145,10 @@ static void test_install_uvc_driver_pm(void)
     };
     TEST_ASSERT_EQUAL(ESP_OK, uvc_host_install(&uvc_driver_config));
 
-    // Create frame queue and event queue
+    // Create frame queue and event queue.
+    // Keep headroom for paired stream + driver disconnect events (and an optional suspend).
     frames_queue = xQueueCreate(5, sizeof(uvc_host_frame_t *));
-    event_queue = xQueueCreate(3, sizeof(test_uvc_event_t));
+    event_queue = xQueueCreate(5, sizeof(test_uvc_event_t));
     TEST_ASSERT_NOT_NULL(frames_queue);
     TEST_ASSERT_NOT_NULL(event_queue);
 }

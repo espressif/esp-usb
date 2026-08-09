@@ -342,15 +342,24 @@ static void usb_event_cb(const usb_host_client_event_msg_t *event_msg, void *arg
         // Find open UVC streams associated with this USB device and notify their owners.
         uvc_stream_t *uvc_stream;
         uvc_stream_t *tusb_stream;
-        bool stream_found = false;
         uint8_t gone_dev_addr = UVC_HOST_ANY_DEV_ADDR;
+        usb_device_info_t gone_dev_info;
+
+        // Owners receive DEV_GONE (not DEV_REMOVED). Resolve the address from the handle so we can still
+        // purge tracked UVC functions when stream_open has opened the device but not published a stream yet.
+        if (usb_host_device_info(event_msg->dev_gone.dev_hdl, &gone_dev_info) == ESP_OK) {
+            gone_dev_addr = gone_dev_info.dev_addr;
+        }
+
         // We are using 'SAFE' version of 'SLIST_FOREACH' which enables user to close the disconnected device in the callback
         SLIST_FOREACH_SAFE(uvc_stream, &p_uvc_host_driver->uvc_stream_list, list_entry, tusb_stream) {
             if (uvc_stream->constant.dev_hdl == event_msg->dev_gone.dev_hdl) {
-                stream_found = true;
+                // Copy before the stream callback: the user may close/free the stream there.
                 const uint8_t dev_addr = uvc_stream->constant.dev_addr;
                 const uint8_t uvc_stream_index = uvc_stream->constant.uvc_stream_index;
-                gone_dev_addr = dev_addr;
+                if (gone_dev_addr == UVC_HOST_ANY_DEV_ADDR) {
+                    gone_dev_addr = dev_addr;
+                }
                 // The suddenly disconnected device was opened by this driver: pause the stream and inform user about this
                 ESP_ERROR_CHECK(uvc_host_stream_pause(uvc_stream)); // This should never fail
                 if (uvc_stream->constant.stream_cb) {
@@ -365,12 +374,11 @@ static void usb_event_cb(const usb_host_client_event_msg_t *event_msg, void *arg
                 }
             }
         }
-        if (stream_found && p_uvc_host_driver->user_cb) {
-            // DEV_REMOVED is not sent to clients that opened the device, so report any unopened UVC functions from the DEV_GONE path.
-            uvc_known_devices_remove_all(gone_dev_addr, true);
-        } else if (stream_found) {
-            // Drop tracked UVC functions without notifying the driver callback; opened streams receive DEV_GONE instead.
-            uvc_known_devices_remove_all(gone_dev_addr, false);
+        if (gone_dev_addr != UVC_HOST_ANY_DEV_ADDR) {
+            // Always drop remaining tracked functions for this address. This covers:
+            // - unopened UVC functions on a device that still had at least one open stream
+            // - the stream_open race where the USB device is owned (DEV_GONE) but no stream is listed yet
+            uvc_known_devices_remove_all(gone_dev_addr, p_uvc_host_driver->user_cb != NULL);
         }
         break;
     }
