@@ -119,6 +119,10 @@ typedef struct {
     tinyusb_phy_config_t phy;                /*!< USB PHY configuration. */
     tinyusb_task_config_t task;              /*!< USB device task configuration. */
     tinyusb_desc_config_t descriptor;        /*!< USB descriptor configuration. */
+    bool pm_lock_enable;                     /*!< Enable ESP_PM_NO_LIGHT_SLEEP lock management while the USB
+                                                 bus is active. When enabled, the lock is released on USB suspend
+                                                 to allow automatic light sleep. On supported high-speed targets
+                                                 this also manages UTMI OTG suspend state for USB wakeup. */
     tinyusb_event_cb_t event_cb;             /*!< Optional event callback. */
     void *event_arg;                         /*!< User argument passed to `event_cb`. */
 } tinyusb_config_t;
@@ -140,7 +144,8 @@ typedef struct {
  *      - ESP_ERR_INVALID_ARG if `config` is NULL or contains unsupported port or task settings
  *      - ESP_ERR_INVALID_STATE if the TinyUSB device task is already running
  *      - ESP_ERR_NO_MEM if memory allocation fails during startup
- *      - Other error codes from TinyUSB task startup, USB PHY setup, or descriptor setup
+ *      - Other error codes from TinyUSB task startup, USB PHY setup, descriptor setup,
+ *        or power management initialization
  */
 esp_err_t tinyusb_driver_install(const tinyusb_config_t *config);
 
@@ -166,10 +171,29 @@ esp_err_t tinyusb_driver_uninstall(void);
  *
  * @return
  *      - ESP_OK on success
- *      - ESP_ERR_INVALID_STATE if remote wakeup is not enabled by the host
+ *      - ESP_ERR_INVALID_STATE if the TinyUSB driver is not installed, or remote wakeup is not enabled by the host
+ *      - ESP_ERR_NOT_ALLOWED if the USB device is not suspended
  *      - ESP_FAIL if the remote wakeup request cannot be sent
+ *      - Other error codes from PM lock acquire when `CONFIG_TINYUSB_PM` is enabled
  */
 esp_err_t tinyusb_remote_wakeup(void);
+
+#if CONFIG_TINYUSB_PM
+/**
+ * @brief Get TinyUSB PM lock acquisition state.
+ *
+ * Returns whether the `ESP_PM_NO_LIGHT_SLEEP` lock managed by esp_tinyusb is currently held.
+ *
+ * @param[out] acquired Whether the PM lock is currently held
+ *
+ * @return
+ *      - ESP_OK on success
+ *      - ESP_ERR_INVALID_ARG if `acquired` is NULL
+ *      - ESP_ERR_INVALID_STATE if the TinyUSB driver is not installed or the PM lock is not enabled
+ */
+esp_err_t tinyusb_pm_get_lock_status(bool *acquired);
+
+#endif // CONFIG_TINYUSB_PM
 
 #ifdef __cplusplus
 }
