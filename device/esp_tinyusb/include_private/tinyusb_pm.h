@@ -69,8 +69,7 @@ void tinyusb_pm_on_event(tinyusb_event_t *event);
  * to restrict the SoC from entering the light sleep automatically while waiting for the remote wakeup to complete.
  *
  * @return
- *   - ESP_OK on success
- *   - ESP_ERR_NOT_ALLOWED if the PM lock is not enabled
+ *   - ESP_OK on success, or when the PM lock is not enabled (no-op)
  *   - Other error codes from called functions
  */
 esp_err_t tinyusb_pm_remote_wake(void);
