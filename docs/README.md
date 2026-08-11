@@ -19,7 +19,11 @@ This folder contains the ESP-Docs scaffolding for ESP-USB documentation.
 ### Prerequisites
 
 1. **Python 3.7 or newer**
-2. **Doxygen** - Install via system package manager:
+2. **ESP-IDF checkout** with `IDF_PATH` set. The docs build sources each target's
+   `components/soc/<target>/include/soc/Kconfig.soc_caps.in` to evaluate
+   hardware-dependent Kconfig options. A local ESP-IDF install satisfies this
+   requirement; CI uses a sparse checkout of `components/soc` only.
+3. **Doxygen** - Install via system package manager:
    - Ubuntu/Debian: `sudo apt-get install doxygen graphviz`
    - macOS: `brew install doxygen graphviz`
    - Windows: Download from [Doxygen website](https://www.doxygen.nl/download.html)
