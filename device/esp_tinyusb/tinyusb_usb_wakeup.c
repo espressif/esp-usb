@@ -8,6 +8,7 @@
 #include "esp_check.h"
 #include "esp_private/usb_phy.h"
 #include "esp_private/sleep_event.h"
+#include "tusb.h"
 #include "tinyusb_usb_wakeup.h"
 
 #include "esp_sleep.h"
@@ -65,6 +66,9 @@ static esp_err_t usb_wakeup_enter_light_sleep(void *user_arg, void *ext_arg)
 
     USB_WAKE_CHECK(!s_usb_wakeup_ctx.otg_prepared_for_light_sleep, ESP_OK);
     USB_WAKE_CHECK(s_usb_wakeup_ctx.port_configured && port_supports_usb_wakeup(s_usb_wakeup_ctx.port), ESP_OK);
+    // Do not force UTMI OTG suspend while the bus is still active (manual light sleep,
+    // sleep-reject retries, or races with resume).
+    USB_WAKE_CHECK(tud_suspended(), ESP_OK);
 
     usb_phy_set_otg_suspend_state(true);
 
@@ -75,23 +79,29 @@ static esp_err_t usb_wakeup_enter_light_sleep(void *user_arg, void *ext_arg)
 
 /**
  * @brief Restore UTMI OTG state after exiting light sleep
+ *
+ * Always restores OTG state when it was prepared on enter. Sleep can be rejected after
+ * `SLEEP_EVENT_SW_GOTO_SLEEP`, or woken by a non-USB source (timer/GPIO remote wakeup).
+ * Leaving the PHY in software OTG suspend breaks subsequent remote wakeup and bus activity.
+ *
+ * The optional resume callback (PM lock re-acquire) runs only for USB wakeup causes.
  */
 static esp_err_t usb_wakeup_exit_light_sleep(void *user_arg, void *ext_arg)
 {
     (void)user_arg;
     (void)ext_arg;
 
-    // Get wakeup cause and return if the cause is other than USB wakeup
-    const uint32_t causes = esp_sleep_get_wakeup_causes();
-    USB_WAKE_CHECK(causes & BIT(ESP_SLEEP_WAKEUP_USB), ESP_OK);
     USB_WAKE_CHECK(s_usb_wakeup_ctx.otg_prepared_for_light_sleep, ESP_OK);
 
     s_usb_wakeup_ctx.otg_prepared_for_light_sleep = false;
     usb_phy_set_otg_suspend_state(false);
     usb_phy_clear_otg_wakeup_status();
-    if (s_usb_wakeup_ctx.resume_cb != NULL) {
+
+    const uint32_t causes = esp_sleep_get_wakeup_causes();
+    if ((causes & BIT(ESP_SLEEP_WAKEUP_USB)) && s_usb_wakeup_ctx.resume_cb != NULL) {
         USB_WAKE_CHECK(s_usb_wakeup_ctx.resume_cb() == ESP_OK, ESP_FAIL);
     }
+
     ESP_EARLY_LOGD(TAG, "USB OTG light-sleep state restored");
     return ESP_OK;
 }

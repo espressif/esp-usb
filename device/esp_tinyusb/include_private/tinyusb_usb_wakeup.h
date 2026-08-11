@@ -35,7 +35,9 @@ esp_err_t tinyusb_usb_wakeup_register_resume_cb(tinyusb_usb_wakeup_resume_cb_t c
  * @brief Initialize USB Device light-sleep wakeup integration
  *
  * Registers light-sleep event callbacks that prepare and restore UTMI OTG suspend state
- * when entering or exiting light sleep while the USB bus is suspended.
+ * when entering or exiting light sleep while the USB bus is suspended. OTG state is always
+ * restored on sleep exit (including non-USB wakeup and sleep-reject paths); the optional
+ * resume callback runs only for USB wakeup causes.
  *
  * @param[in] port USB port used by the driver
  *
