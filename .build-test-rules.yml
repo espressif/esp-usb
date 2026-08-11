@@ -4,6 +4,15 @@ device/esp_tinyusb:
   enable:
     - if: SOC_USB_OTG_SUPPORTED == 1
 
+device/esp_tinyusb/test_apps/power_management:
+  depends_filepatterns:
+    - 'device/esp_tinyusb/**'
+  disable:
+    - if: CONFIG_NAME == "otg_wake" and IDF_TARGET not in ["esp32p4", "esp32s31"]
+      reason: USB wakeup light-sleep test only applies to esp32p4 and esp32s31
+  enable:
+    - if: SOC_USB_OTG_SUPPORTED == 1
+
 host/class/cdc:
   depends_filepatterns:
     - 'host/class/cdc/**'

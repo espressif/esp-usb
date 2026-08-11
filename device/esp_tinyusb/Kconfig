@@ -58,6 +58,74 @@ menu "TinyUSB Stack"
                 a linker error due to multiple definitions.
     endmenu # "TinyUSB callbacks"
 
+    menu "Power management"
+        # Proxy configs normalize SOC caps across IDF releases:
+        # - caps may be absent in older IDF (must stay hidden)
+        # - caps may be bool (plain "1") or int ("(1U)") in soc_caps.h
+
+        # Do not use "depends on SOC_* > 0" here as they are defined differently in different IDF releases
+        # IDF 5.4   SOC_PM_SUPPORT_USB_WAKEUP absent
+        # IDF 5.5   SOC_PM_SUPPORT_USB_WAKEUP (1U)
+        # IDF 6.1   SOC_PM_SUPPORT_USB_WAKEUP (1U)
+        # IDF 6.2   SOC_PM_SUPPORT_USB_WAKEUP 1
+
+        # Simple depends on SOC_PM_SUPPORT_USB_WAKEUP > 0 or
+        #        depends on SOC_PM_SUPPORT_USB_WAKEUP
+        # Fails in each IDF release differently
+        config TINYUSB_SOC_PM_USB_WAKEUP_SUPPORTED
+            bool
+            default y if SOC_PM_SUPPORT_USB_WAKEUP = y
+            default y if SOC_PM_SUPPORT_USB_WAKEUP = 1
+            default n
+
+        config TINYUSB_SOC_USB_UTMI_PHY_SUPPORTED
+            bool
+            default y if SOC_USB_UTMI_PHY_NUM = y
+            default y if SOC_USB_UTMI_PHY_NUM > 0
+            default n
+
+        config TINYUSB_USB_OTG_WAKEUP
+            bool "USB Device light sleep wakeup source"
+            depends on TINYUSB_SOC_PM_USB_WAKEUP_SUPPORTED
+            depends on TINYUSB_SOC_USB_UTMI_PHY_SUPPORTED
+            depends on SOC_PM_SUPPORT_CNNT_PD
+            depends on SOC_PM_SUPPORT_CPU_PD
+            depends on PM_ENABLE
+            depends on FREERTOS_USE_TICKLESS_IDLE
+            depends on ESP_SLEEP_EVENT_CALLBACKS
+            select PM_POWER_DOWN_PERIPHERAL_IN_LIGHT_SLEEP if IDF_TARGET_ESP32P4 || IDF_TARGET_ESP32S31
+            default n
+            help
+                Register light sleep event callbacks to prepare the UTMI PHY for USB wakeup when
+                entering light sleep while the USB bus is suspended.
+
+                Available only on USB HS ports, due to PHY limitation. Also configure
+                esp_sleep_enable_usb_wakeup() and keep the USB connection power domain on during
+                light sleep.
+
+                Independent of TinyUSB Power Management (PM locks). USB wakeup works whether light
+                sleep is entered manually or triggered automatically after the PM lock is released
+                on USB suspend.
+
+        config TINYUSB_PM
+            bool "Enable tinyusb Power Management"
+            default n
+            depends on PM_ENABLE
+            depends on FREERTOS_USE_TICKLESS_IDLE
+            help
+                Enable TinyUSB power management using ESP-IDF PM locks.
+
+                When enabled together with `tinyusb_config_t.pm_lock_enable`, esp_tinyusb creates an
+                ESP_PM_NO_LIGHT_SLEEP lock and releases it while the USB device is suspended, allowing
+                automatic light sleep when automatic light sleep is configured through esp_pm_configure().
+
+                It is recommended to pair this config with the TINYUSB_USB_OTG_WAKEUP config above, so the USB
+                peripheral can act as a wakeup source from the light sleep. Without enabling the TINYUSB_USB_OTG_WAKEUP
+                the USB peripheral can NOT act as a light sleep wakeup source.
+
+    endmenu # "Power management"
+
+
     menu "Descriptor configuration"
         comment "You can provide your custom descriptors via tinyusb_driver_install()"
         config TINYUSB_DESC_USE_ESPRESSIF_VID

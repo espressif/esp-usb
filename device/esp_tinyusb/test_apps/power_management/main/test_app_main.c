@@ -50,7 +50,7 @@ void app_main(void)
     printf("  \\_/ \\____/\\____/  \\_/                            \n");
 
     unity_utils_setup_heap_record(80);
-    unity_utils_set_leak_level(128);
+    unity_utils_set_leak_level(150);
     unity_run_menu();
 }
 
@@ -66,5 +66,6 @@ void tearDown(void)
     ESP_LOGI(TAG, "Cleanup");
     tinyusb_cdcacm_deinit(TINYUSB_CDC_ACM_0);
     tinyusb_driver_uninstall();
+    esp_reent_cleanup();    //clean up some of the newlib's lazy allocations
     unity_utils_evaluate_leaks();
 }

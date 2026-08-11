@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2025-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -68,6 +68,7 @@ TEST_CASE("Config: Full-speed default (Full-speed)", "[runtime_config][full_spee
 #else
     TEST_ASSERT_EQUAL_MESSAGE(1, tusb_cfg.task.xCoreID, "Wrong default task affinity, should be 1 on multicore");
 #endif // CONFIG_FREERTOS_UNICORE
+    TEST_ASSERT_EQUAL_MESSAGE(false, tusb_cfg.pm_lock_enable, "Wrong default PM lock, should be disabled");
 }
 
 #else
@@ -88,6 +89,7 @@ TEST_CASE("Config: Full-speed (High-speed)", "[runtime_config][full_speed]")
     TEST_ASSERT_EQUAL_MESSAGE(TINYUSB_DEFAULT_TASK_SIZE, tusb_cfg.task.size, "Wrong default task size");
     TEST_ASSERT_EQUAL_MESSAGE(TINYUSB_DEFAULT_TASK_PRIO, tusb_cfg.task.priority, "Wrong default task priority");
     TEST_ASSERT_EQUAL_MESSAGE(1, tusb_cfg.task.xCoreID, "Wrong default task affinity, should be 1 on multicore");
+    TEST_ASSERT_EQUAL_MESSAGE(false, tusb_cfg.pm_lock_enable, "Wrong default PM lock, should be disabled");
 }
 
 /**
@@ -107,6 +109,7 @@ TEST_CASE("Config: High-speed default (High-speed)", "[runtime_config][high_spee
     TEST_ASSERT_EQUAL_MESSAGE(TINYUSB_DEFAULT_TASK_SIZE, tusb_cfg.task.size, "Wrong default task size");
     TEST_ASSERT_EQUAL_MESSAGE(TINYUSB_DEFAULT_TASK_PRIO, tusb_cfg.task.priority, "Wrong default task priority");
     TEST_ASSERT_EQUAL_MESSAGE(1, tusb_cfg.task.xCoreID, "Wrong default task affinity, should be 1 on multicore");
+    TEST_ASSERT_EQUAL_MESSAGE(false, tusb_cfg.pm_lock_enable, "Wrong default PM lock, should be disabled");
 }
 #endif // SOC_USB_OTG_PERIPH_NUM > 1
 

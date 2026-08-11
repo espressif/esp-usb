@@ -19,6 +19,15 @@
 #include "msc_storage.h"
 #endif // CONFIG_TINYUSB_MSC_ENABLED
 
+#if (CONFIG_TINYUSB_PM)
+#include "tinyusb_pm.h"
+#endif // CONFIG_TINYUSB_PM
+
+#if (CONFIG_TINYUSB_USB_OTG_WAKEUP)
+#include "tinyusb_usb_wakeup.h"
+#endif // CONFIG_TINYUSB_USB_OTG_WAKEUP
+
+
 const static char *TAG = "TinyUSB";
 
 /**
@@ -33,6 +42,8 @@ typedef struct {
 } tinyusb_ctx_t;
 
 static tinyusb_ctx_t s_ctx; // TinyUSB context
+
+static inline void pm_event(tinyusb_event_t *event);
 
 // ==================================================================================
 // ============================= TinyUSB Callbacks ==================================
@@ -57,6 +68,7 @@ void tud_mount_cb(void)
         .id = TINYUSB_EVENT_ATTACHED,
         .rhport = s_ctx.port,
     };
+    pm_event(&event);
 
     if (s_ctx.event_cb) {
         s_ctx.event_cb(&event, s_ctx.event_arg);
@@ -80,6 +92,7 @@ void tud_umount_cb(void)
         .id = TINYUSB_EVENT_DETACHED,
         .rhport = s_ctx.port,
     };
+    pm_event(&event);
 
     if (s_ctx.event_cb) {
         s_ctx.event_cb(&event, s_ctx.event_arg);
@@ -105,6 +118,7 @@ void tud_suspend_cb(bool remote_wakeup_en)
             .remote_wakeup = remote_wakeup_en,
         },
     };
+    pm_event(&event);
 
     // Save the remote wakeup enabled flag
     s_ctx.remote_wakeup_en = remote_wakeup_en;
@@ -129,6 +143,7 @@ void tud_resume_cb(void)
         .id = TINYUSB_EVENT_RESUMED,
         .rhport = s_ctx.port,
     };
+    pm_event(&event);
 
     if (s_ctx.event_cb) {
         s_ctx.event_cb(&event, s_ctx.event_arg);
@@ -137,11 +152,123 @@ void tud_resume_cb(void)
 #endif // CONFIG_TINYUSB_RESUME_CALLBACK
 
 // ==================================================================================
+// ============================== Power management ==================================
+// ==================================================================================
+
+#if CONFIG_TINYUSB_PM
+
+esp_err_t tinyusb_pm_get_lock_status(bool *acquired)
+{
+    ESP_RETURN_ON_FALSE(acquired, ESP_ERR_INVALID_ARG, TAG, "acquired can't be NULL");
+    ESP_RETURN_ON_FALSE(tud_inited(), ESP_ERR_INVALID_STATE, TAG, "TinyUSB driver is not installed");
+    ESP_RETURN_ON_ERROR(tinyusb_pm_lock_get(acquired), TAG, "Error getting tinyusb's PM status");
+    return ESP_OK;
+}
+
+#if !CONFIG_TINYUSB_SUSPEND_CALLBACK
+esp_err_t tinyusb_pm_notify_suspended(void)
+{
+    ESP_RETURN_ON_FALSE(tud_inited(), ESP_ERR_INVALID_STATE, TAG, "TinyUSB driver is not installed");
+    ESP_RETURN_ON_FALSE(tud_suspended(), ESP_ERR_NOT_ALLOWED, TAG, "USB device is not suspended");
+    return tinyusb_pm_on_suspend(s_ctx.port);
+}
+#endif // !CONFIG_TINYUSB_SUSPEND_CALLBACK
+
+#if !CONFIG_TINYUSB_RESUME_CALLBACK
+esp_err_t tinyusb_pm_notify_resumed(void)
+{
+    ESP_RETURN_ON_FALSE(tud_inited(), ESP_ERR_INVALID_STATE, TAG, "TinyUSB driver is not installed");
+    ESP_RETURN_ON_FALSE(!tud_suspended(), ESP_ERR_NOT_ALLOWED, TAG, "USB device is still suspended");
+    ESP_RETURN_ON_FALSE(tud_mounted(), ESP_ERR_NOT_ALLOWED, TAG, "USB device is not mounted");
+    return tinyusb_pm_on_resume(s_ctx.port);
+}
+#endif // !CONFIG_TINYUSB_RESUME_CALLBACK
+#endif // CONFIG_TINYUSB_PM
+
+/**
+ * @brief Forward TinyUSB device events to the PM lock handler
+ *
+ * Dispatches attach, detach, suspend, and resume events to tinyusb power management
+ * when `CONFIG_TINYUSB_PM` is enabled.
+ *
+ * @param[in] event TinyUSB device event
+ */
+static inline void pm_event(tinyusb_event_t *event)
+{
+#if CONFIG_TINYUSB_PM
+    tinyusb_pm_on_event(event);
+#else
+    (void)event;
+#endif // CONFIG_TINYUSB_PM
+}
+
+/**
+ * @brief Install enabled TinyUSB power-management submodules
+ *
+ * Initializes USB Device light-sleep wakeup (`CONFIG_TINYUSB_USB_OTG_WAKEUP`) and/or
+ * PM lock management (`CONFIG_TINYUSB_PM`) according to Kconfig.
+ *
+ * @param[in] config Driver configuration passed to `tinyusb_driver_install()`
+ *
+ * @return
+ *      - ESP_OK on success or when no PM submodule is enabled in Kconfig
+ *      - Other error codes from USB wakeup or PM lock initialization
+ */
+static esp_err_t tinyusb_power_management_install(const tinyusb_config_t *config)
+{
+#if CONFIG_TINYUSB_USB_OTG_WAKEUP
+    ESP_RETURN_ON_ERROR(tinyusb_usb_wakeup_init(config->port), TAG, "USB wakeup initialization failed");
+#endif // CONFIG_TINYUSB_USB_OTG_WAKEUP
+#if CONFIG_TINYUSB_PM
+    const tinyusb_pm_config_t pm_cfg = {
+        .lock_enable = config->pm_lock_enable,
+    };
+    esp_err_t err = tinyusb_pm_init(&pm_cfg);
+    if (err != ESP_OK) {
+#if CONFIG_TINYUSB_USB_OTG_WAKEUP
+        ESP_ERROR_CHECK(tinyusb_usb_wakeup_deinit());
+#endif // CONFIG_TINYUSB_USB_OTG_WAKEUP
+        ESP_LOGE(TAG, "TinyUSB PM initialization failed");
+        return err;
+    }
+#endif // CONFIG_TINYUSB_PM
+    return ESP_OK;
+}
+
+/**
+ * @brief Uninstall enabled TinyUSB power-management submodules
+ *
+ * @return
+ *      - ESP_OK on success or when no PM submodule is enabled in Kconfig
+ *      - Other error codes from PM lock or USB wakeup deinitialization
+ */
+static esp_err_t tinyusb_power_management_uninstall(void)
+{
+#if CONFIG_TINYUSB_PM
+    ESP_ERROR_CHECK(tinyusb_pm_deinit());
+#endif // CONFIG_TINYUSB_PM
+
+#if CONFIG_TINYUSB_USB_OTG_WAKEUP
+    ESP_ERROR_CHECK(tinyusb_usb_wakeup_deinit());
+#endif // CONFIG_TINYUSB_USB_OTG_WAKEUP
+
+    return ESP_OK;
+}
+
+
+// ==================================================================================
 // ============================= ESP TinyUSB Driver =================================
 // ==================================================================================
 
 /**
- * @brief Check the TinyUSB configuration
+ * @brief Validate the TinyUSB driver configuration before installation
+ *
+ * @param[in] config Driver configuration to validate
+ *
+ * @return
+ *      - ESP_OK if the configuration is valid
+ *      - ESP_ERR_INVALID_ARG if the input argument is NULL, the port is out of range, or the
+ *        selected port is not supported on the current target
  */
 static esp_err_t tinyusb_check_config(const tinyusb_config_t *config)
 {
@@ -159,6 +286,7 @@ esp_err_t tinyusb_driver_install(const tinyusb_config_t *config)
 {
     ESP_RETURN_ON_ERROR(tinyusb_check_config(config), TAG, "TinyUSB configuration check failed");
     ESP_RETURN_ON_ERROR(tinyusb_task_check_config(&config->task), TAG, "TinyUSB task configuration check failed");
+    ESP_RETURN_ON_ERROR(tinyusb_power_management_install(config), TAG, "TinyUSB power management install failed");
 
     esp_err_t ret;
     usb_phy_handle_t phy_hdl = NULL;
@@ -225,6 +353,7 @@ esp_err_t tinyusb_driver_install(const tinyusb_config_t *config)
     return ESP_OK;
 
 del_phy:
+    tinyusb_power_management_uninstall();
     if (!config->phy.skip_setup) {
         usb_del_phy(phy_hdl);
     }
@@ -234,6 +363,7 @@ del_phy:
 esp_err_t tinyusb_driver_uninstall(void)
 {
     ESP_RETURN_ON_ERROR(tinyusb_task_stop(), TAG, "Deinit TinyUSB task failed");
+    ESP_RETURN_ON_ERROR(tinyusb_power_management_uninstall(), TAG, "Deinit TinyUSB power management failed");
     if (s_ctx.phy_hdl) {
         ESP_RETURN_ON_ERROR(usb_del_phy(s_ctx.phy_hdl), TAG, "Unable to delete PHY");
         s_ctx.phy_hdl = NULL;
@@ -250,6 +380,7 @@ esp_err_t tinyusb_driver_uninstall(void)
 
 esp_err_t tinyusb_remote_wakeup(void)
 {
+    ESP_RETURN_ON_FALSE(tud_inited(), ESP_ERR_INVALID_STATE, TAG, "TinyUSB driver is not installed");
     // Check if the remote wakeup flag was set by the esp_tinyusb's suspend callback
     // In case of user-defined suspend callback, user manages remote wakeup capability on it's own
 #ifdef CONFIG_TINYUSB_SUSPEND_CALLBACK
@@ -257,6 +388,9 @@ esp_err_t tinyusb_remote_wakeup(void)
 #endif // CONFIG_TINYUSB_SUSPEND_CALLBACK
 
     ESP_RETURN_ON_FALSE(tud_remote_wakeup(), ESP_FAIL, TAG, "Remote wakeup request failed");
+#ifdef CONFIG_TINYUSB_PM
+    ESP_RETURN_ON_ERROR(tinyusb_pm_remote_wake(), TAG, "Remote wakeup request to tinyusb PM failed");
+#endif // CONFIG_TINYUSB_PM
 
 #ifdef CONFIG_TINYUSB_SUSPEND_CALLBACK
     s_ctx.remote_wakeup_en = false; // Remote wakeup can be used only once, disable it until next suspend
