@@ -238,19 +238,27 @@ static esp_err_t tinyusb_power_management_install(const tinyusb_config_t *config
 /**
  * @brief Uninstall enabled TinyUSB power-management submodules
  *
+ * Tear down light-sleep callbacks before releasing the PM lock so automatic
+ * light sleep cannot race enter/exit hooks during uninstall.
+ *
  * @return
  *      - ESP_OK on success or when no PM submodule is enabled in Kconfig
  *      - Other error codes from PM lock or USB wakeup deinitialization
  */
 static esp_err_t tinyusb_power_management_uninstall(void)
 {
-#if CONFIG_TINYUSB_PM
-    ESP_ERROR_CHECK(tinyusb_pm_deinit());
-#endif // CONFIG_TINYUSB_PM
+#if CONFIG_TINYUSB_PM && CONFIG_TINYUSB_USB_OTG_WAKEUP
+    // Clear the sleep-exit PM callback before unregistering sleep hooks.
+    tinyusb_usb_wakeup_register_resume_cb(NULL);
+#endif // CONFIG_TINYUSB_PM && CONFIG_TINYUSB_USB_OTG_WAKEUP
 
 #if CONFIG_TINYUSB_USB_OTG_WAKEUP
     ESP_ERROR_CHECK(tinyusb_usb_wakeup_deinit());
 #endif // CONFIG_TINYUSB_USB_OTG_WAKEUP
+
+#if CONFIG_TINYUSB_PM
+    ESP_ERROR_CHECK(tinyusb_pm_deinit());
+#endif // CONFIG_TINYUSB_PM
 
     return ESP_OK;
 }
@@ -288,7 +296,7 @@ esp_err_t tinyusb_driver_install(const tinyusb_config_t *config)
     ESP_RETURN_ON_ERROR(tinyusb_task_check_config(&config->task), TAG, "TinyUSB task configuration check failed");
     ESP_RETURN_ON_ERROR(tinyusb_power_management_install(config), TAG, "TinyUSB power management install failed");
 
-    esp_err_t ret;
+    esp_err_t ret = ESP_FAIL;
     usb_phy_handle_t phy_hdl = NULL;
     if (!config->phy.skip_setup) {
         // Configure USB PHY
@@ -316,7 +324,8 @@ esp_err_t tinyusb_driver_install(const tinyusb_config_t *config)
         if (config->phy.self_powered) {
             phy_conf.otg_io_conf = &otg_io_conf;
         }
-        ESP_RETURN_ON_ERROR(usb_new_phy(&phy_conf, &phy_hdl), TAG, "Install USB PHY failed");
+        // On failure, tear down PM/wakeup installed above (do not leak sleep callbacks / PM lock).
+        ESP_GOTO_ON_ERROR(usb_new_phy(&phy_conf, &phy_hdl), pm_err, TAG, "Install USB PHY failed");
     }
     // Init TinyUSB stack in task
     ESP_GOTO_ON_ERROR(tinyusb_task_start(config->port, &config->task, &config->descriptor), del_phy, TAG, "Init TinyUSB task failed");
@@ -353,10 +362,11 @@ esp_err_t tinyusb_driver_install(const tinyusb_config_t *config)
     return ESP_OK;
 
 del_phy:
-    tinyusb_power_management_uninstall();
-    if (!config->phy.skip_setup) {
+    if (!config->phy.skip_setup && phy_hdl != NULL) {
         usb_del_phy(phy_hdl);
     }
+pm_err:
+    tinyusb_power_management_uninstall();
     return ret;
 }
 
@@ -387,10 +397,13 @@ esp_err_t tinyusb_remote_wakeup(void)
     ESP_RETURN_ON_FALSE(s_ctx.remote_wakeup_en, ESP_ERR_INVALID_STATE, TAG, "Remote wakeup is not enabled by the host");
 #endif // CONFIG_TINYUSB_SUSPEND_CALLBACK
 
-    ESP_RETURN_ON_FALSE(tud_remote_wakeup(), ESP_FAIL, TAG, "Remote wakeup request failed");
 #ifdef CONFIG_TINYUSB_PM
+    // Acquire NO_LIGHT_SLEEP before signaling remote wakeup so automatic light sleep
+    // cannot re-enter during the remote-wakeup handshake.
     ESP_RETURN_ON_ERROR(tinyusb_pm_remote_wake(), TAG, "Remote wakeup request to tinyusb PM failed");
 #endif // CONFIG_TINYUSB_PM
+
+    ESP_RETURN_ON_FALSE(tud_remote_wakeup(), ESP_FAIL, TAG, "Remote wakeup request failed");
 
 #ifdef CONFIG_TINYUSB_SUSPEND_CALLBACK
     s_ctx.remote_wakeup_en = false; // Remote wakeup can be used only once, disable it until next suspend
