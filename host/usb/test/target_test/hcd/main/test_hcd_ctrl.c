@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2021-2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2021-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -643,5 +643,182 @@ TEST_CASE("Test HCD control pipe runtime halt and clear, URBs deferred", "[ctrl]
     }
     test_hcd_pipe_free(default_pipe);
     // Cleanup
+    test_hcd_wait_for_disconn(port_hdl, false);
+}
+
+/*
+Test HCD control pipe no data stage and short IN data stage
+Purpose:
+    - Validate control transfers with no data stage (enumerate the device)
+    - Validate control transfers with a short IN data stage (smaller than one MPS, non-DWORD length)
+    - Validate exact actual_num_bytes accounting for each control transfer shape
+Procedure:
+    - Setup HCD and wait for connection
+    - Setup default pipe and enumerate the device (SET_ADDRESS and SET_CONFIGURATION are
+      no-data-stage control transfers)
+    - GET_CONFIGURATION (1-byte IN data stage): expect exact byte count and configured value
+    - GET_STATUS (2-byte IN data stage): expect exact byte count
+    - Teardown
+*/
+TEST_CASE("Test HCD control pipe NO data stage and short IN data stage", "[ctrl][low_speed][full_speed][high_speed]")
+{
+    usb_speed_t port_speed = test_hcd_wait_for_conn(port_hdl);  // Trigger a connection
+    vTaskDelay(pdMS_TO_TICKS(100)); // Short delay send of SOF (for FS) or EOPs (for LS)
+
+    hcd_pipe_handle_t default_pipe = test_hcd_pipe_alloc(port_hdl, NULL, TEST_DEV_ADDR, port_speed);    // Create a default pipe (using a NULL EP descriptor)
+    // Enumerate the device. SET_ADDRESS and SET_CONFIGURATION are no-data-stage control transfers
+    test_hcd_enum_device(default_pipe);
+
+    // Allocate and initialize one URB
+    urb_t *urb = test_hcd_alloc_urb(0, URB_DATA_BUFF_SIZE);
+    urb->transfer.context = URB_CONTEXT_VAL;
+
+    usb_setup_packet_t *setup_pkt = (usb_setup_packet_t *)urb->transfer.data_buffer;
+
+    // --- 1-byte IN data stage: GET_CONFIGURATION ---
+    urb->transfer.num_bytes = sizeof(usb_setup_packet_t) + 1;
+    USB_SETUP_PACKET_INIT_GET_CONFIG(setup_pkt);
+    TEST_ASSERT_EQUAL(ESP_OK, hcd_urb_enqueue(default_pipe, urb));
+    test_hcd_expect_pipe_event(default_pipe, HCD_PIPE_EVENT_URB_DONE);
+    TEST_ASSERT_EQUAL(urb, hcd_urb_dequeue(default_pipe));
+    TEST_ASSERT_EQUAL_MESSAGE(USB_TRANSFER_STATUS_COMPLETED, urb->transfer.status, "Transfer NOT completed");
+    TEST_ASSERT_EQUAL(sizeof(usb_setup_packet_t) + 1, urb->transfer.actual_num_bytes);
+    TEST_ASSERT_EQUAL(1, urb->transfer.data_buffer[sizeof(usb_setup_packet_t)]);
+
+    // --- 2-byte IN data stage: GET_STATUS ---
+    urb->transfer.num_bytes = sizeof(usb_setup_packet_t) + sizeof(usb_device_status_t);
+    USB_SETUP_PACKET_INIT_GET_STATUS(setup_pkt);
+    TEST_ASSERT_EQUAL(ESP_OK, hcd_urb_enqueue(default_pipe, urb));
+    test_hcd_expect_pipe_event(default_pipe, HCD_PIPE_EVENT_URB_DONE);
+    TEST_ASSERT_EQUAL(urb, hcd_urb_dequeue(default_pipe));
+    TEST_ASSERT_EQUAL_MESSAGE(USB_TRANSFER_STATUS_COMPLETED, urb->transfer.status, "Transfer NOT completed");
+    TEST_ASSERT_EQUAL(sizeof(usb_setup_packet_t) + sizeof(usb_device_status_t), urb->transfer.actual_num_bytes);
+
+    test_hcd_free_urb(urb);
+    test_hcd_pipe_free(default_pipe);
+    test_hcd_wait_for_disconn(port_hdl, false);
+}
+
+/*
+Test HCD control pipe IN data stage byte count
+Purpose:
+    - Validate exact actual_num_bytes accounting of the IN data stage (in buffer DMA mode the
+      received byte count is derived from the channel's remaining transfer size)
+    - Validate short-packet termination of the IN data stage (device returns less than requested)
+    - On low-speed (MPS = 8), the 9-byte header request additionally covers a multi-packet data stage
+Procedure:
+    - Setup HCD and wait for connection
+    - Setup default pipe and allocate a URB
+    - Request only the configuration descriptor header (9 bytes), expect exact byte count, read wTotalLength
+    - Request the full descriptor with wLength > wTotalLength, device ends the data stage with a
+      short packet, expect actual_num_bytes == sizeof(setup) + wTotalLength
+    - Teardown
+*/
+TEST_CASE("Test HCD control pipe IN data stage byte count", "[ctrl][low_speed][full_speed][high_speed]")
+{
+    usb_speed_t port_speed = test_hcd_wait_for_conn(port_hdl);  // Trigger a connection
+    vTaskDelay(pdMS_TO_TICKS(100)); // Short delay send of SOF (for FS) or EOPs (for LS)
+
+    // Allocate one URB and initialize it's data buffer
+    hcd_pipe_handle_t default_pipe = test_hcd_pipe_alloc(port_hdl, NULL, TEST_DEV_ADDR, port_speed);
+    urb_t *urb = test_hcd_alloc_urb(0, URB_DATA_BUFF_SIZE);
+    urb->transfer.context = URB_CONTEXT_VAL;
+    usb_setup_packet_t *setup_pkt = (usb_setup_packet_t *)urb->transfer.data_buffer;
+
+    // --- Header-only request: 9-byte IN data stage ---
+    urb->transfer.num_bytes = sizeof(usb_setup_packet_t) + sizeof(usb_config_desc_t);
+    USB_SETUP_PACKET_INIT_GET_CONFIG_DESC(setup_pkt, 0, sizeof(usb_config_desc_t));
+    TEST_ASSERT_EQUAL(ESP_OK, hcd_urb_enqueue(default_pipe, urb));
+    test_hcd_expect_pipe_event(default_pipe, HCD_PIPE_EVENT_URB_DONE);
+    TEST_ASSERT_EQUAL(urb, hcd_urb_dequeue(default_pipe));
+    TEST_ASSERT_EQUAL_MESSAGE(USB_TRANSFER_STATUS_COMPLETED, urb->transfer.status, "Transfer NOT completed");
+    TEST_ASSERT_EQUAL(sizeof(usb_setup_packet_t) + sizeof(usb_config_desc_t), urb->transfer.actual_num_bytes);
+    usb_config_desc_t *config_desc = (usb_config_desc_t *)(urb->transfer.data_buffer + sizeof(usb_setup_packet_t));
+    TEST_ASSERT_EQUAL(USB_B_DESCRIPTOR_TYPE_CONFIGURATION, config_desc->bDescriptorType);
+    const uint16_t total_len = config_desc->wTotalLength;
+    TEST_ASSERT_LESS_OR_EQUAL(TRANSFER_MAX_BYTES, total_len);   // Must fit into the buffer for the next request
+    printf("Config Desc wTotalLength %d\n", total_len);
+
+    // --- Full request larger than the descriptor: short-packet terminated IN data stage ---
+    urb->transfer.num_bytes = sizeof(usb_setup_packet_t) + TRANSFER_MAX_BYTES;
+    USB_SETUP_PACKET_INIT_GET_CONFIG_DESC(setup_pkt, 0, TRANSFER_MAX_BYTES);
+    TEST_ASSERT_EQUAL(ESP_OK, hcd_urb_enqueue(default_pipe, urb));
+    test_hcd_expect_pipe_event(default_pipe, HCD_PIPE_EVENT_URB_DONE);
+    TEST_ASSERT_EQUAL(urb, hcd_urb_dequeue(default_pipe));
+    TEST_ASSERT_EQUAL_MESSAGE(USB_TRANSFER_STATUS_COMPLETED, urb->transfer.status, "Transfer NOT completed");
+    // The device returned exactly wTotalLength bytes, terminated by a short packet
+    TEST_ASSERT_EQUAL(sizeof(usb_setup_packet_t) + total_len, urb->transfer.actual_num_bytes);
+    test_hcd_free_urb(urb);
+    test_hcd_pipe_free(default_pipe);
+    test_hcd_wait_for_disconn(port_hdl, false);
+}
+
+#define MIXED_NUM_URBS  6   // More than NUM_BUFFERS (2), so buffer slots are reused
+/*
+Test HCD control pipe mixed back-to-back URBs
+Purpose:
+    - Validate that per-buffer control flags (data_stg_in, data_stg_skip, data_stg_actual_bytes)
+      are correctly re-initialized when a buffer slot is reused for a differently shaped control
+      transfer (the pipe has fewer buffer slots than enqueued URBs)
+    - Stress the setup -> data -> status stage state machine with back-to-back URBs
+Procedure:
+    - Setup HCD, wait for connection, enumerate the device
+    - Enqueue a batch of URBs alternating transfer shapes: no data stage (SET_CONFIGURATION),
+      short IN (GET_STATUS, GET_CONFIGURATION), large IN (GET_CONFIG_DESCRIPTOR)
+    - Expect all URBs to complete in order with exact actual_num_bytes
+    - Teardown
+*/
+TEST_CASE("Test HCD control pipe mixed back-to-back URBs", "[ctrl][low_speed][full_speed][high_speed]")
+{
+    usb_speed_t port_speed = test_hcd_wait_for_conn(port_hdl);  // Trigger a connection
+    vTaskDelay(pdMS_TO_TICKS(100)); // Short delay send of SOF (for FS) or EOPs (for LS)
+    hcd_pipe_handle_t default_pipe = test_hcd_pipe_alloc(port_hdl, NULL, TEST_DEV_ADDR, port_speed);
+    test_hcd_enum_device(default_pipe);
+    urb_t *urb_list[MIXED_NUM_URBS];
+
+    for (int i = 0; i < MIXED_NUM_URBS; i++) {
+        urb_list[i] = test_hcd_alloc_urb(0, URB_DATA_BUFF_SIZE);
+        urb_list[i]->transfer.context = URB_CONTEXT_VAL;
+        usb_setup_packet_t *setup_pkt = (usb_setup_packet_t *)urb_list[i]->transfer.data_buffer;
+        switch (i % 3) {
+        case 0:     // Large IN data stage
+            urb_list[i]->transfer.num_bytes = sizeof(usb_setup_packet_t) + TRANSFER_MAX_BYTES;
+            USB_SETUP_PACKET_INIT_GET_CONFIG_DESC(setup_pkt, 0, TRANSFER_MAX_BYTES);
+            break;
+        case 1:     // No data stage
+            urb_list[i]->transfer.num_bytes = sizeof(usb_setup_packet_t);
+            USB_SETUP_PACKET_INIT_SET_CONFIG(setup_pkt, 1);
+            break;
+        default:    // Short IN data stage
+            urb_list[i]->transfer.num_bytes = sizeof(usb_setup_packet_t) + sizeof(usb_device_status_t);
+            USB_SETUP_PACKET_INIT_GET_STATUS(setup_pkt);
+            break;
+        }
+    }
+    printf("Enqueuing mixed URBs\n");
+    for (int i = 0; i < MIXED_NUM_URBS; i++) {
+        TEST_ASSERT_EQUAL(ESP_OK, hcd_urb_enqueue(default_pipe, urb_list[i]));
+    }
+    for (int i = 0; i < MIXED_NUM_URBS; i++) {
+        test_hcd_expect_pipe_event(default_pipe, HCD_PIPE_EVENT_URB_DONE);
+    }
+
+    for (int i = 0; i < MIXED_NUM_URBS; i++) {
+        urb_t *urb = hcd_urb_dequeue(default_pipe);
+        TEST_ASSERT_EQUAL(urb_list[i], urb);
+        TEST_ASSERT_EQUAL_MESSAGE(USB_TRANSFER_STATUS_COMPLETED, urb->transfer.status, "Transfer NOT completed");
+        TEST_ASSERT_EQUAL(URB_CONTEXT_VAL, urb->transfer.context);
+        if (i % 3 == 1) {
+            // No data stage: only the setup packet was transmitted
+            TEST_ASSERT_EQUAL(sizeof(usb_setup_packet_t), urb->transfer.actual_num_bytes);
+        } else {
+            TEST_ASSERT_GREATER_OR_EQUAL(sizeof(usb_setup_packet_t), urb->transfer.actual_num_bytes);
+            TEST_ASSERT_LESS_OR_EQUAL(urb->transfer.num_bytes, urb->transfer.actual_num_bytes);
+        }
+    }
+    for (int i = 0; i < MIXED_NUM_URBS; i++) {
+        test_hcd_free_urb(urb_list[i]);
+    }
+    test_hcd_pipe_free(default_pipe);
     test_hcd_wait_for_disconn(port_hdl, false);
 }
