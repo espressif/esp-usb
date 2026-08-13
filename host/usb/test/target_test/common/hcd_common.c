@@ -13,6 +13,7 @@
 #include "esp_err.h"
 #include "esp_attr.h"
 #include "esp_rom_gpio.h"
+#include "esp_log.h"
 #include "usb_private.h"
 #include "usb/usb_types_ch9.h"
 #include "esp_private/usb_phy.h"
@@ -24,11 +25,12 @@
 
 // ----------------------------------------------------- Macros --------------------------------------------------------
 
-#define EVENT_QUEUE_LEN         5
+#define EVENT_QUEUE_LEN         8   // Port and Pipe event queues length
 #define ENUM_ADDR               1   // Device address to use for tests that enumerate the device
 #define ENUM_CONFIG             1   // Device configuration number to use for tests that enumerate the device
 #define TRANSFER_MAX_BYTES      256
 
+const char *HCD_COMMON_TAG = "HCD Test common";
 typedef struct {
     hcd_port_handle_t port_hdl;
     hcd_port_event_t port_event;
@@ -64,7 +66,8 @@ static bool port_callback(hcd_port_handle_t port_hdl, hcd_port_event_t port_even
         .port_event = port_event,
     };
     BaseType_t xTaskWoken = pdFALSE;
-    xQueueSendFromISR(port_evt_queue, &msg, &xTaskWoken);
+    BaseType_t ret = xQueueSendFromISR(port_evt_queue, &msg, &xTaskWoken);
+    TEST_ASSERT_EQUAL_MESSAGE(pdPASS, ret, "Port event queue full");
     return (xTaskWoken == pdTRUE);
 }
 
@@ -87,10 +90,12 @@ static bool pipe_callback(hcd_pipe_handle_t pipe_hdl, hcd_pipe_event_t pipe_even
     };
     if (in_isr) {
         BaseType_t xTaskWoken = pdFALSE;
-        xQueueSendFromISR(pipe_evt_queue, &msg, &xTaskWoken);
+        BaseType_t ret = xQueueSendFromISR(pipe_evt_queue, &msg, &xTaskWoken);
+        TEST_ASSERT_EQUAL_MESSAGE(pdPASS, ret, "Pipe event queue full");
         return (xTaskWoken == pdTRUE);
     } else {
-        xQueueSend(pipe_evt_queue, &msg, portMAX_DELAY);
+        BaseType_t ret = xQueueSend(pipe_evt_queue, &msg, portMAX_DELAY);
+        TEST_ASSERT_EQUAL_MESSAGE(pdPASS, ret, "Pipe event queue full");
         return false;
     }
 }
@@ -124,6 +129,19 @@ void test_hcd_expect_pipe_event(hcd_pipe_handle_t pipe_hdl, hcd_pipe_event_t exp
     // Check the contents of that event message
     TEST_ASSERT_EQUAL(pipe_hdl, msg.pipe_hdl);
     TEST_ASSERT_EQUAL_MESSAGE(expected_event, msg.pipe_event, "Unexpected pipe event");
+}
+
+hcd_pipe_event_t test_hcd_wait_for_pipe_event(hcd_pipe_handle_t pipe_hdl)
+{
+    // Get the pipe's event queue from the pipe's context variable
+    QueueHandle_t pipe_evt_queue = (QueueHandle_t)hcd_pipe_get_context(pipe_hdl);
+    TEST_ASSERT_NOT_NULL(pipe_evt_queue);
+    // Wait for pipe callback to send an event message, but do NOT assert on the event type
+    pipe_event_msg_t msg;
+    BaseType_t ret = xQueueReceive(pipe_evt_queue, &msg, pdMS_TO_TICKS(5000));
+    TEST_ASSERT_EQUAL_MESSAGE(pdPASS, ret, "Pipe event not generated on time");
+    TEST_ASSERT_EQUAL(pipe_hdl, msg.pipe_hdl);
+    return msg.pipe_event;
 }
 
 void test_hcd_expect_no_pipe_event(hcd_pipe_handle_t pipe_hdl)
@@ -347,6 +365,7 @@ urb_t *test_hcd_alloc_urb(int num_isoc_packets, size_t data_buffer_size)
     transfer_dummy->data_buffer = data_buffer;
     transfer_dummy->data_buffer_size = data_buffer_size;
     transfer_dummy->num_isoc_packets = num_isoc_packets;
+    ESP_LOGD(HCD_COMMON_TAG, "URB %p alloc with data_buffer %p\n", urb, urb->transfer.data_buffer);
     return urb;
 }
 

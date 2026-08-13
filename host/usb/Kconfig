@@ -213,6 +213,18 @@ menu "USB-OTG"
 
     endmenu #Power management
 
+    choice USB_HOST_DMA_MODE
+        prompt "DMA mode of USB Host"
+        default USB_HOST_DMA_MODE_DESC
+        help
+            TODO
+
+        config USB_HOST_DMA_MODE_DESC
+            bool "Descriptor DMA mode (Scatter-Gather DMA)"
+        config USB_HOST_DMA_MODE_BUFFER
+            bool "Buffer DMA mode"
+    endchoice
+
     config USB_HOST_ENABLE_ENUM_FILTER_CALLBACK
         bool "Enable enumeration filter callback"
         default n
