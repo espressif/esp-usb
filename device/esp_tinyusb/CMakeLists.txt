@@ -70,13 +70,6 @@ if(NOT idf_component_manager)
     list(APPEND req tinyusb)
 endif()
 
-idf_component_register(SRCS ${srcs}
-                       INCLUDE_DIRS "include"
-                       PRIV_INCLUDE_DIRS "include_private"
-                       PRIV_REQUIRES ${priv_req}
-                       REQUIRES ${req}
-                       )
-
 # Determine whether tinyusb is fetched from component registry or from local path
 idf_build_get_property(build_components BUILD_COMPONENTS)
 if(tinyusb IN_LIST build_components)
@@ -91,8 +84,15 @@ if(CONFIG_TINYUSB_MTP_ENABLED)
         message(FATAL_ERROR "CONFIG_TINYUSB_MTP_ENABLED requires TinyUSB MTP device class support.
         Please use a TinyUSB release that provides src/class/mtp/mtp_device.c or disable MTP.")
     endif()
-    target_sources(${COMPONENT_LIB} PRIVATE "tinyusb_mtp.c")
+    list(APPEND srcs "tinyusb_mtp.c")
 endif() # CONFIG_TINYUSB_MTP_ENABLED
+
+idf_component_register(SRCS ${srcs}
+                       INCLUDE_DIRS "include"
+                       PRIV_INCLUDE_DIRS "include_private"
+                       PRIV_REQUIRES ${priv_req}
+                       REQUIRES ${req}
+                       )
 
 # Pass tusb_config.h from this component to TinyUSB
 idf_component_get_property(tusb_lib ${tinyusb_name} COMPONENT_LIB)

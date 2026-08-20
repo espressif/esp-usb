@@ -573,6 +573,7 @@ TEST_CASE("MTP: manual PC file access", "[mtp][manual]")
     TEST_ASSERT_EQUAL(ESP_OK, tinyusb_driver_install(&tusb_cfg));
 
     ESP_LOGI(TAG, "MTP manual test is running. Connect USB to a PC and test read, write, rename, and delete operations.");
+    ESP_LOGI(TAG, "MTP_HOST_READY");
 #if CONFIG_TINYUSB_MTP_TRACE_WRITES
     ESP_LOGI(TAG, "MTP write trace logs are enabled for host-side edit validation.");
 #endif

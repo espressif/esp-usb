@@ -1931,21 +1931,11 @@ static int32_t mtp_complete_partial_read_locked(const tud_mtp_cb_data_t *cb_data
     return (cb_data->xfer_result == XFER_RESULT_SUCCESS) ? MTP_RESP_OK : MTP_RESP_GENERAL_ERROR;
 }
 
-int32_t tud_mtp_data_complete_cb(tud_mtp_cb_data_t *cb_data)
+int32_t mtp_complete_data_locked(const tud_mtp_cb_data_t *cb_data, mtp_container_info_t *response)
 {
     const mtp_container_command_t *command = cb_data->command_container;
-    mtp_container_info_t *response = &cb_data->io_container;
     int32_t resp_code = MTP_RESP_GENERAL_ERROR;
 
-    if (!s_mtp.installed) {
-        resp_code = MTP_RESP_DEVICE_BUSY;
-        response->header->code = (uint16_t)resp_code;
-        mtp_trace_request_result(cb_data, resp_code);
-        tud_mtp_response_send(response);
-        return 0;
-    }
-
-    mtp_lock();
     switch (command->header.code) {
     case MTP_OP_SEND_OBJECT_INFO:
         resp_code = mtp_complete_send_object_info_locked(cb_data, response);
@@ -1974,7 +1964,19 @@ int32_t tud_mtp_data_complete_cb(tud_mtp_cb_data_t *cb_data)
         resp_code = (cb_data->xfer_result == XFER_RESULT_SUCCESS) ? MTP_RESP_OK : MTP_RESP_GENERAL_ERROR;
         break;
     }
-    mtp_unlock();
+    return resp_code;
+}
+
+int32_t tud_mtp_data_complete_cb(tud_mtp_cb_data_t *cb_data)
+{
+    mtp_container_info_t *response = &cb_data->io_container;
+    int32_t resp_code = MTP_RESP_DEVICE_BUSY;
+
+    if (s_mtp.installed) {
+        mtp_lock();
+        resp_code = mtp_complete_data_locked(cb_data, response);
+        mtp_unlock();
+    }
 
     response->header->code = (uint16_t)resp_code;
     mtp_trace_request_result(cb_data, resp_code);
@@ -2472,6 +2474,14 @@ int32_t mtp_delete_object(tud_mtp_cb_data_t *cb_data)
         return MTP_RESP_ACCESS_DENIED;
     }
 
+    if (s_mtp.mux_protected.active_edit.active) {
+        mtp_object_t *edit_object = mtp_object_from_handle(s_mtp.mux_protected.active_edit.handle);
+        if (edit_object != NULL && edit_object->storage == storage && mtp_path_is_child_of(edit_object->path, path)) {
+            ESP_LOGI(TAG, "clearing MTP edit for deleted handle %" PRIu32, edit_object->handle);
+            mtp_clear_active_edit();
+            mtp_clear_partial_write();
+        }
+    }
     mtp_drop_objects_under_path(storage, path);
     MTP_TRACEI("MTP delete: handle=%" PRIu32 " path=%s", handle, path);
     mtp_unlock();

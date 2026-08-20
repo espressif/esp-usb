@@ -225,6 +225,13 @@ int32_t mtp_write_object_range_locked(mtp_object_t *object, uint64_t offset, con
 int32_t mtp_truncate_object_locked(mtp_object_t *object, uint64_t length);
 
 /**
+ * @brief Complete MTP data-transfer state processing without sending a USB response.
+ *
+ * @note Must be called with the MTP context lock held.
+ */
+int32_t mtp_complete_data_locked(const tud_mtp_cb_data_t *cb_data, mtp_container_info_t *response);
+
+/**
  * @brief Resolve or create a cached object for an existing path.
  *
  * @note Must be called with the MTP context lock held.

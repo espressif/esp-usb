@@ -134,7 +134,9 @@ esp_err_t tinyusb_mtp_test_send_zero_size_object_info(tinyusb_mtp_storage_handle
     if (ret == 0) {
         header.len = sizeof(mtp_container_header_t);
         cb_data.xfer_result = XFER_RESULT_SUCCESS;
-        ret = tud_mtp_data_complete_cb(&cb_data);
+        mtp_lock();
+        header.code = (uint16_t)mtp_complete_data_locked(&cb_data, &cb_data.io_container);
+        mtp_unlock();
     }
     tinyusb_mtp_test_restore_session(session_was_open);
     ESP_RETURN_ON_FALSE(ret == 0 && header.code == MTP_RESP_OK, ESP_FAIL, TAG, "zero-size SendObjectInfo failed: response=0x%04" PRIx32,
