@@ -261,6 +261,11 @@ esp_err_t test_cdc_acm_host_close(cdc_acm_dev_hdl_t *cdc_hdl, uint8_t interface_
     // Cancel pooling of IN endpoint -> halt, flush, clear
     test_cdc_acm_reset_transfer_endpoint(exp->data.in_bEndpointAddress);
 
+    // Cancel OUT endpoint -> halt, flush, clear
+    if (exp->data.out_xfer) {
+        test_cdc_acm_reset_transfer_endpoint(exp->data.out_bEndpointAddress);
+    }
+
     // Cancel pooling of Notification endpoint -> halt, flush, clear
     if (exp->notif.xfer) {
         test_cdc_acm_reset_transfer_endpoint(exp->notif.bEndpointAddress);

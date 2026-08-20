@@ -208,8 +208,15 @@ SCENARIO("Invalid custom command")
         REQUIRE(ESP_OK == test_cdc_acm_host_open(device_address, vid, pid, interface_index, &dev_config, &dev));
         REQUIRE(dev != nullptr);
 
-        THEN("Command that does not fit into EP0 buffer is rejected with ESP_ERR_INVALID_SIZE") {
-            uint8_t data[64 - USB_SETUP_PACKET_SIZE + 1]; // +1 to make sure that the buffer overflows
+        THEN("Command with maximum payload is submitted") {
+            uint8_t data[64] = {};
+            usb_host_transfer_submit_control_AddCallback(usb_host_transfer_submit_control_success_mock_callback);
+            usb_host_transfer_submit_control_ExpectAnyArgsAndReturn(ESP_OK);
+            REQUIRE(ESP_OK == cdc_acm_host_send_custom_request(dev, 0x21, 34, 1, 0, sizeof(data), data));
+        }
+
+        THEN("Command that does not fit into control data buffer is rejected with ESP_ERR_INVALID_SIZE") {
+            uint8_t data[64 + 1] = {}; // wLength is the USB control data stage length and does not include the setup packet.
             REQUIRE(ESP_ERR_INVALID_SIZE == cdc_acm_host_send_custom_request(dev, 0x21, 34, 1, 0, sizeof(data), data));
         }
 
@@ -497,6 +504,9 @@ SCENARIO("TinyUSB serial")
                 REQUIRE(ESP_ERR_INVALID_ARG == cdc_acm_host_cdc_desc_get(NULL, USB_CDC_DESC_SUBTYPE_HEADER, (const usb_standard_desc_t **)&header_desc));
             }
 
+            usb_host_endpoint_halt_ExpectAnyArgsAndReturn(ESP_OK);
+            usb_host_endpoint_flush_ExpectAnyArgsAndReturn(ESP_OK);
+            usb_host_endpoint_clear_ExpectAnyArgsAndReturn(ESP_OK);
             usb_host_endpoint_halt_ExpectAnyArgsAndReturn(ESP_OK);
             usb_host_endpoint_flush_ExpectAnyArgsAndReturn(ESP_OK);
             usb_host_endpoint_clear_ExpectAnyArgsAndReturn(ESP_OK);

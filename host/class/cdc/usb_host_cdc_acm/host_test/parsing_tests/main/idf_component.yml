@@ -3,3 +3,10 @@ dependencies:
   usb_host_cdc_acm:
     version: "*"
     override_path: "../../../"
+  # Redirect the CDC common driver to a CMock-based mock. The mock re-uses the
+  # real descriptor parsing implementation, but replaces the runtime API
+  # (acquire/release/register_dev_event_cb/...) with generated stubs so that
+  # `test_unit_public_api.cpp` can stay focused on the CDC-ACM layer only.
+  espressif/usb_host_cdc_common:
+    version: "*"
+    override_path: "../../../../usb_host_cdc_common/host_test/mocks/usb_host_cdc_common"
