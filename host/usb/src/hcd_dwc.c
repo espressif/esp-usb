@@ -155,6 +155,18 @@ typedef enum {
     CTRL_XFER_STAGE_STATUS = 2,  /**< Status stage */
 } ctrl_xfer_stage_t;
 
+/**
+ * @brief Bulk transfer stage index
+ *
+ * @note Only relevant for buffer DMA mode, where an OUT transfer that requires a zero length packet is executed
+ *       as two separate channel activations (data stage followed by ZLP stage). In descriptor DMA mode the whole
+ *       transfer runs to completion in a single channel activation.
+ */
+typedef enum {
+    BULK_XFER_STAGE_DATA = 0,    /**< Main data stage */
+    BULK_XFER_STAGE_ZLP = 1,     /**< Zero length packet stage */
+} bulk_xfer_stage_t;
+
 #if CONFIG_USB_HOST_DMA_MODE_DESC
 /**
  * @brief Object representing a single buffer of a pipe's multi buffer implementation for Scatter Gather DMA mode
@@ -214,6 +226,12 @@ typedef struct {
             uint32_t data_stg_actual_bytes: 16; // IN data stage actual length
             uint32_t reserved12: 12;
         } ctrl;                             // Control transfer related
+        struct {
+            uint32_t zero_len_packet: 1;    // A ZLP must be sent after the main data transfer (OUT, MPS multiple)
+            bulk_xfer_stage_t cur_stg: 1;   // Current bulk transfer stage
+            uint32_t actual_bytes: 20;      // Actual bytes transferred (IN: from HAL; OUT: = num_bytes)
+            uint32_t reserved10: 10;
+        } bulk;                             // Bulk transfer related
         uint32_t val;
     } flags;
     union {
@@ -439,6 +457,59 @@ static inline bool _buffer_can_exec(pipe_t *pipe)
 static void _buffer_exec(pipe_t *pipe);
 
 /**
+ * @brief Check if a control transfer buffer has completed execution
+ *
+ * @note The logic is identical for both DMA modes.
+ *
+ * @param pipe Pipe object
+ * @return true Buffer complete
+ * @return false Buffer not complete
+ */
+static inline bool _buffer_check_done_ctrl(pipe_t *pipe)
+{
+    // The HW can't handle two transactions with preamble in one frame.
+    // TODO: IDF-12986
+    if (pipe->ep_char.ls_via_fs_hub) {
+        esp_rom_delay_us(1000);
+    }
+    dma_buffer_block_t *buffer_inflight = pipe->buffers[pipe->multi_buffer_control.rd_idx];
+    // cur_stg is set to status when the status stage is started
+    return (buffer_inflight->flags.ctrl.cur_stg == CTRL_XFER_STAGE_STATUS);
+}
+
+#if CONFIG_USB_HOST_DMA_MODE_BUFFER
+/**
+ * @brief Check if a bulk transfer buffer has completed execution in buffer DMA mode
+ *
+ * @param pipe Pipe object
+ * @return true Buffer complete
+ * @return false Buffer not complete
+ */
+static inline bool _buffer_check_done_bulk(pipe_t *pipe)
+{
+    dma_buffer_block_t *buffer_inflight = pipe->buffers[pipe->multi_buffer_control.rd_idx];
+    // A bulk OUT buffer that requires a ZLP has an extra stage after the data stage.
+    // The buffer is complete once its last required stage has been executed.
+    const bulk_xfer_stage_t last_stg = buffer_inflight->flags.bulk.zero_len_packet ? BULK_XFER_STAGE_ZLP : BULK_XFER_STAGE_DATA;
+    return (buffer_inflight->flags.bulk.cur_stg == last_stg);
+}
+#else // CONFIG_USB_HOST_DMA_MODE_DESC
+/**
+ * @brief Check if a bulk transfer buffer has completed execution in descriptor DMA mode
+ *
+ * The whole transfer (including any ZLP) runs to completion in a single channel activation,
+ * so the buffer is always complete once this is reached.
+ *
+ * @param pipe Pipe object
+ * @return true Buffer complete
+ */
+static inline bool _buffer_check_done_bulk(pipe_t *pipe)
+{
+    return true;
+}
+#endif // CONFIG_USB_HOST_DMA_MODE_BUFFER
+
+/**
  * @brief Check if a buffer as completed execution
  *
  * This should only be called after receiving a USB_DWC_HAL_CHAN_EVENT_CPLT event to check if a buffer is actually
@@ -450,30 +521,74 @@ static void _buffer_exec(pipe_t *pipe);
  */
 static inline bool _buffer_check_done(pipe_t *pipe)
 {
-    // Only control transfers need to be continued
-    if (pipe->ep_char.type != USB_DWC_XFER_TYPE_CTRL) {
+    switch (pipe->ep_char.type) {
+    case USB_DWC_XFER_TYPE_CTRL:
+        return _buffer_check_done_ctrl(pipe);
+    case USB_DWC_XFER_TYPE_BULK:
+        return _buffer_check_done_bulk(pipe);
+    default:
+        // Interrupt and isochronous transfers run to completion in a single channel activation
         return true;
     }
-    // The HW can't handle two transactions with preamble in one frame.
-    // TODO: IDF-12986
-    if (pipe->ep_char.ls_via_fs_hub) {
-        esp_rom_delay_us(1000);
-    }
-    dma_buffer_block_t *buffer_inflight = pipe->buffers[pipe->multi_buffer_control.rd_idx];
-    // cur_stg is set to status when the status stage is started
-    return (buffer_inflight->flags.ctrl.cur_stg == CTRL_XFER_STAGE_STATUS);
 }
 
 /**
- * @brief Continue execution of a buffer
+ * @brief Continue execution of an in-flight buffer
  *
- * This should only be called after checking if a buffer has completed execution using _buffer_check_done()
- * @note Continue execution of an in-flight control transfer
- * @note Only CTRL transfers are executed as multiple separate transactions per URB.
- *       The rest of the transfer types run to completion in a single channel activation.
+ * This should only be called after _buffer_check_done() has reported that the buffer is not yet complete.
+ *
+ * @note Only some transfers are executed as multiple separate channel activations per URB:
+ *       - CTRL transfers (both DMA modes): setup, data and status stages.
+ *       - BULK transfers (buffer DMA mode only): main data stage followed by a zero length packet.
+ *       All other transfer types run to completion in a single channel activation.
  * @param pipe Pipe object
  */
 static void _buffer_exec_cont(pipe_t *pipe);
+
+#if CONFIG_USB_HOST_DMA_MODE_DESC
+/**
+ * @brief Capture DMA-mode specific state of a completed buffer in descriptor DMA mode
+ *
+ * @param pipe Pipe object
+ * @param buffer Buffer that has completed
+ * @param chan_obj HAL channel object, or NULL if no channel context is available
+ * @param pipe_event Pipe event that caused the buffer to be complete
+ * @param canceled Whether the buffer was done due to a cancellation
+ */
+static inline void _buffer_done_finalize(pipe_t *pipe, dma_buffer_block_t *buffer, usb_dwc_hal_chan_t *chan_obj, hcd_pipe_event_t pipe_event, bool canceled)
+{
+    // Get descriptor index when the buffer stopped execution, only for Descriptor DMA
+    // If no channel object available, stop index is 0
+    buffer->status_flags.stop_idx = (chan_obj != NULL) ? usb_dwc_hal_chan_get_qtd_idx(chan_obj) : 0;
+}
+#else // CONFIG_USB_HOST_DMA_MODE_DESC
+/**
+ * @brief Capture DMA-mode specific state of a completed buffer in buffer DMA mode
+ *
+ * Saves the actual bytes for successful BULK completions before the channel can be re-activated
+ * (re-activation overwrites HCTSIZ, making it unreadable in _buffer_parse_bulk()).
+ *
+ * @param pipe Pipe object
+ * @param buffer Buffer that has completed
+ * @param chan_obj HAL channel object, or NULL if no channel context is available
+ * @param pipe_event Pipe event that caused the buffer to be complete
+ * @param canceled Whether the buffer was done due to a cancellation
+ */
+static inline void _buffer_done_finalize(pipe_t *pipe, dma_buffer_block_t *buffer, usb_dwc_hal_chan_t *chan_obj, hcd_pipe_event_t pipe_event, bool canceled)
+{
+    if (pipe->ep_char.type == USB_DWC_XFER_TYPE_BULK && pipe_event == HCD_PIPE_EVENT_URB_DONE && !canceled && chan_obj != NULL) {
+        const bool is_in = pipe->ep_char.bEndpointAddress & USB_B_ENDPOINT_ADDRESS_EP_DIR_MASK;
+        if (is_in) {
+            int actual;
+            usb_dwc_hal_chan_get_buffer_result(chan_obj, true, &actual);
+            buffer->flags.bulk.actual_bytes = actual;
+        } else {
+            // OUT: all programmed bytes were sent on XferCompl; actual_bytes may be set already by exec_cont (ZLP path)
+            buffer->flags.bulk.actual_bytes = buffer->urb->transfer.num_bytes;
+        }
+    }
+}
+#endif // CONFIG_USB_HOST_DMA_MODE_DESC
 
 /**
  * @brief Marks the last executed buffer as complete
@@ -491,14 +606,8 @@ static inline void _buffer_done(pipe_t *pipe, usb_dwc_hal_chan_t *chan_obj, hcd_
     buffer_done->status_flags.executing = 0;
     buffer_done->status_flags.was_canceled = canceled;
     buffer_done->status_flags.pipe_event = pipe_event;
-#if CONFIG_USB_HOST_DMA_MODE_DESC
-    // Get descriptor index when the buffer stopped execution, only for Descriptor DMA
-    // If no channel object available, stop index is 0
-    buffer_done->status_flags.stop_idx = (chan_obj != NULL) ? usb_dwc_hal_chan_get_qtd_idx(chan_obj) : 0;
-#else
-    // Buffer DMA dones not have QTD list, omit this flag
-    (void)chan_obj;
-#endif // CONFIG_USB_HOST_DMA_MODE_DESC
+    // Capture any DMA-mode specific state before the channel can be re-activated
+    _buffer_done_finalize(pipe, buffer_done, chan_obj, pipe_event, canceled);
 
     pipe->multi_buffer_control.rd_idx++;
     pipe->multi_buffer_control.buffer_num_to_exec--;
@@ -1024,7 +1133,7 @@ static hcd_pipe_event_t _intr_hdlr_chan(pipe_t *pipe, usb_dwc_hal_chan_t *chan_o
          * - Buffer DMA mode: the core does not retry failed transactions by itself. The guide's ISR
          *   model (bulk/control IN and OUT) requires the software to re-initialize the channel with a
          *   rewound buffer pointer, and to only fail the transfer after several consecutive errors.
-         *   Implemented below for control pipes.
+         *   Implemented below for all non-periodic (bulk and control) pipes in Buffer DMA mode.
          * - Scatter/Gather DMA mode: the core performs immediate transaction retries in hardware and
          *   only reports XactErr (qTD PKT_ERR) once they are exhausted ("excessive transaction
          *   errors"). Failing the transfer here is therefore correct; no software retry is needed.
@@ -1915,7 +2024,7 @@ static dma_buffer_block_t *buffer_block_alloc(usb_transfer_type_t type)
 #else // CONFIG_USB_HOST_DMA_MODE_DESC
 static dma_buffer_block_t *buffer_block_alloc(usb_transfer_type_t type)
 {
-    if (type == USB_TRANSFER_TYPE_CTRL) {
+    if (type == USB_TRANSFER_TYPE_CTRL || type == USB_TRANSFER_TYPE_BULK) {
         return calloc(1, sizeof(dma_buffer_block_t));
     } else {
         abort();    // Not yet supported
@@ -2557,8 +2666,26 @@ static inline void _buffer_fill_ctrl(dma_buffer_block_t *buffer, usb_transfer_t 
     buffer->flags.ctrl.data_stg_actual_bytes = 0;
 }
 
-/** @brief Bulk fill stub for buffer DMA mode (unsupported) */
-static inline void _buffer_fill_bulk(dma_buffer_block_t *buffer, usb_transfer_t *transfer, bool is_in, int mps) {}
+/**
+ * @brief Fill a bulk transfer buffer with flags for buffer DMA mode
+ *
+ * @param buffer Buffer to fill
+ * @param transfer Transfer to fill into the buffer
+ * @param is_in Whether the endpoint direction is IN
+ * @param mps Endpoint maximum packet size
+ */
+static inline void _buffer_fill_bulk(dma_buffer_block_t *buffer, usb_transfer_t *transfer, bool is_in, int mps)
+{
+    // A ZLP is only appended for OUT transfers where the flag is set and the transfer size is a non-zero MPS multiple
+    const bool zero_len_packet = !is_in
+                                 && (transfer->flags & USB_TRANSFER_FLAG_ZERO_PACK)
+                                 && transfer->num_bytes > 0
+                                 && (transfer->num_bytes % mps == 0);
+    buffer->flags.bulk.zero_len_packet = zero_len_packet;
+    buffer->flags.bulk.cur_stg = BULK_XFER_STAGE_DATA;
+    buffer->flags.bulk.actual_bytes = 0;
+}
+
 /** @brief Interrupt fill stub for buffer DMA mode (unsupported) */
 static inline void _buffer_fill_intr(dma_buffer_block_t *buffer, usb_transfer_t *transfer, bool is_in, int mps) {}
 /** @brief Isochronous fill stub for buffer DMA mode (unsupported) */
@@ -2586,6 +2713,10 @@ static void IRAM_ATTR _buffer_fill(pipe_t *pipe)
     switch (pipe->ep_char.type) {
     case USB_DWC_XFER_TYPE_CTRL: {
         _buffer_fill_ctrl(buffer_to_fill, transfer);
+        break;
+    }
+    case USB_DWC_XFER_TYPE_BULK: {
+        _buffer_fill_bulk(buffer_to_fill, transfer, is_in, mps);
         break;
     }
 #if CONFIG_USB_HOST_DMA_MODE_DESC
@@ -2621,10 +2752,6 @@ static void IRAM_ATTR _buffer_fill(pipe_t *pipe)
         _buffer_fill_isoc(buffer_to_fill, transfer, is_in, mps, (int)interval, start_idx);
         break;
     }
-    case USB_DWC_XFER_TYPE_BULK: {
-        _buffer_fill_bulk(buffer_to_fill, transfer, is_in, mps);
-        break;
-    }
     case USB_DWC_XFER_TYPE_INTR: {
         _buffer_fill_intr(buffer_to_fill, transfer, is_in, mps);
         break;
@@ -2643,19 +2770,15 @@ static void IRAM_ATTR _buffer_fill(pipe_t *pipe)
     pipe->multi_buffer_control.wr_idx++;
     pipe->multi_buffer_control.buffer_num_to_fill--;
     pipe->multi_buffer_control.buffer_num_to_exec++;
+    ESP_EARLY_LOGD(HCD_DWC_TAG, "buf fill: ep=0x%02x type=%d buf=%p urb=%p bytes=%d wr=%u fill=%u exec=%u",
+                   pipe->ep_char.bEndpointAddress, pipe->ep_char.type, buffer_to_fill, urb, transfer->num_bytes,
+                   (unsigned)pipe->multi_buffer_control.wr_idx,
+                   (unsigned)pipe->multi_buffer_control.buffer_num_to_fill,
+                   (unsigned)pipe->multi_buffer_control.buffer_num_to_exec);
     if (pipe->ep_char.type == USB_DWC_XFER_TYPE_CTRL) {
-        ESP_EARLY_LOGD(HCD_DWC_TAG, "buf fill: ep=0x%02x buf=%p urb=%p bytes=%d data_in=%u skip=%u wr=%u fill=%u exec=%u",
-                       pipe->ep_char.bEndpointAddress, buffer_to_fill, urb, transfer->num_bytes,
-                       buffer_to_fill->flags.ctrl.data_stg_in, buffer_to_fill->flags.ctrl.data_stg_skip,
-                       (unsigned)pipe->multi_buffer_control.wr_idx,
-                       (unsigned)pipe->multi_buffer_control.buffer_num_to_fill,
-                       (unsigned)pipe->multi_buffer_control.buffer_num_to_exec);
-    } else {
-        ESP_EARLY_LOGD(HCD_DWC_TAG, "buf fill: ep=0x%02x type=%d buf=%p urb=%p bytes=%d wr=%u fill=%u exec=%u",
-                       pipe->ep_char.bEndpointAddress, pipe->ep_char.type, buffer_to_fill, urb, transfer->num_bytes,
-                       (unsigned)pipe->multi_buffer_control.wr_idx,
-                       (unsigned)pipe->multi_buffer_control.buffer_num_to_fill,
-                       (unsigned)pipe->multi_buffer_control.buffer_num_to_exec);
+        // Log the decoded control-transfer specifics on top of the generic fill log above
+        ESP_EARLY_LOGD(HCD_DWC_TAG, "buf fill (ctrl): buf=%p data_in=%u skip=%u",
+                       buffer_to_fill, buffer_to_fill->flags.ctrl.data_stg_in, buffer_to_fill->flags.ctrl.data_stg_skip);
     }
 }
 
@@ -2714,6 +2837,41 @@ static inline void _buffer_exec_ctrl(pipe_t *pipe, dma_buffer_block_t *buffer)
     buffer->status_flags.executing = 1;
     pipe->multi_buffer_control.buffer_is_executing = 1;
     _buffer_exec_ctrl_stage(pipe, buffer, CTRL_XFER_STAGE_SETUP);
+}
+
+/**
+ * @brief Start execution of a bulk transfer in buffer DMA mode
+ *
+ * Programs the channel with the full data buffer. The hardware handles all MPS-sized packets
+ * in a single activation, including PID toggling and NAK/NYET retries.
+ *
+ * @param pipe Pipe object
+ * @param buffer Buffer to execute
+ */
+static inline void _buffer_exec_bulk(pipe_t *pipe, dma_buffer_block_t *buffer)
+{
+    usb_transfer_t *transfer = &buffer->urb->transfer;
+    const bool is_in = pipe->ep_char.bEndpointAddress & USB_B_ENDPOINT_ADDRESS_EP_DIR_MASK;
+    /*
+     * Read the current data toggle PID from HCTSIZ before activating. The hardware initialises it
+     * to DATA0 on channel allocation and advances it correctly after each successfully transferred
+     * packet, so this always carries the right starting PID for the next transfer.
+     * DO NOT hardcode DATA0 here – the device's toggle advances across consecutive URBs on the
+     * same endpoint, and a mismatch would cause a DataTglErr. When the DWC sends ACK after a
+     * DataTglErr for a short-packet IN transfer, the device considers the data delivered and stops
+     * sending, leaving the host stuck issuing INs that the device always NAKs.
+     */
+    usb_dwc_hal_buffer_xfer_t xfer = {
+        .buf = transfer->data_buffer,
+        .len = transfer->num_bytes,
+        .pid = (int)usb_dwc_hal_chan_get_pid(pipe->chan_obj),
+        .is_in = is_in,
+    };
+    buffer->status_flags.executing = 1;
+    pipe->multi_buffer_control.buffer_is_executing = 1;
+    pipe->xact_err_cnt = 0;
+    usb_dwc_hal_chan_set_dir(pipe->chan_obj, is_in);
+    usb_dwc_hal_chan_activate_buffer(pipe->chan_obj, &xfer, pipe->ep_char.mps, pipe->chan_obj->max_pkt_limit);
 }
 #endif // CONFIG_USB_HOST_DMA_MODE_BUFFER
 
@@ -2788,13 +2946,13 @@ static void IRAM_ATTR _buffer_exec(pipe_t *pipe)
         _buffer_exec_ctrl(pipe, buffer_to_exec);
         break;
     }
+    case USB_DWC_XFER_TYPE_BULK: {
+        _buffer_exec_bulk(pipe, buffer_to_exec);
+        break;
+    }
 #if CONFIG_USB_HOST_DMA_MODE_DESC
     case USB_DWC_XFER_TYPE_ISOCHRONOUS: {
         _buffer_exec_isoc(pipe, buffer_to_exec);
-        break;
-    }
-    case USB_DWC_XFER_TYPE_BULK: {
-        _buffer_exec_bulk(pipe, buffer_to_exec);
         break;
     }
     case USB_DWC_XFER_TYPE_INTR: {
@@ -2816,16 +2974,35 @@ static void IRAM_ATTR _buffer_exec(pipe_t *pipe)
 
 // ------------------------------------------------- Buffer exec continue ----------------------------------------------
 
+/**
+ * @brief Determine the next stage of an in-flight control transfer
+ *
+ * @note The staging logic is identical for both DMA modes.
+ *
+ * @param buffer Buffer being executed
+ * @return Next control transfer stage
+ */
+static inline ctrl_xfer_stage_t _buffer_exec_cont_ctrl_next_stage(dma_buffer_block_t *buffer)
+{
+    assert(buffer->flags.ctrl.cur_stg != CTRL_XFER_STAGE_STATUS);
+    if (buffer->flags.ctrl.cur_stg == CTRL_XFER_STAGE_SETUP) {
+        // Just finished setup stage. Skip straight to status stage if there is no data stage, otherwise go to data stage
+        return buffer->flags.ctrl.data_stg_skip ? CTRL_XFER_STAGE_STATUS : CTRL_XFER_STAGE_DATA;
+    }
+    // cur_stg == CTRL_XFER_STAGE_DATA. Just finished data stage. Go to status stage
+    return CTRL_XFER_STAGE_STATUS;
+}
+
 #if CONFIG_USB_HOST_DMA_MODE_DESC
 /**
  * @brief Continue a control transfer in descriptor DMA mode
  *
  * @param pipe Pipe object
  * @param buffer Buffer being executed
- * @param next_stage Next control transfer stage
  */
-static inline void _buffer_exec_cont_ctrl(pipe_t *pipe, dma_buffer_block_t *buffer, ctrl_xfer_stage_t next_stage)
+static inline void _buffer_exec_cont_ctrl(pipe_t *pipe, dma_buffer_block_t *buffer)
 {
+    const ctrl_xfer_stage_t next_stage = _buffer_exec_cont_ctrl_next_stage(buffer);
     bool next_dir_is_in;
     switch (next_stage) {
     case CTRL_XFER_STAGE_DATA:
@@ -2847,6 +3024,10 @@ static inline void _buffer_exec_cont_ctrl(pipe_t *pipe, dma_buffer_block_t *buff
     usb_dwc_hal_chan_set_dir(pipe->chan_obj, next_dir_is_in);
     usb_dwc_hal_chan_set_pid(pipe->chan_obj, 1); // Data and status stages always use DATA1
     usb_dwc_hal_chan_activate(pipe->chan_obj, buffer->xfer_desc_list, XFER_LIST_LEN_CTRL, next_stage);
+    ESP_EARLY_LOGD(HCD_DWC_TAG, "buf cont: ep=0x%02x buf=%p urb=%p cur_stg=%u next_stg=%u",
+                   pipe->ep_char.bEndpointAddress, buffer, buffer->urb,
+                   (unsigned)buffer->flags.ctrl.cur_stg, (unsigned)next_stage);
+    buffer->flags.ctrl.cur_stg = next_stage;
 }
 #else // CONFIG_USB_HOST_DMA_MODE_DESC
 /**
@@ -2854,10 +3035,10 @@ static inline void _buffer_exec_cont_ctrl(pipe_t *pipe, dma_buffer_block_t *buff
  *
  * @param pipe Pipe object
  * @param buffer Buffer being executed
- * @param next_stage Next control transfer stage
  */
-static inline void _buffer_exec_cont_ctrl(pipe_t *pipe, dma_buffer_block_t *buffer, ctrl_xfer_stage_t next_stage)
+static inline void _buffer_exec_cont_ctrl(pipe_t *pipe, dma_buffer_block_t *buffer)
 {
+    const ctrl_xfer_stage_t next_stage = _buffer_exec_cont_ctrl_next_stage(buffer);
     if (buffer->flags.ctrl.cur_stg == CTRL_XFER_STAGE_DATA) {  // Just finished data stage
         if (!buffer->flags.ctrl.data_stg_skip && buffer->flags.ctrl.data_stg_in) {
             // IN data stage: read the number of bytes received from the channel
@@ -2871,35 +3052,64 @@ static inline void _buffer_exec_cont_ctrl(pipe_t *pipe, dma_buffer_block_t *buff
     }
     // Activate the next control stage
     _buffer_exec_ctrl_stage(pipe, buffer, next_stage);
+    ESP_EARLY_LOGD(HCD_DWC_TAG, "buf cont: ep=0x%02x buf=%p urb=%p cur_stg=%u next_stg=%u",
+                   pipe->ep_char.bEndpointAddress, buffer, buffer->urb,
+                   (unsigned)buffer->flags.ctrl.cur_stg, (unsigned)next_stage);
+    buffer->flags.ctrl.cur_stg = next_stage;
+}
+
+/**
+ * @brief Continue a bulk transfer in buffer DMA mode
+ *
+ * The main data stage has completed; activate the trailing zero length packet.
+ *
+ * @param pipe Pipe object
+ * @param buffer Buffer being executed
+ */
+static inline void _buffer_exec_cont_bulk(pipe_t *pipe, dma_buffer_block_t *buffer)
+{
+    assert(buffer->flags.bulk.zero_len_packet);
+    assert(buffer->flags.bulk.cur_stg == BULK_XFER_STAGE_DATA);
+    // Save the actual bytes from the main data transfer before the next activation overwrites HCTSIZ
+    buffer->flags.bulk.actual_bytes = buffer->urb->transfer.num_bytes;
+    // Advance to the ZLP stage so _buffer_check_done() returns true once the ZLP completes
+    buffer->flags.bulk.cur_stg = BULK_XFER_STAGE_ZLP;
+    // Activate the ZLP using the PID that follows the completed main transfer
+    usb_dwc_hal_buffer_xfer_t xfer = {
+        .buf = buffer->urb->transfer.data_buffer,  // HW requires a valid DMA address even for len=0
+        .len = 0,
+        .pid = (int)usb_dwc_hal_chan_get_pid(pipe->chan_obj),
+        .is_in = false,
+    };
+    pipe->xact_err_cnt = 0;
+    usb_dwc_hal_chan_activate_buffer(pipe->chan_obj, &xfer, pipe->ep_char.mps, pipe->chan_obj->max_pkt_limit);
+    ESP_EARLY_LOGD(HCD_DWC_TAG, "buf cont (bulk ZLP): ep=0x%02x buf=%p urb=%p",
+                   pipe->ep_char.bEndpointAddress, buffer, buffer->urb);
 }
 #endif // CONFIG_USB_HOST_DMA_MODE_DESC
 
 static void _buffer_exec_cont(pipe_t *pipe)
 {
-    assert(pipe->ep_char.type == USB_DWC_XFER_TYPE_CTRL);
     dma_buffer_block_t *buffer_inflight = pipe->buffers[pipe->multi_buffer_control.rd_idx];
     assert(buffer_inflight->urb != NULL);
-    assert(buffer_inflight->flags.ctrl.cur_stg != CTRL_XFER_STAGE_STATUS);
 
-    ctrl_xfer_stage_t next_stage;
-    if (buffer_inflight->flags.ctrl.cur_stg == CTRL_XFER_STAGE_SETUP) { // Just finished setup stage
-        if (buffer_inflight->flags.ctrl.data_stg_skip) {
-            // Skipping data stage. Go straight to status stage
-            next_stage = CTRL_XFER_STAGE_STATUS;
-        } else {
-            // Go to data stage
-            next_stage = CTRL_XFER_STAGE_DATA;
-        }
-    } else {        // cur_stg == CTRL_XFER_STAGE_DATA. Just finished data stage. Go to status stage
-        next_stage = CTRL_XFER_STAGE_STATUS;
+    switch (pipe->ep_char.type) {
+    case USB_DWC_XFER_TYPE_CTRL: {
+        _buffer_exec_cont_ctrl(pipe, buffer_inflight);
+        break;
     }
-    // Continue the control transfer
-    _buffer_exec_cont_ctrl(pipe, buffer_inflight, next_stage);
-
-    ESP_EARLY_LOGD(HCD_DWC_TAG, "buf cont: ep=0x%02x buf=%p urb=%p cur_stg=%u next_stg=%u",
-                   pipe->ep_char.bEndpointAddress, buffer_inflight, buffer_inflight->urb,
-                   (unsigned)buffer_inflight->flags.ctrl.cur_stg, (unsigned)next_stage);
-    buffer_inflight->flags.ctrl.cur_stg = next_stage;
+#if CONFIG_USB_HOST_DMA_MODE_BUFFER
+    case USB_DWC_XFER_TYPE_BULK: {
+        _buffer_exec_cont_bulk(pipe, buffer_inflight);
+        break;
+    }
+#endif // CONFIG_USB_HOST_DMA_MODE_BUFFER
+    default: {
+        // Only control (both DMA modes) and bulk (buffer DMA mode) transfers are executed as multiple activations
+        abort();
+        break;
+    }
+    }
 }
 
 // ------------------------------------------------- Buffer parse ------------------------------------------------------
@@ -3079,8 +3289,17 @@ static inline void _buffer_parse_ctrl(dma_buffer_block_t *buffer)
     transfer->status = USB_TRANSFER_STATUS_COMPLETED;
 }
 
-/** @brief Bulk parse stub for buffer DMA mode (unsupported) */
-static inline void _buffer_parse_bulk(dma_buffer_block_t *buffer) {}
+/**
+ * @brief Parse a completed bulk transfer in buffer DMA mode
+ *
+ * @param buffer Buffer to parse
+ */
+static inline void _buffer_parse_bulk(dma_buffer_block_t *buffer)
+{
+    usb_transfer_t *transfer = &buffer->urb->transfer;
+    transfer->actual_num_bytes = (int)buffer->flags.bulk.actual_bytes;
+    transfer->status = USB_TRANSFER_STATUS_COMPLETED;
+}
 /** @brief Interrupt parse stub for buffer DMA mode (unsupported) */
 static inline void _buffer_parse_intr(dma_buffer_block_t *buffer, bool is_in, int mps) {}
 /** @brief Isochronous parse stub for buffer DMA mode (unsupported) */
@@ -3139,13 +3358,13 @@ static void _buffer_parse(pipe_t *pipe)
             _buffer_parse_ctrl(buffer_to_parse);
             break;
         }
+        case USB_DWC_XFER_TYPE_BULK: {
+            _buffer_parse_bulk(buffer_to_parse);
+            break;
+        }
 #if CONFIG_USB_HOST_DMA_MODE_DESC
         case USB_DWC_XFER_TYPE_ISOCHRONOUS: {
             _buffer_parse_isoc(buffer_to_parse, is_in);
-            break;
-        }
-        case USB_DWC_XFER_TYPE_BULK: {
-            _buffer_parse_bulk(buffer_to_parse);
             break;
         }
         case USB_DWC_XFER_TYPE_INTR: {

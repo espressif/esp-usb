@@ -131,6 +131,19 @@ void test_hcd_expect_pipe_event(hcd_pipe_handle_t pipe_hdl, hcd_pipe_event_t exp
     TEST_ASSERT_EQUAL_MESSAGE(expected_event, msg.pipe_event, "Unexpected pipe event");
 }
 
+hcd_pipe_event_t test_hcd_wait_for_pipe_event(hcd_pipe_handle_t pipe_hdl)
+{
+    // Get the pipe's event queue from the pipe's context variable
+    QueueHandle_t pipe_evt_queue = (QueueHandle_t)hcd_pipe_get_context(pipe_hdl);
+    TEST_ASSERT_NOT_NULL(pipe_evt_queue);
+    // Wait for pipe callback to send an event message, but do NOT assert on the event type
+    pipe_event_msg_t msg;
+    BaseType_t ret = xQueueReceive(pipe_evt_queue, &msg, pdMS_TO_TICKS(5000));
+    TEST_ASSERT_EQUAL_MESSAGE(pdPASS, ret, "Pipe event not generated on time");
+    TEST_ASSERT_EQUAL(pipe_hdl, msg.pipe_hdl);
+    return msg.pipe_event;
+}
+
 void test_hcd_expect_no_pipe_event(hcd_pipe_handle_t pipe_hdl)
 {
     // Get the pipe's event queue from the pipe's context variable
