@@ -264,7 +264,7 @@ struct pipe_obj {
     // Pipe status/state/events related
     hcd_pipe_state_t state;
     hcd_pipe_event_t last_event;
-    unsigned int xact_err_cnt;                  // Number of consecutive XactErr retries of the in-flight transfer (Buffer DMA mode)
+    unsigned int xact_err_cnt;                      // Number of consecutive XactErr retries of the in-flight transfer (Buffer DMA mode)
     volatile TaskHandle_t task_waiting_pipe_notif;  // Task handle used for internal pipe events. Set by waiter, cleared by notifier
     union {
         struct {
@@ -1031,7 +1031,16 @@ static hcd_pipe_event_t _intr_hdlr_chan(pipe_t *pipe, usb_dwc_hal_chan_t *chan_o
          */
 #if CONFIG_USB_HOST_DMA_MODE_BUFFER
         if (chan_error == USB_DWC_HAL_CHAN_ERROR_XCS_XACT && pipe->xact_err_cnt < XACT_ERR_RETRY_LIMIT) {
-            pipe->xact_err_cnt++;
+            if (chan_obj->flags.xact_err_nak_seen) {
+                /*
+                 * NAK/NYET/ACK was set alongside this XactErr (guide §5.1.2.3): a successful handshake
+                 * broke the consecutive-error streak. Reset the counter so the full 3-attempt window
+                 * starts fresh (equivalent to "Error_count = 1" in the guide's 1-based scheme).
+                 */
+                pipe->xact_err_cnt = 0;
+            } else {
+                pipe->xact_err_cnt++;
+            }
             usb_dwc_hal_chan_retry_buffer(chan_obj);
             // The buffer stays in the executing state; the retry's outcome is reported by the next channel interrupt
             break;
@@ -2679,7 +2688,7 @@ static inline void _buffer_exec_ctrl_stage(pipe_t *pipe, dma_buffer_block_t *buf
         xfer.is_in = buffer->flags.ctrl.data_stg_in;
         break;
     case CTRL_XFER_STAGE_STATUS:
-        xfer.buf = NULL;
+        xfer.buf = transfer->data_buffer;   // dummy buffer address (A valid DMA address is always required to be programmed); even if no data is transferred in this stage
         xfer.len = 0;
         xfer.pid = USB_DWC_HAL_PID_DATA1;
         xfer.is_in = buffer->flags.ctrl.data_stg_skip ? true : !buffer->flags.ctrl.data_stg_in;
