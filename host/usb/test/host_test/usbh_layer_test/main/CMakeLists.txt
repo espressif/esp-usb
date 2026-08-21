@@ -2,6 +2,7 @@ set(srcs)
 list(APPEND srcs "test_main.cpp"
                  "usbh_install_unit_test.cpp"
                  "usbh_control_completion_test.cpp"
+                 "hub_root_pm_unit_test.cpp"
                  )
 
 idf_component_register(SRCS  ${srcs}
