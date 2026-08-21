@@ -128,102 +128,105 @@ esp_err_t hub_root_start(void);
 esp_err_t hub_root_stop(void);
 
 /**
- * @brief Check if a root port is in suspended state
+ * @brief Check if the Hub driver's root ports are in suspended state
  *
- * This will check root port state. In multi-port configurations, this currently
- * checks the first enabled root port only.
+ * All the enabled root ports share a single power management state, thus the Hub driver is considered suspended
+ * only if no root port has an active (enabled) device. Root ports without a device are not taken into account.
  *
  * @return
- *    - true: Root port is in suspended state
- *    - false: Root port is in any other state
+ *    - true: At least one root port is suspended and no root port is active
+ *    - false: Any root port is active, or no root port is suspended
  */
 bool hub_root_is_suspended(void);
 
 /**
- * @brief Check if the Hub driver's root port can be suspended
+ * @brief Check if the Hub driver's root ports can be suspended
  *
- * This will check if all HCD pipes are idle and which state the root port is in.
- * In multi-port configurations, this currently checks the first enabled root port only.
+ * This will check if all HCD pipes are idle and which state the root ports are in.
+ * All the root ports with an active device are checked, root ports without a device are skipped.
  *
  * @return
- *    - ESP_OK: Hub driver's root port can be suspended
+ *    - ESP_OK: Hub driver's root ports can be suspended
  *    - ESP_ERR_INVALID_STATE: Hub driver is not installed
- *    - ESP_ERR_NOT_FINISHED: HCD pipes routed through this port are still executing
- *    - ESP_ERR_TIMEOUT: Root port is already issuing a suspend command and is within a SUSPEND_ENTRY_MS timeout
- *    - ESP_ERR_NOT_ALLOWED: Root port is in other than enabled state
+ *    - ESP_ERR_NOT_FINISHED: HCD pipes routed through any of the root ports are still executing
+ *    - ESP_ERR_TIMEOUT: All the root ports are already issuing a suspend command and are within a SUSPEND_ENTRY_MS timeout
+ *    - ESP_ERR_NOT_ALLOWED: No root port is in enabled state
  */
 esp_err_t hub_root_can_suspend(void);
 
 /**
- * @brief Check if the Hub driver's root port can be resumed
+ * @brief Check if the Hub driver's root ports can be resumed
  *
- * In multi-port configurations, this currently checks the first enabled root port only.
+ * All the suspended root ports are checked.
  *
  * @return
- *    - ESP_OK: Hub driver's root port can be resumed
+ *    - ESP_OK: At least one root port can be resumed
  *    - ESP_ERR_INVALID_STATE: Hub driver is not installed
- *    - ESP_ERR_TIMEOUT: Root port is already issuing a resume command and is within a RESUME_RECOVERY_MS,
+ *    - ESP_ERR_TIMEOUT: The root ports are already issuing a resume command and are within a RESUME_RECOVERY_MS,
  *      or a RESUME_HOLD_MS timeout
- *    - ESP_ERR_NOT_ALLOWED: Root port is in other than suspended state, or HCD port is in incorrect state
+ *    - ESP_ERR_NOT_ALLOWED: No root port is in suspended state, or all HCD ports are in incorrect state
  */
 esp_err_t hub_root_can_resume(void);
 
 /**
- * @brief Mark the Hub driver's root port as ready for suspend
+ * @brief Mark the Hub driver's root ports as ready for suspend
  *
- * This will mark the root port as ready to be suspended and will be processed by the hub processing loop.
- * In multi-port configurations, this currently targets the first enabled root port only.
+ * This will mark all the root ports with an active device as ready to be suspended and will be processed by the hub
+ * processing loop. Root ports without a device are left untouched.
  *
  * @return
- *    - ESP_OK: Hub driver suspended successfully
+ *    - ESP_OK: At least one root port marked to be suspended
  *    - ESP_ERR_INVALID_STATE: Hub driver is not installed
- *    - ESP_ERR_NOT_ALLOWED: Root port is in other than enabled state
+ *    - ESP_ERR_NOT_ALLOWED: No root port is in enabled state
  */
 esp_err_t hub_root_mark_suspend(void);
 
 /**
- * @brief Mark the Hub driver's root port as ready for resume
+ * @brief Mark the Hub driver's root ports as ready for resume
  *
- * This will mark the root port as ready to be resumed and will be processed by the hub processing loop.
- * In multi-port configurations, this currently targets the first enabled root port only.
+ * This will mark all the suspended root ports as ready to be resumed and will be processed by the hub processing loop.
+ * All the root ports are resumed together, so that they always end up in the same power management state.
  *
  * @return
- *    - ESP_OK: Hub driver resumed successfully
+ *    - ESP_OK: At least one root port marked to be resumed
  *    - ESP_ERR_INVALID_STATE: Hub driver is not installed
- *    - ESP_ERR_NOT_ALLOWED: Root port is in other than suspended state
+ *    - ESP_ERR_NOT_ALLOWED: No root port is in suspended state
  */
 esp_err_t hub_root_mark_resume(void);
 
 #ifdef AUTO_PM_LIGHT_SLEEP
 
 /**
- * @brief Mark the Hub driver's root port as ready to exit the light sleep
+ * @brief Mark the Hub driver's root ports as ready to exit the light sleep
  *
- * This will mark the root port as ready to exit light sleep and will be processed by the hub processing loop.
- * In multi-port configurations, this currently targets the first enabled root port only.
+ * This will mark all the suspended root ports as ready to exit light sleep and will be processed by the hub
+ * processing loop. All the root ports enter and exit light sleep together.
  * @note This function:
- *   - Delivers deferred suspend notification (as the root port had entered the light sleep before) to the clients
+ *   - Delivers deferred suspend notification (as the root ports had entered the light sleep before) to the clients
  *   - Treats potential device disconnect in the light sleep, if that happened no suspend notification will be delivered
  *
  * @return
  *    - ESP_OK: Hub driver marked to exit light sleep successfully
  *    - ESP_ERR_INVALID_STATE: Hub driver is not installed
- *    - ESP_ERR_NOT_ALLOWED: Root port is in other than suspended state
+ *    - ESP_ERR_NOT_ALLOWED: No root port is in suspended state
  */
 esp_err_t hub_root_mark_exit_light_sleep(void);
 
 /**
  * @brief Minimal root suspend for automatic light sleep (synchronous)
  *
- * Halt and flush all device endpoints, issue HCD_PORT_CMD_SUSPEND_LIGHT_SLEEP on the root port, mark the root hub
- * suspended, and update USBH device suspended state without client-visible suspend events (those follow on resume).
+ * Halt and flush all device endpoints, issue HCD_PORT_CMD_SUSPEND_LIGHT_SLEEP on every root port with an active
+ * device, mark the root hub suspended, and update USBH device suspended state without client-visible suspend events
+ * (those follow on resume).
  *
  * @note The device actions are done synchronously to decrease enter light sleep latency
+ * @note The state of all the root ports is validated before any of them is suspended, so that the SoC never enters
+ *       light sleep with one bus suspended and another one active
  *
  * @return
- *   - ESP_OK: Root port successfully suspended, already suspended, powered off, or no device connected
+ *   - ESP_OK: Root ports successfully suspended, already suspended, powered off, or no device connected
  *   - ESP_ERR_INVALID_STATE: Hub driver is in invalid state
- *   - ESP_ERR_NOT_FINISHED: HCD port is not in a correct state to be suspended (executing reset, recovery, resume sequence..)
+ *   - ESP_ERR_NOT_FINISHED: Any HCD port is not in a correct state to be suspended (executing reset, recovery, resume sequence..)
  *   - Other errors from calling functions
  */
 esp_err_t hub_root_light_sleep_suspend_bus(void);

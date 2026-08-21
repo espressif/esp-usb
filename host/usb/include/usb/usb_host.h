@@ -96,7 +96,8 @@ typedef struct {
 typedef struct {
     int num_devices;            /**< Current number of connected (and enumerated) devices */
     int num_clients;            /**< Current number of registered clients */
-    bool root_port_suspended;   /**< Current status of the root port (suspended/resumed) */
+    bool root_port_suspended;   /**< Current status of the root ports (suspended/resumed). In dual host configuration,
+                                     this is true only if all the root ports with a connected device are suspended */
 } usb_host_lib_info_t;
 
 // ---------------------- Callbacks ------------------------
@@ -267,35 +268,41 @@ esp_err_t usb_host_lib_info(usb_host_lib_info_t *info_ret);
 esp_err_t usb_host_lib_set_root_port_power(bool enable);
 
 /**
- * @brief Suspend the root port
+ * @brief Suspend the root ports
  *
  * - The function checks, if a device is connected and if a transfer is submitted
- * - Then halts and flushes all endpoints of all the connected devices and suspends the root port
+ * - Then halts and flushes all endpoints of all the connected devices and suspends the root ports
  * - Finally, it notifies all the clients which opened the device, that the device is now suspended
  *
  * @note Remote wakeup from device is not implemented yet
- * @note The root port and the devices are not suspended immediately after returning from this function, this function
- *       only sets actions for devices and root port, which are handled by the usb_host_lib_handle_events() in separate task.
+ * @note The root ports and the devices are not suspended immediately after returning from this function, this function
+ *       only sets actions for devices and root ports, which are handled by the usb_host_lib_handle_events() in separate task.
+ * @note This is a global suspend. In dual host configuration, all the root ports with a connected device are suspended.
+ *       Root ports without a device are not affected. Selective suspend of a single device or a single root port is
+ *       not supported.
  * @return
- *    - ESP_OK: Root port marked to be suspended, or already issuing a suspend sequence
+ *    - ESP_OK: Root ports marked to be suspended, or already issuing a suspend sequence
  *    - ESP_ERR_NOT_FOUND: No device is connected
- *    - ESP_ERR_INVALID_STATE: Root port is not in correct state to be suspended
+ *    - ESP_ERR_INVALID_STATE: No root port is in correct state to be suspended
  */
 esp_err_t usb_host_lib_root_port_suspend(void);
 
 /**
- * @brief Resume the root port from suspended state
+ * @brief Resume the root ports from suspended state
  *
- * - The function resumes the root port from suspended state
+ * - The function resumes the root ports from suspended state
  * - Then resumes all the endpoints of all the connected devices
  * - Finally, it notifies all the clients which opened the device, that the device is now resumed
  *
- * @note The root port and the devices are not resumed immediately after returning from this function, this function
- *       only sets actions for devices and root port, which are handled by the usb_host_lib_handle_events() in separate task.
+ * @note The root ports and the devices are not resumed immediately after returning from this function, this function
+ *       only sets actions for devices and root ports, which are handled by the usb_host_lib_handle_events() in separate task.
+ * @note This is a global resume. In dual host configuration, all the suspended root ports are resumed, so that all
+ *       the root ports always end up in the same power management state. A device attach, a remote wakeup, or a
+ *       transfer submission on one root port therefore resumes the other root port as well.
  * @return
- *    - ESP_OK: Root port marked to be resumed, or already issuing a resume sequence
+ *    - ESP_OK: Root ports marked to be resumed, or already issuing a resume sequence
  *    - ESP_ERR_NOT_FOUND: No device is connected
- *    - ESP_ERR_INVALID_STATE: Root port is not in correct state to be resumed
+ *    - ESP_ERR_INVALID_STATE: No root port is in correct state to be resumed
  */
 esp_err_t usb_host_lib_root_port_resume(void);
 
