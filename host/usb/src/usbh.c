@@ -1170,7 +1170,7 @@ unlock:
 }
 #endif // AUTO_PM_LIGHT_SLEEP
 
-void usbh_devs_set_pm_actions_all(usbh_dev_ctrl_t device_ctrl)
+void usbh_devs_set_pm_actions(usbh_dev_ctrl_t device_ctrl, hcd_port_handle_t root_port_hdl)
 {
     USBH_ENTER_CRITICAL();
     /*
@@ -1189,15 +1189,21 @@ void usbh_devs_set_pm_actions_all(usbh_dev_ctrl_t device_ctrl)
             dev_obj_cur = TAILQ_FIRST(&p_usbh_obj->dynamic.devs_idle_tailq);
         }
         while (dev_obj_cur != NULL) {
+            // Keep a copy of the next item first in case we remove the current item
+            dev_obj_next = TAILQ_NEXT(dev_obj_cur, dynamic.tailq_entry);
+            if (root_port_hdl != NULL && dev_obj_cur->constant.port_hdl != root_port_hdl) {
+                dev_obj_cur = dev_obj_next;
+                continue;
+            }
             /*
             Decode the device_ctrl to dev_actions flags for this particular device.
-            The suspend/resume events are only relevant for devices that are not/are suspended: In dual host
-            configuration a device can attach to one root port while another root port is still suspended. Resuming
-            that root port must not touch the freshly attached device, as restoring its last_state would take it out
-            of the DEFAULT state and abort its enumeration.
+            Suspend/resume events are only relevant for devices that are not/are suspended.
+            When both a suspend and a resume event are requested (light-sleep deferred
+            notify plus an immediate resume), apply the suspend first so the resume
+            can restore last_state instead of leaving the device stuck suspended.
             */
             uint32_t dev_actions_flags = 0;
-            const bool dev_suspended = (dev_obj_cur->dynamic.state == USB_DEVICE_STATE_SUSPENDED);
+            bool dev_suspended = (dev_obj_cur->dynamic.state == USB_DEVICE_STATE_SUSPENDED);
 
             if (device_ctrl & USBH_DEV_SUSPEND) {
                 dev_actions_flags |= (DEV_ACTION_EPn_HALT_FLUSH | DEV_ACTION_EP0_FLUSH);
@@ -1208,21 +1214,22 @@ void usbh_devs_set_pm_actions_all(usbh_dev_ctrl_t device_ctrl)
                 dev_obj_cur->dynamic.last_state = dev_obj_cur->dynamic.state;
                 dev_obj_cur->dynamic.state = USB_DEVICE_STATE_SUSPENDED;
                 dev_actions_flags |= DEV_ACTION_PROP_SUSPEND_EVT;
+                dev_suspended = true;
             }
 
-            if (dev_suspended) {
-                if (device_ctrl & USBH_DEV_RESUME) {
-                    dev_actions_flags |= (DEV_ACTION_EP0_CLEAR | DEV_ACTION_EPn_CLEAR);
-                }
-                if (device_ctrl & USBH_DEV_RESUME_EVT) {
-                    // Set the device state, to the state in which it was before suspending
-                    dev_obj_cur->dynamic.state = dev_obj_cur->dynamic.last_state;
-                    dev_actions_flags |= DEV_ACTION_PROP_RESUME_EVT;
-                }
+            if (device_ctrl & USBH_DEV_RESUME) {
+                // Endpoint clear is scoped by root_port_hdl (or applies to every
+                // device when the handle is NULL). Do not require USBH-suspended
+                // state: light-sleep auto-suspend halt/flushes without marking
+                // devices suspended, and an aborted sleep must still unhalt them.
+                dev_actions_flags |= (DEV_ACTION_EP0_CLEAR | DEV_ACTION_EPn_CLEAR);
+            }
+            if ((device_ctrl & USBH_DEV_RESUME_EVT) && dev_suspended) {
+                // Set the device state, to the state in which it was before suspending
+                dev_obj_cur->dynamic.state = dev_obj_cur->dynamic.last_state;
+                dev_actions_flags |= DEV_ACTION_PROP_RESUME_EVT;
             }
 
-            // Keep a copy of the next item first in case we remove the current item
-            dev_obj_next = TAILQ_NEXT(dev_obj_cur, dynamic.tailq_entry);
             call_proc_req_cb |= _dev_set_actions(dev_obj_cur, dev_actions_flags);
             dev_obj_last = dev_obj_cur;
             dev_obj_cur = dev_obj_next;
@@ -1238,6 +1245,11 @@ void usbh_devs_set_pm_actions_all(usbh_dev_ctrl_t device_ctrl)
     if (call_proc_req_cb) {
         p_usbh_obj->constant.proc_req_cb(USB_PROC_REQ_SOURCE_USBH, false, p_usbh_obj->constant.proc_req_cb_arg);
     }
+}
+
+void usbh_devs_set_pm_actions_all(usbh_dev_ctrl_t device_ctrl)
+{
+    usbh_devs_set_pm_actions(device_ctrl, NULL);
 }
 
 static esp_err_t _dev_open(device_t *dev_obj)

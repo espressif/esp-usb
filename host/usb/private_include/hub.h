@@ -221,7 +221,8 @@ esp_err_t hub_root_mark_exit_light_sleep(void);
  *
  * @note The device actions are done synchronously to decrease enter light sleep latency
  * @note The state of all the root ports is validated before any of them is suspended, so that the SoC never enters
- *       light sleep with one bus suspended and another one active
+ *       light sleep with one bus suspended and another one active. If a later root port then fails to suspend,
+ *       already-suspended ports are resumed and the function fails so the SoC does not sleep in a split PM state.
  *
  * @return
  *   - ESP_OK: Root ports successfully suspended, already suspended, powered off, or no device connected

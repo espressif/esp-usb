@@ -557,7 +557,7 @@ After the SoC exits light sleep, the root port is kept suspended until the appli
 
 .. only:: esp32p4
 
-    In dual host configuration, all the root ports with a connected device enter and exit light sleep together. The state of every root port is validated before any of them is suspended, so the SoC never enters light sleep with one bus suspended and the other one still sending SOFs. If any root port is busy (for example executing a reset or a recovery sequence), the pre-sleep suspend is skipped entirely.
+    In dual host configuration, all the root ports with a connected device enter and exit light sleep together. The state of every root port is validated before any of them is suspended, so the SoC never enters light sleep with one bus suspended and the other one still sending SOFs. If any root port is busy (for example executing a reset or a recovery sequence), the pre-sleep suspend is skipped entirely. If a later root port then fails to suspend, already-suspended ports are resumed and light sleep is rejected, so the Host does not remain in a split power-management state.
 
 Kconfig prerequisites
 """""""""""""""""""""

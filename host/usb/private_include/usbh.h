@@ -323,6 +323,23 @@ esp_err_t usbh_devs_mark_all_free(void);
  */
 void usbh_devs_set_pm_actions_all(usbh_dev_ctrl_t device_ctrl);
 
+/**
+ * @brief Mark devices hanging off a root port with a power management related device action
+ *
+ * Same as usbh_devs_set_pm_actions_all(), but only devices whose root port matches
+ * @p root_port_hdl are updated. Pass NULL to update every device.
+ *
+ * Dual-host suspend/resume transitions are applied per root port so that a
+ * sibling-port attach or a mixed suspend+resume pass cannot rewrite another
+ * port's device state. When both a suspend event and a resume event are
+ * requested, the suspend is applied first and the resume follows, which is
+ * the light-sleep deferred-notify plus immediate resume sequence.
+ *
+ * @param[in] device_ctrl   Device control command
+ * @param[in] root_port_hdl Root port to target, or NULL for every device
+ */
+void usbh_devs_set_pm_actions(usbh_dev_ctrl_t device_ctrl, hcd_port_handle_t root_port_hdl);
+
 #ifdef AUTO_PM_LIGHT_SLEEP
 /**
  * @brief Halt and flush all endpoints on all devices (synchronous)

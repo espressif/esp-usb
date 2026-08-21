@@ -9,6 +9,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Fixed
 
 - Global suspend/resume and the automatic suspend before light sleep now cover all the root ports. In dual host configuration on ESP32-P4 only the first root port used to be suspended, leaving the second USB-OTG controller sending SOFs. All the root ports are now kept in the same power management state: a device attach, a remote wakeup, or a transfer submission on one root port resumes the other one as well.
+- Dual-host power management actions are applied per root port. Combining a sibling-port attach or a light-sleep deferred suspend with a resume no longer marks a freshly attached device suspended or leaves devices stuck in USB_DEVICE_STATE_SUSPENDED.
+- Automatic light-sleep suspend rolls back any root port that already entered suspend if a later root port fails, so a rejected sleep cannot leave one bus sending SOFs and the other suspended.
 
 ## [1.5.0] - 2026-06-16
 

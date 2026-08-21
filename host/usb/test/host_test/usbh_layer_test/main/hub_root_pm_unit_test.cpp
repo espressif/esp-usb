@@ -448,3 +448,76 @@ SCENARIO("Hub root PM: attach on one root port resumes the other one")
         uninstall_hub(BIT0 | BIT1);
     }
 }
+
+SCENARIO("Hub root PM: combined suspend+resume events restore the original device state")
+{
+    GIVEN("Both root ports enabled with a connected device") {
+        install_hub(BIT0 | BIT1);
+        connect_device(0);
+        connect_device(1);
+
+        WHEN("A deferred suspend and an immediate resume are applied together") {
+            /*
+            Light-sleep auto-suspend does not mark USBH devices suspended. Waking by
+            transfer-submit or sibling attach therefore queues SUSPEND_EVT (deferred
+            notify) together with RESUME_EVT. Those flags must be applied in order
+            or every device stays USB_DEVICE_STATE_SUSPENDED and enumeration dies.
+            */
+            usbh_devs_set_pm_actions_all(static_cast<usbh_dev_ctrl_t>(
+                                             USBH_DEV_SUSPEND_EVT | USBH_DEV_RESUME | USBH_DEV_RESUME_EVT));
+            REQUIRE(ESP_OK == usbh_process());
+
+            THEN("Each device is suspended and then resumed exactly once") {
+                REQUIRE(s_num_dev_suspend_events == 2);
+                REQUIRE(s_num_dev_resume_events == 2);
+            }
+
+            THEN("The freshly connected devices are still in DEFAULT and can be enumerated") {
+                usb_device_handle_t dev_hdl;
+                REQUIRE(ESP_OK == usbh_devs_open_uid(s_last_connected_uid, &dev_hdl));
+                REQUIRE(ESP_OK == usbh_dev_enum_lock(dev_hdl));
+                REQUIRE(ESP_OK == usbh_dev_set_ep0_mps(dev_hdl, 64));
+                REQUIRE(ESP_OK == usbh_dev_enum_unlock(dev_hdl));
+                REQUIRE(ESP_OK == usbh_dev_close(dev_hdl));
+            }
+        }
+
+        uninstall_hub(BIT0 | BIT1);
+    }
+}
+
+SCENARIO("Hub root PM: PM actions target only devices on the requested root port")
+{
+    GIVEN("Both root ports enabled with a connected device") {
+        install_hub(BIT0 | BIT1);
+        connect_device(0);
+        const unsigned int uid_port0 = s_last_connected_uid;
+        connect_device(1);
+
+        usb_device_handle_t dev0;
+        hcd_port_handle_t port0_hdl;
+        REQUIRE(ESP_OK == usbh_devs_open_uid(uid_port0, &dev0));
+        REQUIRE(ESP_OK == usbh_dev_get_root_port_hdl(dev0, &port0_hdl));
+        REQUIRE(ESP_OK == usbh_dev_close(dev0));
+
+        WHEN("Only the first root port is marked suspended") {
+            usbh_devs_set_pm_actions(USBH_DEV_SUSPEND_EVT, port0_hdl);
+            REQUIRE(ESP_OK == usbh_process());
+
+            THEN("Only the device hanging off that root port is suspended") {
+                REQUIRE(s_num_dev_suspend_events == 1);
+                REQUIRE(s_num_dev_resume_events == 0);
+            }
+
+            THEN("A resume of that root port does not resume the sibling device") {
+                usbh_devs_set_pm_actions(static_cast<usbh_dev_ctrl_t>(USBH_DEV_RESUME | USBH_DEV_RESUME_EVT),
+                                         port0_hdl);
+                REQUIRE(ESP_OK == usbh_process());
+                REQUIRE(s_num_dev_resume_events == 1);
+                REQUIRE(s_num_dev_suspend_events == 1);
+            }
+        }
+
+        uninstall_hub(BIT0 | BIT1);
+    }
+}
