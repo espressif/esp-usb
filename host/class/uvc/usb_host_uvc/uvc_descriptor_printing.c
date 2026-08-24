@@ -1,11 +1,13 @@
 /*
- * SPDX-FileCopyrightText: 2024-2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2024-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
 
 #include <stdio.h>
+#include <stddef.h>
 #include <string.h>
+#include <sys/param.h>
 
 #include "usb/usb_host.h"
 #include "usb/uvc_host.h"
@@ -201,12 +203,17 @@ static void print_vs_frame_mjpeg_desc(const usb_standard_desc_t *_desc)
 
     if (desc->mjpeg_uncompressed.bFrameIntervalType == 0) {
         // Continuous Frame Intervals
-        printf("\tdwMinFrameInterval %"PRIu32"\n",  desc->mjpeg_uncompressed.dwMinFrameInterval);
-        printf("\tdwMaxFrameInterval %"PRIu32"\n",  desc->mjpeg_uncompressed.dwMaxFrameInterval);
-        printf("\tdwFrameIntervalStep %"PRIu32"\n", desc->mjpeg_uncompressed.dwFrameIntervalStep);
+        if (desc->bLength >= offsetof(uvc_frame_desc_t, mjpeg_uncompressed.dwFrameInterval) + (3 * sizeof(uint32_t))) {
+            printf("\tdwMinFrameInterval %"PRIu32"\n",  desc->mjpeg_uncompressed.dwMinFrameInterval);
+            printf("\tdwMaxFrameInterval %"PRIu32"\n",  desc->mjpeg_uncompressed.dwMaxFrameInterval);
+            printf("\tdwFrameIntervalStep %"PRIu32"\n", desc->mjpeg_uncompressed.dwFrameIntervalStep);
+        }
     } else {
-        // Discrete Frame Intervals
-        for (int i = 0; i < desc->mjpeg_uncompressed.bFrameIntervalType; ++i) {
+        // Discrete Frame Intervals — clamp to bLength (BBP 573)
+        const size_t offset = offsetof(uvc_frame_desc_t, mjpeg_uncompressed.dwFrameInterval);
+        const size_t avail = (desc->bLength > offset) ? (desc->bLength - offset) / sizeof(uint32_t) : 0;
+        const int count = (int)MIN((size_t)desc->mjpeg_uncompressed.bFrameIntervalType, avail);
+        for (int i = 0; i < count; ++i) {
             printf("\tFrameInterval[%d] %"PRIu32"\n", i, desc->mjpeg_uncompressed.dwFrameInterval[i]);
         }
     }
@@ -249,12 +256,17 @@ static void print_vs_frame_frame_based_desc(const usb_standard_desc_t *_desc)
 
     if (desc->frame_based.bFrameIntervalType == 0) {
         // Continuous Frame Intervals
-        printf("\tdwMinFrameInterval %"PRIu32"\n",  desc->frame_based.dwMinFrameInterval);
-        printf("\tdwMaxFrameInterval %"PRIu32"\n",  desc->frame_based.dwMaxFrameInterval);
-        printf("\tdwFrameIntervalStep %"PRIu32"\n", desc->frame_based.dwFrameIntervalStep);
+        if (desc->bLength >= offsetof(uvc_frame_desc_t, frame_based.dwFrameInterval) + (3 * sizeof(uint32_t))) {
+            printf("\tdwMinFrameInterval %"PRIu32"\n",  desc->frame_based.dwMinFrameInterval);
+            printf("\tdwMaxFrameInterval %"PRIu32"\n",  desc->frame_based.dwMaxFrameInterval);
+            printf("\tdwFrameIntervalStep %"PRIu32"\n", desc->frame_based.dwFrameIntervalStep);
+        }
     } else {
-        // Discrete Frame Intervals
-        for (int i = 0; i < desc->frame_based.bFrameIntervalType; ++i) {
+        // Discrete Frame Intervals — clamp to bLength (BBP 573)
+        const size_t offset = offsetof(uvc_frame_desc_t, frame_based.dwFrameInterval);
+        const size_t avail = (desc->bLength > offset) ? (desc->bLength - offset) / sizeof(uint32_t) : 0;
+        const int count = (int)MIN((size_t)desc->frame_based.bFrameIntervalType, avail);
+        for (int i = 0; i < count; ++i) {
             printf("\tFrameInterval[%d] %"PRIu32"\n", i, desc->frame_based.dwFrameInterval[i]);
         }
     }

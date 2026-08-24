@@ -6,6 +6,7 @@
 
 #include <inttypes.h>
 #include <stdio.h>
+#include <stddef.h>
 #include <string.h>
 #include <sys/queue.h>
 #include "freertos/FreeRTOS.h"
@@ -897,6 +898,11 @@ static void notif_xfer_cb(usb_transfer_t *transfer)
             break;
         }
         case USB_CDC_NOTIF_SERIAL_STATE: {
+            // Notification header is 8 bytes; SERIAL_STATE carries a 2-byte bitmap (BBP 573 sibling).
+            if (transfer->actual_num_bytes < (int)(offsetof(cdc_notification_t, Data) + sizeof(uint16_t))) {
+                ESP_LOGW(TAG, "SERIAL_STATE notification too short (%d bytes)", transfer->actual_num_bytes);
+                break;
+            }
             cdc_dev->serial_state.val = *((uint16_t *)notif->Data);
             if (cdc_dev->notif.cb) {
                 const cdc_acm_host_dev_event_data_t serial_state_event = {

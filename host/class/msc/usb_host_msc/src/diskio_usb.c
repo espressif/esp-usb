@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2015-2023 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2015-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -12,6 +12,8 @@
 #include "msc_scsi_bot.h"
 #include "msc_common.h"
 #include "usb/usb_types_stack.h"
+#include <inttypes.h>
+#include <stdint.h>
 
 static usb_disk_t *s_disks[FF_VOLUMES] = { NULL };
 
@@ -76,7 +78,16 @@ static DRESULT usb_disk_ioctl (BYTE pdrv, BYTE cmd, void *buff)
         *((DWORD *) buff) = disk->block_count;
         return RES_OK;
     case GET_SECTOR_SIZE:
-        *((WORD *) buff) = disk->block_size;
+        // FatFS sector window is sized from this WORD; refuse sizes that would
+        // truncate or exceed FF_MAX_SS while disk_read still transfers block_size.
+        if (disk->block_size < FF_MIN_SS ||
+                disk->block_size > FF_MAX_SS ||
+                disk->block_size > UINT16_MAX ||
+                (disk->block_size & (disk->block_size - 1)) != 0) {
+            ESP_LOGE(TAG, "Unsupported block_size %"PRIu32, (uint32_t)disk->block_size);
+            return RES_ERROR;
+        }
+        *((WORD *) buff) = (WORD) disk->block_size;
         return RES_OK;
     case GET_BLOCK_SIZE:
         return RES_ERROR;
