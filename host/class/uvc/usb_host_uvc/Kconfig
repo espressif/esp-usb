@@ -24,4 +24,10 @@ menu "USB HOST UVC"
         default y
         help
             "If ERR is set in the header, this is an error packet, and the frame will be discarded"
+
+    config UVC_CHECK_PAYLOAD_HEADER_SOI
+        bool "Check SOI bit in payload header"
+        default y
+        help
+            "If SOI is set in the header, this is an error packet, and the frame will be discarded"
 endmenu
