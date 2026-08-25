@@ -111,6 +111,25 @@ void isoc_transfer_callback(usb_transfer_t *transfer)
 
         const bool start_of_frame = (uvc_stream->single_thread.current_frame_id != payload_header->bmHeaderInfo.frame_id);
         if (start_of_frame) {
+            /* A frame still open at the frame-ID toggle means the camera sent no EoF.
+             * Deliver it here, while skip_current_frame still describes it. */
+            UVC_ENTER_CRITICAL();
+            uvc_host_frame_t *unterminated_frame = uvc_stream->dynamic.current_frame;
+            uvc_stream->dynamic.current_frame = NULL;
+            const bool invoke_unterminated_cb = (uvc_stream->dynamic.streaming && uvc_stream->constant.frame_cb &&
+                                                 unterminated_frame && !uvc_stream->single_thread.skip_current_frame);
+            UVC_EXIT_CRITICAL();
+
+            if (unterminated_frame) {
+                bool return_frame = true;
+                if (invoke_unterminated_cb) {
+                    return_frame = uvc_stream->constant.frame_cb(unterminated_frame, uvc_stream->constant.cb_arg);
+                }
+                if (return_frame) {
+                    uvc_host_frame_return(uvc_stream, unterminated_frame);
+                }
+            }
+
             // We detected start of new frame. Update Frame ID and start fetching this frame
             uvc_stream->single_thread.current_frame_id   = payload_header->bmHeaderInfo.frame_id;
 #ifdef CONFIG_UVC_CHECK_PAYLOAD_HEADER_ERR
@@ -148,33 +167,8 @@ void isoc_transfer_callback(usb_transfer_t *transfer)
                     goto next_isoc_packet;
                 }
             } else {
-                /* SoF with a frame still open means the previous frame carried no EoF flag.
-                 * Some cameras never set it - observed on a Logitech H.264 stream, where
-                 * 21 MB of valid payloads produced zero delivered frames on every
-                 * alternate setting - so the frame-ID toggle is the only frame boundary
-                 * available. Deliver what we have instead of discarding it, mirroring the
-                 * tolerance the bulk path gained in 2.5.1. */
-                uvc_host_frame_t *this_frame = uvc_stream->dynamic.current_frame;
-                uvc_stream->dynamic.current_frame = NULL;
-                const bool invoke_fb_callback = (uvc_stream->dynamic.streaming && uvc_stream->constant.frame_cb &&
-                                                 this_frame && !uvc_stream->single_thread.skip_current_frame);
+                // Streaming was stopped in the meantime, do not take a new frame buffer
                 UVC_EXIT_CRITICAL();
-
-                bool return_frame = true;
-                if (invoke_fb_callback) {
-                    return_frame = uvc_stream->constant.frame_cb(this_frame, uvc_stream->constant.cb_arg);
-                }
-                if (return_frame && this_frame) {
-                    uvc_host_frame_return(uvc_stream, this_frame);
-                }
-
-                /* Start a new frame for the payload that triggered this SoF. */
-                uvc_stream->single_thread.skip_current_frame = payload_header->bmHeaderInfo.error;
-                uvc_stream->dynamic.current_frame = uvc_frame_get_empty(uvc_stream);
-                if (uvc_stream->dynamic.current_frame == NULL) {
-                    uvc_stream->single_thread.skip_current_frame = true;
-                    goto next_isoc_packet;
-                }
             }
         }
 
