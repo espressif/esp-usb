@@ -20,6 +20,7 @@
 #include "mock_msc.h"
 #include "phy_common.h"
 #include "unity.h"
+#include "esp_log.h"
 #include "sdkconfig.h"
 
 // ----------------------------------------------------- Macros --------------------------------------------------------
@@ -28,6 +29,8 @@
 #define ENUM_ADDR               1   // Device address to use for tests that enumerate the device
 #define ENUM_CONFIG             1   // Device configuration number to use for tests that enumerate the device
 #define TRANSFER_MAX_BYTES      256
+
+static const char *TAG = "HCD";
 
 typedef struct {
     hcd_port_handle_t port_hdl;
@@ -235,7 +238,7 @@ void test_hcd_expect_port_event_impl(hcd_port_handle_t port_hdl, hcd_port_event_
         snprintf(err_msg_buf, sizeof(err_msg_buf), "Unexpected port event at %s:%d\n %s expected, %s delivered", file, line, port_event_str(expected_event), port_event_str(msg.port_event));
         TEST_FAIL_MESSAGE(err_msg_buf);
     }
-    printf("\t-> Port event\n");
+    ESP_LOGD(TAG, "-> Port event");
 }
 
 void test_hcd_expect_pipe_event_impl(hcd_pipe_handle_t pipe_hdl, hcd_pipe_event_t expected_event, const char *file, int line)
@@ -359,19 +362,19 @@ usb_speed_t test_hcd_wait_for_conn(hcd_port_handle_t port_hdl)
     TEST_ASSERT_EQUAL(ESP_OK, hcd_port_command(port_hdl, HCD_PORT_CMD_POWER_ON));
     TEST_HCD_EXPECT_PORT_STATE(port_hdl, HCD_PORT_STATE_DISCONNECTED);
     // Wait for connection event
-    printf("Waiting for connection\n");
+    ESP_LOGI(TAG, "Waiting for connection");
     TEST_HCD_EXPECT_PORT_EVENT(port_hdl, HCD_PORT_EVENT_CONNECTION);
     TEST_ASSERT_EQUAL(HCD_PORT_EVENT_CONNECTION, hcd_port_handle_event(port_hdl));
     TEST_HCD_EXPECT_PORT_STATE(port_hdl, HCD_PORT_STATE_DISABLED);
     // Reset newly connected device
-    printf("Resetting\n");
+    ESP_LOGI(TAG, "Resetting");
     TEST_ASSERT_EQUAL(ESP_OK, hcd_port_command(port_hdl, HCD_PORT_CMD_RESET));
     TEST_HCD_EXPECT_PORT_STATE(port_hdl, HCD_PORT_STATE_ENABLED);
     // Get speed of connected
     usb_speed_t port_speed;
     TEST_ASSERT_EQUAL(ESP_OK, hcd_port_get_speed(port_hdl, &port_speed));
     TEST_ASSERT_LESS_OR_EQUAL_MESSAGE(USB_SPEED_HIGH, port_speed, "Invalid port speed");
-    printf("%s speed enabled\n", (char *[]) {
+    ESP_LOGI(TAG, "%s speed enabled", (char *[]) {
         "Low", "Full", "High"
     }[port_speed]);
     return port_speed;
@@ -381,11 +384,11 @@ void test_hcd_wait_for_disconn(hcd_port_handle_t port_hdl, bool already_disabled
 {
     if (!already_disabled) {
         // Disable the device
-        printf("Disabling\n");
+        ESP_LOGI(TAG, "Disabling");
         TEST_ASSERT_EQUAL(ESP_OK, hcd_port_command(port_hdl, HCD_PORT_CMD_DISABLE));
         TEST_HCD_EXPECT_PORT_STATE(port_hdl, HCD_PORT_STATE_DISABLED);
     }
-    printf("Waiting for disconnection\n");
+    ESP_LOGI(TAG, "Waiting for disconnection");
     // Power-off the port to trigger a disconnection
     TEST_ASSERT_EQUAL(ESP_OK, hcd_port_command(port_hdl, HCD_PORT_CMD_POWER_OFF));
     // Wait for the port disconnection event
@@ -406,7 +409,7 @@ void test_hcd_root_port_suspend(hcd_port_handle_t port_hdl, hcd_pipe_handle_t pi
     // Suspend the root port
     TEST_ASSERT_EQUAL(ESP_OK, hcd_port_command(port_hdl, HCD_PORT_CMD_SUSPEND));
     TEST_HCD_EXPECT_PORT_STATE(port_hdl, HCD_PORT_STATE_SUSPENDED);
-    printf("Root port suspended\n");
+    ESP_LOGI(TAG, "Root port suspended");
 }
 
 void test_hcd_root_port_suspend_multi_pipe(hcd_port_handle_t port_hdl, hcd_pipe_handle_t *pipe_list, int list_len)
@@ -422,7 +425,7 @@ void test_hcd_root_port_suspend_multi_pipe(hcd_port_handle_t port_hdl, hcd_pipe_
     // Suspend the root port
     TEST_ASSERT_EQUAL(ESP_OK, hcd_port_command(port_hdl, HCD_PORT_CMD_SUSPEND));
     TEST_HCD_EXPECT_PORT_STATE(port_hdl, HCD_PORT_STATE_SUSPENDED);
-    printf("Root port suspended\n");
+    ESP_LOGI(TAG, "Root port suspended");
 }
 
 void test_hcd_root_port_resume(hcd_port_handle_t port_hdl, hcd_pipe_handle_t pipe_hdl)
@@ -433,7 +436,7 @@ void test_hcd_root_port_resume(hcd_port_handle_t port_hdl, hcd_pipe_handle_t pip
     // Clear the pipe
     TEST_ASSERT_EQUAL(ESP_OK, hcd_pipe_command(pipe_hdl, HCD_PIPE_CMD_CLEAR));
     TEST_HCD_EXPECT_PIPE_STATE(pipe_hdl, HCD_PIPE_STATE_ACTIVE);
-    printf("Root port resumed\n");
+    ESP_LOGI(TAG, "Root port resumed");
 }
 
 void test_hcd_root_port_resume_multi_pipe(hcd_port_handle_t port_hdl, hcd_pipe_handle_t *pipe_list, int list_len)
@@ -600,11 +603,11 @@ void test_hcd_remote_wake_enable(hcd_pipe_handle_t default_pipe, urb_t *feature_
     feature_urb->transfer.context = URB_CONTEXT_VAL;
 
     if (enable) {
-        printf("Enabling device remote wake-up\n");
+        ESP_LOGI(TAG, "Enabling device remote wake-up");
         // Initialize feature_urb with the set feature request to enable remote wakeup
         USB_SETUP_PACKET_INIT_SET_FEATURE((usb_setup_packet_t *)feature_urb->transfer.data_buffer, DEVICE_REMOTE_WAKEUP);
     } else {
-        printf("Disabling device remote wake-up\n");
+        ESP_LOGI(TAG, "Disabling device remote wake-up");
         // Initialize feature_urb with the clear feature request to disable remote wakeup
         USB_SETUP_PACKET_INIT_CLEAR_FEATURE((usb_setup_packet_t *)feature_urb->transfer.data_buffer, DEVICE_REMOTE_WAKEUP);
     }
@@ -646,6 +649,6 @@ bool test_hcd_remote_wake_check(hcd_pipe_handle_t default_pipe, urb_t *get_statu
     // Get the device status out of the data buffer
     usb_device_status_t *device_status = (usb_device_status_t *)(urb->transfer.data_buffer + sizeof(usb_setup_packet_t));
     const bool remote_wake_enabled = device_status->remote_wakeup;
-    printf("Remote wake-up is currently %s\n", ((remote_wake_enabled)) ? ("enabled") : ("disabled") );
+    ESP_LOGI(TAG, "Remote wake-up is currently %s", ((remote_wake_enabled)) ? ("enabled") : ("disabled") );
     return remote_wake_enabled;
 }

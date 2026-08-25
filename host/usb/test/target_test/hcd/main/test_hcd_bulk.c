@@ -9,9 +9,12 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "unity.h"
+#include "esp_log.h"
 #include "mock_msc.h"
 #include "dev_msc.h"
 #include "hcd_common.h"
+
+static const char *TAG = "BULK";
 
 // --------------------------------------------------- Test Cases ------------------------------------------------------
 
@@ -103,11 +106,8 @@ TEST_CASE("Test HCD bulk pipe URBs", "[bulk][full_speed][high_speed]")
         TEST_ASSERT_EQUAL(sizeof(mock_msc_bulk_csw_t), urb_csw->transfer.actual_num_bytes);
         TEST_ASSERT_TRUE(mock_msc_scsi_check_csw((mock_msc_bulk_csw_t *)urb_csw->transfer.data_buffer, 0xAAAAAAAA));
         // Print the read data
-        printf("Block %d to %d:\n", block_num, block_num + TEST_NUM_SECTORS_PER_XFER);
-        for (int i = 0; i < urb_data->transfer.actual_num_bytes; i++) {
-            printf("0x%02x,", ((char *)urb_data->transfer.data_buffer)[i]);
-        }
-        printf("\n\n");
+        ESP_LOGI(TAG, "Block %d to %d:", block_num, block_num + TEST_NUM_SECTORS_PER_XFER);
+        ESP_LOG_BUFFER_HEXDUMP(TAG, urb_data->transfer.data_buffer, urb_data->transfer.actual_num_bytes, ESP_LOG_INFO);
     }
 
     test_hcd_free_urb(urb_cbw);
@@ -177,7 +177,7 @@ TEST_CASE("Test HCD bulk pipe URBs deferred", "[bulk][full_speed][high_speed]")
         test_hcd_root_port_suspend_multi_pipe(port_hdl, pipe_list, sizeof(pipe_list) / sizeof(hcd_pipe_handle_t));
 
         // Defer all urbs
-        printf("Deferring URBs\n");
+        ESP_LOGI(TAG, "Deferring URBs");
         TEST_ASSERT_EQUAL(ESP_OK, hcd_urb_enqueue(bulk_out_pipe, urb_cbw));
         TEST_ASSERT_EQUAL(ESP_OK, hcd_urb_enqueue(bulk_in_pipe, urb_data));
         TEST_ASSERT_EQUAL(ESP_OK, hcd_urb_enqueue(bulk_in_pipe, urb_csw));
@@ -199,11 +199,8 @@ TEST_CASE("Test HCD bulk pipe URBs deferred", "[bulk][full_speed][high_speed]")
         TEST_ASSERT_EQUAL(sizeof(mock_msc_bulk_csw_t), urb_csw->transfer.actual_num_bytes);
         TEST_ASSERT_TRUE(mock_msc_scsi_check_csw((mock_msc_bulk_csw_t *)urb_csw->transfer.data_buffer, 0xAAAAAAAA));
         // Print the read data
-        printf("Block %d to %d:\n", block_num, block_num + TEST_NUM_SECTORS_PER_XFER);
-        for (int i = 0; i < urb_data->transfer.actual_num_bytes; i++) {
-            printf("0x%02x,", ((char *)urb_data->transfer.data_buffer)[i]);
-        }
-        printf("\n\n");
+        ESP_LOGI(TAG, "Block %d to %d:", block_num, block_num + TEST_NUM_SECTORS_PER_XFER);
+        ESP_LOG_BUFFER_HEXDUMP(TAG, urb_data->transfer.data_buffer, urb_data->transfer.actual_num_bytes, ESP_LOG_INFO);
     }
 
     test_hcd_free_urb(urb_cbw);

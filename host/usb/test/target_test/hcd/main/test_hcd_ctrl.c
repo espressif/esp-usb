@@ -8,7 +8,10 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "unity.h"
+#include "esp_log.h"
 #include "hcd_common.h"
+
+static const char *TAG = "CTRL";
 
 #define TEST_DEV_ADDR               0
 #define NUM_URBS                    3
@@ -60,7 +63,7 @@ TEST_CASE("Test HCD control pipe URBs", "[ctrl][low_speed][full_speed][high_spee
     test_hcd_urb_list_init(urb_list);
 
     // Enqueue URBs but immediately suspend the port
-    printf("Enqueuing URBs\n");
+    ESP_LOGI(TAG, "Enqueuing URBs");
     for (int i = 0; i < NUM_URBS; i++) {
         TEST_ASSERT_EQUAL(ESP_OK, hcd_urb_enqueue(default_pipe, urb_list[i]));
     }
@@ -79,7 +82,7 @@ TEST_CASE("Test HCD control pipe URBs", "[ctrl][low_speed][full_speed][high_spee
         TEST_ASSERT_LESS_OR_EQUAL(urb->transfer.num_bytes, urb->transfer.actual_num_bytes);
         usb_config_desc_t *config_desc = (usb_config_desc_t *)(urb->transfer.data_buffer + sizeof(usb_setup_packet_t));
         TEST_ASSERT_EQUAL(USB_B_DESCRIPTOR_TYPE_CONFIGURATION, config_desc->bDescriptorType);
-        printf("Config Desc wTotalLength %d\n", config_desc->wTotalLength);
+        ESP_LOGI(TAG, "Config Desc wTotalLength %d", config_desc->wTotalLength);
     }
 
     // Enqueue URBs again but abort them short after
@@ -161,7 +164,7 @@ TEST_CASE("Test HCD control pipe STALL", "[ctrl][full_speed][high_speed]")
         num_enqueued++;
     }
     TEST_ASSERT_GREATER_THAN(0, num_enqueued);
-    printf("Expecting STALL\n");
+    ESP_LOGI(TAG, "Expecting STALL");
     TEST_HCD_EXPECT_PIPE_EVENT(default_pipe, HCD_PIPE_EVENT_ERROR_STALL);
     TEST_HCD_EXPECT_PIPE_STATE(default_pipe, HCD_PIPE_STATE_HALTED);
 
@@ -170,7 +173,7 @@ TEST_CASE("Test HCD control pipe STALL", "[ctrl][full_speed][high_speed]")
     if (num_enqueued > 1) {
         // We expect URB Done after pipe flush, only when more than one URB is enqueued,
         // as the stalled (first) URB has been already dealt with by the HCD driver as done
-        printf("Expecting URB DONE\n");
+        ESP_LOGI(TAG, "Expecting URB DONE");
         TEST_HCD_EXPECT_PIPE_EVENT(default_pipe, HCD_PIPE_EVENT_URB_DONE);
     }
     for (int i = 0; i < num_enqueued; i++) {
@@ -192,7 +195,7 @@ TEST_CASE("Test HCD control pipe STALL", "[ctrl][full_speed][high_speed]")
     TEST_ASSERT_EQUAL(ESP_OK, hcd_pipe_command(default_pipe, HCD_PIPE_CMD_CLEAR));
     TEST_HCD_EXPECT_PIPE_STATE(default_pipe, HCD_PIPE_STATE_ACTIVE);
 
-    printf("Retrying\n");
+    ESP_LOGI(TAG, "Retrying");
     // Correct first URB then requeue
     USB_SETUP_PACKET_INIT_GET_CONFIG_DESC((usb_setup_packet_t *)urb_list[0]->transfer.data_buffer, 0, TRANSFER_MAX_BYTES);
     for (int i = 0; i < NUM_URBS; i++) {
@@ -211,7 +214,7 @@ TEST_CASE("Test HCD control pipe STALL", "[ctrl][full_speed][high_speed]")
         TEST_ASSERT_LESS_OR_EQUAL(urb->transfer.num_bytes, urb->transfer.actual_num_bytes);
         usb_config_desc_t *config_desc = (usb_config_desc_t *)(urb->transfer.data_buffer + sizeof(usb_setup_packet_t));
         TEST_ASSERT_EQUAL(USB_B_DESCRIPTOR_TYPE_CONFIGURATION, config_desc->bDescriptorType);
-        printf("Config Desc wTotalLength %d\n", config_desc->wTotalLength);
+        ESP_LOGI(TAG, "Config Desc wTotalLength %d", config_desc->wTotalLength);
     }
 
     // Free URB list and pipe
@@ -254,19 +257,19 @@ TEST_CASE("Test HCD control pipe runtime halt and clear", "[ctrl][low_speed][ful
     test_hcd_urb_list_init(urb_list);
 
     // Enqueue URBs but immediately halt the pipe
-    printf("Enqueuing URBs\n");
+    ESP_LOGI(TAG, "Enqueuing URBs");
     for (int i = 0; i < NUM_URBS; i++) {
         TEST_ASSERT_EQUAL(ESP_OK, hcd_urb_enqueue(default_pipe, urb_list[i]));
     }
     TEST_ASSERT_EQUAL(ESP_OK, hcd_pipe_command(default_pipe, HCD_PIPE_CMD_HALT));
     TEST_HCD_EXPECT_PIPE_EVENT(default_pipe, HCD_PIPE_EVENT_URB_DONE);
     TEST_HCD_EXPECT_PIPE_STATE(default_pipe, HCD_PIPE_STATE_HALTED);
-    printf("Pipe halted\n");
+    ESP_LOGI(TAG, "Pipe halted");
 
     // Un-halt the pipe
     TEST_ASSERT_EQUAL(ESP_OK, hcd_pipe_command(default_pipe, HCD_PIPE_CMD_CLEAR));
     TEST_HCD_EXPECT_PIPE_STATE(default_pipe, HCD_PIPE_STATE_ACTIVE);
-    printf("Pipe cleared\n");
+    ESP_LOGI(TAG, "Pipe cleared");
     vTaskDelay(pdMS_TO_TICKS(100)); // Give some time pending for transfers to restart and complete
 
     // Wait for each URB to be done, dequeue, and check results
@@ -280,7 +283,7 @@ TEST_CASE("Test HCD control pipe runtime halt and clear", "[ctrl][low_speed][ful
             TEST_ASSERT_LESS_OR_EQUAL(urb->transfer.num_bytes, urb->transfer.actual_num_bytes);
             usb_config_desc_t *config_desc = (usb_config_desc_t *)(urb->transfer.data_buffer + sizeof(usb_setup_packet_t));
             TEST_ASSERT_EQUAL(USB_B_DESCRIPTOR_TYPE_CONFIGURATION, config_desc->bDescriptorType);
-            printf("Config Desc wTotalLength %d\n", config_desc->wTotalLength);
+            ESP_LOGI(TAG, "Config Desc wTotalLength %d", config_desc->wTotalLength);
         } else {
             // A failed transfer should 0 actual number of bytes transmitted
             TEST_ASSERT_EQUAL(0, urb->transfer.actual_num_bytes);
@@ -346,7 +349,7 @@ TEST_CASE("Test HCD control pipe URBs deferred", "[ctrl][low_speed][full_speed][
     test_hcd_root_port_suspend(port_hdl, default_pipe);
 
     // Defer URBs, while the root port is suspended
-    printf("Deferring URBs\n");
+    ESP_LOGI(TAG, "Deferring URBs");
     for (int i = 0; i < NUM_URBS; i++) {
         TEST_ASSERT_EQUAL(ESP_OK, hcd_urb_enqueue(default_pipe, urb_list[i]));
     }
@@ -380,7 +383,7 @@ TEST_CASE("Test HCD control pipe URBs deferred", "[ctrl][low_speed][full_speed][
     test_hcd_root_port_suspend(port_hdl, default_pipe);
 
     // Defer URBs again, while the root port is suspended
-    printf("Deferring URBs\n");
+    ESP_LOGI(TAG, "Deferring URBs");
     for (int i = 0; i < NUM_URBS; i++) {
         TEST_ASSERT_EQUAL(ESP_OK, hcd_urb_enqueue(default_pipe, urb_list[i]));
     }
@@ -394,7 +397,7 @@ TEST_CASE("Test HCD control pipe URBs deferred", "[ctrl][low_speed][full_speed][
     test_hcd_root_port_resume(port_hdl, default_pipe);
 
     // Expect no pipe event
-    printf("Expecting NO Pipe event\n");
+    ESP_LOGI(TAG, "Expecting NO Pipe event");
     for (int i = 0; i < NUM_URBS; i++) {
         TEST_HCD_EXPECT_NO_PIPE_EVENT(default_pipe);
     }
@@ -413,7 +416,7 @@ TEST_CASE("Test HCD control pipe URBs deferred", "[ctrl][low_speed][full_speed][
     test_hcd_root_port_suspend(port_hdl, default_pipe);
 
     // Defer URBs again, while the root port is suspended
-    printf("Deferring URBs\n");
+    ESP_LOGI(TAG, "Deferring URBs");
     for (int i = 0; i < NUM_URBS; i++) {
         TEST_ASSERT_EQUAL(ESP_OK, hcd_urb_enqueue(default_pipe, urb_list[i]));
     }
@@ -492,14 +495,14 @@ TEST_CASE("Test HCD control pipe STALL, URBs deferred", "[ctrl][low_speed][full_
     test_hcd_root_port_suspend(port_hdl, default_pipe);
 
     // Defer URBs, while the root port is suspended
-    printf("Deferring URBs\n");
+    ESP_LOGI(TAG, "Deferring URBs");
     for (int i = 0; i < NUM_URBS; i++) {
         TEST_ASSERT_EQUAL(ESP_OK, hcd_urb_enqueue(default_pipe, urb_list[i]));
     }
 
     // Resume the root port
     test_hcd_root_port_resume(port_hdl, default_pipe);
-    printf("Expecting STALL\n");
+    ESP_LOGI(TAG, "Expecting STALL");
     TEST_HCD_EXPECT_PIPE_EVENT(default_pipe, HCD_PIPE_EVENT_ERROR_STALL);
     TEST_HCD_EXPECT_PIPE_STATE(default_pipe, HCD_PIPE_STATE_HALTED);
 
@@ -525,7 +528,7 @@ TEST_CASE("Test HCD control pipe STALL, URBs deferred", "[ctrl][low_speed][full_
     TEST_ASSERT_EQUAL(ESP_OK, hcd_pipe_command(default_pipe, HCD_PIPE_CMD_CLEAR));
     TEST_HCD_EXPECT_PIPE_STATE(default_pipe, HCD_PIPE_STATE_ACTIVE);
 
-    printf("Retrying\n");
+    ESP_LOGI(TAG, "Retrying");
     // Correct first URB then requeue
     USB_SETUP_PACKET_INIT_GET_CONFIG_DESC((usb_setup_packet_t *)urb_list[0]->transfer.data_buffer, 0, TRANSFER_MAX_BYTES);
     for (int i = 0; i < NUM_URBS; i++) {
@@ -548,7 +551,7 @@ TEST_CASE("Test HCD control pipe STALL, URBs deferred", "[ctrl][low_speed][full_
         TEST_ASSERT_LESS_OR_EQUAL(urb->transfer.num_bytes, urb->transfer.actual_num_bytes);
         usb_config_desc_t *config_desc = (usb_config_desc_t *)(urb->transfer.data_buffer + sizeof(usb_setup_packet_t));
         TEST_ASSERT_EQUAL(USB_B_DESCRIPTOR_TYPE_CONFIGURATION, config_desc->bDescriptorType);
-        printf("Config Desc wTotalLength %d\n", config_desc->wTotalLength);
+        ESP_LOGI(TAG, "Config Desc wTotalLength %d", config_desc->wTotalLength);
     }
 
     // Free URB list and pipe
@@ -594,7 +597,7 @@ TEST_CASE("Test HCD control pipe runtime halt and clear, URBs deferred", "[ctrl]
     test_hcd_root_port_suspend(port_hdl, default_pipe);
 
     // Enqueue URBs but immediately halt the pipe
-    printf("Deferring URBs\n");
+    ESP_LOGI(TAG, "Deferring URBs");
     for (int i = 0; i < NUM_URBS; i++) {
         TEST_ASSERT_EQUAL(ESP_OK, hcd_urb_enqueue(default_pipe, urb_list[i]));
     }
@@ -606,12 +609,12 @@ TEST_CASE("Test HCD control pipe runtime halt and clear, URBs deferred", "[ctrl]
     // Wait for the first URB to be done, caused by the pipe halt
     TEST_HCD_EXPECT_PIPE_EVENT(default_pipe, HCD_PIPE_EVENT_URB_DONE);
     TEST_HCD_EXPECT_PIPE_STATE(default_pipe, HCD_PIPE_STATE_HALTED);
-    printf("Pipe halted\n");
+    ESP_LOGI(TAG, "Pipe halted");
 
     // Un-halt the pipe
     TEST_ASSERT_EQUAL(ESP_OK, hcd_pipe_command(default_pipe, HCD_PIPE_CMD_CLEAR));
     TEST_HCD_EXPECT_PIPE_STATE(default_pipe, HCD_PIPE_STATE_ACTIVE);
-    printf("Pipe cleared\n");
+    ESP_LOGI(TAG, "Pipe cleared");
 
     // Wait for the rest of the URBs to be done, after clearing the pipe
     for (int i = 0; i < NUM_URBS - 1; i++) {
@@ -629,7 +632,7 @@ TEST_CASE("Test HCD control pipe runtime halt and clear, URBs deferred", "[ctrl]
             TEST_ASSERT_LESS_OR_EQUAL(urb->transfer.num_bytes, urb->transfer.actual_num_bytes);
             usb_config_desc_t *config_desc = (usb_config_desc_t *)(urb->transfer.data_buffer + sizeof(usb_setup_packet_t));
             TEST_ASSERT_EQUAL(USB_B_DESCRIPTOR_TYPE_CONFIGURATION, config_desc->bDescriptorType);
-            printf("Config Desc wTotalLength %d\n", config_desc->wTotalLength);
+            ESP_LOGI(TAG, "Config Desc wTotalLength %d", config_desc->wTotalLength);
         } else {
             // A failed transfer should 0 actual number of bytes transmitted
             TEST_ASSERT_EQUAL(0, urb->transfer.actual_num_bytes);

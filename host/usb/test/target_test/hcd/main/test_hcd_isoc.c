@@ -10,9 +10,12 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "unity.h"
+#include "esp_log.h"
 #include "dev_isoc.h"
 #include "usb/usb_types_ch9.h"
 #include "hcd_common.h"
+
+static const char *TAG = "ISOC";
 
 #define NUM_URBS                3
 #define NUM_PACKETS_PER_URB     3
@@ -263,7 +266,7 @@ TEST_CASE("Test HCD isochronous pipe sudden disconnect", "[isoc][full_speed][hig
     TEST_HCD_EXPECT_PORT_EVENT(port_hdl, HCD_PORT_EVENT_DISCONNECTION);
     TEST_ASSERT_EQUAL(HCD_PORT_EVENT_DISCONNECTION, hcd_port_handle_event(port_hdl));
     TEST_HCD_EXPECT_PORT_STATE(port_hdl, HCD_PORT_STATE_RECOVERY);
-    printf("Sudden disconnect\n");
+    ESP_LOGI(TAG, "Sudden disconnect");
 
     // Both pipes should still be active
     TEST_HCD_EXPECT_PIPE_STATE(default_pipe, HCD_PIPE_STATE_ACTIVE);
