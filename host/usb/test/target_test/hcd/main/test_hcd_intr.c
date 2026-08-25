@@ -64,10 +64,10 @@ TEST_CASE("Test HCD interrupt pipe URBs", "[intr][low_speed]")
     int iter_count = NUM_URB_ITERS;
     for (iter_count = NUM_URB_ITERS; iter_count > 0; iter_count--) {
         // Wait for an URB to be done
-        test_hcd_expect_pipe_event(intr_pipe, HCD_PIPE_EVENT_URB_DONE);
+        TEST_HCD_EXPECT_PIPE_EVENT(intr_pipe, HCD_PIPE_EVENT_URB_DONE);
         // Dequeue the URB and check results
         urb_t *urb = hcd_urb_dequeue(intr_pipe);
-        TEST_ASSERT_EQUAL_MESSAGE(USB_TRANSFER_STATUS_COMPLETED, urb->transfer.status, "Transfer NOT completed");
+        TEST_HCD_EXPECT_TRANSFER_STATUS(urb, USB_TRANSFER_STATUS_COMPLETED);
         TEST_ASSERT_EQUAL(URB_CONTEXT_VAL, urb->transfer.context);
         // Byte 1 and 2 contains x and y movement respectively
         printf("X mov %d, Y mov %d\n", urb->transfer.data_buffer[1], urb->transfer.data_buffer[2]);
