@@ -167,8 +167,9 @@ void isoc_transfer_callback(usb_transfer_t *transfer)
                     goto next_isoc_packet;
                 }
             } else {
-                // Streaming was stopped in the meantime, do not take a new frame buffer
+                // Streaming was stopped in the meantime: no buffer to write this payload into
                 UVC_EXIT_CRITICAL();
+                uvc_stream->single_thread.skip_current_frame = true;
             }
         }
 
