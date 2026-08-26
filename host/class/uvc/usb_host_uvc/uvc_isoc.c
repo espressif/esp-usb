@@ -111,6 +111,25 @@ void isoc_transfer_callback(usb_transfer_t *transfer)
 
         const bool start_of_frame = (uvc_stream->single_thread.current_frame_id != payload_header->bmHeaderInfo.frame_id);
         if (start_of_frame) {
+            /* A frame still open at the frame-ID toggle means the camera sent no EoF.
+             * Deliver it here, while skip_current_frame still describes it. */
+            UVC_ENTER_CRITICAL();
+            uvc_host_frame_t *unterminated_frame = uvc_stream->dynamic.current_frame;
+            uvc_stream->dynamic.current_frame = NULL;
+            const bool invoke_unterminated_cb = (uvc_stream->dynamic.streaming && uvc_stream->constant.frame_cb &&
+                                                 unterminated_frame && !uvc_stream->single_thread.skip_current_frame);
+            UVC_EXIT_CRITICAL();
+
+            if (unterminated_frame) {
+                bool return_frame = true;
+                if (invoke_unterminated_cb) {
+                    return_frame = uvc_stream->constant.frame_cb(unterminated_frame, uvc_stream->constant.cb_arg);
+                }
+                if (return_frame) {
+                    uvc_host_frame_return(uvc_stream, unterminated_frame);
+                }
+            }
+
             // We detected start of new frame. Update Frame ID and start fetching this frame
             uvc_stream->single_thread.current_frame_id   = payload_header->bmHeaderInfo.frame_id;
 #ifdef CONFIG_UVC_CHECK_PAYLOAD_HEADER_ERR
@@ -148,11 +167,9 @@ void isoc_transfer_callback(usb_transfer_t *transfer)
                     goto next_isoc_packet;
                 }
             } else {
-                // We received SoF but current_frame is not NULL: We missed EoF - reset the frame buffer
-                ESP_EARLY_LOGW(TAG, "missed EoF");
-                uvc_stream->single_thread.skip_current_frame = true;
-                uvc_frame_reset(uvc_stream->dynamic.current_frame);
+                // Streaming was stopped in the meantime: no buffer to write this payload into
                 UVC_EXIT_CRITICAL();
+                uvc_stream->single_thread.skip_current_frame = true;
             }
         }
 
