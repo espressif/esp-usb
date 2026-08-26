@@ -82,6 +82,8 @@ host/usb:
   disable:
     - if: IDF_VERSION < "5.5.3"
       reason: We will support component overriding only in service releases
+    - if: CONFIG_NAME == "buffer_dma" and IDF_VERSION < "6.2.0"
+      reason: Buffer DMA requires the USB DWC HAL support added in IDF v6.2
 
 host/usb/test/target_test/enum:
   depends_filepatterns:
