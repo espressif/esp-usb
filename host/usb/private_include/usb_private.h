@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2015-2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2015-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -17,6 +17,11 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+// ----------------------------------------------------- Macros --------------------------------------------------------
+
+#define CTRL_EP_MAX_MPS_LS                           8   // Largest Maximum Packet Size for Low Speed control endpoints
+#define CTRL_EP_MAX_MPS_HSFS                         64  // Largest Maximum Packet Size for High & Full Speed control endpoints
 
 // ------------------------------------------------------ Types --------------------------------------------------------
 
