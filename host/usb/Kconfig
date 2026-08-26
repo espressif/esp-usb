@@ -213,6 +213,25 @@ menu "USB-OTG"
 
     endmenu #Power management
 
+    choice USB_HOST_DMA_MODE
+        prompt "DMA mode of USB Host"
+        default USB_HOST_DMA_MODE_DESC
+        help
+            Select the DMA mode used by the USB-DWC host controller to transfer data.
+
+            Descriptor DMA mode (Scatter-Gather DMA) uses a list of transfer descriptors (QTDs) per
+            channel. This allows scheduling multiple transactions in advance, which is required for
+            reliable isochronous and interrupt scheduling, and generally reduces CPU overhead.
+
+            Buffer DMA mode uses a single linear buffer per channel without a descriptor list. It has a
+            smaller memory footprint, but requires more frequent CPU intervention to service transfers.
+
+        config USB_HOST_DMA_MODE_DESC
+            bool "Descriptor DMA mode (Scatter-Gather DMA)"
+        config USB_HOST_DMA_MODE_BUFFER
+            bool "Buffer DMA mode"
+    endchoice
+
     config USB_HOST_ENABLE_ENUM_FILTER_CALLBACK
         bool "Enable enumeration filter callback"
         default n
