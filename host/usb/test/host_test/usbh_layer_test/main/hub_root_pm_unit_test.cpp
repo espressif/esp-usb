@@ -69,6 +69,12 @@ struct {
     hcd_port_callback_t cb[NUM_ROOT_PORTS];
     void *cb_arg[NUM_ROOT_PORTS];
     std::vector<PortCommand> commands;
+    // Error injection, armed by fail_next_command()
+    struct {
+        bool armed;
+        hcd_port_cmd_t cmd;
+        esp_err_t err;
+    } cmd_failure[NUM_ROOT_PORTS];
 } s_hcd;
 
 int s_num_dev_suspend_events;
@@ -111,6 +117,12 @@ esp_err_t port_command_stub(hcd_port_handle_t hdl, hcd_port_cmd_t command, int c
 {
     const int idx = port_idx(hdl);
     s_hcd.commands.push_back({idx, command});
+
+    if (s_hcd.cmd_failure[idx].armed && s_hcd.cmd_failure[idx].cmd == command) {
+        s_hcd.cmd_failure[idx].armed = false;
+        // A rejected command leaves the port in its previous state
+        return s_hcd.cmd_failure[idx].err;
+    }
 
     switch (command) {
     case HCD_PORT_CMD_POWER_ON:  s_hcd.state[idx] = HCD_PORT_STATE_DISCONNECTED; break;
@@ -284,6 +296,18 @@ void port_event(int idx, hcd_port_event_t event)
 }
 
 /**
+ * @brief Make the next occurrence of a port command on a root port fail
+ *
+ * @note A real HCD port rejects a command when its state machine changed underneath the command, which happens when
+ *       the device disconnects exactly while the command is being issued. Such a race is hardly reproducible on real
+ *       hardware, especially with two root ports involved.
+ */
+void fail_next_command(int idx, hcd_port_cmd_t cmd, esp_err_t err)
+{
+    s_hcd.cmd_failure[idx] = {true, cmd, err};
+}
+
+/**
  * @brief Bring a root port to the enabled state by connecting a device to it
  */
 void connect_device(int idx)
@@ -352,6 +376,25 @@ SCENARIO("Hub root PM: dual host global suspend and resume")
                 REQUIRE(ESP_OK == usbh_process());
                 REQUIRE(s_num_dev_resume_events == 2);
             }
+
+            THEN("A remote wakeup on one root port resumes both of them") {
+                REQUIRE(ESP_OK == usbh_process());
+                s_hcd.commands.clear();
+
+                // The device behind the second root port signals resume upstream
+                port_event(1, HCD_PORT_EVENT_REMOTE_WAKEUP);
+
+                // The remote wakeup makes the whole Host active, not just the root port that reported it
+                const std::vector<PortCommand> expected = {
+                    {0, HCD_PORT_CMD_RESUME},
+                    {1, HCD_PORT_CMD_RESUME},
+                };
+                REQUIRE(s_hcd.commands == expected);
+                REQUIRE_FALSE(hub_root_is_suspended());
+
+                // Each device is resumed exactly once
+                REQUIRE(s_num_dev_resume_events == 2);
+            }
         }
 
         uninstall_hub(BIT0 | BIT1);
@@ -379,7 +422,7 @@ SCENARIO("Hub root PM: root port without a device is not suspended")
             }
         }
 
-        uninstall_hub(BIT1);
+        uninstall_hub(BIT0 | BIT1);
     }
 }
 
@@ -397,9 +440,112 @@ SCENARIO("Hub root PM: no root port has a device")
             REQUIRE(s_hcd.commands.empty());
         }
 
-        uninstall_hub(0);
+        uninstall_hub(BIT0 | BIT1);
     }
 }
+
+/*
+@todo define reaction to these errors
+SCENARIO("Hub root PM: one root port fails to suspend")
+{
+    GIVEN("Both root ports enabled with a connected device") {
+        install_hub(BIT0 | BIT1);
+        connect_device(0);
+        connect_device(1);
+        s_hcd.commands.clear();
+
+        WHEN("The first root port rejects the suspend command") {
+            fail_next_command(0, HCD_PORT_CMD_SUSPEND, ESP_ERR_INVALID_RESPONSE);
+            REQUIRE(ESP_OK == hub_root_mark_suspend());
+            REQUIRE(ESP_OK == hub_process());
+
+            THEN("The other root port is suspended anyway") {
+                const std::vector<PortCommand> expected = {
+                    {0, HCD_PORT_CMD_SUSPEND},
+                    {1, HCD_PORT_CMD_SUSPEND},
+                };
+                REQUIRE(s_hcd.commands == expected);
+
+                // The failed root port keeps sending SOFs, so the Host as a whole is not suspended
+                REQUIRE_FALSE(hub_root_is_suspended());
+            }
+
+            THEN("Each device is still suspended exactly once") {
+                REQUIRE(ESP_OK == usbh_process());
+
+                // The client facing PM state is global, so the root port that did suspend propagates the event to every
+                // device. The device behind the failed root port is disconnecting (that is why the command was rejected),
+                // so it does not need a PM state of its own.
+                REQUIRE(s_num_dev_suspend_events == 2);
+            }
+
+            THEN("The failed root port can be suspended by a new attempt") {
+                s_hcd.commands.clear();
+                REQUIRE(ESP_OK == hub_root_can_suspend());
+                REQUIRE(ESP_OK == hub_root_mark_suspend());
+                REQUIRE(ESP_OK == hub_process());
+
+                // Only the root port that is still enabled is commanded again
+                const std::vector<PortCommand> expected = {{0, HCD_PORT_CMD_SUSPEND}};
+                REQUIRE(s_hcd.commands == expected);
+                REQUIRE(hub_root_is_suspended());
+            }
+        }
+
+        uninstall_hub(BIT0 | BIT1);
+    }
+}
+
+SCENARIO("Hub root PM: one root port fails to resume")
+{
+    GIVEN("Both root ports suspended with a connected device") {
+        install_hub(BIT0 | BIT1);
+        connect_device(0);
+        connect_device(1);
+        REQUIRE(ESP_OK == hub_root_mark_suspend());
+        REQUIRE(ESP_OK == hub_process());
+        REQUIRE(ESP_OK == usbh_process());
+        REQUIRE(hub_root_is_suspended());
+        s_hcd.commands.clear();
+
+        WHEN("The second root port rejects the resume command") {
+            fail_next_command(1, HCD_PORT_CMD_RESUME, ESP_ERR_INVALID_STATE);
+            REQUIRE(ESP_OK == hub_root_mark_resume());
+            REQUIRE(ESP_OK == hub_process());
+
+            THEN("The other root port is resumed anyway") {
+                const std::vector<PortCommand> expected = {
+                    {0, HCD_PORT_CMD_RESUME},
+                    {1, HCD_PORT_CMD_RESUME},
+                };
+                REQUIRE(s_hcd.commands == expected);
+
+                // One active root port is enough to make the Host active
+                REQUIRE_FALSE(hub_root_is_suspended());
+            }
+
+            THEN("Each device is still resumed exactly once") {
+                REQUIRE(ESP_OK == usbh_process());
+                REQUIRE(s_num_dev_resume_events == 2);
+            }
+
+            THEN("The failed root port can be resumed by a new attempt") {
+                s_hcd.commands.clear();
+                REQUIRE(ESP_OK == hub_root_can_resume());
+                REQUIRE(ESP_OK == hub_root_mark_resume());
+                REQUIRE(ESP_OK == hub_process());
+
+                // Only the root port that is still suspended is commanded again
+                const std::vector<PortCommand> expected = {{1, HCD_PORT_CMD_RESUME}};
+                REQUIRE(s_hcd.commands == expected);
+                REQUIRE_FALSE(hub_root_is_suspended());
+            }
+        }
+
+        uninstall_hub(BIT0 | BIT1);
+    }
+}
+*/
 
 SCENARIO("Hub root PM: attach on one root port resumes the other one")
 {

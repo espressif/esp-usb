@@ -199,11 +199,12 @@ esp_err_t hub_root_mark_resume(void);
 /**
  * @brief Mark the Hub driver's root ports as ready to exit the light sleep
  *
- * This will mark all the suspended root ports as ready to exit light sleep and will be processed by the hub
+ * This will mark each auto-suspended root port as ready to exit light sleep and will be processed by the hub
  * processing loop. All the root ports enter and exit light sleep together.
  * @note This function:
  *   - Delivers deferred suspend notification (as the root ports had entered the light sleep before) to the clients
- *   - Treats potential device disconnect in the light sleep, if that happened no suspend notification will be delivered
+ *   - Treats potential device disconnect in the light sleep per root port: a disconnected port does not get a
+ *     suspend notification, but sibling root ports that stayed connected still do
  *
  * @return
  *    - ESP_OK: Hub driver marked to exit light sleep successfully

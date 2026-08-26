@@ -274,7 +274,6 @@ esp_err_t usb_host_lib_set_root_port_power(bool enable);
  * - Then halts and flushes all endpoints of all the connected devices and suspends the root ports
  * - Finally, it notifies all the clients which opened the device, that the device is now suspended
  *
- * @note Remote wakeup from device is not implemented yet
  * @note The root ports and the devices are not suspended immediately after returning from this function, this function
  *       only sets actions for devices and root ports, which are handled by the usb_host_lib_handle_events() in separate task.
  * @note This is a global suspend. In dual host configuration, all the root ports with a connected device are suspended.
