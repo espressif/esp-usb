@@ -60,6 +60,7 @@ typedef void (*hub_event_cb_t)(hub_event_data_t *event_data, void *arg);
  */
 typedef struct {
     unsigned port_map;                              /**< Bitmap of root ports to enable */
+    bool root_port_fsls_only;                       /**< Limit root ports to full/low speed */
     usb_proc_req_cb_t proc_req_cb;                  /**< Processing request callback */
     void *proc_req_cb_arg;                          /**< Processing request callback argument */
     hub_event_cb_t event_cb;                        /**< Hub event callback */
