@@ -576,7 +576,8 @@ static esp_err_t device_alloc(device_config_t *config, ext_hub_dev_t **ext_hub_d
     }
 
     // Allocate Control transfer URB
-    ctrl_urb = urb_alloc(sizeof(usb_setup_packet_t) + EXT_HUB_CTRL_TRANSFER_MAX_DATA_LEN, 0);
+    // Round the data stage length up to the largest EP0 MPS
+    ctrl_urb = urb_alloc(sizeof(usb_setup_packet_t) + usb_round_up_to_mps(EXT_HUB_CTRL_TRANSFER_MAX_DATA_LEN, CTRL_EP_MAX_MPS_HSFS), 0);
     if (ctrl_urb == NULL) {
         ESP_LOGE(EXT_HUB_TAG, "[%d] Unable to allocate Control URB",
                  config->dev_addr);
