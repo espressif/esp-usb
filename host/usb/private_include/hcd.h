@@ -373,6 +373,13 @@ int hcd_pipe_get_mps(hcd_pipe_handle_t pipe_hdl);
 /**
  * @brief Get the maximum transfer size (in bytes) the controller can move in a single bulk/control transfer
  *
+ * The limit depends on the DMA mode:
+ * - Scatter/Gather DMA: the 17-bit non-isochronous qTD "Total bytes to transfer" field (a constant)
+ * - Buffer DMA: whichever of the HCTSIZ XferSize (bytes) or PktCnt (packets) fields saturates first.
+ *   The field widths are DWC_OTG core revision specific; they are read from the DWC hardware registers
+ *   by the HAL, or taken from the core revision's known values on ESP-IDF versions without the
+ *   usb_dwc_hal_get_xfer_size_limit() HAL API
+ *
  * The limit is floored to a whole number of maximum-sized packets.
  * Periodic (INTR/ISOC) transfers are instead bounded by their descriptor list length and are not covered by this value.
  *
