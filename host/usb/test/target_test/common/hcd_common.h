@@ -49,6 +49,18 @@ void test_hcd_expect_port_event(hcd_port_handle_t port_hdl, hcd_port_event_t exp
 void test_hcd_expect_pipe_event(hcd_pipe_handle_t pipe_hdl, hcd_pipe_event_t expected_event);
 
 /**
+ * @brief Wait for an HCD pipe event and return it (without asserting on the event type)
+ *
+ * Like test_hcd_expect_pipe_event(), this asserts that an event arrives within the timeout, but instead of checking
+ * the event against an expected value it returns the delivered event. Useful when a transfer may legitimately end in
+ * more than one way (e.g. a device that either accepts or STALLs a host-issued ZLP) and the caller wants to branch.
+ *
+ * @param pipe_hdl Pipe handle to wait for an event from
+ * @return hcd_pipe_event_t The pipe event that was delivered
+ */
+hcd_pipe_event_t test_hcd_wait_for_pipe_event(hcd_pipe_handle_t pipe_hdl);
+
+/**
  * @brief Expect (wait) for an HCD pipe event, but none should be delivered
  *
  * This function waits for an pipe event and makes sure, that none is delivered
