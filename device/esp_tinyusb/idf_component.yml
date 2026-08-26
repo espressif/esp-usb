@@ -13,10 +13,7 @@ targets:
   - esp32h4
   - esp32s31
 dependencies:
-  idf: '>=5.0' # IDF 4.x contains TinyUSB as submodule
-  tinyusb:
-    version: '>=0.17.0~2' # 0.17.0~2 is the first version that supports deinit
-    public: true
+  idf: '>=5.3'
 files:
   exclude:
     - "test_apps"

@@ -1,0 +1,171 @@
+# ESP-IDF Build System v2 component definition.
+# Included from CMakeLists.txt when IDF_BUILD_V2 is set.
+
+idf_build_get_property(target IDF_TARGET)
+set(IDF_VERSION "${IDF_VERSION_MAJOR}.${IDF_VERSION_MINOR}.${IDF_VERSION_PATCH}")
+
+set(core_srcs
+    # esp_tinyusb core
+    "descriptors_control.c"
+    "tinyusb.c"
+    "usb_descriptors.c"
+    "tinyusb_task.c"
+
+    # TinyUSB core
+    "tinyusb/src/portable/synopsys/dwc2/dcd_dwc2.c"
+    "tinyusb/src/portable/synopsys/dwc2/dwc2_common.c"
+    "tinyusb/src/common/tusb_fifo.c"
+    "tinyusb/src/device/usbd.c"
+    "tinyusb/src/tusb.c"
+
+    # TinyUSB classes
+    "tinyusb/src/class/mtp/mtp_device.c"
+    "tinyusb/src/class/printer/printer_device.c"
+    "tinyusb/src/class/audio/audio_device.c"
+    "tinyusb/src/class/video/video_device.c"
+    "tinyusb/src/class/usbtmc/usbtmc_device.c"
+)
+
+add_library(${COMPONENT_TARGET} STATIC ${core_srcs})
+
+target_include_directories(${COMPONENT_TARGET} PUBLIC
+    "${CMAKE_CURRENT_LIST_DIR}/include"
+    "${CMAKE_CURRENT_LIST_DIR}/tinyusb/src"
+)
+
+target_include_directories(${COMPONENT_TARGET} PRIVATE
+    "include_private"
+    "tinyusb/src/device"
+)
+
+# --- Always-required dependencies ---
+
+idf_component_include(freertos)
+target_link_libraries(${COMPONENT_TARGET} PRIVATE idf::freertos)
+
+# USB-PHY driver
+# For IDF 6.x and later, usb_phy driver is moved from usb to esp_hw_support
+if(IDF_VERSION VERSION_LESS "6.0.0")
+    idf_component_include(usb)
+    target_link_libraries(${COMPONENT_TARGET} PRIVATE idf::usb)
+else()
+    idf_component_include(esp_hw_support)
+    target_link_libraries(${COMPONENT_TARGET} PRIVATE idf::esp_hw_support)
+endif()
+
+# --- Feature-specific sources and dependencies ---
+
+if(CONFIG_TINYUSB_CDC_ENABLED)
+    target_sources(${COMPONENT_TARGET} PRIVATE
+        "cdc.c"
+        "tinyusb_cdc_acm.c"
+        "tinyusb/src/class/cdc/cdc_device.c"
+    )
+    if(CONFIG_VFS_SUPPORT_IO)
+        target_sources(${COMPONENT_TARGET} PRIVATE
+            "tinyusb_console.c"
+            "vfs_tinyusb.c"
+        )
+        idf_component_include(vfs)
+        # vfs_tinyusb.h is a public header and includes esp_vfs_common.h
+        target_link_libraries(${COMPONENT_TARGET} PUBLIC
+            "$<$<TARGET_EXISTS:idf::vfs>:idf::vfs>")
+    endif() # CONFIG_VFS_SUPPORT_IO
+endif() # CONFIG_TINYUSB_CDC_ENABLED
+
+if(CONFIG_TINYUSB_MSC_ENABLED)
+    target_sources(${COMPONENT_TARGET} PRIVATE
+        "tinyusb_msc.c"
+        "storage_spiflash.c"
+        "tinyusb/src/class/msc/msc_device.c"
+    )
+    idf_component_include(fatfs)
+    idf_component_include(vfs)
+    idf_component_include(wear_levelling)
+    # tinyusb_msc.h is a public header and includes esp_vfs_fat.h and wear_levelling.h
+    target_link_libraries(${COMPONENT_TARGET} PUBLIC
+        idf::fatfs
+        "$<$<TARGET_EXISTS:idf::vfs>:idf::vfs>"
+        idf::wear_levelling)
+    if(CONFIG_SOC_SDMMC_HOST_SUPPORTED)
+        target_sources(${COMPONENT_TARGET} PRIVATE "storage_sdmmc.c")
+        idf_component_include(esp_driver_sdmmc)
+        # tinyusb_msc.h is a public header and includes driver/sdmmc_host.h
+        target_link_libraries(${COMPONENT_TARGET} PUBLIC idf::esp_driver_sdmmc)
+    endif() # CONFIG_SOC_SDMMC_HOST_SUPPORTED
+endif() # CONFIG_TINYUSB_MSC_ENABLED
+
+if(CONFIG_TINYUSB_NET_MODE_NCM)
+    target_sources(${COMPONENT_TARGET} PRIVATE
+        "tinyusb_net.c"
+        "tinyusb/src/class/net/ncm_device.c"
+    )
+endif() # CONFIG_TINYUSB_NET_MODE_NCM
+
+if(CONFIG_TINYUSB_NET_MODE_ECM_RNDIS)
+    target_sources(${COMPONENT_TARGET} PRIVATE
+        "tinyusb/src/class/net/ecm_rndis_device.c"
+        "tinyusb/lib/networking/rndis_reports.c"
+    )
+    target_include_directories(${COMPONENT_TARGET} PRIVATE
+        "${CMAKE_CURRENT_LIST_DIR}/tinyusb/lib/networking")
+    idf_component_include(esp_netif)
+    # rndis_reports.c: #include "netif/ethernet.h"
+    target_link_libraries(${COMPONENT_TARGET} PRIVATE idf::esp_netif)
+endif()
+
+if(CONFIG_TINYUSB_DFU_MODE_DFU)
+    target_sources(${COMPONENT_TARGET} PRIVATE
+        "tinyusb/src/class/dfu/dfu_device.c"
+    )
+endif()
+
+if(CONFIG_TINYUSB_DFU_MODE_DFU_RUNTIME)
+    target_sources(${COMPONENT_TARGET} PRIVATE
+        "tinyusb/src/class/dfu/dfu_rt_device.c"
+    )
+endif()
+
+if(CONFIG_TINYUSB_HID_COUNT GREATER 0)
+    target_sources(${COMPONENT_TARGET} PRIVATE
+        "tinyusb/src/class/hid/hid_device.c"
+    )
+endif()
+
+if(CONFIG_TINYUSB_MIDI_COUNT GREATER 0)
+    target_sources(${COMPONENT_TARGET} PRIVATE
+        "tinyusb/src/class/midi/midi_device.c"
+        "tinyusb/src/class/midi/midi2_device.c"
+    )
+endif()
+
+if(CONFIG_TINYUSB_BTH_ENABLED)
+    target_sources(${COMPONENT_TARGET} PRIVATE
+        "tinyusb/src/class/bth/bth_device.c"
+    )
+endif()
+
+if(CONFIG_TINYUSB_VENDOR_COUNT GREATER 0)
+    target_sources(${COMPONENT_TARGET} PRIVATE
+        "tinyusb/src/class/vendor/vendor_device.c"
+    )
+endif()
+
+# Software VBUS monitoring is needed for chips with HS USB-OTG peripheral
+if(${target} STREQUAL "esp32p4" OR ${target} STREQUAL "esp32s31")
+    target_sources(${COMPONENT_TARGET} PRIVATE "tinyusb_vbus_monitor.c")
+    idf_component_include(esp_driver_gpio)
+    target_link_libraries(${COMPONENT_TARGET} PRIVATE idf::esp_driver_gpio)
+endif() # esp32p4/esp32s31
+
+if(${target} STREQUAL "esp32p4")
+    idf_component_include(esp_mm)
+    # required by dcd_dwc2.c: #include "esp_cache.h"
+    target_link_libraries(${COMPONENT_TARGET} PRIVATE idf::esp_mm)
+endif()
+
+string(TOUPPER "OPT_MCU_${target}" tusb_mcu)
+target_compile_options(${COMPONENT_TARGET} PUBLIC "-DCFG_TUSB_MCU=${tusb_mcu}")
+
+# when no builtin class driver is enabled, an uint8_t data compared with `BUILTIN_DRIVER_COUNT` will always be false
+set_source_files_properties("tinyusb/src/device/usbd.c" PROPERTIES COMPILE_FLAGS "-Wno-type-limits")
