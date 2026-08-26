@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2024-2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2024-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -149,10 +149,14 @@ static void print_ac_feature_desc(const uint8_t *buff)
     printf("\tbUnitID %d\n", desc->bUnitID);
     printf("\tbSourceID %d\n", desc->bSourceID);
     printf("\tbControlSize %d\n", desc->bControlSize);
-    for (int i = 0; i < (desc->bLength - 7) / desc->bControlSize; i += desc->bControlSize) {
-        printf("\tbmaControls[ch%d] 0x%x\n", i, desc->bmaControls[i]);
+    if (desc->bControlSize == 0 || desc->bLength < 7) {
+        printf("\t(invalid Feature Unit descriptor, skipping bmaControls)\n");
+    } else {
+        for (int i = 0; i < (desc->bLength - 7) / desc->bControlSize; i += desc->bControlSize) {
+            printf("\tbmaControls[ch%d] 0x%x\n", i, desc->bmaControls[i]);
+        }
+        printf("\tiFeature %d\n", desc->iFeature);
     }
-    printf("\tiFeature %d\n", desc->iFeature);
 }
 
 static void print_ac_mix_desc(const uint8_t *buff)

@@ -544,6 +544,13 @@ esp_err_t msc_host_install_device(uint8_t device_address, msc_host_device_handle
     MSC_GOTO_ON_ERROR( msc_wait_for_ready_state(msc_device, WAIT_FOR_READY_TIMEOUT_MS) );
     MSC_GOTO_ON_ERROR( scsi_cmd_read_capacity(msc_device, &block_size, &block_count) );
 
+    // Validate peer-controlled block size before FatFS sizes fs->win from a
+    // truncated WORD while reads use the full uint32_t length (BBP 574).
+    MSC_GOTO_ON_FALSE(block_size >= 512 &&
+                      block_size <= 4096 &&
+                      (block_size & (block_size - 1)) == 0,
+                      ESP_ERR_INVALID_SIZE);
+
     msc_device->disk.block_size = block_size;
     msc_device->disk.block_count = block_count;
     *msc_device_handle = msc_device;

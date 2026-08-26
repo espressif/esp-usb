@@ -368,7 +368,7 @@ static void device_status_change_handle(ext_hub_dev_t *ext_hub_dev, const uint8_
     assert(length <= EXT_HUB_MAX_STATUS_BYTES_SIZE);
 
     for (uint32_t i = 0; i < length; i++) {
-        device_status |= (uint32_t)(data[i] << i);
+        device_status |= ((uint32_t)data[i]) << (i * 8);
     }
 
     if (device_status) {
@@ -378,13 +378,17 @@ static void device_status_change_handle(ext_hub_dev_t *ext_hub_dev, const uint8_
             // Check device status
             device_has_changed(ext_hub_dev);
         }
-        // HINTs:
-        // - every byte of Data IN has 8 bits of possible port statuses bits: (length * 8)
-        // - very first bit of status is used for Hub status: (length * 8) - 1
-        for (uint8_t i = 0; i < (length * 8) - 1; i++) {
-            // Check ports statuses
+        // Walk only allocated ports[]. Never index by the transfer-derived bit
+        // count (length*8-1): that is peer-controlled and can exceed bNbrPorts
+        // (BBP 572 OOB heap-pointer read/deref).
+        assert(ext_hub_dev->constant.hub_desc);
+        const uint8_t port_count = ext_hub_dev->constant.hub_desc->bNbrPorts;
+        for (uint8_t i = 0; i < port_count; i++) {
             if (device_status & (EXT_HUB_STATUS_PORT1_CHANGE_FLAG << i)) {
-                assert(i < ext_hub_dev->single_thread.maxchild);        // Port should be in range
+                if (i >= ext_hub_dev->single_thread.maxchild ||
+                        ext_hub_dev->constant.ports[i] == NULL) {
+                    continue;
+                }
                 assert(p_ext_hub_driver->constant.port_driver);         // Port driver call should be valid
                 // Request Port status to handle changes
                 ESP_ERROR_CHECK(p_ext_hub_driver->constant.port_driver->get_status(ext_hub_dev->constant.ports[i]));
