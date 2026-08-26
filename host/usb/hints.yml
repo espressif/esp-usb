@@ -1,0 +1,3 @@
+-
+    re: "Buffer DMA mode is not supported by the esp-idf HAL. Use the Scatter-Gather DMA mode instead"
+    hint: "Buffer DMA option in usb component's Kconfig was selected, but the current esp-idf HAL (usb_dwc_hal) component does not support the Buffer DMA mode. Either use the default, Scatter-Gather Buffer DMA, or upgrade esp-idf version to IDF 6.2.0 or newer."
