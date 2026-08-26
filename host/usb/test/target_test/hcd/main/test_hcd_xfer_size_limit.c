@@ -76,6 +76,9 @@ static void expect_reject(hcd_pipe_handle_t pipe, int num_bytes)
 {
     urb_t *urb = test_hcd_alloc_urb(0, sizeof(usb_setup_packet_t));
     urb->transfer.num_bytes = num_bytes;
+    // Buffer DMA mode reads the setup packet to get the data stage direction. Keep it zeroed (OUT direction,
+    // no data stage) so the rejection comes deterministically from the size limit check
+    memset(urb->transfer.data_buffer, 0, sizeof(usb_setup_packet_t));
     ESP_LOGI(TAG, "Expecting reject: num_bytes=%d", num_bytes);
     TEST_ASSERT_EQUAL(ESP_ERR_INVALID_SIZE, hcd_urb_enqueue(pipe, urb));
     test_hcd_free_urb(urb);
@@ -158,6 +161,111 @@ TEST_CASE("Test HCD control transfer size limit", "[ctrl][full_speed][high_speed
     expect_reject(default_pipe, (int)sizeof(usb_setup_packet_t) + limit + mps);
 
     test_hcd_pipe_free(default_pipe);
+    test_hcd_wait_for_disconn(port_hdl, false);
+}
+
+/*
+Test HCD control IN data stage buffer headroom
+
+Purpose:
+    - In Buffer DMA mode, an IN data stage is programmed with its length rounded up to a multiple of the
+      endpoint's MPS (DWC2 requirement), and the core may write up to that many bytes into the data buffer.
+      The HCD must therefore reject a control transfer at enqueue (ESP_ERR_INVALID_SIZE) when the rounded IN
+      data stage length does not fit into the data buffer past the setup packet
+    - Verify the boundary: the largest IN data stage whose rounded length fits is accepted (and completes),
+      one byte more is rejected
+    - Verify that an IN request to fill the entire buffer past the setup packet is rejected (the buffer size
+      is cache-line aligned, so buffer - setup is never an MPS multiple)
+    - Verify that OUT data stages are programmed with their exact length: an OUT transfer that exactly fills
+      the buffer past the setup packet is accepted in both DMA modes
+    - In Scatter/Gather DMA mode there is no rounding requirement: all the above IN sizes must be accepted
+
+Procedure:
+    - Setup HCD, connect, enumerate the MSC device, use the control (default) pipe
+    - Allocate one URB and read back its (cache-aligned) data buffer size D; get the pipe's MPS M
+    - IN data stage floor((D - 8) / M) * M -> accepted and completes (the device short-packet terminates)
+    - IN data stage floor((D - 8) / M) * M + 1 and D - 8 -> rejected in Buffer DMA, accepted in Scatter/Gather
+    - Free the default pipe, suspend the port, enqueue an OUT data stage of D - 8 deferred -> accepted in both
+      DMA modes without any bus activity; abort while deferred to reclaim the URB, resume the port
+    - Teardown
+*/
+TEST_CASE("Test HCD control IN data stage buffer headroom", "[ctrl][full_speed][high_speed]")
+{
+    usb_speed_t port_speed = test_hcd_wait_for_conn(port_hdl);
+    vTaskDelay(pdMS_TO_TICKS(100));
+
+    hcd_pipe_handle_t default_pipe = test_hcd_pipe_alloc(port_hdl, NULL, 0, port_speed);
+    uint8_t dev_addr = test_hcd_enum_device(default_pipe);
+
+    const int mps = hcd_pipe_get_mps(default_pipe);
+
+    // Allocate a URB and read back the data buffer size (test_hcd_alloc_urb cache-aligns the size up)
+    urb_t *urb = test_hcd_alloc_urb(0, sizeof(usb_setup_packet_t) + 100);
+    const int buf_size = urb->transfer.data_buffer_size;
+    const int buf_data_len = buf_size - (int)sizeof(usb_setup_packet_t);    // Buffer room past the setup packet
+    usb_setup_packet_t *setup_pkt = (usb_setup_packet_t *)urb->transfer.data_buffer;
+    // Largest IN data stage whose MPS-rounded length still fits the buffer
+    const int max_in_len = (buf_data_len / mps) * mps;
+    ESP_LOGI(TAG, "CTRL headroom: mps=%d data_buffer_size=%d -> max fittable IN data stage %d", mps, buf_size, max_in_len);
+    TEST_ASSERT_GREATER_THAN(0, max_in_len);
+    TEST_ASSERT_NOT_EQUAL_MESSAGE(0, buf_data_len % mps, "Test requires a buffer whose data room is not an MPS multiple");
+
+    // --- Accepted: IN data stage whose rounded length exactly fits the buffer ---
+    urb->transfer.num_bytes = sizeof(usb_setup_packet_t) + max_in_len;
+    USB_SETUP_PACKET_INIT_GET_CONFIG_DESC(setup_pkt, 0, max_in_len);
+    TEST_ASSERT_EQUAL(ESP_OK, hcd_urb_enqueue(default_pipe, urb));
+    TEST_HCD_EXPECT_PIPE_EVENT(default_pipe, HCD_PIPE_EVENT_URB_DONE);
+    TEST_ASSERT_EQUAL_PTR(urb, hcd_urb_dequeue(default_pipe));
+    TEST_HCD_EXPECT_TRANSFER_STATUS(urb, USB_TRANSFER_STATUS_COMPLETED);
+
+#ifdef CONFIG_USB_HOST_DMA_MODE_DESC
+    // --- Scatter/Gather DMA: no rounding requirement, the two IN sizes above are accepted (and complete) ---
+    const int accept_data_lens[] = {max_in_len + 1, buf_data_len};
+    for (int i = 0; i < 2; i++) {
+        urb->transfer.num_bytes = sizeof(usb_setup_packet_t) + accept_data_lens[i];
+        USB_SETUP_PACKET_INIT_GET_CONFIG_DESC(setup_pkt, 0, accept_data_lens[i]);
+        TEST_ASSERT_EQUAL(ESP_OK, hcd_urb_enqueue(default_pipe, urb));
+        TEST_HCD_EXPECT_PIPE_EVENT(default_pipe, HCD_PIPE_EVENT_URB_DONE);
+        TEST_ASSERT_EQUAL_PTR(urb, hcd_urb_dequeue(default_pipe));
+        TEST_HCD_EXPECT_TRANSFER_STATUS(urb, USB_TRANSFER_STATUS_COMPLETED);
+    }
+#else
+    // --- Buffer DMA only: one byte over the fittable IN data stage rounds over the buffer -> rejected ---
+    urb->transfer.num_bytes = sizeof(usb_setup_packet_t) + max_in_len + 1;
+    USB_SETUP_PACKET_INIT_GET_CONFIG_DESC(setup_pkt, 0, max_in_len + 1);
+    TEST_ASSERT_EQUAL(ESP_ERR_INVALID_SIZE, hcd_urb_enqueue(default_pipe, urb));
+
+    // --- Buffer DMA only: filling the whole buffer past the setup packet rounds over it -> rejected ---
+    urb->transfer.num_bytes = buf_size;
+    USB_SETUP_PACKET_INIT_GET_CONFIG_DESC(setup_pkt, 0, buf_data_len);
+    TEST_ASSERT_EQUAL(ESP_ERR_INVALID_SIZE, hcd_urb_enqueue(default_pipe, urb));
+#endif // CONFIG_USB_HOST_DMA_MODE_DESC
+
+    test_hcd_pipe_free(default_pipe);   // Free the default pipe: the port can only be suspended with all pipes halted
+
+    // --- OUT data stage exactly filling the buffer past the setup packet -> accepted in both DMA modes ---
+    // Enqueue deferred (pipe halted, port suspended): the acceptance check runs at enqueue, but the transfer
+    // is never executed, so no device involvement is needed. Abort while deferred to reclaim the URB.
+    hcd_pipe_handle_t no_dev_pipe = test_hcd_pipe_alloc(port_hdl, NULL, dev_addr + 1, port_speed);
+    urb->transfer.num_bytes = buf_size;
+    // Manual init: an arbitrary OUT request with a data stage (its content never reaches a device)
+    setup_pkt->bmRequestType = USB_BM_REQUEST_TYPE_DIR_OUT | USB_BM_REQUEST_TYPE_TYPE_STANDARD | USB_BM_REQUEST_TYPE_RECIP_DEVICE;
+    setup_pkt->bRequest = 0xAA;
+    setup_pkt->wValue = 0;
+    setup_pkt->wIndex = 0;
+    setup_pkt->wLength = buf_data_len;
+
+    test_hcd_root_port_suspend(port_hdl, no_dev_pipe);
+    TEST_ASSERT_EQUAL(ESP_OK, hcd_urb_enqueue(no_dev_pipe, urb));   // Deferred: accepted, never executed
+    TEST_ASSERT_EQUAL(ESP_OK, hcd_urb_abort(urb));
+    test_hcd_root_port_resume(port_hdl, no_dev_pipe);
+    TEST_HCD_EXPECT_NO_PIPE_EVENT(no_dev_pipe);
+    TEST_ASSERT_EQUAL_PTR(urb, hcd_urb_dequeue(no_dev_pipe));
+    TEST_HCD_EXPECT_TRANSFER_STATUS(urb, USB_TRANSFER_STATUS_CANCELED);
+    TEST_ASSERT_EQUAL(0, urb->transfer.actual_num_bytes);
+
+    test_hcd_free_urb(urb);
+    test_hcd_pipe_free(no_dev_pipe);
     test_hcd_wait_for_disconn(port_hdl, false);
 }
 
