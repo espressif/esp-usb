@@ -7,3 +7,4 @@ idf_component_register(SRC_DIRS .
 # Reach esp_tinyusb's private headers to call the MTP test-only helpers.
 idf_component_get_property(esp_tinyusb_dir esp_tinyusb COMPONENT_DIR)
 target_include_directories(${COMPONENT_LIB} PRIVATE "${esp_tinyusb_dir}/include_private")
+target_link_options(${COMPONENT_LIB} INTERFACE "-Wl,--wrap=tud_mtp_data_send" "-Wl,--wrap=tud_mtp_response_send")

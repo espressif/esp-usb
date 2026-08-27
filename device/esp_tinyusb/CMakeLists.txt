@@ -84,7 +84,16 @@ if(CONFIG_TINYUSB_MTP_ENABLED)
         message(FATAL_ERROR "CONFIG_TINYUSB_MTP_ENABLED requires TinyUSB MTP device class support.
         Please use a TinyUSB release that provides src/class/mtp/mtp_device.c or disable MTP.")
     endif()
-    list(APPEND srcs "tinyusb_mtp.c")
+    list(APPEND srcs
+         "mtp/tinyusb_mtp.c"
+         "mtp/tinyusb_mtp_codec.c"
+         "mtp/tinyusb_mtp_object_store.c"
+         "mtp/tinyusb_mtp_operations.c"
+         "mtp/tinyusb_mtp_properties.c"
+         "mtp/tinyusb_mtp_read.c"
+         "mtp/tinyusb_mtp_transfer.c"
+         "mtp/tinyusb_mtp_transport.c"
+         "mtp/tinyusb_mtp_write.c")
 endif() # CONFIG_TINYUSB_MTP_ENABLED
 
 idf_component_register(SRCS ${srcs}

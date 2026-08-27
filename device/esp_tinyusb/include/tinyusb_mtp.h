@@ -94,7 +94,7 @@ esp_err_t tinyusb_mtp_register_storage(const tinyusb_mtp_storage_config_t *confi
  * @return
  *      - ESP_OK on success
  *      - ESP_ERR_INVALID_ARG if handle is NULL or invalid
- *      - ESP_ERR_INVALID_STATE if the MTP driver is not installed
+ *      - ESP_ERR_INVALID_STATE if the MTP driver is not installed or a USB transfer is active
  */
 esp_err_t tinyusb_mtp_unregister_storage(tinyusb_mtp_storage_handle_t handle);
 

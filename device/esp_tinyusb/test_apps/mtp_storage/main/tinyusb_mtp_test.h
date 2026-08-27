@@ -6,6 +6,7 @@
 
 #pragma once
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 #include "esp_err.h"
@@ -14,6 +15,27 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+#define TINYUSB_MTP_TEST_MAX_PARAMS             5U
+#define TINYUSB_MTP_TEST_STORAGE_ID_REGISTERED  (UINT32_MAX - 1U)
+
+typedef struct {
+    uint16_t operation;
+    uint8_t phase;
+    uint8_t param_count;
+    uint32_t params[TINYUSB_MTP_TEST_MAX_PARAMS];
+    uint32_t payload_len;
+    bool complete_data;
+} tinyusb_mtp_test_transaction_t;
+
+typedef struct {
+    int32_t response_code;
+    uint32_t data_len;
+    uint8_t response_param_count;
+} tinyusb_mtp_test_result_t;
+
+esp_err_t tinyusb_mtp_test_execute(const tinyusb_mtp_test_transaction_t *transaction, uint8_t *io_buffer, uint32_t io_capacity,
+                                   tinyusb_mtp_test_result_t *result);
 
 /*
  * Test-only helpers used by the in-tree esp_tinyusb MTP test application.
@@ -39,31 +61,8 @@ extern "C" {
  */
 esp_err_t tinyusb_mtp_test_find_object(tinyusb_mtp_storage_handle_t storage, const char *path, uint32_t *object_handle);
 
-/**
- * @brief Create a zero-size object through the SendObjectInfo backend path.
- *
- * @note Test-only helper.
- *
- * @param[in] storage Storage handle returned by tinyusb_mtp_register_storage().
- * @param[in] parent_handle Parent object handle, or MTP_ROOT_PARENT for the storage root.
- * @param[in] name Host-provided object file name.
- * @param[out] object_handle Created or replaced object handle.
- *
- * @return
- *      - ESP_OK on success
- *      - ESP_ERR_INVALID_ARG if arguments are invalid
- *      - ESP_ERR_INVALID_STATE if the MTP driver is not installed
- *      - ESP_FAIL if the backend rejects the object info
- */
-esp_err_t tinyusb_mtp_test_send_zero_size_object_info(tinyusb_mtp_storage_handle_t storage, uint32_t parent_handle, const char *name,
-                                                      uint32_t *object_handle);
-
-/**
- * @brief Send an empty SendObject after zero-size object info.
- *
- * @note Test-only helper.
- */
-esp_err_t tinyusb_mtp_test_send_zero_size_object(void);
+esp_err_t tinyusb_mtp_test_send_object_info(tinyusb_mtp_storage_handle_t storage, uint32_t command_storage_id, uint32_t dataset_storage_id,
+                                            uint32_t parent_handle, const char *name, uint32_t object_size, uint32_t *object_handle);
 
 /**
  * @brief Read the cached parent object handle.
@@ -92,6 +91,18 @@ esp_err_t tinyusb_mtp_test_get_parent_handle(uint32_t object_handle, uint32_t *p
  *      - ESP_FAIL if the object cannot be deleted
  */
 esp_err_t tinyusb_mtp_test_delete_object(uint32_t object_handle);
+
+/**
+ * @brief Verify that a cancelled read returns TransactionCancelled and allows another read.
+ *
+ * @note Test-only helper.
+ *
+ * @param[in] cancelled_handle Object handle read before cancellation.
+ * @param[in] next_handle Object handle read after cancellation.
+ *
+ * @return ESP_OK on success, otherwise an error.
+ */
+esp_err_t tinyusb_mtp_test_cancel_read_and_restart(uint32_t cancelled_handle, uint32_t next_handle);
 
 /**
  * @brief Set the MTP Name property without changing ObjectFileName.
