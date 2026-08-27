@@ -40,6 +40,7 @@ static const char *TAG = "tinyusb_mtp";
 #define MTP_MAX_NAME_CHARS              255U
 #define MTP_MAX_NAME_BYTES              (MTP_MAX_NAME_CHARS * 3U)
 #define MTP_MAX_DATA_BYTES              (UINT32_MAX - sizeof(mtp_container_header_t))
+#define MTP_MAX_PROP_LIST_BYTES         (64U * 1024U)
 #define MTP_TEMP_NAME_PREFIX            ".mtp_tmp_"
 #define MTP_BACKUP_NAME_PREFIX          ".mtp_bak_"
 
@@ -101,6 +102,7 @@ static int32_t mtp_get_partial_object64(tud_mtp_cb_data_t *cb_data);
 int32_t mtp_delete_object(tud_mtp_cb_data_t *cb_data);
 static int32_t mtp_send_object_info(tud_mtp_cb_data_t *cb_data);
 static int32_t mtp_send_object(tud_mtp_cb_data_t *cb_data);
+static int32_t mtp_move_object(tud_mtp_cb_data_t *cb_data);
 static int32_t mtp_begin_edit_object(tud_mtp_cb_data_t *cb_data);
 static int32_t mtp_send_partial_object(tud_mtp_cb_data_t *cb_data);
 static int32_t mtp_truncate_object(tud_mtp_cb_data_t *cb_data);
@@ -113,6 +115,7 @@ int32_t mtp_set_object_prop_value(tud_mtp_cb_data_t *cb_data);
 static int32_t mtp_get_object_prop_list(tud_mtp_cb_data_t *cb_data);
 static int32_t mtp_get_object_references(tud_mtp_cb_data_t *cb_data);
 static mtp_object_t *mtp_object_from_handle(uint32_t handle);
+static void mtp_drop_objects_under_path(const struct tinyusb_mtp_storage_s *storage, const char *path);
 
 static const mtp_op_handler_entry_t s_handlers[] = {
     { MTP_OP_GET_DEVICE_INFO, mtp_get_device_info },
@@ -129,6 +132,7 @@ static const mtp_op_handler_entry_t s_handlers[] = {
     { MTP_OP_DELETE_OBJECT, mtp_delete_object },
     { MTP_OP_SEND_OBJECT_INFO, mtp_send_object_info },
     { MTP_OP_SEND_OBJECT, mtp_send_object },
+    { MTP_OP_MOVE_OBJECT, mtp_move_object },
     { MTP_OP_ANDROID_BEGIN_EDIT_OBJECT, mtp_begin_edit_object },
     { MTP_OP_ANDROID_SEND_PARTIAL_OBJECT, mtp_send_partial_object },
     { MTP_OP_ANDROID_TRUNCATE_OBJECT, mtp_truncate_object },
@@ -898,7 +902,11 @@ int32_t mtp_update_object_stat_locked(mtp_object_t *object)
 {
     struct stat st;
     if (stat(object->path, &st) != 0) {
-        ESP_LOGE(TAG, "failed to stat edited MTP object %s: %s", object->path, strerror(errno));
+        int err = errno;
+        ESP_LOGE(TAG, "failed to stat edited MTP object %s: %s", object->path, strerror(err));
+        if (err == ENOENT || err == ENOTDIR) {
+            mtp_free_object(object);
+        }
         return MTP_RESP_INVALID_OBJECT_HANDLE;
     }
     mtp_update_object_from_stat(object, &st);
@@ -1185,7 +1193,7 @@ static uint32_t mtp_parent_handle_to_dir(struct tinyusb_mtp_storage_s *storage, 
     return 0;
 }
 
-static int32_t mtp_scan_children(struct tinyusb_mtp_storage_s *storage, uint32_t parent_handle, uint32_t object_format, uint32_t *handles,
+int32_t mtp_scan_children_locked(struct tinyusb_mtp_storage_s *storage, uint32_t parent_handle, uint32_t object_format, uint32_t *handles,
                                  size_t max_handles, uint32_t *count)
 {
     const char *dir_path = NULL;
@@ -1200,9 +1208,25 @@ static int32_t mtp_scan_children(struct tinyusb_mtp_storage_s *storage, uint32_t
         return MTP_RESP_INVALID_OBJECT_HANDLE;
     }
 
+    const uint32_t normalized_parent = mtp_normalize_parent_handle(parent_handle);
+    const bool refresh_cache = handles != NULL;
+    bool *seen = refresh_cache ? calloc(CONFIG_TINYUSB_MTP_MAX_OBJECTS, sizeof(bool)) : NULL;
+    if (refresh_cache && seen == NULL) {
+        closedir(dir);
+        ESP_LOGE(TAG, "failed to allocate MTP directory refresh state");
+        return MTP_RESP_STORE_FULL;
+    }
+
     struct dirent *entry = NULL;
     uint32_t found = 0;
-    while ((entry = readdir(dir)) != NULL) {
+    int scan_error = 0;
+    while (true) {
+        errno = 0;
+        entry = readdir(dir);
+        if (entry == NULL) {
+            scan_error = errno;
+            break;
+        }
         if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
             continue;
         }
@@ -1212,6 +1236,7 @@ static int32_t mtp_scan_children(struct tinyusb_mtp_storage_s *storage, uint32_t
 
         char *path = mtp_join_path(dir_path, entry->d_name);
         if (path == NULL) {
+            free(seen);
             closedir(dir);
             return MTP_RESP_STORE_FULL;
         }
@@ -1225,21 +1250,34 @@ static int32_t mtp_scan_children(struct tinyusb_mtp_storage_s *storage, uint32_t
 
         const bool is_dir = S_ISDIR(st.st_mode);
         const uint16_t fmt = mtp_format_from_name(entry->d_name, is_dir);
-        if (object_format == 0 || object_format == 0xFFFFFFFFU || (uint16_t)object_format == fmt) {
-            mtp_object_t *object = mtp_get_or_create_object(storage, mtp_normalize_parent_handle(parent_handle), path, &st);
-            if (object == NULL) {
-                free(path);
-                closedir(dir);
-                return MTP_RESP_STORE_FULL;
+        if (seen) {
+            mtp_object_t *cached = mtp_find_object_by_path(storage, path);
+            if (cached != NULL) {
+                cached->parent = normalized_parent;
+                mtp_update_object_from_stat(cached, &st);
+                seen[cached - s_mtp.mux_protected.objects] = true;
             }
+        }
+        if (object_format == 0 || object_format == 0xFFFFFFFFU || (uint16_t)object_format == fmt) {
             if (handles && found >= max_handles) {
                 ESP_LOGE(TAG, "MTP object handle result table full while scanning %s", dir_path);
                 free(path);
+                free(seen);
                 closedir(dir);
                 return MTP_RESP_STORE_FULL;
             }
             if (handles) {
+                mtp_object_t *object = mtp_get_or_create_object(storage, normalized_parent, path, &st);
+                if (object == NULL) {
+                    free(path);
+                    free(seen);
+                    closedir(dir);
+                    return MTP_RESP_GENERAL_ERROR;
+                }
                 handles[found] = object->handle;
+                if (seen) {
+                    seen[object - s_mtp.mux_protected.objects] = true;
+                }
             }
             found++;
         }
@@ -1247,6 +1285,21 @@ static int32_t mtp_scan_children(struct tinyusb_mtp_storage_s *storage, uint32_t
     }
 
     closedir(dir);
+    if (scan_error != 0) {
+        ESP_LOGE(TAG, "failed to scan MTP directory %s: %s", dir_path, strerror(scan_error));
+        free(seen);
+        return MTP_RESP_STORE_NOT_AVAILABLE;
+    }
+
+    if (seen) {
+        for (size_t i = 0; i < CONFIG_TINYUSB_MTP_MAX_OBJECTS; i++) {
+            mtp_object_t *object = &s_mtp.mux_protected.objects[i];
+            if (object->used && !seen[i] && object->storage == storage && object->parent == normalized_parent) {
+                mtp_drop_objects_under_path(storage, object->path);
+            }
+        }
+    }
+    free(seen);
     *count = found;
     return 0;
 }
@@ -1306,9 +1359,17 @@ static esp_err_t mtp_recursive_delete_path(const char *path)
 
 static void mtp_drop_objects_under_path(const struct tinyusb_mtp_storage_s *storage, const char *path)
 {
+    // Free descendants first so path may safely point into the object table.
     for (size_t i = 0; i < CONFIG_TINYUSB_MTP_MAX_OBJECTS; i++) {
-        if (s_mtp.mux_protected.objects[i].used && s_mtp.mux_protected.objects[i].storage == storage && mtp_path_is_child_of(s_mtp.mux_protected.objects[i].path, path)) {
+        if (s_mtp.mux_protected.objects[i].used && s_mtp.mux_protected.objects[i].storage == storage && strcmp(s_mtp.mux_protected.objects[i].path, path) != 0 &&
+                mtp_path_is_child_of(s_mtp.mux_protected.objects[i].path, path)) {
             mtp_free_object(&s_mtp.mux_protected.objects[i]);
+        }
+    }
+    for (size_t i = 0; i < CONFIG_TINYUSB_MTP_MAX_OBJECTS; i++) {
+        if (s_mtp.mux_protected.objects[i].used && s_mtp.mux_protected.objects[i].storage == storage && strcmp(s_mtp.mux_protected.objects[i].path, path) == 0) {
+            mtp_free_object(&s_mtp.mux_protected.objects[i]);
+            break;
         }
     }
 }
@@ -1407,6 +1468,74 @@ static int32_t mtp_rename_object_locked(mtp_object_t *object, const char *new_na
     free(object->path);
     object->path = new_path;
     MTP_TRACEI("MTP rename: handle=%" PRIu32 " from=%s to=%s", object->handle, old_path, object->path);
+    if (stat(object->path, &st) == 0) {
+        mtp_update_object_from_stat(object, &st);
+    }
+    free(old_path);
+    return MTP_RESP_OK;
+}
+
+static int32_t mtp_move_object_locked(mtp_object_t *object, struct tinyusb_mtp_storage_s *storage, uint32_t parent_handle)
+{
+    if (object->storage != storage) {
+        ESP_LOGW(TAG, "cross-storage MTP move is not supported: handle=%" PRIu32, object->handle);
+        return MTP_RESP_ACCESS_DENIED;
+    }
+
+    const char *parent_dir = NULL;
+    uint32_t parent_resp = mtp_parent_handle_to_dir(storage, parent_handle, &parent_dir);
+    if (parent_resp != 0) {
+        return (int32_t)parent_resp;
+    }
+    if (object->directory && mtp_path_is_child_of(parent_dir, object->path)) {
+        ESP_LOGW(TAG, "invalid MTP directory move target: %s", parent_dir);
+        return MTP_RESP_INVALID_PARENT_OBJECT;
+    }
+
+    const char *name = strrchr(object->path, '/');
+    name = name ? name + 1 : object->path;
+    char *new_path = mtp_join_path(parent_dir, name);
+    if (new_path == NULL) {
+        return MTP_RESP_STORE_FULL;
+    }
+    if (strcmp(object->path, new_path) == 0) {
+        free(new_path);
+        return MTP_RESP_OK;
+    }
+
+    struct stat st;
+    if (stat(new_path, &st) == 0) {
+        ESP_LOGW(TAG, "MTP move target already exists: %s", new_path);
+        free(new_path);
+        return MTP_RESP_ACCESS_DENIED;
+    }
+    if (errno != ENOENT) {
+        ESP_LOGE(TAG, "failed to stat MTP move target %s: %s", new_path, strerror(errno));
+        free(new_path);
+        return MTP_RESP_ACCESS_DENIED;
+    }
+
+    char *old_path = strdup(object->path);
+    if (old_path == NULL) {
+        ESP_LOGE(TAG, "failed to allocate MTP move source path");
+        free(new_path);
+        return MTP_RESP_STORE_FULL;
+    }
+    if (rename(old_path, new_path) != 0) {
+        ESP_LOGE(TAG, "failed to move MTP object %s to %s: %s", old_path, new_path, strerror(errno));
+        free(old_path);
+        free(new_path);
+        return MTP_RESP_ACCESS_DENIED;
+    }
+
+    // Drop cached descendants after directory move; future scans recreate them with fresh paths.
+    if (object->directory) {
+        mtp_drop_cached_children_under_path(storage, old_path, object);
+    }
+    free(object->path);
+    object->path = new_path;
+    object->parent = mtp_normalize_parent_handle(parent_handle);
+    MTP_TRACEI("MTP move: handle=%" PRIu32 " from=%s to=%s", object->handle, old_path, object->path);
     if (stat(object->path, &st) == 0) {
         mtp_update_object_from_stat(object, &st);
     }
@@ -1541,6 +1670,11 @@ static int32_t mtp_continue_buffered_data(tud_mtp_cb_data_t *cb_data)
 static int32_t mtp_dispatch(tud_mtp_cb_data_t *cb_data)
 {
     const mtp_container_command_t *command = cb_data->command_container;
+    if (cb_data->phase == MTP_PHASE_COMMAND && command->header.code != MTP_OP_SEND_OBJECT) {
+        mtp_lock();
+        s_mtp.mux_protected.zero_size_send_object_pending = false;
+        mtp_unlock();
+    }
     for (size_t i = 0; i < sizeof(s_handlers) / sizeof(s_handlers[0]); i++) {
         if (s_handlers[i].op_code == command->header.code) {
             return s_handlers[i].handler(cb_data);
@@ -1797,6 +1931,7 @@ static int32_t mtp_complete_send_object_info_locked(const tud_mtp_cb_data_t *cb_
     ESP_GOTO_ON_FALSE(pending->handle != MTP_OBJECT_HANDLE_INVALID, MTP_RESP_GENERAL_ERROR, done, TAG, "missing pending MTP object info");
 
     bool expects_object_data = pending->active;
+    bool accepts_zero_size_send = !pending->directory && pending->expected_size == 0;
     uint32_t storage_id = pending->storage_id;
     uint32_t parent_handle = pending->parent_handle;
     uint32_t handle = pending->handle;
@@ -1804,6 +1939,7 @@ static int32_t mtp_complete_send_object_info_locked(const tud_mtp_cb_data_t *cb_
         ret = mtp_finish_pending_write_locked();
         ESP_GOTO_ON_FALSE(ret == MTP_RESP_OK, ret, clear_pending, TAG, "failed to finish MTP object info write: response=0x%04" PRIx32,
                           (uint32_t)ret);
+        s_mtp.mux_protected.zero_size_send_object_pending = accepts_zero_size_send;
     }
     (void)mtp_container_add_uint32(response, storage_id);
     (void)mtp_container_add_uint32(response, parent_handle);
@@ -1828,6 +1964,15 @@ static int32_t mtp_complete_send_object_locked(const tud_mtp_cb_data_t *cb_data)
 {
     mtp_pending_write_t *pending = &s_mtp.mux_protected.pending_write;
     int32_t ret = MTP_RESP_OK;
+
+    if (s_mtp.mux_protected.zero_size_send_object_pending) {
+        s_mtp.mux_protected.zero_size_send_object_pending = false;
+        if (cb_data->xfer_result != XFER_RESULT_SUCCESS || cb_data->total_xferred_bytes != sizeof(mtp_container_header_t)) {
+            ESP_LOGW(TAG, "invalid zero-size MTP SendObject transfer: result=%d bytes=%" PRIu32, cb_data->xfer_result, cb_data->total_xferred_bytes);
+            return MTP_RESP_INCOMPLETE_TRANSFER;
+        }
+        return MTP_RESP_OK;
+    }
 
     ESP_GOTO_ON_FALSE(cb_data->xfer_result == XFER_RESULT_SUCCESS, MTP_RESP_GENERAL_ERROR, abort_pending, TAG,
                       "MTP SendObject transfer failed: result=%d", cb_data->xfer_result);
@@ -2107,7 +2252,7 @@ static int32_t mtp_get_num_objects(tud_mtp_cb_data_t *cb_data)
             return parent_ret;
         }
         if (parent_storage) {
-            int32_t ret = mtp_scan_children(parent_storage, parent, object_format, NULL, 0, &total);
+            int32_t ret = mtp_scan_children_locked(parent_storage, parent, object_format, NULL, 0, &total);
             if (ret > MTP_RESP_UNDEFINED) {
                 mtp_unlock();
                 return ret;
@@ -2118,7 +2263,7 @@ static int32_t mtp_get_num_objects(tud_mtp_cb_data_t *cb_data)
                     continue;
                 }
                 uint32_t count = 0;
-                int32_t ret = mtp_scan_children(&s_mtp.mux_protected.storages[i], parent, object_format, NULL, 0, &count);
+                int32_t ret = mtp_scan_children_locked(&s_mtp.mux_protected.storages[i], parent, object_format, NULL, 0, &count);
                 if (ret > MTP_RESP_UNDEFINED) {
                     mtp_unlock();
                     return ret;
@@ -2134,7 +2279,7 @@ static int32_t mtp_get_num_objects(tud_mtp_cb_data_t *cb_data)
             mtp_unlock();
             return MTP_RESP_INVALID_STORAGE_ID;
         }
-        int32_t ret = mtp_scan_children(storage, parent, object_format, NULL, 0, &total);
+        int32_t ret = mtp_scan_children_locked(storage, parent, object_format, NULL, 0, &total);
         mtp_unlock();
         if (ret > MTP_RESP_UNDEFINED) {
             return ret;
@@ -2175,7 +2320,7 @@ static int32_t mtp_get_object_handles(tud_mtp_cb_data_t *cb_data)
             return parent_ret;
         }
         if (parent_storage) {
-            int32_t ret = mtp_scan_children(parent_storage, parent, object_format, handles, CONFIG_TINYUSB_MTP_MAX_OBJECTS, &count);
+            int32_t ret = mtp_scan_children_locked(parent_storage, parent, object_format, handles, CONFIG_TINYUSB_MTP_MAX_OBJECTS, &count);
             if (ret > MTP_RESP_UNDEFINED) {
                 mtp_unlock();
                 free(handles);
@@ -2187,7 +2332,7 @@ static int32_t mtp_get_object_handles(tud_mtp_cb_data_t *cb_data)
                     continue;
                 }
                 uint32_t sub_count = 0;
-                int32_t ret = mtp_scan_children(&s_mtp.mux_protected.storages[i], parent, object_format, handles + count, CONFIG_TINYUSB_MTP_MAX_OBJECTS - count, &sub_count);
+                int32_t ret = mtp_scan_children_locked(&s_mtp.mux_protected.storages[i], parent, object_format, handles + count, CONFIG_TINYUSB_MTP_MAX_OBJECTS - count, &sub_count);
                 if (ret > MTP_RESP_UNDEFINED) {
                     mtp_unlock();
                     free(handles);
@@ -2203,7 +2348,7 @@ static int32_t mtp_get_object_handles(tud_mtp_cb_data_t *cb_data)
             free(handles);
             return MTP_RESP_INVALID_STORAGE_ID;
         }
-        int32_t ret = mtp_scan_children(storage, parent, object_format, handles, CONFIG_TINYUSB_MTP_MAX_OBJECTS, &count);
+        int32_t ret = mtp_scan_children_locked(storage, parent, object_format, handles, CONFIG_TINYUSB_MTP_MAX_OBJECTS, &count);
         if (ret > MTP_RESP_UNDEFINED) {
             mtp_unlock();
             free(handles);
@@ -2237,7 +2382,11 @@ static int32_t mtp_get_object_info(tud_mtp_cb_data_t *cb_data)
 
     struct stat st;
     if (stat(object->path, &st) != 0) {
-        ESP_LOGE(TAG, "failed to stat MTP object info %s: %s", object->path, strerror(errno));
+        int err = errno;
+        ESP_LOGE(TAG, "failed to stat MTP object info %s: %s", object->path, strerror(err));
+        if (err == ENOENT || err == ENOTDIR) {
+            mtp_free_object(object);
+        }
         mtp_unlock();
         return MTP_RESP_INVALID_OBJECT_HANDLE;
     }
@@ -2292,7 +2441,11 @@ static int32_t mtp_start_read(tud_mtp_cb_data_t *cb_data, uint64_t offset, uint6
     }
     struct stat st;
     if (stat(object->path, &st) != 0) {
-        ESP_LOGE(TAG, "failed to stat MTP object before read %s: %s", object->path, strerror(errno));
+        int err = errno;
+        ESP_LOGE(TAG, "failed to stat MTP object before read %s: %s", object->path, strerror(err));
+        if (err == ENOENT || err == ENOTDIR) {
+            mtp_free_object(object);
+        }
         mtp_unlock();
         return MTP_RESP_INVALID_OBJECT_HANDLE;
     }
@@ -2848,12 +3001,23 @@ static int32_t mtp_send_object(tud_mtp_cb_data_t *cb_data)
     mtp_container_info_t *container = &cb_data->io_container;
 
     mtp_lock();
-    if (!s_mtp.mux_protected.pending_write.active || s_mtp.mux_protected.pending_write.path == NULL) {
+    bool zero_size_send = s_mtp.mux_protected.zero_size_send_object_pending;
+    if (!zero_size_send && (!s_mtp.mux_protected.pending_write.active || s_mtp.mux_protected.pending_write.path == NULL)) {
         mtp_unlock();
         return MTP_RESP_INVALID_OBJECT_HANDLE;
     }
 
     if (cb_data->phase == MTP_PHASE_COMMAND) {
+        if (zero_size_send) {
+            container->header->len = sizeof(mtp_container_header_t);
+            int32_t resp = tud_mtp_data_receive(container) ? 0 : MTP_RESP_DEVICE_BUSY;
+            if (resp != 0) {
+                s_mtp.mux_protected.zero_size_send_object_pending = false;
+                ESP_LOGE(TAG, "failed to receive zero-size MTP object");
+            }
+            mtp_unlock();
+            return resp;
+        }
         container->header->len = sizeof(mtp_container_header_t) + (uint32_t)s_mtp.mux_protected.pending_write.expected_size;
         int32_t resp = tud_mtp_data_receive(container) ? 0 : MTP_RESP_DEVICE_BUSY;
         if (resp != 0) {
@@ -2864,6 +3028,11 @@ static int32_t mtp_send_object(tud_mtp_cb_data_t *cb_data)
         }
         mtp_unlock();
         return resp;
+    }
+
+    if (zero_size_send) {
+        mtp_unlock();
+        return 0;
     }
 
     if (s_mtp.mux_protected.pending_write.file == NULL) {
@@ -2905,6 +3074,36 @@ static int32_t mtp_send_object(tud_mtp_cb_data_t *cb_data)
     return 0;
 }
 
+static int32_t mtp_move_object(tud_mtp_cb_data_t *cb_data)
+{
+    if (!mtp_session_is_open()) {
+        return MTP_RESP_SESSION_NOT_OPEN;
+    }
+    if (cb_data->phase != MTP_PHASE_COMMAND) {
+        return MTP_RESP_OK;
+    }
+
+    const mtp_container_command_t *command = cb_data->command_container;
+    if (command->header.len < sizeof(mtp_container_header_t) + 3U * sizeof(uint32_t)) {
+        ESP_LOGW(TAG, "invalid MTP MoveObject parameter count");
+        return MTP_RESP_INVALID_PARAMETER;
+    }
+
+    mtp_lock();
+    mtp_object_t *object = mtp_object_from_handle(command->params[0]);
+    struct tinyusb_mtp_storage_s *storage = mtp_storage_from_id(command->params[1]);
+    int32_t ret = MTP_RESP_OK;
+    if (object == NULL) {
+        ret = MTP_RESP_INVALID_OBJECT_HANDLE;
+    } else if (storage == NULL) {
+        ret = MTP_RESP_INVALID_STORAGE_ID;
+    } else {
+        ret = mtp_move_object_locked(object, storage, command->params[2]);
+    }
+    mtp_unlock();
+    return ret;
+}
+
 static bool mtp_builder_reserve(mtp_payload_builder_t *builder, uint32_t add_len)
 {
     if (builder->len > UINT32_MAX - add_len) {
@@ -2912,6 +3111,10 @@ static bool mtp_builder_reserve(mtp_payload_builder_t *builder, uint32_t add_len
         return false;
     }
     uint32_t need = builder->len + add_len;
+    if (need > MTP_MAX_PROP_LIST_BYTES) {
+        ESP_LOGE(TAG, "MTP property list response exceeds %u bytes", (unsigned)MTP_MAX_PROP_LIST_BYTES);
+        return false;
+    }
     if (need <= builder->cap) {
         return true;
     }
@@ -3134,7 +3337,11 @@ static int32_t mtp_get_object_prop_value(tud_mtp_cb_data_t *cb_data)
 
     struct stat st;
     if (stat(object->path, &st) != 0) {
-        ESP_LOGE(TAG, "failed to stat MTP object property %s: %s", object->path, strerror(errno));
+        int err = errno;
+        ESP_LOGE(TAG, "failed to stat MTP object property %s: %s", object->path, strerror(err));
+        if (err == ENOENT || err == ENOTDIR) {
+            mtp_free_object(object);
+        }
         mtp_unlock();
         return MTP_RESP_INVALID_OBJECT_HANDLE;
     }
@@ -3255,7 +3462,11 @@ static int32_t mtp_builder_append_object_props_locked(mtp_payload_builder_t *bui
 {
     struct stat st;
     if (stat(object->path, &st) != 0) {
-        ESP_LOGE(TAG, "failed to stat MTP object prop list %s: %s", object->path, strerror(errno));
+        int err = errno;
+        ESP_LOGE(TAG, "failed to stat MTP object prop list %s: %s", object->path, strerror(err));
+        if (err == ENOENT || err == ENOTDIR) {
+            mtp_free_object(object);
+        }
         return MTP_RESP_INVALID_OBJECT_HANDLE;
     }
     mtp_update_object_from_stat(object, &st);
@@ -3291,7 +3502,7 @@ static int32_t mtp_enqueue_prop_list_children_locked(mtp_prop_list_visit_t *queu
                                                      uint32_t *child_handles)
 {
     uint32_t count = 0;
-    int32_t ret = mtp_scan_children(storage, parent_handle, 0, child_handles, CONFIG_TINYUSB_MTP_MAX_OBJECTS, &count);
+    int32_t ret = mtp_scan_children_locked(storage, parent_handle, 0, child_handles, CONFIG_TINYUSB_MTP_MAX_OBJECTS, &count);
     if (ret != 0) {
         return ret;
     }
@@ -3417,7 +3628,7 @@ static int32_t mtp_get_object_prop_list(tud_mtp_cb_data_t *cb_data)
             if (!s_mtp.mux_protected.storages[i].used) {
                 continue;
             }
-            ret = mtp_builder_append_storage_tree_props_locked(&builder, &s_mtp.mux_protected.storages[i], object_format, prop_code, MTP_ROOT_PARENT);
+            ret = mtp_builder_append_storage_tree_props_locked(&builder, &s_mtp.mux_protected.storages[i], object_format, prop_code, depth);
             if (ret != MTP_RESP_OK) {
                 break;
             }

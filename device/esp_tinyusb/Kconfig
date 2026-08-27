@@ -170,12 +170,13 @@ menu "TinyUSB Stack"
             depends on TINYUSB_MTP_ENABLED
             int "MTP endpoint buffer size"
             default 4096 if IDF_TARGET_ESP32P4 || IDF_TARGET_ESP32S31
-            default 512
-            range 512 8192 if IDF_TARGET_ESP32S2 || IDF_TARGET_ESP32S3 || IDF_TARGET_ESP32H4
-            range 512 32768 if IDF_TARGET_ESP32P4 || IDF_TARGET_ESP32S31
+            default 4096
+            range 4096 8192 if IDF_TARGET_ESP32S2 || IDF_TARGET_ESP32S3 || IDF_TARGET_ESP32H4
+            range 4096 32768 if IDF_TARGET_ESP32P4 || IDF_TARGET_ESP32S31
             help
                 MTP bulk endpoint transfer buffer size, in bytes. Larger values improve
-                large file transfer throughput at the cost of RAM.
+                large file transfer throughput at the cost of RAM. The minimum size keeps
+                valid ObjectInfo and object property string datasets in one transfer buffer.
 
         config TINYUSB_MTP_MAX_STORAGES
             depends on TINYUSB_MTP_ENABLED

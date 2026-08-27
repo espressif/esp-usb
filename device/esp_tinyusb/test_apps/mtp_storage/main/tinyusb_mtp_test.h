@@ -59,6 +59,13 @@ esp_err_t tinyusb_mtp_test_send_zero_size_object_info(tinyusb_mtp_storage_handle
                                                       uint32_t *object_handle);
 
 /**
+ * @brief Send an empty SendObject after zero-size object info.
+ *
+ * @note Test-only helper.
+ */
+esp_err_t tinyusb_mtp_test_send_zero_size_object(void);
+
+/**
  * @brief Read the cached parent object handle.
  *
  * @note Test-only helper.

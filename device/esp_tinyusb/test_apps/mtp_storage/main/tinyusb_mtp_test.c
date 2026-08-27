@@ -147,9 +147,46 @@ esp_err_t tinyusb_mtp_test_send_zero_size_object_info(tinyusb_mtp_storage_handle
     mtp_unlock();
     ESP_RETURN_ON_FALSE(pending_idle, ESP_FAIL, TAG, "zero-size SendObjectInfo left pending write active");
 
-    char path[128];
+    char path[1024];
     ESP_RETURN_ON_ERROR(tinyusb_mtp_test_build_storage_path(storage, name, path, sizeof(path)), TAG, "failed to build zero-size object path");
     return tinyusb_mtp_test_find_object(storage, path, object_handle);
+}
+
+esp_err_t tinyusb_mtp_test_send_zero_size_object(void)
+{
+    ESP_RETURN_ON_FALSE(s_mtp.installed, ESP_ERR_INVALID_STATE, TAG, "MTP driver is not installed");
+
+    mtp_container_command_t command = {
+        .header = {
+            .len = sizeof(mtp_container_header_t),
+            .code = MTP_OP_SEND_OBJECT,
+        },
+    };
+    mtp_container_header_t header = {
+        .len = sizeof(mtp_container_header_t),
+        .code = MTP_OP_SEND_OBJECT,
+    };
+    tud_mtp_cb_data_t cb_data = {
+        .phase = MTP_PHASE_DATA,
+        .command_container = &command,
+        .io_container = {
+            .header = &header,
+        },
+        .total_xferred_bytes = sizeof(mtp_container_header_t),
+        .xfer_result = XFER_RESULT_SUCCESS,
+    };
+
+    bool session_was_open = tinyusb_mtp_test_force_session_open();
+    int32_t ret = tud_mtp_data_xfer_cb(&cb_data);
+    if (ret == 0) {
+        mtp_lock();
+        header.code = (uint16_t)mtp_complete_data_locked(&cb_data, &cb_data.io_container);
+        mtp_unlock();
+    }
+    tinyusb_mtp_test_restore_session(session_was_open);
+    ESP_RETURN_ON_FALSE(ret == 0 && header.code == MTP_RESP_OK, ESP_FAIL, TAG, "zero-size SendObject failed: response=0x%04" PRIx32,
+                        ret == 0 ? (uint32_t)header.code : (uint32_t)ret);
+    return ESP_OK;
 }
 
 esp_err_t tinyusb_mtp_test_delete_object(uint32_t object_handle)

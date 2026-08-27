@@ -138,6 +138,7 @@ typedef struct {
         mtp_active_edit_t active_edit;
         mtp_partial_write_t partial_write;
         mtp_active_buffer_t active_buffer;
+        bool zero_size_send_object_pending;
         bool deferred_response_active;
         uint16_t deferred_response_op;
         int32_t deferred_response_code;
@@ -237,6 +238,14 @@ int32_t mtp_complete_data_locked(const tud_mtp_cb_data_t *cb_data, mtp_container
  * @note Must be called with the MTP context lock held.
  */
 mtp_object_t *mtp_get_or_create_object(struct tinyusb_mtp_storage_s *storage, uint32_t parent, const char *path, const struct stat *st);
+
+/**
+ * @brief Scan one MTP directory, optionally creating object handles.
+ *
+ * @note Must be called with the MTP context lock held. Passing NULL handles only counts entries.
+ */
+int32_t mtp_scan_children_locked(struct tinyusb_mtp_storage_s *storage, uint32_t parent_handle, uint32_t object_format, uint32_t *handles,
+                                 size_t max_handles, uint32_t *count);
 
 /**
  * @brief Handle MTP DeleteObject.

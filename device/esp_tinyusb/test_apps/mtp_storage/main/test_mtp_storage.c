@@ -236,6 +236,19 @@ static void test_mtp_unregister_all_storages(tinyusb_mtp_storage_handle_t handle
     }
 }
 
+static size_t test_mtp_cached_object_count(tinyusb_mtp_storage_handle_t storage)
+{
+    size_t count = 0;
+    mtp_lock();
+    for (size_t i = 0; i < CONFIG_TINYUSB_MTP_MAX_OBJECTS; i++) {
+        if (s_mtp.mux_protected.objects[i].used && s_mtp.mux_protected.objects[i].storage == storage) {
+            count++;
+        }
+    }
+    mtp_unlock();
+    return count;
+}
+
 void test_mtp_storage_warm_up(void)
 {
     if (s_mtp_storage_warmed_up) {
@@ -326,6 +339,7 @@ TEST_CASE("MTP: zero-size SendObjectInfo completes without SendObject", "[mtp][s
     uint32_t empty_handle = 0;
     TEST_ASSERT_EQUAL(ESP_OK, tinyusb_mtp_test_send_zero_size_object_info(storage, MTP_ROOT_PARENT, "empty.txt", &empty_handle));
     TEST_ASSERT_NOT_EQUAL(0, empty_handle);
+    TEST_ASSERT_EQUAL(ESP_OK, tinyusb_mtp_test_send_zero_size_object());
 
     uint32_t parent_handle = 0;
     TEST_ASSERT_EQUAL(ESP_OK, tinyusb_mtp_test_get_parent_handle(empty_handle, &parent_handle));
@@ -490,6 +504,114 @@ TEST_CASE("MTP: UTF-16 object filename is stored as UTF-8", "[mtp][storage][ci]"
 
     TEST_ASSERT_EQUAL(ESP_OK, tinyusb_mtp_unregister_storage(storage));
     TEST_ASSERT_EQUAL(ESP_OK, tinyusb_mtp_uninstall_driver());
+}
+
+TEST_CASE("MTP: long ObjectInfo filename fits the endpoint buffer", "[mtp][storage][ci]")
+{
+    test_mtp_storage_t *flash = &s_test_storages[0];
+    char name[235];
+    memset(name, 'a', 230);
+    memcpy(name + 230, ".txt", 5);
+
+    char path[1024];
+    test_mtp_build_path(path, sizeof(path), flash->base_path, name);
+    test_mtp_remove_path_if_exists(path);
+
+    TEST_ASSERT_EQUAL(ESP_OK, tinyusb_mtp_install_driver(NULL));
+    tinyusb_mtp_storage_handle_t storage = NULL;
+    TEST_ASSERT_EQUAL(ESP_OK, tinyusb_mtp_register_storage(&(tinyusb_mtp_storage_config_t) {
+        .base_path = flash->base_path,
+        .display_name = flash->display_name,
+        .removable = flash->removable,
+    }, &storage));
+
+    uint32_t object_handle = 0;
+    TEST_ASSERT_EQUAL(ESP_OK, tinyusb_mtp_test_send_zero_size_object_info(storage, MTP_ROOT_PARENT, name, &object_handle));
+    TEST_ASSERT_NOT_EQUAL(0, object_handle);
+
+    struct stat st;
+    TEST_ASSERT_EQUAL(0, stat(path, &st));
+    TEST_ASSERT_EQUAL(0, (int)st.st_size);
+
+    TEST_ASSERT_EQUAL(ESP_OK, tinyusb_mtp_unregister_storage(storage));
+    TEST_ASSERT_EQUAL(ESP_OK, tinyusb_mtp_uninstall_driver());
+    test_mtp_remove_path_if_exists(path);
+}
+
+TEST_CASE("MTP: directory refresh removes stale cached objects", "[mtp][storage][ci]")
+{
+    test_mtp_storage_t *flash = &s_test_storages[0];
+    char dir_path[128];
+    char keep_path[160];
+    char drop_path[160];
+    test_mtp_build_path(dir_path, sizeof(dir_path), flash->base_path, "cache_refresh");
+    test_mtp_build_path(keep_path, sizeof(keep_path), dir_path, "keep.txt");
+    test_mtp_build_path(drop_path, sizeof(drop_path), dir_path, "drop.txt");
+    test_mtp_remove_path_if_exists(keep_path);
+    test_mtp_remove_path_if_exists(drop_path);
+    test_mtp_remove_path_if_exists(dir_path);
+    test_mtp_make_dir_if_missing(dir_path);
+    test_mtp_write_file(keep_path, "keep");
+    test_mtp_write_file(drop_path, "drop");
+
+    TEST_ASSERT_EQUAL(ESP_OK, tinyusb_mtp_install_driver(NULL));
+    tinyusb_mtp_storage_handle_t storage = NULL;
+    TEST_ASSERT_EQUAL(ESP_OK, tinyusb_mtp_register_storage(&(tinyusb_mtp_storage_config_t) {
+        .base_path = flash->base_path,
+        .display_name = flash->display_name,
+        .removable = flash->removable,
+    }, &storage));
+
+    uint32_t directory_handle = 0;
+    TEST_ASSERT_EQUAL(ESP_OK, tinyusb_mtp_test_find_object(storage, dir_path, &directory_handle));
+    TEST_ASSERT_EQUAL_UINT32(1, test_mtp_cached_object_count(storage));
+
+    uint32_t count = 0;
+    mtp_lock();
+    int32_t scan_ret = mtp_scan_children_locked(storage, directory_handle, 0, NULL, 0, &count);
+    mtp_unlock();
+    TEST_ASSERT_EQUAL_INT32(0, scan_ret);
+    TEST_ASSERT_EQUAL_UINT32(2, count);
+    TEST_ASSERT_EQUAL_UINT32(1, test_mtp_cached_object_count(storage));
+
+    uint32_t handles[2] = { 0 };
+    mtp_lock();
+    scan_ret = mtp_scan_children_locked(storage, directory_handle, 0, handles, 2, &count);
+    mtp_unlock();
+    TEST_ASSERT_EQUAL_INT32(0, scan_ret);
+    TEST_ASSERT_EQUAL_UINT32(2, count);
+    TEST_ASSERT_EQUAL_UINT32(3, test_mtp_cached_object_count(storage));
+    uint32_t original_handles[2] = { handles[0], handles[1] };
+
+    TEST_ASSERT_EQUAL(0, unlink(drop_path));
+
+    mtp_lock();
+    scan_ret = mtp_scan_children_locked(storage, directory_handle, 0, handles, 2, &count);
+    mtp_unlock();
+    TEST_ASSERT_EQUAL_INT32(0, scan_ret);
+    TEST_ASSERT_EQUAL_UINT32(1, count);
+    TEST_ASSERT_EQUAL_UINT32(2, test_mtp_cached_object_count(storage));
+
+    size_t valid_handles = 0;
+    size_t stale_handles = 0;
+    for (size_t i = 0; i < 2; i++) {
+        uint32_t parent_handle = 0;
+        esp_err_t ret = tinyusb_mtp_test_get_parent_handle(original_handles[i], &parent_handle);
+        if (ret == ESP_OK) {
+            TEST_ASSERT_EQUAL_UINT32(directory_handle, parent_handle);
+            valid_handles++;
+        } else {
+            TEST_ASSERT_EQUAL(ESP_ERR_NOT_FOUND, ret);
+            stale_handles++;
+        }
+    }
+    TEST_ASSERT_EQUAL_UINT32(1, valid_handles);
+    TEST_ASSERT_EQUAL_UINT32(1, stale_handles);
+
+    TEST_ASSERT_EQUAL(ESP_OK, tinyusb_mtp_unregister_storage(storage));
+    TEST_ASSERT_EQUAL(ESP_OK, tinyusb_mtp_uninstall_driver());
+    test_mtp_remove_path_if_exists(keep_path);
+    test_mtp_remove_path_if_exists(dir_path);
 }
 
 TEST_CASE("MTP: register three mounted FATFS paths", "[mtp][storage][ci]")
