@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2025-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: CC0-1.0
  */
@@ -23,6 +23,9 @@
 #define EXT_PORT_EVENT_TIMEOUT_MS           100
 
 #define USB_B_REQUEST_ANY                   0xFF
+
+// Buffer for building Unity failure messages that include the caller's file and line
+static char err_msg_buf[128];
 
 const char *const hub_request_string[] = {
     "Get Port Status",
@@ -101,7 +104,8 @@ static void test_ext_port_event_callback(ext_port_hdl_t port_hdl, ext_port_event
         .port_hdl = port_hdl,
         .event = event,
     };
-    xQueueSend(ext_port_event_queue, &msg, portMAX_DELAY);
+    BaseType_t ret = xQueueSend(ext_port_event_queue, &msg, pdMS_TO_TICKS(10000));
+    TEST_ASSERT_EQUAL_MESSAGE(pdTRUE, ret, "External Hub port event queue full, event lost");
 }
 
 static esp_err_t test_ext_port_hub_request(ext_port_hdl_t port_hdl, ext_port_parent_request_data_t *data, void *user_arg)
@@ -117,7 +121,8 @@ static esp_err_t test_ext_port_hub_request(ext_port_hdl_t port_hdl, ext_port_par
             },
         },
     };
-    xQueueSend(hub_req_queue, &msg, portMAX_DELAY);
+    BaseType_t ret = xQueueSend(hub_req_queue, &msg, pdMS_TO_TICKS(10000));
+    TEST_ASSERT_EQUAL_MESSAGE(pdTRUE, ret, "External Hub request queue full, request lost");
     return ESP_OK;
 }
 
@@ -126,7 +131,8 @@ static void test_wait_ext_port_process_request(void)
     TEST_ASSERT_EQUAL(pdTRUE, xSemaphoreTake(_process_cd_req, pdMS_TO_TICKS(EXT_PORT_PROC_CB_TIMEOUT_MS)));
 }
 
-static void test_wait_ext_port_event(ext_port_hdl_t port_hdl, ext_port_event_t event)
+#define test_wait_ext_port_event(port_hdl, event) test_wait_ext_port_event_impl((port_hdl), (event), __FILE__, __LINE__)
+static void test_wait_ext_port_event_impl(ext_port_hdl_t port_hdl, ext_port_event_t event, const char *file, int line)
 {
     uint8_t port_num;
     // Get the port event queue from the port's context variable
@@ -135,12 +141,18 @@ static void test_wait_ext_port_event(ext_port_hdl_t port_hdl, ext_port_event_t e
     // Wait for port callback to send an event message
     ext_port_event_msg_t msg;
     BaseType_t ret = xQueueReceive(ext_port_evt_queue, &msg, pdMS_TO_TICKS(EXT_PORT_EVENT_TIMEOUT_MS));
-    TEST_ASSERT_EQUAL_MESSAGE(pdPASS, ret, "External Hub port event not generated on time");
+    if (ret != pdPASS) {
+        snprintf(err_msg_buf, sizeof(err_msg_buf), "External Hub port event %s not generated on time at %s:%d", ext_port_event_string[event], file, line);
+        TEST_FAIL_MESSAGE(err_msg_buf);
+    }
     TEST_ASSERT_EQUAL_MESSAGE(ESP_OK, ext_port_get_port_num(port_hdl, &port_num), "Port number not equal");
     // Check the contents of that event message
     printf("\tHub port %d event: %s\n", port_num, ext_port_event_string[msg.event]);
     TEST_ASSERT_EQUAL_MESSAGE(port_hdl, msg.port_hdl, "Unexpected External Hub port handle");
-    TEST_ASSERT_EQUAL_MESSAGE(event, msg.event, "Unexpected External Hub port event");
+    if (event != msg.event) {
+        snprintf(err_msg_buf, sizeof(err_msg_buf), "Unexpected External Hub port event at %s:%d\n %s expected, %s delivered", file, line, ext_port_event_string[event], ext_port_event_string[msg.event]);
+        TEST_FAIL_MESSAGE(err_msg_buf);
+    }
 }
 
 static esp_err_t test_wait_ext_port_hub_request(ext_port_hdl_t port_hdl, ext_port_parent_request_type_t type, usb_hub_class_request_t request)

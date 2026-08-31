@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2015-2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2015-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -9,9 +9,12 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "unity.h"
+#include "esp_log.h"
 #include "mock_msc.h"
 #include "dev_msc.h"
 #include "hcd_common.h"
+
+static const char *TAG = "BULK";
 
 // --------------------------------------------------- Test Cases ------------------------------------------------------
 
@@ -24,9 +27,9 @@ static void mock_msc_reset_req(hcd_pipe_handle_t default_pipe, uint8_t bInterfac
     urb->transfer.num_bytes = sizeof(usb_setup_packet_t);
     // Enqueue, wait, dequeue, and check URB
     TEST_ASSERT_EQUAL(ESP_OK, hcd_urb_enqueue(default_pipe, urb));
-    test_hcd_expect_pipe_event(default_pipe, HCD_PIPE_EVENT_URB_DONE);
+    TEST_HCD_EXPECT_PIPE_EVENT(default_pipe, HCD_PIPE_EVENT_URB_DONE);
     TEST_ASSERT_EQUAL_PTR(urb, hcd_urb_dequeue(default_pipe));
-    TEST_ASSERT_EQUAL_MESSAGE(USB_TRANSFER_STATUS_COMPLETED, urb->transfer.status, "Transfer NOT completed");
+    TEST_HCD_EXPECT_TRANSFER_STATUS(urb, USB_TRANSFER_STATUS_COMPLETED);
     // Free URB
     test_hcd_free_urb(urb);
 }
@@ -87,27 +90,24 @@ TEST_CASE("Test HCD bulk pipe URBs", "[bulk][full_speed][high_speed]")
                                dev_info->scsi_sector_size,
                                0xAAAAAAAA);
         TEST_ASSERT_EQUAL(ESP_OK, hcd_urb_enqueue(bulk_out_pipe, urb_cbw));
-        test_hcd_expect_pipe_event(bulk_out_pipe, HCD_PIPE_EVENT_URB_DONE);
+        TEST_HCD_EXPECT_PIPE_EVENT(bulk_out_pipe, HCD_PIPE_EVENT_URB_DONE);
         TEST_ASSERT_EQUAL_PTR(urb_cbw, hcd_urb_dequeue(bulk_out_pipe));
-        TEST_ASSERT_EQUAL_MESSAGE(USB_TRANSFER_STATUS_COMPLETED, urb_cbw->transfer.status, "Transfer NOT completed");
+        TEST_HCD_EXPECT_TRANSFER_STATUS(urb_cbw, USB_TRANSFER_STATUS_COMPLETED);
         // Read data through BULK IN pipe
         TEST_ASSERT_EQUAL(ESP_OK, hcd_urb_enqueue(bulk_in_pipe, urb_data));
-        test_hcd_expect_pipe_event(bulk_in_pipe, HCD_PIPE_EVENT_URB_DONE);
+        TEST_HCD_EXPECT_PIPE_EVENT(bulk_in_pipe, HCD_PIPE_EVENT_URB_DONE);
         TEST_ASSERT_EQUAL_PTR(urb_data, hcd_urb_dequeue(bulk_in_pipe));
-        TEST_ASSERT_EQUAL_MESSAGE(USB_TRANSFER_STATUS_COMPLETED, urb_data->transfer.status, "Transfer NOT completed");
+        TEST_HCD_EXPECT_TRANSFER_STATUS(urb_data, USB_TRANSFER_STATUS_COMPLETED);
         // Read the CSW through BULK IN pipe
         TEST_ASSERT_EQUAL(ESP_OK, hcd_urb_enqueue(bulk_in_pipe, urb_csw));
-        test_hcd_expect_pipe_event(bulk_in_pipe, HCD_PIPE_EVENT_URB_DONE);
+        TEST_HCD_EXPECT_PIPE_EVENT(bulk_in_pipe, HCD_PIPE_EVENT_URB_DONE);
         TEST_ASSERT_EQUAL_PTR(urb_csw, hcd_urb_dequeue(bulk_in_pipe));
-        TEST_ASSERT_EQUAL_MESSAGE(USB_TRANSFER_STATUS_COMPLETED, urb_data->transfer.status, "Transfer NOT completed");
+        TEST_HCD_EXPECT_TRANSFER_STATUS(urb_data, USB_TRANSFER_STATUS_COMPLETED);
         TEST_ASSERT_EQUAL(sizeof(mock_msc_bulk_csw_t), urb_csw->transfer.actual_num_bytes);
         TEST_ASSERT_TRUE(mock_msc_scsi_check_csw((mock_msc_bulk_csw_t *)urb_csw->transfer.data_buffer, 0xAAAAAAAA));
         // Print the read data
-        printf("Block %d to %d:\n", block_num, block_num + TEST_NUM_SECTORS_PER_XFER);
-        for (int i = 0; i < urb_data->transfer.actual_num_bytes; i++) {
-            printf("0x%02x,", ((char *)urb_data->transfer.data_buffer)[i]);
-        }
-        printf("\n\n");
+        ESP_LOGI(TAG, "Block %d to %d:", block_num, block_num + TEST_NUM_SECTORS_PER_XFER);
+        ESP_LOG_BUFFER_HEXDUMP(TAG, urb_data->transfer.data_buffer, urb_data->transfer.actual_num_bytes, ESP_LOG_INFO);
     }
 
     test_hcd_free_urb(urb_cbw);
@@ -177,7 +177,7 @@ TEST_CASE("Test HCD bulk pipe URBs deferred", "[bulk][full_speed][high_speed]")
         test_hcd_root_port_suspend_multi_pipe(port_hdl, pipe_list, sizeof(pipe_list) / sizeof(hcd_pipe_handle_t));
 
         // Defer all urbs
-        printf("Deferring URBs\n");
+        ESP_LOGI(TAG, "Deferring URBs");
         TEST_ASSERT_EQUAL(ESP_OK, hcd_urb_enqueue(bulk_out_pipe, urb_cbw));
         TEST_ASSERT_EQUAL(ESP_OK, hcd_urb_enqueue(bulk_in_pipe, urb_data));
         TEST_ASSERT_EQUAL(ESP_OK, hcd_urb_enqueue(bulk_in_pipe, urb_csw));
@@ -185,25 +185,22 @@ TEST_CASE("Test HCD bulk pipe URBs deferred", "[bulk][full_speed][high_speed]")
         // Resume the root port with multiple pipes
         test_hcd_root_port_resume_multi_pipe(port_hdl, pipe_list, sizeof(pipe_list) / sizeof(hcd_pipe_handle_t));
 
-        test_hcd_expect_pipe_event(bulk_out_pipe, HCD_PIPE_EVENT_URB_DONE);
+        TEST_HCD_EXPECT_PIPE_EVENT(bulk_out_pipe, HCD_PIPE_EVENT_URB_DONE);
         TEST_ASSERT_EQUAL_PTR(urb_cbw, hcd_urb_dequeue(bulk_out_pipe));
-        TEST_ASSERT_EQUAL_MESSAGE(USB_TRANSFER_STATUS_COMPLETED, urb_cbw->transfer.status, "Transfer NOT completed");
+        TEST_HCD_EXPECT_TRANSFER_STATUS(urb_cbw, USB_TRANSFER_STATUS_COMPLETED);
         // Read data through BULK IN pipe
-        test_hcd_expect_pipe_event(bulk_in_pipe, HCD_PIPE_EVENT_URB_DONE);
+        TEST_HCD_EXPECT_PIPE_EVENT(bulk_in_pipe, HCD_PIPE_EVENT_URB_DONE);
         TEST_ASSERT_EQUAL_PTR(urb_data, hcd_urb_dequeue(bulk_in_pipe));
-        TEST_ASSERT_EQUAL_MESSAGE(USB_TRANSFER_STATUS_COMPLETED, urb_data->transfer.status, "Transfer NOT completed");
+        TEST_HCD_EXPECT_TRANSFER_STATUS(urb_data, USB_TRANSFER_STATUS_COMPLETED);
         // Read the CSW through BULK IN pipe
-        test_hcd_expect_pipe_event(bulk_in_pipe, HCD_PIPE_EVENT_URB_DONE);
+        TEST_HCD_EXPECT_PIPE_EVENT(bulk_in_pipe, HCD_PIPE_EVENT_URB_DONE);
         TEST_ASSERT_EQUAL_PTR(urb_csw, hcd_urb_dequeue(bulk_in_pipe));
-        TEST_ASSERT_EQUAL_MESSAGE(USB_TRANSFER_STATUS_COMPLETED, urb_data->transfer.status, "Transfer NOT completed");
+        TEST_HCD_EXPECT_TRANSFER_STATUS(urb_data, USB_TRANSFER_STATUS_COMPLETED);
         TEST_ASSERT_EQUAL(sizeof(mock_msc_bulk_csw_t), urb_csw->transfer.actual_num_bytes);
         TEST_ASSERT_TRUE(mock_msc_scsi_check_csw((mock_msc_bulk_csw_t *)urb_csw->transfer.data_buffer, 0xAAAAAAAA));
         // Print the read data
-        printf("Block %d to %d:\n", block_num, block_num + TEST_NUM_SECTORS_PER_XFER);
-        for (int i = 0; i < urb_data->transfer.actual_num_bytes; i++) {
-            printf("0x%02x,", ((char *)urb_data->transfer.data_buffer)[i]);
-        }
-        printf("\n\n");
+        ESP_LOGI(TAG, "Block %d to %d:", block_num, block_num + TEST_NUM_SECTORS_PER_XFER);
+        ESP_LOG_BUFFER_HEXDUMP(TAG, urb_data->transfer.data_buffer, urb_data->transfer.actual_num_bytes, ESP_LOG_INFO);
     }
 
     test_hcd_free_urb(urb_cbw);

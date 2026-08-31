@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2015-2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2015-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -9,7 +9,10 @@
 #include "freertos/semphr.h"
 #include "unity.h"
 #include "esp_rom_sys.h"
+#include "esp_log.h"
 #include "hcd_common.h"
+
+static const char *TAG = "PORT";
 
 #define TEST_DEV_ADDR               0
 #define NUM_URBS                    3
@@ -33,7 +36,7 @@ Procedure:
 TEST_CASE("Test HCD port disconnect event, port enabled", "[port][low_speed][full_speed][high_speed]")
 {
     usb_speed_t port_speed = test_hcd_wait_for_conn(port_hdl); // Trigger a connection
-    printf("Connected %s speed device \n", (char *[]) {
+    ESP_LOGI(TAG, "Connected %s speed device", (char *[]) {
         "Low", "Full", "High"
     }[port_speed]);
     vTaskDelay(pdMS_TO_TICKS(100)); // Short delay send of SOF (for FS, HS) or EOPs (for LS)
@@ -80,7 +83,7 @@ TEST_CASE("Test HCD port sudden disconnect", "[port][low_speed][full_speed][high
     }
 
     // Enqueue URBs but immediately trigger a disconnect
-    printf("Enqueuing URBs\n");
+    ESP_LOGI(TAG, "Enqueuing URBs");
     for (int i = 0; i < NUM_URBS; i++) {
         TEST_ASSERT_EQUAL(ESP_OK, hcd_urb_enqueue(default_pipe, urb_list[i]));
     }
@@ -89,19 +92,19 @@ TEST_CASE("Test HCD port sudden disconnect", "[port][low_speed][full_speed][high
     // Power-off the port to trigger a disconnection
     TEST_ASSERT_EQUAL(ESP_OK, hcd_port_command(port_hdl, HCD_PORT_CMD_POWER_OFF));
     // Disconnect event should have occurred. Handle the port event
-    test_hcd_expect_port_event(port_hdl, HCD_PORT_EVENT_DISCONNECTION);
+    TEST_HCD_EXPECT_PORT_EVENT(port_hdl, HCD_PORT_EVENT_DISCONNECTION);
     TEST_ASSERT_EQUAL(HCD_PORT_EVENT_DISCONNECTION, hcd_port_handle_event(port_hdl));
-    TEST_ASSERT_EQUAL(HCD_PORT_STATE_RECOVERY, hcd_port_get_state(port_hdl));
-    printf("Sudden disconnect\n");
+    TEST_HCD_EXPECT_PORT_STATE(port_hdl, HCD_PORT_STATE_RECOVERY);
+    ESP_LOGI(TAG, "Sudden disconnect");
 
     // We should be able to halt then flush the pipe
-    TEST_ASSERT_EQUAL(HCD_PIPE_STATE_ACTIVE, hcd_pipe_get_state(default_pipe));
+    TEST_HCD_EXPECT_PIPE_STATE(default_pipe, HCD_PIPE_STATE_ACTIVE);
     TEST_ASSERT_EQUAL(ESP_OK, hcd_pipe_command(default_pipe, HCD_PIPE_CMD_HALT));
-    printf("Pipe halted\n");
-    TEST_ASSERT_EQUAL(HCD_PIPE_STATE_HALTED, hcd_pipe_get_state(default_pipe));
+    ESP_LOGI(TAG, "Pipe halted");
+    TEST_HCD_EXPECT_PIPE_STATE(default_pipe, HCD_PIPE_STATE_HALTED);
     TEST_ASSERT_EQUAL(ESP_OK, hcd_pipe_command(default_pipe, HCD_PIPE_CMD_FLUSH));
-    test_hcd_expect_pipe_event(default_pipe, HCD_PIPE_EVENT_URB_DONE);
-    printf("Pipe flushed\n");
+    TEST_HCD_EXPECT_PIPE_EVENT(default_pipe, HCD_PIPE_EVENT_URB_DONE);
+    ESP_LOGI(TAG, "Pipe flushed");
 
     // Dequeue URBs
     for (int i = 0; i < NUM_URBS; i++) {
@@ -126,7 +129,7 @@ TEST_CASE("Test HCD port sudden disconnect", "[port][low_speed][full_speed][high
 
     // Recover the port should return to the to NOT POWERED state
     TEST_ASSERT_EQUAL(ESP_OK, hcd_port_recover(port_hdl));
-    TEST_ASSERT_EQUAL(HCD_PORT_STATE_NOT_POWERED, hcd_port_get_state(port_hdl));
+    TEST_HCD_EXPECT_PORT_STATE(port_hdl, HCD_PORT_STATE_NOT_POWERED);
 
     // Recovered port should be able to connect and disconnect again
     test_hcd_wait_for_conn(port_hdl);
@@ -170,24 +173,24 @@ TEST_CASE("Test HCD port suspend and resume", "[port][low_speed][full_speed][hig
     TEST_ASSERT_EQUAL(ESP_ERR_INVALID_STATE, hcd_port_command(port_hdl, HCD_PORT_CMD_SUSPEND));
 
     // Halt the default pipe before suspending
-    TEST_ASSERT_EQUAL(HCD_PIPE_STATE_ACTIVE, hcd_pipe_get_state(default_pipe));
+    TEST_HCD_EXPECT_PIPE_STATE(default_pipe, HCD_PIPE_STATE_ACTIVE);
     TEST_ASSERT_EQUAL(ESP_OK, hcd_pipe_command(default_pipe, HCD_PIPE_CMD_HALT));
-    TEST_ASSERT_EQUAL(HCD_PIPE_STATE_HALTED, hcd_pipe_get_state(default_pipe));
+    TEST_HCD_EXPECT_PIPE_STATE(default_pipe, HCD_PIPE_STATE_HALTED);
 
     // Suspend the port
     TEST_ASSERT_EQUAL(ESP_OK, hcd_port_command(port_hdl, HCD_PORT_CMD_SUSPEND));
-    TEST_ASSERT_EQUAL(HCD_PORT_STATE_SUSPENDED, hcd_port_get_state(port_hdl));
-    printf("Suspended\n");
+    TEST_HCD_EXPECT_PORT_STATE(port_hdl, HCD_PORT_STATE_SUSPENDED);
+    ESP_LOGI(TAG, "Suspended");
     vTaskDelay(pdMS_TO_TICKS(100)); // Give some time for bus to remain suspended
 
     // Resume the port
     TEST_ASSERT_EQUAL(ESP_OK, hcd_port_command(port_hdl, HCD_PORT_CMD_RESUME));
-    TEST_ASSERT_EQUAL(HCD_PORT_STATE_ENABLED, hcd_port_get_state(port_hdl));
-    printf("Resumed\n");
+    TEST_HCD_EXPECT_PORT_STATE(port_hdl, HCD_PORT_STATE_ENABLED);
+    ESP_LOGI(TAG, "Resumed");
 
     // Clear the default pipe's halt
     TEST_ASSERT_EQUAL(ESP_OK, hcd_pipe_command(default_pipe, HCD_PIPE_CMD_CLEAR));
-    TEST_ASSERT_EQUAL(HCD_PIPE_STATE_ACTIVE, hcd_pipe_get_state(default_pipe));
+    TEST_HCD_EXPECT_PIPE_STATE(default_pipe, HCD_PIPE_STATE_ACTIVE);
     vTaskDelay(pdMS_TO_TICKS(100)); // Give some time for resumed URBs to complete
 
     test_hcd_ping_device(default_pipe, urb);
@@ -233,30 +236,30 @@ TEST_CASE("Test HCD port suspend and resume sudden disconnect", "[port][low_spee
     test_hcd_ping_device(default_pipe, urb);
 
     // Halt the default pipe before suspending
-    TEST_ASSERT_EQUAL(HCD_PIPE_STATE_ACTIVE, hcd_pipe_get_state(default_pipe));
+    TEST_HCD_EXPECT_PIPE_STATE(default_pipe, HCD_PIPE_STATE_ACTIVE);
     TEST_ASSERT_EQUAL(ESP_OK, hcd_pipe_command(default_pipe, HCD_PIPE_CMD_HALT));
-    TEST_ASSERT_EQUAL(HCD_PIPE_STATE_HALTED, hcd_pipe_get_state(default_pipe));
+    TEST_HCD_EXPECT_PIPE_STATE(default_pipe, HCD_PIPE_STATE_HALTED);
 
     // Suspend the port
     TEST_ASSERT_EQUAL(ESP_OK, hcd_port_command(port_hdl, HCD_PORT_CMD_SUSPEND));
-    TEST_ASSERT_EQUAL(HCD_PORT_STATE_SUSPENDED, hcd_port_get_state(port_hdl));
-    printf("Suspended\n");
+    TEST_HCD_EXPECT_PORT_STATE(port_hdl, HCD_PORT_STATE_SUSPENDED);
+    ESP_LOGI(TAG, "Suspended");
     vTaskDelay(pdMS_TO_TICKS(100)); // Give some time for bus to remain suspended
 
     // Power-off the port to trigger a disconnection
     TEST_ASSERT_EQUAL(ESP_OK, hcd_port_command(port_hdl, HCD_PORT_CMD_POWER_OFF));
     // Disconnect event should have occurred. Handle the port event
-    test_hcd_expect_port_event(port_hdl, HCD_PORT_EVENT_DISCONNECTION);
+    TEST_HCD_EXPECT_PORT_EVENT(port_hdl, HCD_PORT_EVENT_DISCONNECTION);
     TEST_ASSERT_EQUAL(HCD_PORT_EVENT_DISCONNECTION, hcd_port_handle_event(port_hdl));
-    TEST_ASSERT_EQUAL(HCD_PORT_STATE_RECOVERY, hcd_port_get_state(port_hdl));
-    printf("Sudden disconnect\n");
+    TEST_HCD_EXPECT_PORT_STATE(port_hdl, HCD_PORT_STATE_RECOVERY);
+    ESP_LOGI(TAG, "Sudden disconnect");
 
     // Free the pipe and its urb, to be able to recover the port
     test_hcd_free_urb(urb);
     test_hcd_pipe_free(default_pipe);
     // Recover the port should return to the NOT POWERED state
     TEST_ASSERT_EQUAL(ESP_OK, hcd_port_recover(port_hdl));
-    TEST_ASSERT_EQUAL(HCD_PORT_STATE_NOT_POWERED, hcd_port_get_state(port_hdl));
+    TEST_HCD_EXPECT_PORT_STATE(port_hdl, HCD_PORT_STATE_NOT_POWERED);
 
     // Check, that the port can NOT be suspended/resumed with no device connected
     TEST_ASSERT_EQUAL(ESP_ERR_INVALID_STATE, hcd_port_command(port_hdl, HCD_PORT_CMD_SUSPEND));
@@ -307,26 +310,26 @@ TEST_CASE("Test HCD port suspend and resume port reset", "[port][low_speed][full
     test_hcd_ping_device(default_pipe, urb);
 
     // Halt the default pipe before suspending
-    TEST_ASSERT_EQUAL(HCD_PIPE_STATE_ACTIVE, hcd_pipe_get_state(default_pipe));
+    TEST_HCD_EXPECT_PIPE_STATE(default_pipe, HCD_PIPE_STATE_ACTIVE);
     TEST_ASSERT_EQUAL(ESP_OK, hcd_pipe_command(default_pipe, HCD_PIPE_CMD_HALT));
-    TEST_ASSERT_EQUAL(HCD_PIPE_STATE_HALTED, hcd_pipe_get_state(default_pipe));
+    TEST_HCD_EXPECT_PIPE_STATE(default_pipe, HCD_PIPE_STATE_HALTED);
 
     // Suspend the port
     TEST_ASSERT_EQUAL(ESP_OK, hcd_port_command(port_hdl, HCD_PORT_CMD_SUSPEND));
-    TEST_ASSERT_EQUAL(HCD_PORT_STATE_SUSPENDED, hcd_port_get_state(port_hdl));
-    printf("Suspended\n");
+    TEST_HCD_EXPECT_PORT_STATE(port_hdl, HCD_PORT_STATE_SUSPENDED);
+    ESP_LOGI(TAG, "Suspended");
     vTaskDelay(pdMS_TO_TICKS(100)); // Give some time for bus to remain suspended
 
     // Reset the port
     TEST_ASSERT_EQUAL(ESP_OK, hcd_port_command(port_hdl, HCD_PORT_CMD_RESET));
-    printf("Port reset\n");
+    ESP_LOGI(TAG, "Port reset");
 
     // Port should be in enabled state, and the default pipe still halted
-    TEST_ASSERT_EQUAL(HCD_PORT_STATE_ENABLED, hcd_port_get_state(port_hdl));
-    TEST_ASSERT_EQUAL(HCD_PIPE_STATE_HALTED, hcd_pipe_get_state(default_pipe));
+    TEST_HCD_EXPECT_PORT_STATE(port_hdl, HCD_PORT_STATE_ENABLED);
+    TEST_HCD_EXPECT_PIPE_STATE(default_pipe, HCD_PIPE_STATE_HALTED);
     // Clear the pipe
     TEST_ASSERT_EQUAL(ESP_OK, hcd_pipe_command(default_pipe, HCD_PIPE_CMD_CLEAR));
-    TEST_ASSERT_EQUAL(HCD_PIPE_STATE_ACTIVE, hcd_pipe_get_state(default_pipe));
+    TEST_HCD_EXPECT_PIPE_STATE(default_pipe, HCD_PIPE_STATE_ACTIVE);
 
     test_hcd_ping_device(default_pipe, urb);
 
@@ -369,7 +372,7 @@ TEST_CASE("Test HCD port disable", "[port][low_speed][full_speed][high_speed]")
     }
 
     // Enqueue URBs but immediately disable the port
-    printf("Enqueuing URBs\n");
+    ESP_LOGI(TAG, "Enqueuing URBs");
     for (int i = 0; i < NUM_URBS; i++) {
         TEST_ASSERT_EQUAL(ESP_OK, hcd_urb_enqueue(default_pipe, urb_list[i]));
         // Add a short delay to let the transfers run for a bit
@@ -377,14 +380,14 @@ TEST_CASE("Test HCD port disable", "[port][low_speed][full_speed][high_speed]")
     }
 
     // Halt the default pipe before suspending
-    TEST_ASSERT_EQUAL(HCD_PIPE_STATE_ACTIVE, hcd_pipe_get_state(default_pipe));
+    TEST_HCD_EXPECT_PIPE_STATE(default_pipe, HCD_PIPE_STATE_ACTIVE);
     TEST_ASSERT_EQUAL(ESP_OK, hcd_pipe_command(default_pipe, HCD_PIPE_CMD_HALT));
-    TEST_ASSERT_EQUAL(HCD_PIPE_STATE_HALTED, hcd_pipe_get_state(default_pipe));
+    TEST_HCD_EXPECT_PIPE_STATE(default_pipe, HCD_PIPE_STATE_HALTED);
 
     // Check that port can be disabled
     TEST_ASSERT_EQUAL(ESP_OK, hcd_port_command(port_hdl, HCD_PORT_CMD_DISABLE));
-    TEST_ASSERT_EQUAL(HCD_PORT_STATE_DISABLED, hcd_port_get_state(port_hdl));
-    printf("Disabled\n");
+    TEST_HCD_EXPECT_PORT_STATE(port_hdl, HCD_PORT_STATE_DISABLED);
+    ESP_LOGI(TAG, "Disabled");
 
     // Flush pipe
     TEST_ASSERT_EQUAL(ESP_OK, hcd_pipe_command(default_pipe, HCD_PIPE_CMD_FLUSH));
@@ -452,20 +455,20 @@ TEST_CASE("Test HCD port command bailout", "[port][low_speed][full_speed][high_s
     TEST_ASSERT_EQUAL(pdTRUE, xTaskCreatePinnedToCore(concurrent_task, "tsk", 4096, (void *) sync_sem, uxTaskPriorityGet(NULL) + 1, &task_handle, 0));
 
     // Suspend the device
-    printf("Suspending\n");
+    ESP_LOGI(TAG, "Suspending");
     TEST_ASSERT_EQUAL(ESP_OK, hcd_port_command(port_hdl, HCD_PORT_CMD_SUSPEND));
     vTaskDelay(pdMS_TO_TICKS(20)); // Short delay for device to enter suspend state
 
     // Attempt to resume the port. But the concurrent task should override this with a disconnection event
-    printf("Attempting to resume\n");
+    ESP_LOGI(TAG, "Attempting to resume");
     xSemaphoreGive(sync_sem);   // Trigger concurrent task
     vTaskDelay(pdMS_TO_TICKS(20)); // Short delay for concurrent task to trigger disconnection
     TEST_ASSERT_EQUAL(ESP_ERR_INVALID_STATE, hcd_port_command(port_hdl, HCD_PORT_CMD_RESUME));
 
     // Check that concurrent task triggered a sudden disconnection
-    test_hcd_expect_port_event(port_hdl, HCD_PORT_EVENT_DISCONNECTION);
+    TEST_HCD_EXPECT_PORT_EVENT(port_hdl, HCD_PORT_EVENT_DISCONNECTION);
     TEST_ASSERT_EQUAL(HCD_PORT_EVENT_DISCONNECTION, hcd_port_handle_event(port_hdl));
-    TEST_ASSERT_EQUAL(HCD_PORT_STATE_RECOVERY, hcd_port_get_state(port_hdl));
+    TEST_HCD_EXPECT_PORT_STATE(port_hdl, HCD_PORT_STATE_RECOVERY);
 
     // Cleanup task and semaphore
     vTaskDelay(pdMS_TO_TICKS(10)); // Short delay for concurrent task finish running
@@ -505,30 +508,30 @@ TEST_CASE("Test HCD port remote wakeup", "[port][low_speed][full_speed][high_spe
     TEST_ASSERT_EQUAL_MESSAGE(true, test_hcd_remote_wake_check(default_pipe, get_status_urb), "Remote wake-up is disabled, but expected to be enabled");
 
     // Halt the default pipe before suspending
-    TEST_ASSERT_EQUAL(HCD_PIPE_STATE_ACTIVE, hcd_pipe_get_state(default_pipe));
+    TEST_HCD_EXPECT_PIPE_STATE(default_pipe, HCD_PIPE_STATE_ACTIVE);
     TEST_ASSERT_EQUAL(ESP_OK, hcd_pipe_command(default_pipe, HCD_PIPE_CMD_HALT));
-    TEST_ASSERT_EQUAL(HCD_PIPE_STATE_HALTED, hcd_pipe_get_state(default_pipe));
+    TEST_HCD_EXPECT_PIPE_STATE(default_pipe, HCD_PIPE_STATE_HALTED);
 
     // Suspend the port
     TEST_ASSERT_EQUAL(ESP_OK, hcd_port_command(port_hdl, HCD_PORT_CMD_SUSPEND));
-    TEST_ASSERT_EQUAL(HCD_PORT_STATE_SUSPENDED, hcd_port_get_state(port_hdl));
-    printf("Root port suspended\n");
-    printf("Do the remote wakeup on the connected USB device (Keyboard button press)\n");
+    TEST_HCD_EXPECT_PORT_STATE(port_hdl, HCD_PORT_STATE_SUSPENDED);
+    ESP_LOGI(TAG, "Root port suspended");
+    ESP_LOGI(TAG, "Do the remote wakeup on the connected USB device (Keyboard button press)");
 
     // Expect remote wakeup event from the device
-    test_hcd_expect_port_event(port_hdl, HCD_PORT_EVENT_REMOTE_WAKEUP);
+    TEST_HCD_EXPECT_PORT_EVENT(port_hdl, HCD_PORT_EVENT_REMOTE_WAKEUP);
     TEST_ASSERT_EQUAL(HCD_PORT_EVENT_REMOTE_WAKEUP, hcd_port_handle_event(port_hdl));
-    printf("Remote wake-up detected\n");
+    ESP_LOGI(TAG, "Remote wake-up detected");
 
     // Resume the port
     TEST_ASSERT_EQUAL(ESP_OK, hcd_port_command(port_hdl, HCD_PORT_CMD_RESUME));
-    TEST_ASSERT_EQUAL(HCD_PORT_STATE_ENABLED, hcd_port_get_state(port_hdl));
-    printf("Resumed\n");
+    TEST_HCD_EXPECT_PORT_STATE(port_hdl, HCD_PORT_STATE_ENABLED);
+    ESP_LOGI(TAG, "Resumed");
 
     // Clear the pipe after the port has been resumed
-    TEST_ASSERT_EQUAL(HCD_PIPE_STATE_HALTED, hcd_pipe_get_state(default_pipe));
+    TEST_HCD_EXPECT_PIPE_STATE(default_pipe, HCD_PIPE_STATE_HALTED);
     TEST_ASSERT_EQUAL(ESP_OK, hcd_pipe_command(default_pipe, HCD_PIPE_CMD_CLEAR));
-    TEST_ASSERT_EQUAL(HCD_PIPE_STATE_ACTIVE, hcd_pipe_get_state(default_pipe));
+    TEST_HCD_EXPECT_PIPE_STATE(default_pipe, HCD_PIPE_STATE_ACTIVE);
 
     // Check the current wake-up status, (issue transfer to ping the device)
     TEST_ASSERT_EQUAL_MESSAGE(true, test_hcd_remote_wake_check(default_pipe, get_status_urb), "Remote wake-up is disabled, but expected to be enabled");

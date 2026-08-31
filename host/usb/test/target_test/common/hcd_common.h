@@ -35,10 +35,34 @@ extern hcd_port_handle_t port_hdl;
 /**
  * @brief Expect (wait) for an HCD port event
  *
+ * @note Use the TEST_HCD_EXPECT_PORT_EVENT() macro, which automatically fills in the file and line.
+ *
+ * @param port_hdl Port handle to expect event from
+ * @param expected_event Port event to expect
+ * @param file File from which the function was called
+ * @param line Line from which the function was called
+ */
+void test_hcd_expect_port_event_impl(hcd_port_handle_t port_hdl, hcd_port_event_t expected_event, const char *file, int line);
+
+/**
+ * @brief Expect (wait) for an HCD port event
+ *
  * @param port_hdl Port handle to expect event from
  * @param expected_event Port event to expect
  */
-void test_hcd_expect_port_event(hcd_port_handle_t port_hdl, hcd_port_event_t expected_event);
+#define TEST_HCD_EXPECT_PORT_EVENT(port_hdl, expected_event) test_hcd_expect_port_event_impl((port_hdl), (expected_event), __FILE__, __LINE__)
+
+/**
+ * @brief Expect (wait) for an HCD pipe event
+ *
+ * @note Use the TEST_HCD_EXPECT_PIPE_EVENT() macro, which automatically fills in the file and line.
+ *
+ * @param pipe_hdl Pipe handle to expect event from
+ * @param expected_event Pipe event to expect
+ * @param file File from which the function was called
+ * @param line Line from which the function was called
+ */
+void test_hcd_expect_pipe_event_impl(hcd_pipe_handle_t pipe_hdl, hcd_pipe_event_t expected_event, const char *file, int line);
 
 /**
  * @brief Expect (wait) for an HCD pipe event
@@ -46,7 +70,20 @@ void test_hcd_expect_port_event(hcd_port_handle_t port_hdl, hcd_port_event_t exp
  * @param pipe_hdl Pipe handle to expect event from
  * @param expected_event Pipe event to expect
  */
-void test_hcd_expect_pipe_event(hcd_pipe_handle_t pipe_hdl, hcd_pipe_event_t expected_event);
+#define TEST_HCD_EXPECT_PIPE_EVENT(pipe_hdl, expected_event) test_hcd_expect_pipe_event_impl((pipe_hdl), (expected_event), __FILE__, __LINE__)
+
+/**
+ * @brief Expect (wait) for an HCD pipe event, but none should be delivered
+ *
+ * This function waits for an pipe event and makes sure, that none is delivered
+ *
+ * @note Use the TEST_HCD_EXPECT_NO_PIPE_EVENT() macro, which automatically fills in the file and line.
+ *
+ * @param pipe_hdl Pipe handle to expect event from
+ * @param file File from which the function was called
+ * @param line Line from which the function was called
+ */
+void test_hcd_expect_no_pipe_event_impl(hcd_pipe_handle_t pipe_hdl, const char *file, int line);
 
 /**
  * @brief Expect (wait) for an HCD pipe event, but none should be delivered
@@ -55,10 +92,70 @@ void test_hcd_expect_pipe_event(hcd_pipe_handle_t pipe_hdl, hcd_pipe_event_t exp
  *
  * @param pipe_hdl Pipe handle to expect event from
  */
-void test_hcd_expect_no_pipe_event(hcd_pipe_handle_t pipe_hdl);
+#define TEST_HCD_EXPECT_NO_PIPE_EVENT(pipe_hdl) test_hcd_expect_no_pipe_event_impl((pipe_hdl), __FILE__, __LINE__)
 
 /**
- * @brief Get the current number of queued port events (dequeued using test_hcd_expect_port_event())
+ * @brief Expect (assert) that an HCD port is in a given state
+ *
+ * @note Use the TEST_HCD_EXPECT_PORT_STATE() macro, which automatically fills in the file and line.
+ *
+ * @param port_hdl Port handle to check
+ * @param expected_state Port state to expect
+ * @param file File from which the function was called
+ * @param line Line from which the function was called
+ */
+void test_hcd_expect_port_state_impl(hcd_port_handle_t port_hdl, hcd_port_state_t expected_state, const char *file, int line);
+
+/**
+ * @brief Expect (assert) that an HCD port is in a given state
+ *
+ * @param port_hdl Port handle to check
+ * @param expected_state Port state to expect
+ */
+#define TEST_HCD_EXPECT_PORT_STATE(port_hdl, expected_state) test_hcd_expect_port_state_impl((port_hdl), (expected_state), __FILE__, __LINE__)
+
+/**
+ * @brief Expect (assert) that an HCD pipe is in a given state
+ *
+ * @note Use the TEST_HCD_EXPECT_PIPE_STATE() macro, which automatically fills in the file and line.
+ *
+ * @param pipe_hdl Pipe handle to check
+ * @param expected_state Pipe state to expect
+ * @param file File from which the function was called
+ * @param line Line from which the function was called
+ */
+void test_hcd_expect_pipe_state_impl(hcd_pipe_handle_t pipe_hdl, hcd_pipe_state_t expected_state, const char *file, int line);
+
+/**
+ * @brief Expect (assert) that an HCD pipe is in a given state
+ *
+ * @param pipe_hdl Pipe handle to check
+ * @param expected_state Pipe state to expect
+ */
+#define TEST_HCD_EXPECT_PIPE_STATE(pipe_hdl, expected_state) test_hcd_expect_pipe_state_impl((pipe_hdl), (expected_state), __FILE__, __LINE__)
+
+/**
+ * @brief Expect (assert) that a URB's transfer completed with a given status
+ *
+ * @note Use the TEST_HCD_EXPECT_TRANSFER_STATUS() macro, which automatically fills in the file and line.
+ *
+ * @param urb URB whose transfer status to check
+ * @param expected_status Transfer status to expect
+ * @param file File from which the function was called
+ * @param line Line from which the function was called
+ */
+void test_hcd_expect_transfer_status_impl(const urb_t *urb, usb_transfer_status_t expected_status, const char *file, int line);
+
+/**
+ * @brief Expect (assert) that a URB's transfer completed with a given status
+ *
+ * @param urb URB whose transfer status to check
+ * @param expected_status Transfer status to expect
+ */
+#define TEST_HCD_EXPECT_TRANSFER_STATUS(urb, expected_status) test_hcd_expect_transfer_status_impl((urb), (expected_status), __FILE__, __LINE__)
+
+/**
+ * @brief Get the current number of queued port events (dequeued using TEST_HCD_EXPECT_PORT_EVENT())
  *
  * @param port_hdl Port handle
  * @return int Number of port events currently queued
@@ -66,7 +163,7 @@ void test_hcd_expect_no_pipe_event(hcd_pipe_handle_t pipe_hdl);
 int test_hcd_get_num_port_events(hcd_port_handle_t port_hdl);
 
 /**
- * @brief Get the current number of queued pipe events (dequeued using test_hcd_expect_pipe_event())
+ * @brief Get the current number of queued pipe events (dequeued using TEST_HCD_EXPECT_PIPE_EVENT())
  *
  * @param pipe_hdl Pipe handle
  * @return int Number of pipe events currently queued

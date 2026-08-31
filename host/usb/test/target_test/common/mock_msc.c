@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2015-2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2015-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -9,6 +9,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "usb/usb_types_ch9.h"
+#include "esp_log.h"
 #include "mock_msc.h"
 
 // ---------------------------------------------------- MSC SCSI -------------------------------------------------------
@@ -46,19 +47,19 @@ bool mock_msc_scsi_check_csw(mock_msc_bulk_csw_t *csw, uint32_t tag_expect)
     bool no_issues = true;
     if (csw->dCSWSignature != 0x53425355) {
         no_issues = false;
-        printf("Warning: csw signature corrupt (0x%"PRIX32")\n", csw->dCSWSignature);
+        ESP_LOGW(MSC_CLIENT_TAG, "csw signature corrupt (0x%"PRIX32")", csw->dCSWSignature);
     }
     if (csw->dCSWTag != tag_expect) {
         no_issues = false;
-        printf("Warning: csw tag unexpected! Expected %"PRIu32" got %"PRIu32"\n", tag_expect, csw->dCSWTag);
+        ESP_LOGW(MSC_CLIENT_TAG, "csw tag unexpected! Expected %"PRIu32" got %"PRIu32, tag_expect, csw->dCSWTag);
     }
     if (csw->dCSWDataResidue) {
         no_issues = false;
-        printf("Warning: csw indicates data residue of %"PRIu32" bytes!\n", csw->dCSWDataResidue);
+        ESP_LOGW(MSC_CLIENT_TAG, "csw indicates data residue of %"PRIu32" bytes!", csw->dCSWDataResidue);
     }
     if (csw->bCSWStatus) {
         no_issues = false;
-        printf("Warning: csw indicates non-good status %d!\n", csw->bCSWStatus);
+        ESP_LOGW(MSC_CLIENT_TAG, "csw indicates non-good status %d!", csw->bCSWStatus);
     }
     return no_issues;
 }

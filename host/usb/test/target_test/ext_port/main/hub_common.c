@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2025-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: CC0-1.0
  */
@@ -41,7 +41,7 @@ static void hub_class_request_get_port_status(uint8_t port1, usb_port_status_t *
     USB_SETUP_PACKET_INIT_GET_PORT_STATUS(setup_pkt, port1);
     hub.urb->transfer.num_bytes = sizeof(usb_setup_packet_t) + sizeof(usb_port_status_t);
     TEST_ASSERT_EQUAL(ESP_OK, hcd_urb_enqueue(hub.ctrl_pipe_hdl, hub.urb));
-    test_hcd_expect_pipe_event(hub.ctrl_pipe_hdl, HCD_PIPE_EVENT_URB_DONE);
+    TEST_HCD_EXPECT_PIPE_EVENT(hub.ctrl_pipe_hdl, HCD_PIPE_EVENT_URB_DONE);
     TEST_ASSERT_EQUAL(hub.urb, hcd_urb_dequeue(hub.ctrl_pipe_hdl));
     TEST_ASSERT_EQUAL_MESSAGE(USB_TRANSFER_STATUS_COMPLETED, hub.urb->transfer.status, "Get Port Status: Transfer NOT completed");
     if (status) {
@@ -61,7 +61,7 @@ static void hub_class_request_set_port_feature(uint8_t port1, usb_hub_port_featu
     USB_SETUP_PACKET_INIT_SET_PORT_FEATURE(setup_pkt, port1, feature);
     hub.urb->transfer.num_bytes = sizeof(usb_setup_packet_t);
     TEST_ASSERT_EQUAL(ESP_OK, hcd_urb_enqueue(hub.ctrl_pipe_hdl, hub.urb));
-    test_hcd_expect_pipe_event(hub.ctrl_pipe_hdl, HCD_PIPE_EVENT_URB_DONE);
+    TEST_HCD_EXPECT_PIPE_EVENT(hub.ctrl_pipe_hdl, HCD_PIPE_EVENT_URB_DONE);
     TEST_ASSERT_EQUAL(hub.urb, hcd_urb_dequeue(hub.ctrl_pipe_hdl));
     TEST_ASSERT_EQUAL_MESSAGE(USB_TRANSFER_STATUS_COMPLETED, hub.urb->transfer.status, "Set Port Feature: Transfer NOT completed");
 }
@@ -78,7 +78,7 @@ static void hub_class_request_clear_port_feature(uint8_t port1, usb_hub_port_fea
     USB_SETUP_PACKET_INIT_CLEAR_PORT_FEATURE(setup_pkt, port1, feature);
     hub.urb->transfer.num_bytes = sizeof(usb_setup_packet_t);
     TEST_ASSERT_EQUAL(ESP_OK, hcd_urb_enqueue(hub.ctrl_pipe_hdl, hub.urb));
-    test_hcd_expect_pipe_event(hub.ctrl_pipe_hdl, HCD_PIPE_EVENT_URB_DONE);
+    TEST_HCD_EXPECT_PIPE_EVENT(hub.ctrl_pipe_hdl, HCD_PIPE_EVENT_URB_DONE);
     TEST_ASSERT_EQUAL(hub.urb, hcd_urb_dequeue(hub.ctrl_pipe_hdl));
     TEST_ASSERT_EQUAL_MESSAGE(USB_TRANSFER_STATUS_COMPLETED, hub.urb->transfer.status, "Clear Port Feature: Transfer NOT completed");
 }
@@ -94,7 +94,7 @@ static void hub_get_descriptor(void)
     USB_SETUP_PACKET_INIT_GET_HUB_DESCRIPTOR(setup_pkt);
     hub.urb->transfer.num_bytes = sizeof(usb_setup_packet_t) + sizeof(usb_hub_descriptor_t);
     TEST_ASSERT_EQUAL(ESP_OK, hcd_urb_enqueue(hub.ctrl_pipe_hdl, hub.urb));
-    test_hcd_expect_pipe_event(hub.ctrl_pipe_hdl, HCD_PIPE_EVENT_URB_DONE);
+    TEST_HCD_EXPECT_PIPE_EVENT(hub.ctrl_pipe_hdl, HCD_PIPE_EVENT_URB_DONE);
     TEST_ASSERT_EQUAL(hub.urb, hcd_urb_dequeue(hub.ctrl_pipe_hdl));
     TEST_ASSERT_EQUAL_MESSAGE(USB_TRANSFER_STATUS_COMPLETED, hub.urb->transfer.status, "Get Hub Descriptor: Transfer NOT completed");
 
@@ -156,7 +156,7 @@ void hub_child_quick_enum(hcd_pipe_handle_t ctrl_pipe, uint8_t dev_addr, uint8_t
     USB_SETUP_PACKET_INIT_GET_DEVICE_DESC(setup_pkt);
     hub.urb->transfer.num_bytes = sizeof(usb_setup_packet_t) + sizeof(usb_device_desc_t);
     TEST_ASSERT_EQUAL(ESP_OK, hcd_urb_enqueue(ctrl_pipe, hub.urb));
-    test_hcd_expect_pipe_event(ctrl_pipe, HCD_PIPE_EVENT_URB_DONE);
+    TEST_HCD_EXPECT_PIPE_EVENT(ctrl_pipe, HCD_PIPE_EVENT_URB_DONE);
     TEST_ASSERT_EQUAL(hub.urb, hcd_urb_dequeue(ctrl_pipe));
     TEST_ASSERT_EQUAL_MESSAGE(USB_TRANSFER_STATUS_COMPLETED, hub.urb->transfer.status, "Transfer NOT completed");
 
@@ -173,7 +173,7 @@ void hub_child_quick_enum(hcd_pipe_handle_t ctrl_pipe, uint8_t dev_addr, uint8_t
     USB_SETUP_PACKET_INIT_SET_ADDR(setup_pkt, dev_addr);
     hub.urb->transfer.num_bytes = sizeof(usb_setup_packet_t);
     TEST_ASSERT_EQUAL(ESP_OK, hcd_urb_enqueue(ctrl_pipe, hub.urb));
-    test_hcd_expect_pipe_event(ctrl_pipe, HCD_PIPE_EVENT_URB_DONE);
+    TEST_HCD_EXPECT_PIPE_EVENT(ctrl_pipe, HCD_PIPE_EVENT_URB_DONE);
     TEST_ASSERT_EQUAL(hub.urb, hcd_urb_dequeue(ctrl_pipe));
     TEST_ASSERT_EQUAL_MESSAGE(USB_TRANSFER_STATUS_COMPLETED, hub.urb->transfer.status, "Transfer NOT completed");
 
@@ -184,7 +184,7 @@ void hub_child_quick_enum(hcd_pipe_handle_t ctrl_pipe, uint8_t dev_addr, uint8_t
     USB_SETUP_PACKET_INIT_SET_CONFIG(setup_pkt, config_num);
     hub.urb->transfer.num_bytes = sizeof(usb_setup_packet_t);
     TEST_ASSERT_EQUAL(ESP_OK, hcd_urb_enqueue(ctrl_pipe, hub.urb));
-    test_hcd_expect_pipe_event(ctrl_pipe, HCD_PIPE_EVENT_URB_DONE);
+    TEST_HCD_EXPECT_PIPE_EVENT(ctrl_pipe, HCD_PIPE_EVENT_URB_DONE);
     TEST_ASSERT_EQUAL(hub.urb, hcd_urb_dequeue(ctrl_pipe));
     TEST_ASSERT_EQUAL_MESSAGE(USB_TRANSFER_STATUS_COMPLETED, hub.urb->transfer.status, "Transfer NOT completed");
 }
