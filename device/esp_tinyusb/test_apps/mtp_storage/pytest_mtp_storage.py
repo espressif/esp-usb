@@ -14,6 +14,9 @@ from urllib.parse import quote
 import pytest
 from pytest_embedded_idf.dut import IdfDut
 
+_RUN_EXTENDED_MTP_TESTS = os.environ.get('MTP_RUN_EXTENDED_TESTS') == '1'
+_EXTENDED_MTP_TEST_REASON = 'set MTP_RUN_EXTENDED_TESTS=1 to run extended MTP host tests'
+
 
 @pytest.mark.usb_device
 @pytest.mark.parametrize(
@@ -119,7 +122,7 @@ def _assert_payload(actual: bytes, expected: bytes, context: str) -> None:
     pytest.fail(f'{context}: payload mismatch at offset {mismatch}, expected {len(expected)} bytes with SHA-256 {hashlib.sha256(expected).hexdigest()}, got {len(actual)} bytes with SHA-256 {hashlib.sha256(actual).hexdigest()}')
 
 
-@pytest.mark.usb_device_mtp
+@pytest.mark.usb_device
 @pytest.mark.parametrize(
     'config, target',
     [
@@ -181,7 +184,8 @@ def test_usb_device_mtp_manual_pc_access(mtp_host_uri: str, tmp_path: Path, conf
         _gio('remove', archive)
 
 
-@pytest.mark.usb_device_mtp_perf
+@pytest.mark.usb_device
+@pytest.mark.skipif(not _RUN_EXTENDED_MTP_TESTS, reason=_EXTENDED_MTP_TEST_REASON)
 @pytest.mark.timeout(180)
 @pytest.mark.parametrize(
     'config, target',
@@ -237,7 +241,8 @@ def test_usb_device_mtp_host_performance(mtp_host_uri: str, tmp_path: Path, conf
             _remove_if_present(workspace)
 
 
-@pytest.mark.usb_device_mtp_stress
+@pytest.mark.usb_device
+@pytest.mark.skipif(not _RUN_EXTENDED_MTP_TESTS, reason=_EXTENDED_MTP_TEST_REASON)
 @pytest.mark.timeout(180)
 @pytest.mark.parametrize(
     'config, target',
@@ -297,7 +302,8 @@ def test_usb_device_mtp_host_concurrency(mtp_host_uri: str, tmp_path: Path, conf
         _remove_if_present(workspace)
 
 
-@pytest.mark.usb_device_mtp_stress
+@pytest.mark.usb_device
+@pytest.mark.skipif(not _RUN_EXTENDED_MTP_TESTS, reason=_EXTENDED_MTP_TEST_REASON)
 @pytest.mark.timeout(180)
 @pytest.mark.parametrize(
     'config, target',
@@ -309,8 +315,8 @@ def test_usb_device_mtp_host_concurrency(mtp_host_uri: str, tmp_path: Path, conf
     indirect=['target'],
 )
 def test_usb_device_mtp_host_many_files(mtp_host_uri: str, tmp_path: Path, config: str) -> None:
-    file_count = _read_positive_int_env('MTP_MANY_FILES_COUNT', 96)
-    assert file_count <= 96, 'MTP_MANY_FILES_COUNT must not exceed the safe default cache budget of 96'
+    file_count = _read_positive_int_env('MTP_MANY_FILES_COUNT', 16)
+    assert file_count <= 16, 'MTP_MANY_FILES_COUNT must not exceed the test app cache budget of 16'
     storage = 'Flash FATFS'
     workspace = _test_workspace(mtp_host_uri, storage, f'ci_many_{os.getpid()}')
     source_paths = []

@@ -106,8 +106,11 @@ static void test_mtp_mount_storage(test_mtp_storage_t *storage)
         .max_files = 8,
         .allocation_unit_size = 4096,
     };
-    TEST_ASSERT_EQUAL_MESSAGE(ESP_OK, esp_vfs_fat_spiflash_mount_rw_wl(storage->base_path, storage->partition_label, &mount_config, &storage->wl_handle),
-                              "Failed to mount MTP test FATFS");
+    esp_err_t ret = esp_vfs_fat_spiflash_mount_rw_wl(storage->base_path, storage->partition_label, &mount_config, &storage->wl_handle);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "failed to mount MTP test storage %s: %s", storage->base_path, esp_err_to_name(ret));
+    }
+    TEST_ASSERT_EQUAL_MESSAGE(ESP_OK, ret, "Failed to mount MTP test FATFS");
 }
 
 static void test_mtp_remove_path_if_exists(const char *path)
@@ -197,8 +200,19 @@ static void test_mtp_write_file(const char *path, const char *content)
         }
     }
     TEST_ASSERT_NOT_NULL_MESSAGE(file, "Failed to open MTP test file for write");
-    TEST_ASSERT_EQUAL(strlen(content), fwrite(content, 1, strlen(content), file));
-    TEST_ASSERT_EQUAL(0, fclose(file));
+    size_t expected = strlen(content);
+    size_t written = fwrite(content, 1, expected, file);
+    int write_errno = errno;
+    int close_ret = fclose(file);
+    int close_errno = errno;
+    if (written != expected) {
+        ESP_LOGE(TAG, "failed to write MTP test file %s: written=%u expected=%u errno=%d", path, (unsigned)written, (unsigned)expected, write_errno);
+    }
+    if (close_ret != 0) {
+        ESP_LOGE(TAG, "failed to close MTP test file %s after write: errno=%d", path, close_errno);
+    }
+    TEST_ASSERT_EQUAL(expected, written);
+    TEST_ASSERT_EQUAL(0, close_ret);
 }
 
 static void test_mtp_read_file(const char *path, char *buffer, size_t buffer_size)
@@ -228,8 +242,18 @@ static void test_mtp_warmup_storage_io(test_mtp_storage_t *storage)
 
     FILE *file = fopen(path, "r+b");
     TEST_ASSERT_NOT_NULL_MESSAGE(file, "Failed to open MTP warmup file for update");
-    TEST_ASSERT_EQUAL(1, fwrite("W", 1, 1, file));
-    TEST_ASSERT_EQUAL(0, fclose(file));
+    size_t written = fwrite("W", 1, 1, file);
+    int write_errno = errno;
+    int close_ret = fclose(file);
+    int close_errno = errno;
+    if (written != 1) {
+        ESP_LOGE(TAG, "failed to update MTP warmup file %s: written=%u errno=%d", path, (unsigned)written, write_errno);
+    }
+    if (close_ret != 0) {
+        ESP_LOGE(TAG, "failed to close MTP warmup file %s: errno=%d", path, close_errno);
+    }
+    TEST_ASSERT_EQUAL(1, written);
+    TEST_ASSERT_EQUAL(0, close_ret);
 
     struct stat st;
     TEST_ASSERT_EQUAL(0, stat(path, &st));

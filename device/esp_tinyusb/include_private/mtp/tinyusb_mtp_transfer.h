@@ -8,6 +8,10 @@
 #include "mtp/tinyusb_mtp_types.h"
 #include "tusb.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 void mtp_clear_pending_write_locked(void);
 void mtp_clear_active_read_locked(void);
 void mtp_clear_active_edit_locked(void);
@@ -28,3 +32,7 @@ int32_t mtp_complete_data_locked(const tud_mtp_cb_data_t *cb_data, mtp_container
 void mtp_transfer_detach_storage_locked(tinyusb_mtp_storage_t *storage);
 bool mtp_transfer_is_idle_locked(void);
 int32_t mtp_end_edit_object_locked(uint32_t handle);
+
+#ifdef __cplusplus
+}
+#endif

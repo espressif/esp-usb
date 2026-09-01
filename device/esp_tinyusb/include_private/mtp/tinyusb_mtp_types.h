@@ -15,6 +15,10 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define MTP_OBJECT_HANDLE_INVALID       0U
 #define MTP_STORAGE_ID_UNSPECIFIED      0U
 #define MTP_STORAGE_ID_ALL              UINT32_MAX
@@ -137,3 +141,7 @@ typedef struct {
         uint32_t cancelled_transaction_id;
     } mux_protected;
 } tinyusb_mtp_ctx_t;
+
+#ifdef __cplusplus
+}
+#endif

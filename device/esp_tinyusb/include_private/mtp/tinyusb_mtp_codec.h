@@ -12,6 +12,10 @@
 #include "mtp/tinyusb_mtp_types.h"
 #include "tusb.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef struct {
     uint8_t *data;
     uint32_t len;
@@ -38,3 +42,7 @@ bool mtp_builder_append_uint32(mtp_payload_builder_t *builder, uint32_t value);
 bool mtp_builder_append_uint64(mtp_payload_builder_t *builder, uint64_t value);
 bool mtp_builder_append_cstring(mtp_payload_builder_t *builder, const char *value);
 bool mtp_builder_append_utf8_string(mtp_payload_builder_t *builder, const char *value);
+
+#ifdef __cplusplus
+}
+#endif

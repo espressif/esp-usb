@@ -28,6 +28,10 @@
 #include "mtp/tinyusb_mtp_types.h"
 #include "tusb.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define MTP_DEFAULT_MANUFACTURER        CONFIG_TINYUSB_DESC_MANUFACTURER_STRING
 #define MTP_DEFAULT_MODEL               CONFIG_TINYUSB_DESC_PRODUCT_STRING
 #define MTP_DEFAULT_VERSION             "1.0"
@@ -57,6 +61,10 @@
 #define MTP_TRACEI(...) ESP_LOGI(TAG, __VA_ARGS__)
 #else
 #define MTP_TRACEI(...) do {} while (0)
+#endif
+
+#ifdef __cplusplus
+}
 #endif
 
 #endif

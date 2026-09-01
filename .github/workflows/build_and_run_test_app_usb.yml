@@ -181,14 +181,24 @@ jobs:
         id: download_artifact
         with:
           name: usb_${{ matrix.test_app }}_test_app_bin_${{ matrix.idf_ver }}
+      - name: Check for MTP test artifact
+        id: check_mtp_artifact
+        if: success() && steps.download_artifact.outcome == 'success' && matrix.runner_tag == 'usb_device'
+        shell: bash
+        run: |
+          if find device/esp_tinyusb/test_apps/mtp_storage -path "*/build_${{ matrix.idf_target }}_*/*" -name "test_app_mtp_storage.bin" -print -quit | grep -q .; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
       - name: ⚙️ Install System tools
         if: success() && steps.download_artifact.outcome == 'success'
         run: |
           apt-get update -y
           apt-get install -y usbutils libusb-1.0-0
-          if [ "${{ matrix.runner_tag }}" = "usb_device" ]; then
-            apt-get install -y dbus gvfs-backends libglib2.0-bin
-          fi
+      - name: Install MTP host tools
+        if: success() && steps.check_mtp_artifact.outputs.exists == 'true'
+        run: apt-get install -y dbus gvfs-backends libglib2.0-bin
       - name: Install Python packages
         if: success() && steps.download_artifact.outcome == 'success'
         env:
@@ -204,12 +214,7 @@ jobs:
             TARGET_ARG="--target=${{ matrix.idf_target }}"
           fi
 
-          # Run MTP host tests on USB device runners.
-          if [ "${{ matrix.runner_tag }}" = "usb_device" ]; then
-            MARKER_EXPR="usb_device or usb_device_mtp"
-          else
-            MARKER_EXPR="${{ matrix.runner_tag }}"
-          fi
+          MARKER_EXPR="${{ matrix.runner_tag }}"
 
           if [ "${{ matrix.idf_target }}" = "esp32p4" ]; then
             if [ "${{ matrix.eco_ver }}" = "eco_default" ]; then
@@ -222,9 +227,22 @@ jobs:
           # Run pytest with the configured target and marker
           echo "Running pytest with target: $TARGET_ARG and marker: $MARKER_EXPR"
           if [ "${{ matrix.runner_tag }}" = "usb_device" ]; then
-            export XDG_RUNTIME_DIR=/tmp/xdg-runtime
-            install -d -m 700 "$XDG_RUNTIME_DIR"
-            dbus-run-session -- pytest --ignore-no-tests-collected-error $TARGET_ARG -m "$MARKER_EXPR" --build-dir=build_${{ matrix.idf_target }}_
-          else
-            pytest --ignore-no-tests-collected-error $TARGET_ARG -m "$MARKER_EXPR" --build-dir=build_${{ matrix.idf_target }}_
+            MTP_IGNORE="--ignore=device/esp_tinyusb/test_apps/mtp_storage"
           fi
+          pytest --ignore-no-tests-collected-error $TARGET_ARG -m "$MARKER_EXPR" ${MTP_IGNORE:-} --build-dir=build_${{ matrix.idf_target }}_
+      - name: Run MTP Test App on target
+        if: success() && steps.check_mtp_artifact.outputs.exists == 'true'
+        run: |
+          MARKER_EXPR="usb_device"
+          if [ "${{ matrix.idf_target }}" = "esp32p4" ]; then
+            if [ "${{ matrix.eco_ver }}" = "eco_default" ]; then
+              MARKER_EXPR="$MARKER_EXPR and ${{ matrix.eco_ver }}"
+            else
+              MARKER_EXPR="$MARKER_EXPR and ${{ matrix.idf_target }}_${{ matrix.eco_ver }}"
+            fi
+          fi
+
+          export XDG_RUNTIME_DIR=/tmp/xdg-runtime
+          install -d -m 700 "$XDG_RUNTIME_DIR"
+          dbus-run-session -- pytest --target=${{ matrix.idf_target }} -m "$MARKER_EXPR" device/esp_tinyusb/test_apps/mtp_storage/pytest_mtp_storage.py \
+            --build-dir=build_${{ matrix.idf_target }}_

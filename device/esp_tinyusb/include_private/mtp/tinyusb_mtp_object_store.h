@@ -10,6 +10,10 @@
 #include "esp_err.h"
 #include "mtp/tinyusb_mtp_types.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 bool mtp_storage_handle_is_valid_locked(const tinyusb_mtp_storage_t *storage);
 tinyusb_mtp_storage_t *mtp_storage_from_id_locked(uint32_t storage_id);
 mtp_object_t *mtp_object_from_handle_locked(uint32_t handle);
@@ -37,3 +41,7 @@ bool mtp_name_is_internal_temp(const char *name);
 void mtp_update_object_from_stat(mtp_object_t *object, const struct stat *st);
 size_t mtp_object_count_for_storage_locked(const tinyusb_mtp_storage_t *storage);
 int32_t mtp_object_get_parent_locked(uint32_t handle, uint32_t *parent);
+
+#ifdef __cplusplus
+}
+#endif
