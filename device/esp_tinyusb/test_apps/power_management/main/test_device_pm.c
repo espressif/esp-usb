@@ -78,8 +78,9 @@ TEST_CASE("tinyusb_suspend_resume_events", "[device_events][tinyusb_suspend_resu
         }
     } while (test_iterations < SUSPEND_RESUME_TEST_ITERATIONS);
 
-    // Wait for the last auto suspend to finish the pytest
-    expect_device_event(EVENT_BITS_SUSPENDED_REMOTE_WAKE_EN, pdMS_TO_TICKS(DEVICE_EVENT_WAIT_MS));
+    // Wait for the last auto suspend to finish the pytest. This time the host closes the CDC port, so it may report
+    // remote wakeup as either enabled (normal autosuspend) or disabled (port close) depending on host behavior
+    expect_any_device_event(EVENT_BITS_SUSPENDED_REMOTE_WAKE_EN | EVENT_BITS_SUSPENDED_REMOTE_WAKE_DIS, pdMS_TO_TICKS(DEVICE_EVENT_WAIT_MS));
 }
 
 /**
