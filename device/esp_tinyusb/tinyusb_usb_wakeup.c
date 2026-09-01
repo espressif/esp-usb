@@ -6,6 +6,7 @@
 
 #include "esp_log.h"
 #include "esp_check.h"
+#include "esp_bit_defs.h"
 #include "esp_private/usb_phy.h"
 #include "esp_private/sleep_event.h"
 #include "tinyusb_usb_wakeup.h"
@@ -118,7 +119,8 @@ static esp_err_t usb_wakeup_enter_light_sleep(void *user_arg, void *ext_arg)
  * @param[in] ext_arg  Unused sleep event callback argument
  *
  * @return
- *      - ESP_OK on success or when UTMI OTG was not prepared for light sleep
+ *      - ESP_OK on success, when UTMI OTG was not prepared for light sleep, or when the wakeup
+ *        was not caused by USB (the PM lock is intentionally left released in that case)
  *      - ESP_FAIL if the registered PM `acquire_pm_lock` callback fails
  */
 static esp_err_t usb_wakeup_exit_light_sleep(void *user_arg, void *ext_arg)
@@ -126,10 +128,27 @@ static esp_err_t usb_wakeup_exit_light_sleep(void *user_arg, void *ext_arg)
     (void)user_arg;
     (void)ext_arg;
 
+    // Determine the wakeup cause before touching the PHY. This exit callback runs on *every*
+    // light-sleep wakeup (timer, tickless idle, UART, USB, ...), so the actual cause decides
+    // whether the USB bus is being resumed by the host.
+    const bool woken_by_usb = (esp_sleep_get_wakeup_causes() & BIT(ESP_SLEEP_WAKEUP_USB)) != 0;
+
     // UTMI PHY must be already prepared for the light sleep
     USB_WAKE_CHECK(s_usb_wakeup_ctx.otg_prepared_for_light_sleep, ESP_OK);
 
-    // Un-prepare PHY for light sleep
+    // Only USB activity resumes the bus and must re-acquire the PM lock. For any other wakeup cause
+    // (timer, tickless idle, UART, ...) the USB bus stays suspended and no TINYUSB_EVENT_RESUMED
+    // will follow to release the lock. In that case leave the UTMI OTG suspend state armed and the
+    // PM lock released so the SoC transparently re-enters automatic light sleep.
+
+    // Crucially, do NOT touch the PHY here on non-USB wakeups. On the esp32p4 the light-sleep exit
+    // sequence toggles the UTMI PCLK; un-preparing and re-preparing the OTG suspend state on every
+    // tickless wakeup drives the PHY into an undefined state and forces a bus disconnect. Leaving
+    // the PHY armed and untouched also keeps USB wakeup continuously enabled, so a real host resume
+    // is reliably reported as ESP_SLEEP_WAKEUP_USB above.
+    USB_WAKE_CHECK(woken_by_usb, ESP_OK);
+
+    // USB resumed the bus: un-prepare the PHY and clear the wakeup latch
     usb_phy_set_otg_suspend_state(false);
     usb_phy_clear_otg_wakeup_status();
 
@@ -168,6 +187,14 @@ static const esp_sleep_event_cb_config_t exit_light_sleep_cb = {
     .prior = 2,
     .next = NULL,
 };
+
+void tinyusb_usb_wakeup_notify_bus_resumed(void)
+{
+    // The bus was resumed by a device-initiated remote wakeup (the USB-wakeup exit path already
+    // restores the OTG state on ESP_SLEEP_WAKEUP_USB). Clear the armed OTG suspend state and the
+    // stale wakeup latch so the next light-sleep enter re-arms the PHY from a clean state.
+    usb_wakeup_restore_otg_state();
+}
 
 void tinyusb_usb_wakeup_register_pm_cbs(const tinyusb_usb_wakeup_pm_cbs_t *cbs)
 {
