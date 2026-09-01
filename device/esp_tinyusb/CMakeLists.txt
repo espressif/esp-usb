@@ -8,7 +8,10 @@ set(srcs
     "tinyusb_task.c"
     )
 
-set(priv_req "")
+# We don't use Kconfig based conditional as the Kconfig values are not evaluated yet
+# when components are being registered. Thus, always add the (private) requirements, regardless of Kconfig.
+# IDF version conditionals and Target conditionals are allowed for components
+set(priv_req esp_pm)
 set(req fatfs vfs)
 
 # USB-PHY driver
@@ -62,6 +65,16 @@ if(${target} STREQUAL "esp32p4" OR ${target} STREQUAL "esp32s31")
         list(APPEND priv_req driver)
     endif()
 endif() # esp32p4/esp32s31
+
+# TinyUSB PM locks
+if(CONFIG_TINYUSB_PM)
+    list(APPEND srcs "tinyusb_pm.c")
+endif()
+
+# USB Device light-sleep wakeup, must be also supported by the target
+if(CONFIG_TINYUSB_USB_OTG_WAKEUP)
+    list(APPEND srcs "tinyusb_usb_wakeup.c")
+endif()
 
 # idf_component.yml is ignored when the component manager is disabled, so the
 # dependency on tinyusb must be declared here instead. It belongs in REQUIRES

@@ -111,6 +111,7 @@ extern "C" {
             .full_speed_config = NULL,                  \
             .high_speed_config = NULL,                  \
         },                                              \
+        .pm_lock_enable = false,                        \
         .event_cb = (event_hdl),                        \
         .event_arg = (arg),                             \
     }
@@ -147,6 +148,7 @@ extern "C" {
             .full_speed_config = NULL,                  \
             .high_speed_config = NULL,                  \
         },                                              \
+        .pm_lock_enable = false,                        \
         .event_cb = (event_hdl),                        \
         .event_arg = (arg),                             \
     }
