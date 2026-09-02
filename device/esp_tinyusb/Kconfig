@@ -6,44 +6,6 @@ menu "TinyUSB Stack"
         help
             Specify verbosity of TinyUSB log output.
 
-    menu "TinyUSB callbacks"
-        config TINYUSB_SUSPEND_CALLBACK
-            bool "Register suspend callback"
-            default n
-            help
-                Register TinyUSB's suspend callback (tud_suspend_cb()) in esp_tinyusb.
-
-                When enabled, esp_tinyusb provides a strong implementation of
-                tud_suspend_cb() and dispatches TINYUSB_EVENT_SUSPENDED via the
-                esp_tinyusb device event callback.
-
-                When disabled, tinyusb provides weak implementation of the tud_suspend_cb(),
-                and user can provide it's own strong implementation of the tud_suspend_cb().
-
-                NOTE: When this option is enabled, user applications MUST NOT
-                define tud_suspend_cb() themselves. Defining tud_suspend_cb()
-                in the application while this option is enabled will result in
-                a linker error due to multiple definitions.
-
-        config TINYUSB_RESUME_CALLBACK
-            bool "Register resume callback"
-            default n
-            help
-                Register TinyUSB's resume callback (tud_resume_cb()) in esp_tinyusb.
-
-                When enabled, esp_tinyusb provides a strong implementation of
-                tud_resume_cb() and dispatches TINYUSB_EVENT_RESUMED via the
-                esp_tinyusb device event callback.
-
-                When disabled, tinyusb provides weak implementation of the tud_resume_cb(),
-                and user can provide it's own strong implementation of the tud_resume_cb().
-
-                NOTE: When this option is enabled, user applications MUST NOT
-                define tud_resume_cb() themselves. Defining tud_resume_cb()
-                in the application while this option is enabled will result in
-                a linker error due to multiple definitions.
-    endmenu # "TinyUSB callbacks"
-
     menu "Power management"
         # Proxy configs normalize SOC caps across IDF releases:
         # - caps may be absent in older IDF (must stay hidden)
@@ -77,8 +39,6 @@ menu "TinyUSB Stack"
             depends on SOC_PM_SUPPORT_CNNT_PD
             depends on TINYUSB_SOC_PM_USB_WAKEUP_SUPPORTED
             depends on TINYUSB_SOC_USB_UTMI_PHY_SUPPORTED
-            depends on TINYUSB_SUSPEND_CALLBACK
-            depends on TINYUSB_RESUME_CALLBACK
             depends on PM_ENABLE
             depends on FREERTOS_USE_TICKLESS_IDLE
             depends on ESP_SLEEP_EVENT_CALLBACKS
@@ -91,11 +51,6 @@ menu "TinyUSB Stack"
                 tinyusb_driver_install(). The USB connection power domain must be kept on during
                 light sleep.
 
-                Requires the TinyUSB suspend and resume callbacks (TINYUSB_SUSPEND_CALLBACK and
-                TINYUSB_RESUME_CALLBACK) to be registered inside esp_tinyusb, so the driver is
-                notified about USB suspend/resume. Without them the wakeup state cannot be tracked
-                and the feature is not usable.
-
                 Independent of TinyUSB Power Management (PM locks). USB wakeup works whether light
                 sleep is entered manually or triggered automatically after the PM lock is released
                 on USB suspend.
@@ -103,8 +58,6 @@ menu "TinyUSB Stack"
         config TINYUSB_PM
             bool "Enable tinyusb Power Management"
             default n
-            depends on TINYUSB_SUSPEND_CALLBACK
-            depends on TINYUSB_RESUME_CALLBACK
             depends on PM_ENABLE
             depends on FREERTOS_USE_TICKLESS_IDLE
             help
@@ -114,10 +67,7 @@ menu "TinyUSB Stack"
                 ESP_PM_NO_LIGHT_SLEEP lock and releases it while the USB device is suspended, allowing
                 automatic light sleep when automatic light sleep is configured through esp_pm_configure().
 
-                Requires the TinyUSB suspend and resume callbacks (TINYUSB_SUSPEND_CALLBACK and
-                TINYUSB_RESUME_CALLBACK) to be registered inside esp_tinyusb. The PM lock is released
-                on USB suspend and re-acquired on USB resume, so without those events the lock would
-                never be released and automatic light sleep would never happen.
+                The PM lock is released on USB suspend and re-acquired on USB resume.
 
                 It is recommended to pair this config with the TINYUSB_USB_OTG_WAKEUP config above, so the USB
                 peripheral can act as a wakeup source from the light sleep. Without enabling the TINYUSB_USB_OTG_WAKEUP
