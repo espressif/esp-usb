@@ -1,0 +1,7 @@
+-
+    re: "multiple definition of `tud_suspend_cb'"
+    hint: "sp_tinyusb version 3 and later defines `tud_suspend_cb` iinternally. Remove the definition from your application code and handle the suspend event in `tinyusb_config_t::event_cb`."
+
+-
+    re: "multiple definition of `tud_resume_cb'"
+    hint: "esp_tinyusb version 3 and later defines `tud_resume_cb` internally. Remove the definition from your application code and handle the resume event in `tinyusb_config_t::event_cb`."
