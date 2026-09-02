@@ -38,6 +38,20 @@ def _get_target_symbols(target):
     return {symbol: symbol == enabled_symbol for symbol in _TARGET_SYMBOLS.values()}
 
 
+def _get_soc_caps_kconfig(target):
+    idf_path = os.environ.get('IDF_PATH')
+    if not idf_path:
+        return None
+
+    soc_caps_kconfig = (
+        Path(idf_path) / 'components' / 'soc' / target / 'include' / 'soc' / 'Kconfig.soc_caps.in'
+    )
+    if soc_caps_kconfig.exists():
+        return soc_caps_kconfig
+
+    return None
+
+
 def _write_top_level_kconfig(kconfig_path, project_path, kconfig_sources, bool_symbols):
     lines = [
         'mainmenu "ESP-USB"\n',
@@ -54,13 +68,15 @@ def _write_top_level_kconfig(kconfig_path, project_path, kconfig_sources, bool_s
         ])
 
     for source in kconfig_sources:
-        source_path = (project_path / source).as_posix()
-        lines.append(f'source "{source_path}"\n')
+        source_path = Path(source)
+        if not source_path.is_absolute():
+            source_path = project_path / source_path
+        lines.append(f'source "{source_path.as_posix()}"\n')
 
     kconfig_path.write_text(''.join(lines), encoding='utf-8')
 
 
-def _generate_kconfig_include(project_path, build_dir, target, output_name, kconfig_sources, extra_symbols=None):
+def _generate_kconfig_include(project_path, build_dir, target, output_name, kconfig_sources, extra_symbols=None,require_soc_caps=False):
     bool_symbols = _get_target_symbols(target)
     if extra_symbols:
         bool_symbols.update(extra_symbols)
@@ -72,6 +88,15 @@ def _generate_kconfig_include(project_path, build_dir, target, output_name, kcon
         temp_dir_path = Path(temp_dir)
         kconfig_path = temp_dir_path / 'Kconfig'
         sdkconfig_path = temp_dir_path / 'sdkconfig'
+
+        soc_caps_kconfig = _get_soc_caps_kconfig(target)
+        if soc_caps_kconfig is not None:
+            kconfig_sources = (soc_caps_kconfig,) + tuple(kconfig_sources)
+        elif require_soc_caps:
+            raise RuntimeError(
+                f'Failed to generate {output_name}: set IDF_PATH to an ESP-IDF checkout '
+                f'with components/soc/{target}/include/soc/Kconfig.soc_caps.in'
+            )
 
         _write_top_level_kconfig(kconfig_path, project_path, kconfig_sources, bool_symbols)
         sdkconfig_path.write_text('', encoding='utf-8')
@@ -115,6 +140,7 @@ def generate_reference(app, _config):
         target,
         'usb_device_kconfig.inc',
         _DEVICE_KCONFIG_SOURCES,
+        require_soc_caps=True,
     )
 
     _generate_kconfig_include(

@@ -29,6 +29,9 @@ Features
     - Vendor specific class
     - Composite devices
     - VBUS monitoring for self-powered devices
+    - Remote wakeup
+    - Automatic light sleep control via ESP-IDF PM locks
+    :esp32p4 or esp32s31: - Light sleep wakeup on USB activity while suspended (high-speed ports only)
 
 .. Todo: Refactor USB hardware connect into a separate guide
 
@@ -168,6 +171,7 @@ Multiple aspects of the Device Stack can be configured using menuconfig. These i
 - Device Stack task related options
 - Default device/string descriptor options
 - Class specific options
+- Power management options (PM locks and USB wakeup)
 
 The generated Kconfig reference for the available ``CONFIG_TINYUSB_*`` options is provided at the end of this document.
 
@@ -259,6 +263,134 @@ On the {IDF_TARGET_NAME}, this will require using a GPIO to act as a voltage sen
     Simple voltage divider for VBUS monitoring
 
 To use this feature, set :cpp:member:`tinyusb_phy_config_t::self_powered` to ``true`` and :cpp:member:`tinyusb_phy_config_t::vbus_monitor_io` to the GPIO used for VBUS monitoring through :cpp:member:`tinyusb_config_t::phy`.
+
+Power Management
+----------------
+
+Suspend and Resume Events
+^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Suspend and resume device events are optional and disabled by default. Enable the following Kconfig options to receive them through the USB Device Event callback (:cpp:member:`tinyusb_config_t::event_cb`):
+
+- :ref:`CONFIG_TINYUSB_SUSPEND_CALLBACK` enables :cpp:enumerator:`TINYUSB_EVENT_SUSPENDED <tinyusb_event_id_t::TINYUSB_EVENT_SUSPENDED>`
+- :ref:`CONFIG_TINYUSB_RESUME_CALLBACK` enables :cpp:enumerator:`TINYUSB_EVENT_RESUMED <tinyusb_event_id_t::TINYUSB_EVENT_RESUMED>`
+
+When these options are enabled, esp_tinyusb provides strong implementations of :cpp:func:`tud_suspend_cb` and :cpp:func:`tud_resume_cb`. User applications **must not** define these callbacks themselves, or a linker error will occur due to multiple definitions.
+
+If the Kconfig options are disabled, users may implement :cpp:func:`tud_suspend_cb` and :cpp:func:`tud_resume_cb` directly in the application instead.
+
+Remote Wakeup
+^^^^^^^^^^^^^
+
+When the host suspends the device and enables remote wakeup, the device can signal resume with :cpp:func:`tinyusb_remote_wakeup`. Call this function only while the device is suspended and the host has enabled remote wakeup for the current suspend cycle.
+
+Automatic Light Sleep via PM Locks
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+esp_tinyusb can manage an :cpp:enumerator:`esp_pm_lock_type_t::ESP_PM_NO_LIGHT_SLEEP` lock based on USB device state. While the lock is held, the SoC will not enter automatic light sleep. When the USB host suspends the bus, esp_tinyusb releases the lock so automatic light sleep can proceed.
+
+Enable this feature in two steps, using Kconfig options and runtime settings:
+
+Kconfig prerequisites
+"""""""""""""""""""""
+
+    Enable :ref:`CONFIG_TINYUSB_PM` in menuconfig. This option requires the following config options:
+
+    - :ref:`CONFIG_TINYUSB_SUSPEND_CALLBACK`
+    - :ref:`CONFIG_TINYUSB_RESUME_CALLBACK`
+    - :ref:`CONFIG_PM_ENABLE <esp-idf:config_pm_enable>`
+    - :ref:`CONFIG_FREERTOS_USE_TICKLESS_IDLE <esp-idf:config_freertos_use_tickless_idle>`
+
+Runtime settings
+""""""""""""""""
+
+    - configure the ESP-IDF PM module with the :cpp:member:`esp_pm_config_t::light_sleep_enable` set to ``true``,
+    - set :cpp:member:`tinyusb_config_t::pm_lock_enable` to ``true`` when calling :cpp:func:`tinyusb_driver_install`.
+
+Configure automatic light sleep through ESP-IDF PM:
+
+.. code-block:: c
+
+    esp_pm_config_t pm_config = {
+        .max_freq_mhz = CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ,
+        .min_freq_mhz = CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ,
+        .light_sleep_enable = true,
+    };
+    ESP_ERROR_CHECK(esp_pm_configure(&pm_config));
+
+    tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG();
+    tusb_cfg.pm_lock_enable = true;
+    ESP_ERROR_CHECK(tinyusb_driver_install(&tusb_cfg));
+
+Lock behavior
+"""""""""""""
+
+- On driver install, esp_tinyusb creates an :cpp:enumerator:`esp_pm_lock_type_t::ESP_PM_NO_LIGHT_SLEEP` lock and acquires it.
+- On :cpp:enumerator:`TINYUSB_EVENT_ATTACHED <tinyusb_event_id_t::TINYUSB_EVENT_ATTACHED>`, the lock is acquired if it is not already held.
+- On :cpp:enumerator:`TINYUSB_EVENT_SUSPENDED <tinyusb_event_id_t::TINYUSB_EVENT_SUSPENDED>`, the lock is released while the device remains mounted, allowing automatic light sleep.
+- On :cpp:enumerator:`TINYUSB_EVENT_RESUMED <tinyusb_event_id_t::TINYUSB_EVENT_RESUMED>`, the lock is re-acquired.
+- On :cpp:enumerator:`TINYUSB_EVENT_DETACHED <tinyusb_event_id_t::TINYUSB_EVENT_DETACHED>`, the lock is acquired and the suspend PM state is cleared.
+- :cpp:func:`tinyusb_remote_wakeup` acquires the lock before signaling remote wakeup to the host.
+
+Suspend and Resume callbacks :ref:`CONFIG_TINYUSB_SUSPEND_CALLBACK` and :ref:`CONFIG_TINYUSB_RESUME_CALLBACK` must be enabled, registered inside the esp_tinyusb, otherwise the PM module would not have information about the device being suspended or resumed.
+
+Use :cpp:func:`tinyusb_pm_get_lock_status` to query whether the PM lock is currently held.
+
+.. only:: esp32p4 or esp32s31
+
+    On high-speed supported targets with :ref:`CONFIG_TINYUSB_USB_OTG_WAKEUP` enabled, esp_tinyusb re-acquires the PM lock immediately after waking from light sleep on USB activity while the bus remains suspended. This prevents immediate re-entry to light sleep before the host resume sequence completes.
+
+    .. note::
+
+        USB wakeup and PM locks are independent features. USB wakeup can be used with manual :cpp:func:`esp_light_sleep_start` calls, with automatic light sleep via PM locks, or both. When using automatic light sleep on high-speed targets, pairing :ref:`CONFIG_TINYUSB_PM` with :ref:`CONFIG_TINYUSB_USB_OTG_WAKEUP` is recommended so the USB peripheral can wake the SoC from light sleep.
+
+Light Sleep with USB Wakeup
+^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+.. only:: not esp32p4 and not esp32s31
+
+    On targets with full-speed port, the USB device peripheral can **NOT** be used as a light sleep wake-up source due to USB PHY limitations. This feature is only supported on high-speed ports.
+
+.. only:: esp32p4 or esp32s31
+
+    On targets with high-speed port with UTMI PHY, the USB device peripheral can be used as a light sleep wake-up source while the bus is suspended.
+
+    .. only:: esp32p4
+
+        {IDF_TARGET_NAME} having two USB ports, this feature is available only on the high-speed port and **NOT** available on the full-speed port.
+
+    Enable this integration in menuconfig with :ref:`CONFIG_TINYUSB_USB_OTG_WAKEUP`. This option is independent of :ref:`CONFIG_TINYUSB_PM` and works whether light sleep is entered manually or triggered automatically after the PM lock is released on USB suspend.
+
+    Kconfig prerequisites
+    """""""""""""""""""""
+
+    In addition to :ref:`CONFIG_TINYUSB_USB_OTG_WAKEUP`, enable the following options in menuconfig as appropriate for your application:
+
+    - :ref:`CONFIG_TINYUSB_SUSPEND_CALLBACK`
+    - :ref:`CONFIG_TINYUSB_RESUME_CALLBACK`
+    - :ref:`CONFIG_PM_ENABLE <esp-idf:config_pm_enable>`
+    - :ref:`CONFIG_FREERTOS_USE_TICKLESS_IDLE <esp-idf:config_freertos_use_tickless_idle>`
+    - :ref:`CONFIG_ESP_SLEEP_EVENT_CALLBACKS <esp-idf:config_esp_sleep_event_callbacks>`
+
+    Runtime settings
+    """"""""""""""""
+
+    There is no other ``esp_tinyusb`` related runtime setting to be made to enable the light sleep USB wakeup feature. The feature initializes itself when calling :cpp:func:`tinyusb_driver_install`, with the above Kconfig settings enabled.
+
+    The :cpp:func:`esp_sleep_enable_usb_wakeup` and :cpp:func:`esp_sleep_disable_usb_wakeup` are called internally in the ``esp_tinyusb`` during install/uninstall.
+
+    Power domain configuration
+    """"""""""""""""""""""""""
+
+    The power domain for the high-speed connectivity peripherals :cpp:enumerator:`esp_sleep_pd_domain_t::ESP_PD_DOMAIN_CNNT` must remain powered on during sleep. Use :cpp:func:`esp_sleep_pd_config` to configure this.
+
+    Configure the light sleep with USB Wakeup feature as follows:
+
+    .. code-block:: c
+
+        const tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG();
+        ESP_ERROR_CHECK(tinyusb_driver_install(&tusb_cfg));
+        esp_sleep_pd_config(ESP_PD_DOMAIN_CNNT, ESP_PD_OPTION_ON);
 
 USB Serial Device (CDC-ACM)
 ---------------------------
@@ -462,7 +594,11 @@ For better visibility, the examples can be found in ESP-IDF's GitHub repository 
 - `tusb_msc <https://github.com/espressif/esp-idf/tree/master/examples/peripherals/usb/device/tusb_msc>`__ demonstrates how to use the USB capabilities to create a Mass Storage Device that can be recognized by USB-hosts, allowing access to its internal data storage, with support for SPI Flash and SD MMC Card storage media.
 - `tusb_composite_msc_serialdevice <https://github.com/espressif/esp-idf/tree/master/examples/peripherals/usb/device/tusb_composite_msc_serialdevice>`__ demonstrates how to set up {IDF_TARGET_NAME} to function simultaneously as both a USB Serial Device and an MSC device (SPI-Flash as the storage media) using the TinyUSB component.
 
-.. only:: not esp32p4 and not esp32h4
+.. only:: esp32p4 or esp32s31
+
+    - `tusb_cdc_acm_wakeup <https://github.com/espressif/esp-idf/tree/master/examples/peripherals/usb/device/tusb_cdc_acm_wakeup>`__ demonstrates how to enter light sleep while the USB bus is suspended and wake on USB activity.
+
+.. only:: not esp32h4
 
   - `tusb_ncm <https://github.com/espressif/esp-idf/tree/master/examples/peripherals/usb/device/tusb_ncm>`__ demonstrates how to transmit Wi-Fi data to a Linux or Windows host via USB using the Network Control Model (NCM), a sub-class of Communication Device Class (CDC) USB Device for Ethernet-over-USB applications, with the help of a TinyUSB component.
 
