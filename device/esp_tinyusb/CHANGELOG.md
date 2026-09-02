@@ -1,3 +1,9 @@
+## 3.0.0
+
+### Breaking changes
+
+- esp_tinyusb: Removed DCD Slave/IRQ mode. Only Buffer DMA mode is supported. For more details, refer to the [Espressif's Addition to TinyUSB Migration guide v3](../../docs/device/migration-guides/v3/tinyusb.md)
+
 ## 2.4.0
 
 - esp_tinyusb: `CONFIG_TINYUSB_DESC_SERIAL_STRING` can now be left empty to derive the USB serial number string from the chip's eFuse base MAC at runtime, guaranteeing a unique serial number per device
