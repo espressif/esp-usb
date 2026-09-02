@@ -82,12 +82,8 @@ typedef struct {
 typedef enum {
     TINYUSB_EVENT_ATTACHED = 0,             /*!< The USB device has been attached to the host. */
     TINYUSB_EVENT_DETACHED = 1,             /*!< The USB device has been detached from the host. */
-#ifdef CONFIG_TINYUSB_SUSPEND_CALLBACK
     TINYUSB_EVENT_SUSPENDED = 2,            /*!< The USB device has entered suspend. */
-#endif // CONFIG_TINYUSB_SUSPEND_CALLBACK
-#ifdef CONFIG_TINYUSB_RESUME_CALLBACK
     TINYUSB_EVENT_RESUMED = 3,              /*!< The USB device has resumed from suspend. */
-#endif // CONFIG_TINYUSB_RESUME_CALLBACK
 } tinyusb_event_id_t;
 
 /**

@@ -58,6 +58,7 @@ idf.py add-dependency esp_tinyusb~2.0.0
 
 - [v3.0.0](../../docs/device/migration-guides/v3/)
 - [v2.0.0](../../docs/device/migration-guides/v2/)
+- [v3.0.0](../../docs/device/migration-guides/v3/)
 
 ## USB Device Stack: usage, installation & configuration
 
@@ -151,49 +152,6 @@ User Argument could be passed to the USB Device Event callback as a second argum
   }
 ```
 
-### Suspend / Resume Device Events
-
-Suspend and resume device events are **optional** and are disabled by default.
-Users can choose one of the following approaches:
-
-#### Option 1 — Use esp_tinyusb device events (recommended for integration)
-
-Enable the following Kconfig options:
-
-- `CONFIG_TINYUSB_SUSPEND_CALLBACK` → enables `TINYUSB_EVENT_SUSPENDED`
-- `CONFIG_TINYUSB_RESUME_CALLBACK` → enables `TINYUSB_EVENT_RESUMED`
-
-When enabled:
-
-- esp_tinyusb provides strong implementations of:
-  - `tud_suspend_cb()`
-  - `tud_resume_cb()`
-- esp_tinyusb dispatches suspend/resume events via the device event callback.
-
-⚠️ **Important:**
-When these options are enabled, user applications **MUST NOT** define
-`tud_suspend_cb()` or `tud_resume_cb()` themselves. Doing so will result
-in a linker error due to multiple definitions.
-
-#### Option 2 — Use TinyUSB callbacks directly (default behavior)
-
-If the Kconfig options are **disabled** (default):
-
-- esp_tinyusb does NOT handle suspend/resume events
-- Users may implement TinyUSB callbacks directly in their application:
-
-```c
-void tud_suspend_cb(bool remote_wakeup_en)
-{
-    // User suspend handling
-}
-
-void tud_resume_cb(void)
-{
-    // User resume handling
-}
-```
-
 ### Peripheral port
 
 When several peripheral ports are available by the hardware, the specific port could be configured manually:
@@ -262,11 +220,6 @@ The feature is **NOT** available on FS/LS only ports due to PHY limitations.
 **USB Device wakeup** source can be enabled in menuconfig by `CONFIG_TINYUSB_USB_OTG_WAKEUP`.
 When enabled, the driver enables the USB wakeup source (`esp_sleep_enable_usb_wakeup()`) automatically
 during `tinyusb_driver_install()`.
-
-This feature depends on the esp_tinyusb suspend and resume callbacks
-(`CONFIG_TINYUSB_SUSPEND_CALLBACK` and `CONFIG_TINYUSB_RESUME_CALLBACK`, see
-[Suspend / Resume Device Events](#suspend--resume-device-events)). They are required so the driver is
-notified about USB suspend/resume and can track the light sleep wakeup state.
 
 Before using light sleep, configure the USB connection power domain on during light sleep:
 

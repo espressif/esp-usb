@@ -3,6 +3,7 @@
 ### Breaking changes
 
 - esp_tinyusb: Removed DCD Slave/IRQ mode. Only Buffer DMA mode is supported. For more details, refer to the [Espressif's Addition to TinyUSB Migration guide v3](../../docs/device/migration-guides/v3/tinyusb.md)
+- esp_tinyusb: Suspend and resume TinyUSB callbacks (`tud_suspend_cb`, `tud_resume_cb`) are now always registered inside esp_tinyusb. Kconfig options `CONFIG_TINYUSB_SUSPEND_CALLBACK` and `CONFIG_TINYUSB_RESUME_CALLBACK` were removed. Applications must handle `TINYUSB_EVENT_SUSPENDED` and `TINYUSB_EVENT_RESUMED` via the device event callback and must not define `tud_suspend_cb()` or `tud_resume_cb()`. For more details, refer to the [Espressif's Addition to TinyUSB Migration guide v3](../../docs/device/migration-guides/v3/tinyusb.md)
 
 ## Unreleased
 
