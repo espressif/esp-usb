@@ -1,6 +1,6 @@
 # Virtual COM Port Service
 
-[![Component Registry](https://components.espressif.com/components/espressif/usb_host_vcp/badge.svg)](https://components.espressif.com/components/espressif/usb_host_vcp)
+[![Component Registry](https://components.espressif.com/components/espressif/usb_host_vcp/badge.svg)](https://components.espressif.com/components/espressif/usb_host_vcp) ![maintenance-status](https://img.shields.io/badge/maintenance-as--is-yellow.svg)
 
 Virtual COM Port (VCP) service manages drivers to connected VCP devices - typically USB \<-> UART converters. In practice, you rarely care about specifics of the devices; you only want uniform interface for them all.
 
