@@ -16,14 +16,18 @@
 #include "freertos/task.h"
 #include "freertos/semphr.h"
 #include "esp_log.h"
+#include "esp_idf_version.h"
 #include "unity.h"
 #include "driver/uart.h"
-#include "driver/uart_wakeup.h"
 #include "esp_private/sleep_event.h"
 #include "tinyusb.h"
 #include "tinyusb_cdc_acm.h"
 #include "tusb_config.h"
 #include "common_pm.h"
+
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 5, 0)
+#include "driver/uart_wakeup.h"
+#endif
 
 static const char *TAG = "PM_EspPM";
 
@@ -60,6 +64,26 @@ static const esp_sleep_event_cb_config_t pm_exit_light_sleep_cb_cfg = {
     .next = NULL,
 };
 
+static void pm_console_uart_wakeup_threshold_enable(void)
+{
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 5, 0)
+    const uart_wakeup_cfg_t uart_wakeup_cfg = {
+        .wakeup_mode = UART_WK_MODE_ACTIVE_THRESH,
+        .rx_edge_threshold = PM_UART_WAKEUP_EDGE_THRESHOLD,
+    };
+    TEST_ASSERT_EQUAL(ESP_OK, uart_wakeup_setup(CONFIG_ESP_CONSOLE_UART_NUM, &uart_wakeup_cfg));
+#else
+    TEST_ASSERT_EQUAL(ESP_OK, uart_set_wakeup_threshold(CONFIG_ESP_CONSOLE_UART_NUM, PM_UART_WAKEUP_EDGE_THRESHOLD));
+#endif
+}
+
+static void pm_console_uart_wakeup_threshold_disable(void)
+{
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 5, 0)
+    uart_wakeup_clear(CONFIG_ESP_CONSOLE_UART_NUM, UART_WK_MODE_ACTIVE_THRESH);
+#endif
+}
+
 /**
  * @brief Enable the console UART as a light sleep wakeup source
  *
@@ -68,11 +92,7 @@ static const esp_sleep_event_cb_config_t pm_exit_light_sleep_cb_cfg = {
  */
 static void pm_console_uart_wakeup_enable(void)
 {
-    const uart_wakeup_cfg_t uart_wakeup_cfg = {
-        .wakeup_mode = UART_WK_MODE_ACTIVE_THRESH,
-        .rx_edge_threshold = PM_UART_WAKEUP_EDGE_THRESHOLD,
-    };
-    TEST_ASSERT_EQUAL(ESP_OK, uart_wakeup_setup(CONFIG_ESP_CONSOLE_UART_NUM, &uart_wakeup_cfg));
+    pm_console_uart_wakeup_threshold_enable();
     TEST_ASSERT_EQUAL(ESP_OK, esp_sleep_enable_uart_wakeup(CONFIG_ESP_CONSOLE_UART_NUM));
 
     s_uart_light_sleep_wakeup = false;
@@ -86,7 +106,7 @@ static void pm_console_uart_wakeup_disable(void)
 {
     TEST_ASSERT_EQUAL(ESP_OK, esp_sleep_unregister_event_callback(SLEEP_EVENT_SW_EXIT_SLEEP, pm_exit_light_sleep_cb));
     TEST_ASSERT_EQUAL(ESP_OK, esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_UART));
-    uart_wakeup_clear(CONFIG_ESP_CONSOLE_UART_NUM, UART_WK_MODE_ACTIVE_THRESH);
+    pm_console_uart_wakeup_threshold_disable();
 }
 
 /**
