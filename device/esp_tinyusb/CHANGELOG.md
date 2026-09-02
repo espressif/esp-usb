@@ -1,3 +1,9 @@
+## 3.0.0
+
+### Breaking changes
+
+- esp_tinyusb: Removed DCD Slave/IRQ mode. Only Buffer DMA mode is supported. For more details, refer to the [Espressif's Addition to TinyUSB Migration guide v3](../../docs/device/migration-guides/v3/tinyusb.md)
+
 ## Unreleased
 
 - MSC: Added generic block device storage support (IDF >= 6.0.4). This is an additive feature; `tinyusb_msc_new_storage_spiflash` and `tinyusb_msc_new_storage_sdmmc` remain unchanged.
