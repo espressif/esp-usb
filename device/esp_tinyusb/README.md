@@ -253,6 +253,55 @@ If any descriptor field is set to `NULL`, default descriptor will be assigned du
   }
 ```
 
+### Light sleep with USB wakeup
+
+On high-speed ports (ESP32-P4 HS port and ESP32-S31), the device can wake from light sleep on USB activity while the bus is suspended.
+The feature is **NOT** available on FS/LS only ports due to PHY limitations.
+
+**USB Device wakeup** source can be enabled in menuconfig by `CONFIG_TINYUSB_USB_OTG_WAKEUP`.
+When enabled, the driver enables the USB wakeup source (`esp_sleep_enable_usb_wakeup()`) automatically
+during `tinyusb_driver_install()`.
+
+This feature depends on the esp_tinyusb suspend and resume callbacks
+(`CONFIG_TINYUSB_SUSPEND_CALLBACK` and `CONFIG_TINYUSB_RESUME_CALLBACK`, see
+[Suspend / Resume Device Events](#suspend--resume-device-events)). They are required so the driver is
+notified about USB suspend/resume and can track the light sleep wakeup state.
+
+Before using light sleep, configure the USB connection power domain on during light sleep:
+
+```c
+  esp_sleep_pd_config(ESP_PD_DOMAIN_CNNT, ESP_PD_OPTION_ON);
+```
+
+### Power management locks
+
+For automatic light sleep through PM locks on any supported target, enable **Power management** `CONFIG_TINYUSB_PM`
+in menuconfig, configure the ESP-IDF PM module and install TinyUSB with the PM lock enabled:
+
+```c
+  const esp_pm_config_t pm_config = {
+      .max_freq_mhz = CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ,
+      .min_freq_mhz = CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ,
+      .light_sleep_enable = true,
+  };
+  ESP_ERROR_CHECK(esp_pm_configure(&pm_config));
+
+  tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG(event_handler);
+  tusb_cfg.pm_lock_enable = true;
+  ESP_ERROR_CHECK(tinyusb_driver_install(&tusb_cfg));
+```
+
+USB wakeup and PM locks are independent: you can use USB wakeup with manual
+`esp_light_sleep_start()` calls, with automatic light sleep via PM locks, or both.
+
+#### Power management behavior
+
+While the PM lock is held, the SoC will not enter automatic light sleep. esp_tinyusb:
+
+- acquires the lock on driver install, attach, resume, and remote wakeup,
+- releases it on USB suspend while the device remains mounted,
+- re-acquires it on detach.
+
 ### USB PHY configuration & Self-Powered Device
 
 USB 2.0 requires self‑powered devices to sense VBUS and only present the pull‑up (attach) when VBUS is valid. If VBUS falls out of range, the device must detach and must not back‑power the bus. TinyUSB uses VBUS presence to drive connect/disconnect events in the DCD layer, so the VBUS sense signal must be correct. More information is available [here](https://docs.espressif.com/projects/esp-usb/en/latest/esp32p4/usb_device.html#self-powered-device).

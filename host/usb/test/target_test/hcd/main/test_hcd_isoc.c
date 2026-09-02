@@ -10,9 +10,12 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "unity.h"
+#include "esp_log.h"
 #include "dev_isoc.h"
 #include "usb/usb_types_ch9.h"
 #include "hcd_common.h"
+
+static const char *TAG = "ISOC";
 
 #define NUM_URBS                3
 #define NUM_PACKETS_PER_URB     3
@@ -72,7 +75,7 @@ TEST_CASE("Test HCD isochronous pipe URBs", "[isoc][full_speed][high_speed]")
     }
     // Wait for each done event from each URB
     for (int i = 0; i < NUM_URBS; i++) {
-        test_hcd_expect_pipe_event(isoc_out_pipe, HCD_PIPE_EVENT_URB_DONE);
+        TEST_HCD_EXPECT_PIPE_EVENT(isoc_out_pipe, HCD_PIPE_EVENT_URB_DONE);
     }
     // Dequeue URBs
     for (int urb_idx = 0; urb_idx < NUM_URBS; urb_idx++) {
@@ -81,7 +84,7 @@ TEST_CASE("Test HCD isochronous pipe URBs", "[isoc][full_speed][high_speed]")
         TEST_ASSERT_EQUAL(URB_CONTEXT_VAL, urb->transfer.context);
         // Overall URB status and overall number of bytes
         TEST_ASSERT_EQUAL(NUM_PACKETS_PER_URB * isoc_packet_size, urb->transfer.actual_num_bytes);
-        TEST_ASSERT_EQUAL_MESSAGE(USB_TRANSFER_STATUS_COMPLETED, urb->transfer.status, "Transfer NOT completed");
+        TEST_HCD_EXPECT_TRANSFER_STATUS(urb, USB_TRANSFER_STATUS_COMPLETED);
         for (int pkt_idx = 0; pkt_idx < NUM_PACKETS_PER_URB; pkt_idx++) {
             TEST_ASSERT_EQUAL_MESSAGE(USB_TRANSFER_STATUS_COMPLETED, urb->transfer.isoc_packet_desc[pkt_idx].status, "Transfer NOT completed");
         }
@@ -169,7 +172,7 @@ TEST_CASE("Test HCD isochronous pipe URBs all", "[isoc][full_speed][high_speed]"
             }
             // Wait for each done event from each URB
             for (int i = 0; i < NUM_URBS; i++) {
-                test_hcd_expect_pipe_event(isoc_out_pipe, HCD_PIPE_EVENT_URB_DONE);
+                TEST_HCD_EXPECT_PIPE_EVENT(isoc_out_pipe, HCD_PIPE_EVENT_URB_DONE);
             }
             // Dequeue URBs
             for (int urb_idx = 0; urb_idx < NUM_URBS; urb_idx++) {
@@ -178,7 +181,7 @@ TEST_CASE("Test HCD isochronous pipe URBs all", "[isoc][full_speed][high_speed]"
                 TEST_ASSERT_EQUAL(URB_CONTEXT_VAL, urb->transfer.context);
                 // Overall URB status and overall number of bytes
                 TEST_ASSERT_EQUAL(num_packets_per_urb * isoc_packet_size, urb->transfer.actual_num_bytes);
-                TEST_ASSERT_EQUAL_MESSAGE(USB_TRANSFER_STATUS_COMPLETED, urb->transfer.status, "Transfer NOT completed");
+                TEST_HCD_EXPECT_TRANSFER_STATUS(urb, USB_TRANSFER_STATUS_COMPLETED);
                 for (int pkt_idx = 0; pkt_idx < num_packets_per_urb; pkt_idx++) {
                     TEST_ASSERT_EQUAL_MESSAGE(USB_TRANSFER_STATUS_COMPLETED, urb->transfer.isoc_packet_desc[pkt_idx].status, "Transfer NOT completed");
                 }
@@ -260,19 +263,19 @@ TEST_CASE("Test HCD isochronous pipe sudden disconnect", "[isoc][full_speed][hig
     // Power-off the port to trigger a disconnection
     TEST_ASSERT_EQUAL(ESP_OK, hcd_port_command(port_hdl, HCD_PORT_CMD_POWER_OFF));
     // Disconnect event should have occurred. Handle the port event
-    test_hcd_expect_port_event(port_hdl, HCD_PORT_EVENT_DISCONNECTION);
+    TEST_HCD_EXPECT_PORT_EVENT(port_hdl, HCD_PORT_EVENT_DISCONNECTION);
     TEST_ASSERT_EQUAL(HCD_PORT_EVENT_DISCONNECTION, hcd_port_handle_event(port_hdl));
-    TEST_ASSERT_EQUAL(HCD_PORT_STATE_RECOVERY, hcd_port_get_state(port_hdl));
-    printf("Sudden disconnect\n");
+    TEST_HCD_EXPECT_PORT_STATE(port_hdl, HCD_PORT_STATE_RECOVERY);
+    ESP_LOGI(TAG, "Sudden disconnect");
 
     // Both pipes should still be active
-    TEST_ASSERT_EQUAL(HCD_PIPE_STATE_ACTIVE, hcd_pipe_get_state(default_pipe));
-    TEST_ASSERT_EQUAL(HCD_PIPE_STATE_ACTIVE, hcd_pipe_get_state(isoc_out_pipe));
+    TEST_HCD_EXPECT_PIPE_STATE(default_pipe, HCD_PIPE_STATE_ACTIVE);
+    TEST_HCD_EXPECT_PIPE_STATE(isoc_out_pipe, HCD_PIPE_STATE_ACTIVE);
     // Halt both pipes
     TEST_ASSERT_EQUAL(ESP_OK, hcd_pipe_command(default_pipe, HCD_PIPE_CMD_HALT));
     TEST_ASSERT_EQUAL(ESP_OK, hcd_pipe_command(isoc_out_pipe, HCD_PIPE_CMD_HALT));
-    TEST_ASSERT_EQUAL(HCD_PIPE_STATE_HALTED, hcd_pipe_get_state(default_pipe));
-    TEST_ASSERT_EQUAL(HCD_PIPE_STATE_HALTED, hcd_pipe_get_state(isoc_out_pipe));
+    TEST_HCD_EXPECT_PIPE_STATE(default_pipe, HCD_PIPE_STATE_HALTED);
+    TEST_HCD_EXPECT_PIPE_STATE(isoc_out_pipe, HCD_PIPE_STATE_HALTED);
     // Flush both pipes. ISOC pipe should return completed URBs
     TEST_ASSERT_EQUAL(ESP_OK, hcd_pipe_command(default_pipe, HCD_PIPE_CMD_FLUSH));
     TEST_ASSERT_EQUAL(ESP_OK, hcd_pipe_command(isoc_out_pipe, HCD_PIPE_CMD_FLUSH));

@@ -7,6 +7,7 @@ The tests focus on:
 - Power management of the USB Device
 - Testing tinyusb suspend/resume callbacks delivery
 - Testing remote wakeup signalizing by the device
+- Testing USB light-sleep wakeup on high-speed ports
 - Calling esp_tinyusb public API when the USB Device is in suspended state
 - Init/Deinit of esp_tinyusb driver with device in suspended state
 
