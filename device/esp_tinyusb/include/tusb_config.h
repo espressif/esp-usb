@@ -94,14 +94,8 @@ extern "C" {
 #endif
 
 // ------------------------------------------------------------------------
-//                              DCD DWC2 Mode
-// ------------------------------------------------------------------------
-#define CFG_TUD_DWC2_SLAVE_ENABLE   1       // Enable Slave/IRQ by default
-
-// ------------------------------------------------------------------------
 //                              DMA & Cache
 // ------------------------------------------------------------------------
-#ifdef CONFIG_TINYUSB_MODE_DMA
 // DMA Mode has a priority over Slave/IRQ mode and will be used if hardware supports it
 #define CFG_TUD_DWC2_DMA_ENABLE     1       // Enable DMA
 
@@ -121,7 +115,6 @@ extern "C" {
 #   define CFG_TUD_MEM_CACHE_ENABLE     0
 #   define CFG_TUSB_MEM_SECTION         TU_ATTR_ALIGNED(4) DRAM_ATTR
 #endif // CONFIG_CACHE_L1_CACHE_LINE_SIZE && CONFIG_SOC_CACHE_INTERNAL_MEM_VIA_L1CACHE
-#endif // CONFIG_TINYUSB_MODE_DMA
 
 #define CFG_TUSB_OS                 OPT_OS_FREERTOS
 
