@@ -6,20 +6,6 @@ menu "TinyUSB Stack"
         help
             Specify verbosity of TinyUSB log output.
 
-    menu "TinyUSB DCD"
-        choice TINYUSB_MODE
-            prompt "DCD Mode"
-            default TINYUSB_MODE_DMA
-            help
-                TinyUSB DCD DWC2 Driver supports two modes: Slave mode (based on IRQ) and Buffer DMA mode.
-
-            config TINYUSB_MODE_SLAVE
-                bool "Slave/IRQ"
-            config TINYUSB_MODE_DMA
-                bool "Buffer DMA"
-        endchoice
-    endmenu # "TinyUSB DCD"
-
     menu "TinyUSB callbacks"
         config TINYUSB_SUSPEND_CALLBACK
             bool "Register suspend callback"
