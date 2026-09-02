@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2025-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -59,6 +59,24 @@ static void test_remote_wakeup_timer_deinit(void)
     TEST_ASSERT_NOT_NULL_MESSAGE(test_remote_wakeup_timer, "Remote wakeup timer is not initialized");
     TEST_ASSERT_EQUAL_MESSAGE(ESP_OK, esp_timer_delete(test_remote_wakeup_timer), "Failed to delete remote wakeup timer");
     test_remote_wakeup_timer = NULL;
+}
+
+static void usbcv_device_event_handler(tinyusb_event_t *event, void *arg)
+{
+    switch (event->id) {
+    case TINYUSB_EVENT_SUSPENDED:
+        printf("Device suspended, remote wakeup enabled: %s\n", event->suspended.remote_wakeup ? "true" : "false");
+        if (event->suspended.remote_wakeup) {
+            TEST_ASSERT_EQUAL_MESSAGE(ESP_OK, esp_timer_start_once(test_remote_wakeup_timer, TEST_USBCV_REMOTE_WAKEUP_DELAY_MS * 1000), "Failed to start remote wakeup timer");
+        }
+        break;
+    case TINYUSB_EVENT_RESUMED:
+        printf("Device resumed from suspend\n");
+        break;
+    default:
+        test_device_event_handler(event, arg);
+        break;
+    }
 }
 
 //
@@ -137,32 +155,12 @@ void tud_hid_set_report_cb(uint8_t instance, uint8_t report_id, hid_report_type_
 
 }
 
-
-
-// Invoked when the device is suspended
-void tud_suspend_cb(bool remote_wakeup_en)
-{
-    printf("Device suspended, remote wakeup enabled: %s\n", remote_wakeup_en ? "true" : "false");
-    if (remote_wakeup_en) {
-        // If remote wakeup is enabled, we can wake up the host by sending a resume signal
-        // tinyusb_msc_storage_resume();
-        TEST_ASSERT_EQUAL_MESSAGE(ESP_OK, esp_timer_start_once(test_remote_wakeup_timer, TEST_USBCV_REMOTE_WAKEUP_DELAY_MS * 1000), "Failed to start remote wakeup timer");
-    }
-
-}
-
-// Invoked when the device resumes from suspend
-void tud_resume_cb(void)
-{
-    printf("Device resumed from suspend\n");
-}
-
 TEST_CASE("USBCV: HID Device", "[hid]")
 {
     // Initialize the remote wakeup timer
     test_remote_wakeup_timer_init();
     // Install TinyUSB driver
-    tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG(test_device_event_handler);
+    tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG(usbcv_device_event_handler);
 
     tusb_cfg.descriptor.full_speed_config = hid_configuration_descriptor;
 #if (TUD_OPT_HIGH_SPEED)
@@ -196,7 +194,7 @@ TEST_CASE("USBCV: MSC Device", "[msc]")
     tinyusb_msc_storage_handle_t storage_hdl = NULL;
     TEST_ASSERT_EQUAL_MESSAGE(ESP_OK, tinyusb_msc_new_storage_spiflash(&config, &storage_hdl), "Failed to initialize TinyUSB MSC storage with SPIFLASH");
     // Install TinyUSB driver
-    tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG(test_device_event_handler);
+    tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG(usbcv_device_event_handler);
     TEST_ASSERT_EQUAL(ESP_OK, tinyusb_driver_install(&tusb_cfg));
 
     printf("Device is configured, launch the USBCV compliance test..\n");
@@ -216,7 +214,7 @@ TEST_CASE("USBCV: HID Device on Full-speed port", "[hid][full_speed]")
     // Initialize the remote wakeup timer
     test_remote_wakeup_timer_init();
     // Install TinyUSB driver on Full-speed port
-    tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG(test_device_event_handler);
+    tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG(usbcv_device_event_handler);
 
     tusb_cfg.port = TINYUSB_PORT_FULL_SPEED_0;
     tusb_cfg.descriptor.full_speed_config = hid_configuration_descriptor;
