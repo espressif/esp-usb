@@ -1,3 +1,9 @@
+## 3.0.0
+
+### Breaking changes
+
+- esp_tinyusb: Removed DCD Slave/IRQ mode. Only Buffer DMA mode is supported. For more details, refer to the [Espressif's Addition to TinyUSB Migration guide v3](../../docs/device/migration-guides/v3/tinyusb.md)
+
 ## Unreleased
 
 - esp_tinyusb: Fixed missing IAD declaration (bDeviceClass/bDeviceSubClass/bDeviceProtocol) in the default device and qualifier descriptors for NCM and ECM/RNDIS
