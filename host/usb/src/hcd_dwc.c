@@ -1085,7 +1085,7 @@ static void  _calculate_fifo_from_bias(port_t *port, const usb_dwc_hal_context_t
 static port_t *port_obj_alloc(void)
 {
     port_t *port = calloc(1, sizeof(port_t));
-    usb_dwc_hal_context_t *hal = malloc(sizeof(usb_dwc_hal_context_t));
+    usb_dwc_hal_context_t *hal = calloc(1, sizeof(*hal));
     void *frame_list = heap_caps_aligned_calloc(USB_DWC_FRAME_LIST_MEM_ALIGN, FRAME_LIST_LEN, sizeof(uint32_t), MALLOC_CAP_DMA | MALLOC_CAP_CACHE_ALIGNED | MALLOC_CAP_INTERNAL);
     SemaphoreHandle_t port_mux = xSemaphoreCreateMutex();
     if (port == NULL || hal == NULL || frame_list == NULL || port_mux == NULL) {
@@ -1559,7 +1559,7 @@ esp_err_t hcd_port_init(int port_number, const hcd_port_config_t *port_config, h
 
 clean_up:
     if (port_obj != NULL) {
-        if (port_obj->hal != NULL && port_obj->hal->channels.hdls != NULL) {
+        if (hal_inited && port_obj->hal != NULL && port_obj->hal->channels.hdls != NULL) {
             free(port_obj->hal->channels.hdls);
             port_obj->hal->channels.hdls = NULL;
         }
