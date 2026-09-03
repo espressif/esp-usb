@@ -30,13 +30,13 @@ def find_dut_cdc_ports() -> list[str]:
             ports.append(p.device)
     return ports
 
-def run_suspend_resume_cdc_test(
-    dut: IdfDut,
-    *,
-    resumed_event: str,
-    suspended_event: str,
-) -> None:
-    '''Run the write/read cycle test body'''
+def run_usb_wakeup_test(dut: IdfDut) -> None:
+    '''Run PM suspend/resume test using a USB light sleep wakeup.
+
+    Host suspends the device (auto-suspend after 3s).
+    Pytest wakes the SoC over the console USB-CDC (USB wakeup).
+    '''
+
     dut.expect_exact('TinyUSB: TinyUSB Driver installed')
     sleep(2)  # Some time for the OS to enumerate our USB device
 
@@ -50,17 +50,15 @@ def run_suspend_resume_cdc_test(
         with Serial(ports[0], timeout=5, write_timeout=5) as cdc:
             dut.expect_exact(TINYUSB_EVENTS['attached'])
 
-            # Wait for auto suspend (set to 3 seconds)
-            # This expect_exact is ignored by pytest when running second rerun of flaky test (unknown reason),
-            # making the test fail in further steps, adding explicit sleep(3) to wait for the suspend events
-            sleep(3)
-            dut.expect_exact(suspended_event, timeout=10)
-            sleep(1)
-
             for i in range(5):
                 print(f"Power cycle iteration {i}.")
 
-                # Resume the device by accessing it
+                # Wait for the host to auto-suspend the idle device (~3 s) and for the SoC to enter automatic light sleep.
+                # We don't wait for the suspend event here, as UART log from the DUT is flushed only after exiting the light sleep.
+                # while the SoC is in light sleep the monitor-UART output is deferred, so gating the
+                sleep(4)
+
+                # Resume the bus by accessing the device. This wakes the SoC through the USB peripheral
                 cdc.reset_input_buffer()
                 cdc.write(b'Time to resume\r\n')
                 cdc.flush()
@@ -68,32 +66,36 @@ def run_suspend_resume_cdc_test(
                 res = cdc.readline()
                 assert b'Time to suspend\r\n' in res
 
-                dut.expect_exact(resumed_event, timeout=10)
+                # Suspended event is delivered after resuming, so we first resume the target, then expect the suspend event
+                dut.expect_exact(TINYUSB_EVENTS['suspended_remote_wake_en'], timeout=10)
 
-                # Wait for auto suspend (set to 3 seconds)
-                dut.expect_exact(suspended_event, timeout=10)
-
-                # Stay suspended for a while
-                sleep(1)
+                # Also expect the resume event
+                dut.expect_exact(TINYUSB_EVENTS['resumed'], timeout=10)
 
     except SerialException as e:
         raise RuntimeError(f"Failed to open CDC device on {ports[0]}") from e
 
+    sleep(1)
     # Wait for the test app to finish
     dut.expect_exact('PM_Device_main_app: Cleanup')
     dut.expect_exact(TINYUSB_EVENTS['detached'])
     sleep(1)
 
-def run_pm_light_sleep_suspend_resume_test(
-    dut: IdfDut,
-    *,
-    resumed_event: str,
-    suspended_event: str,
-) -> None:
-    '''Run PM-only suspend/resume test without host CDC resume.
+def wake_dut_over_console_uart(dut: IdfDut) -> None:
+    '''Wake the DUT from light sleep over UART.
 
-    On FS targets the host cannot wake the SoC from light sleep. The DUT wakes itself
-    with a sleep timer, signals USB remote wakeup, and pytest only observes events.
+    Sending a short stream of characters generates the RX positive edges needed to wake the SoC.
+    '''
+
+    print("UART-wakeup")        # Logging
+    dut.write('wakeup')         # Actual wakeup
+
+def run_non_usb_wakeup_test(dut: IdfDut) -> None:
+    '''Run PM suspend/resume test using a non-USB (UART) light sleep wakeup.
+
+    Host suspends the device (auto-suspend after 3s).
+    Pytest wakes the SoC over the console UART (a non-USB wakeup).
+    The DUT signals USB remote wakeup to resume the bus.
     '''
     dut.expect_exact('TinyUSB: TinyUSB Driver installed')
     sleep(2)  # Some time for the OS to enumerate our USB device
@@ -111,10 +113,13 @@ def run_pm_light_sleep_suspend_resume_test(
                 print(f"PM light sleep iteration {i}.")
 
                 # Auto-suspend
-                dut.expect_exact(suspended_event)
+                dut.expect_exact(TINYUSB_EVENTS['suspended_remote_wake_en'])
 
-                # Wait for the timer to wake the SoC from light sleep and call the remote wakeup
-                dut.expect_exact(resumed_event)
+                # Wake the SoC from light sleep over the console UART (non-USB wakeup)
+                wake_dut_over_console_uart(dut)
+
+                # The DUT signals USB remote wakeup to resume once it observed the UART wakeup
+                dut.expect_exact(TINYUSB_EVENTS['resumed'])
 
     except SerialException as e:
         raise RuntimeError(f"Failed to open CDC device on {ports[0]}") from e
@@ -152,38 +157,38 @@ def test_usb_device_suspend_resume_signaling(config: str, dut: IdfDut) -> None:
     2. Connect you DUT to your test runner (local machine) with USB port and flashing port
     3. Run `pytest --target <target>`
 
-    Test procedure:
-    1. Run the test on the DUT
-    2. Expect one COM Port in the system
-    3. Open it and and test power management of the USB device (Suspend/Resume)
-    4. Suspend: Device enters suspended state after some time of inactivity
-    5. Resume: Device is resumed by accessing it (sending some data to it)
     '''
     sleep(5) # When rerunning flaky test, to re-initialize the device
     dut.expect_exact('Press ENTER to see the list of tests.')
 
-    resumed_event=TINYUSB_EVENTS['resumed']
-    suspended_event=TINYUSB_EVENTS['suspended_remote_wake_en']
-
     if config == 'default' or config == 'esp32p4_eco4':
+        # Run plain suspend/resume signalling target test. No light sleep, no power management
         dut.write('[tinyusb_suspend_resume_events]')
-    elif config == 'pm':
-        dut.write('[tinyusb_pm]')
-    elif config == 'pm_otg_wake':
-        dut.write('[tinyusb_pm_otg_wake]')
+        run_usb_wakeup_test(dut)
 
-    if config == 'pm':
-        run_pm_light_sleep_suspend_resume_test(
-            dut,
-            resumed_event=resumed_event,
-            suspended_event=suspended_event,
-        )
-    else:
-        run_suspend_resume_cdc_test(
-            dut,
-            resumed_event=resumed_event,
-            suspended_event=suspended_event,
-        )
+    elif config == 'pm':
+        # Run suspend/resume signalling target tests with esp_tinyusb Power management.
+        # 1. PM automatically suspends the USB peripheral + puts the SoC to the sleep
+        # 2. UART (pytest writing to UART) wakes up the SoC
+        # 3. App calls remote wakeup to wake the USB peripheral
+        dut.write('[tinyusb_pm]')
+        run_non_usb_wakeup_test(dut)
+
+    elif config == 'pm_otg_wake':
+        # Run suspend/resume signalling target tests with esp_tinyusb Power management and USB wakeup.
+        # 1. PM automatically suspends the USB peripheral + puts the SoC to the sleep
+        # 2. USB (pytest writing to CDC device) wakes up the SoC
+        # 3. Peripheral and SoC is woken
+        dut.write('[tinyusb_pm_otg_wake]')
+        run_usb_wakeup_test(dut)
+
+        # Run suspend/resume signalling target tests with esp_tinyusb Power management.
+        # 1. PM automatically suspends the USB peripheral + puts the SoC to the sleep
+        # 2. UART (pytest writing to UART) wakes up the SoC
+        # 3. App calls remote wakeup to wake the USB peripheral
+        dut.write('[tinyusb_pm]')
+        run_non_usb_wakeup_test(dut)
+
 
 @pytest.mark.usb_device
 @pytest.mark.flaky(reruns=2, reruns_delay=10)
