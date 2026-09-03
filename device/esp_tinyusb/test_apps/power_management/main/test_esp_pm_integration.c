@@ -85,6 +85,19 @@ static void pm_console_uart_wakeup_threshold_disable(void)
 }
 
 /**
+ * @brief Re-arm console UART wakeup after a successful light sleep exit
+ *
+ * ACTIVE_THRESH mode leaves the UART wake_up signal asserted until the UART is
+ * used in active mode. Flush any host data and re-apply the threshold so the
+ * next light sleep cycle can wake on UART again.
+ */
+static void pm_console_uart_wakeup_rearm(void)
+{
+    uart_flush_input(CONFIG_ESP_CONSOLE_UART_NUM);
+    pm_console_uart_wakeup_threshold_enable();
+}
+
+/**
  * @brief Enable the console UART as a light sleep wakeup source
  *
  * Uses the active-threshold mode, which is supported on every target that runs these PM tests.
@@ -159,6 +172,7 @@ static void run_esp_pm_light_sleep_suspend_resume_cycles(void)
         test_pm_assert_lock_acquired(false);
 
         pm_wait_light_sleep_uart_wakeup();
+        pm_console_uart_wakeup_rearm();
 
         // A non-USB light sleep wakeup must not re-acquire the PM lock
         test_pm_assert_lock_acquired(false);
