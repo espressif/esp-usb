@@ -226,7 +226,7 @@ static void device_suspend_common(size_t dconn_delay_ms, size_t conn_delay_ms)
                 TEST_ASSERT(tud_connect());
 
                 // End of the test case: Mask next suspend event (auto suspend) from the device after uninstalling the cdc-acm host
-                mask_event = TINYUSB_EVENT_SUSPENDED;
+                //mask_event = TINYUSB_EVENT_SUSPENDED;
                 break;
             default:
                 break;
