@@ -47,7 +47,6 @@ if(CONFIG_TINYUSB_MSC_ENABLED)
     endif() # CONFIG_SOC_SDMMC_HOST_SUPPORTED
 endif() # CONFIG_TINYUSB_MSC_ENABLED
 
-
 if(CONFIG_TINYUSB_NET_MODE_NCM)
     list(APPEND srcs
          "tinyusb_net.c"
@@ -84,13 +83,6 @@ if(NOT idf_component_manager)
     list(APPEND req tinyusb)
 endif()
 
-idf_component_register(SRCS ${srcs}
-                       INCLUDE_DIRS "include"
-                       PRIV_INCLUDE_DIRS "include_private"
-                       PRIV_REQUIRES ${priv_req}
-                       REQUIRES ${req}
-                       )
-
 # Determine whether tinyusb is fetched from component registry or from local path
 idf_build_get_property(build_components BUILD_COMPONENTS)
 if(tinyusb IN_LIST build_components)
@@ -98,6 +90,31 @@ if(tinyusb IN_LIST build_components)
 else()
     set(tinyusb_name espressif__tinyusb) # Managed component
 endif()
+
+if(CONFIG_TINYUSB_MTP_ENABLED)
+    idf_component_get_property(tinyusb_dir ${tinyusb_name} COMPONENT_DIR)
+    if(NOT EXISTS "${tinyusb_dir}/src/class/mtp/mtp_device.c")
+        message(FATAL_ERROR "CONFIG_TINYUSB_MTP_ENABLED requires TinyUSB MTP device class support.
+        Please use a TinyUSB release that provides src/class/mtp/mtp_device.c or disable MTP.")
+    endif()
+    list(APPEND srcs
+         "mtp/tinyusb_mtp.c"
+         "mtp/tinyusb_mtp_codec.c"
+         "mtp/tinyusb_mtp_object_store.c"
+         "mtp/tinyusb_mtp_operations.c"
+         "mtp/tinyusb_mtp_properties.c"
+         "mtp/tinyusb_mtp_read.c"
+         "mtp/tinyusb_mtp_transfer.c"
+         "mtp/tinyusb_mtp_transport.c"
+         "mtp/tinyusb_mtp_write.c")
+endif() # CONFIG_TINYUSB_MTP_ENABLED
+
+idf_component_register(SRCS ${srcs}
+                       INCLUDE_DIRS "include"
+                       PRIV_INCLUDE_DIRS "include_private"
+                       PRIV_REQUIRES ${priv_req}
+                       REQUIRES ${req}
+                       )
 
 # Pass tusb_config.h from this component to TinyUSB
 idf_component_get_property(tusb_lib ${tinyusb_name} COMPONENT_LIB)

@@ -1,5 +1,6 @@
 ## Unreleased
 
+- esp_tinyusb: Added support for exposing already-mounted VFS/FATFS paths through Media Transfer Protocol
 - esp_tinyusb: Added power management lock to control automatic light sleep entry based on Device events
 - esp_tinyusb: Added USB Peripheral light sleep wake-up source integration to the esp_tinyusb (only available for USB HS ports)
 
