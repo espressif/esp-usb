@@ -28,7 +28,7 @@ jobs:
   build:
     name: Build USB apps
     strategy:
-      fail-fast: true
+      fail-fast: false
       matrix:
         idf_ver: ${{ fromJson(inputs.idf_releases) }}
         test_app: ["device", "host_native", "host_managed"]
@@ -45,8 +45,6 @@ jobs:
             usb_comp_managed: "yes"
         exclude:
           # Exclude using managed usb component for older releases, only with service releases
-          - test_app: host_managed
-            idf_ver: "release-v5.3"
           - test_app: host_managed
             idf_ver: "release-v5.4"
           # Exclude native usb component for IDF >= 6 (usb component has been removed from esp-idf)
@@ -124,7 +122,7 @@ jobs:
     if: ${{ github.repository_owner == 'espressif' }}
     needs: build
     strategy:
-      fail-fast: true
+      fail-fast: false
       matrix:
         idf_ver: ${{ fromJson(inputs.idf_releases) }}
         idf_target: ${{ fromJson(inputs.idf_targets) }}
@@ -146,8 +144,6 @@ jobs:
             runner_tag: usb_device
           # Exclude using managed usb component for older releases, only with service releases
           - test_app: host_managed
-            idf_ver: "release-v5.3"
-          - test_app: host_managed
             idf_ver: "release-v5.4"
           # Exclude native usb component for IDF >= 6 (usb component has been removed from esp-idf)
           - test_app: host_native
@@ -163,9 +159,6 @@ jobs:
           - idf_target: "esp32p4"
             eco_ver: "eco_default"
             idf_ver: "release-v5.4"
-          - idf_target: "esp32p4"
-            eco_ver: "eco_default"
-            idf_ver: "release-v5.3"
 
 
     runs-on: [self-hosted, linux, docker, "${{ matrix.idf_target }}", "${{ matrix.runner_tag }}", "${{ matrix.eco_ver }}"]
