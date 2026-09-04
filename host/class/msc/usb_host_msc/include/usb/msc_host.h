@@ -12,9 +12,6 @@
 #include "esp_idf_version.h"
 #include "usb/usb_host.h"
 #include "freertos/FreeRTOS.h"
-#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(6, 1, 0)
-#include "esp_blockdev.h"
-#endif
 
 #ifdef __cplusplus
 extern "C" {
@@ -39,6 +36,10 @@ extern "C" {
 /** @brief Indicates that msc_host_get_blockdev() is available in this build. */
 #define MSC_HOST_BDL_API_SUPPORTED
 #endif
+
+#ifdef MSC_HOST_BDL_API_SUPPORTED
+#include "esp_blockdev.h"
+#endif // MSC_HOST_BDL_API_SUPPORTED
 
 typedef struct msc_host_device *msc_host_device_handle_t;     /*!< Handle to a Mass Storage Device */
 
@@ -243,21 +244,25 @@ esp_err_t msc_host_reset_recovery(msc_host_device_handle_t device);
 
 #ifdef MSC_HOST_BDL_API_SUPPORTED
 /**
- * @brief Get a Block Device Layer handle for an installed MSC device
+ * @brief Allocate a Block Device Layer handle wrapping an installed MSC device
  *
- * Allocates an `esp_blockdev` handle whose read/write ops issue SCSI
- * READ10/WRITE10.
+ * Each call allocates a new esp_blockdev handle whose read/write ops issue
+ * SCSI READ10/WRITE10 against @p device. This is a factory, not an accessor:
+ * calling it twice returns two independent handles, not the same one twice.
  *
- * `msc_host_install_device()` already calls this so `msc_host_vfs_register()`
- * can pass the handle to `esp_vfs_fat_bdl_mount()`. Call it yourself to mount
- * with IDF FatFS BDL APIs without the MSC VFS helper.
+ * msc_host_install_device() already calls this once and stores the result on
+ * the device so msc_host_vfs_register() can pass it to esp_vfs_fat_bdl_mount().
+ * Call it yourself to mount with IDF FatFS BDL APIs without the MSC VFS
+ * helper, or to get an independent handle for other BDL consumers.
  *
- * The handle does not own @p device. Release extra handles with
- * `out_handle->ops->release(out_handle)`. The handle stored on the device is
- * released in `msc_host_uninstall_device()`.
+ * @p device must stay installed for the lifetime of every handle returned
+ * from this function. Release each handle with
+ * `out_handle->ops->release(out_handle)` before it goes out of use; the
+ * handle msc_host_install_device() created is released automatically in
+ * msc_host_uninstall_device().
  *
  * @param[in]  device     Installed MSC device (geometry already filled)
- * @param[out] out_handle BDL handle on success
+ * @param[out] out_handle New BDL handle on success
  *
  * @return
  *      - ESP_OK on success

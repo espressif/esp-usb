@@ -6,20 +6,11 @@
 
 #pragma once
 
+#include "msc_common.h" // usb_disk_t
+
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-/**
- * @brief MSC disk geometry used by the pre-6.1 FatFS diskio driver
- *
- * On ESP-IDF 6.1+ this header is not used. FatFS mounts an esp_blockdev
- * handle from msc_host_get_blockdev() instead of calling ff_diskio_register_msc().
- */
-typedef struct {
-    uint32_t block_size;    /**< Block size */
-    uint32_t block_count;   /**< Block count */
-} usb_disk_t;
 
 /**
  * @brief Register SCSI-backed FatFS diskio callbacks for an MSC disk

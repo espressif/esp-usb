@@ -10,20 +10,28 @@
 #include <sys/queue.h>
 #include "esp_err.h"
 #include "esp_check.h"
-#include "esp_idf_version.h"
 #include "usb/usb_host.h"
 #include "usb/usb_types_stack.h"
+#include "usb/msc_host.h"
 #include "freertos/semphr.h"
-#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(6, 1, 0)
-#include "esp_blockdev.h"
-#else
-#include "diskio_usb.h"
-#endif
-
 #ifdef __cplusplus
 extern "C"
 {
 #endif
+
+/**
+ * @brief MSC disk geometry, shared by the pre-6.1 diskio driver (diskio_usb.c)
+ * and the 6.1+ BDL adapter (msc_bdl.c), which derives esp_blockdev_geometry_t
+ * from it.
+ */
+typedef struct {
+    uint32_t block_size;    /**< Block size */
+    uint32_t block_count;   /**< Block count */
+} usb_disk_t;
+
+#ifndef MSC_HOST_BDL_API_SUPPORTED
+#include "diskio_usb.h"
+#endif // MSC_HOST_BDL_API_SUPPORTED
 
 typedef enum {
     MSC_EP_OUT,
@@ -43,15 +51,10 @@ typedef struct msc_host_device {
     usb_device_handle_t handle;
     usb_transfer_t *xfer;
     msc_config_t config;
-#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(6, 1, 0)
-    struct {
-        uint32_t block_size;
-        uint32_t block_count;
-    } disk;                                    // SCSI READ CAPACITY geometry
-    esp_blockdev_handle_t bdl;                 // SCSI wrapped as BDL; created at install
-#else
-    usb_disk_t disk;                           // geometry + FatFS diskio_usb registration
-#endif
+    usb_disk_t disk;
+#ifdef MSC_HOST_BDL_API_SUPPORTED
+    esp_blockdev_handle_t bdl;
+#endif // MSC_HOST_BDL_API_SUPPORTED
 } msc_device_t;
 
 /**

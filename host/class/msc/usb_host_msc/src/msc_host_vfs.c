@@ -30,15 +30,15 @@
 #include "ffconf.h"
 #include "ff.h"
 #include "esp_idf_version.h"
-#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(6, 1, 0)
+#ifdef MSC_HOST_BDL_API_SUPPORTED
 #include "diskio_bdl.h"
 #else
 #include "diskio_impl.h"
-#endif
+#endif // MSC_HOST_BDL_API_SUPPORTED
 
 #define DRIVE_STR_LEN 3
 
-#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(6, 1, 0)
+#ifdef MSC_HOST_BDL_API_SUPPORTED
 typedef struct msc_host_vfs {
     char *base_path;
     esp_blockdev_handle_t bdl; /* borrowed from msc_device_t; not released here */
@@ -49,7 +49,7 @@ typedef struct msc_host_vfs {
     char *base_path;
     uint8_t pdrv;
 } msc_host_vfs_t;
-#endif
+#endif // MSC_HOST_BDL_API_SUPPORTED
 
 static const char *TAG = "MSC VFS";
 
@@ -89,14 +89,14 @@ esp_err_t msc_host_vfs_format(msc_host_device_handle_t device, const esp_vfs_fat
     size_t block_size = ((msc_device_t *)device)->disk.block_size;
     size_t alloc_size = mount_config->allocation_unit_size;
 
-#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(6, 1, 0)
+#ifdef MSC_HOST_BDL_API_SUPPORTED
     BYTE pdrv = ff_diskio_get_pdrv_bdl(vfs_handle->bdl);
     MSC_RETURN_ON_FALSE(pdrv != 0xff, ESP_ERR_INVALID_STATE);
     char drive[DRIVE_STR_LEN] = {(char)('0' + pdrv), ':', 0};
     return msc_format_storage(block_size, alloc_size, drive);
 #else
     return msc_format_storage(block_size, alloc_size, vfs_handle->drive);
-#endif
+#endif // MSC_HOST_BDL_API_SUPPORTED
 }
 
 static void dealloc_msc_vfs(msc_host_vfs_t *vfs)
@@ -105,7 +105,7 @@ static void dealloc_msc_vfs(msc_host_vfs_t *vfs)
     free(vfs);
 }
 
-#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(6, 1, 0)
+#ifdef MSC_HOST_BDL_API_SUPPORTED
 
 esp_err_t msc_host_vfs_register(msc_host_device_handle_t device,
                                 const char *base_path,
@@ -152,7 +152,7 @@ esp_err_t msc_host_vfs_unregister(msc_host_vfs_handle_t vfs_handle)
     return ESP_OK;
 }
 
-#else /* ESP-IDF < 6.1: SCSI diskio callbacks live in this component */
+#else // MSC_HOST_BDL_API_SUPPORTED: SCSI diskio callbacks live in this component
 
 esp_err_t msc_host_vfs_register(msc_host_device_handle_t device,
                                 const char *base_path,
@@ -238,4 +238,4 @@ esp_err_t msc_host_vfs_unregister(msc_host_vfs_handle_t vfs_handle)
     return ESP_OK;
 }
 
-#endif /* ESP_IDF_VERSION >= 6.1.0 */
+#endif // MSC_HOST_BDL_API_SUPPORTED
