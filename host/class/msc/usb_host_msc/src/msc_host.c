@@ -17,12 +17,12 @@
 #include "freertos/task.h"
 #include "freertos/semphr.h"
 #include "usb/usb_host.h"
-#include "diskio_usb.h"
 #include "msc_common.h"
 #include "usb/msc_host.h"
 #include "msc_scsi_bot.h"
 #include "usb/usb_types_ch9.h"
 #include "usb/usb_helpers.h"
+#include "esp_idf_version.h"
 
 #if !CONFIG_IDF_TARGET_LINUX
 #include "soc/soc_memory_layout.h"
@@ -263,6 +263,14 @@ static esp_err_t msc_deinit_device(msc_device_t *dev, bool install_failed)
     MSC_RETURN_ON_FALSE_CRITICAL( dev, ESP_ERR_INVALID_STATE );
     STAILQ_REMOVE(&s_msc_driver->devices_tailq, dev, msc_host_device, tailq_entry);
     MSC_EXIT_CRITICAL();
+
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(6, 1, 0)
+    /* Handle does not own the device; free it before the device itself. */
+    if (dev->bdl != NULL && dev->bdl->ops != NULL && dev->bdl->ops->release != NULL) {
+        (void)dev->bdl->ops->release(dev->bdl);
+        dev->bdl = NULL;
+    }
+#endif
 
     if (dev->transfer_done) {
         vSemaphoreDelete(dev->transfer_done);
@@ -553,6 +561,10 @@ esp_err_t msc_host_install_device(uint8_t device_address, msc_host_device_handle
 
     msc_device->disk.block_size = block_size;
     msc_device->disk.block_count = block_count;
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(6, 1, 0)
+    /* Allocate the BDL handle now; msc_host_vfs_register() mounts it. */
+    MSC_GOTO_ON_ERROR(msc_host_get_blockdev(msc_device, &msc_device->bdl));
+#endif
     *msc_device_handle = msc_device;
 
     return ESP_OK;

@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- On ESP-IDF 6.1+, MSC wraps SCSI as an `esp_blockdev` handle via `msc_host_get_blockdev()`. FatFS mounts it with `esp_vfs_fat_bdl_mount()` / `diskio_bdl.c`; this component no longer registers USB-specific diskio callbacks.
+- Pre-6.1 still uses `diskio_usb.c` (`ff_diskio_register_msc`) to hang SCSI read/write on a FatFS drive number.
+
 ### Fixed
 
 - Validate SCSI READ CAPACITY `block_size` (power-of-two in [512, 4096]) and refuse FatFS `GET_SECTOR_SIZE` truncation that can overflow `fs->win` (BBP 574)

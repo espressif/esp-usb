@@ -9,8 +9,12 @@
 #include <wchar.h>
 #include <stdint.h>
 #include "esp_err.h"
+#include "esp_idf_version.h"
 #include "usb/usb_host.h"
 #include "freertos/FreeRTOS.h"
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(6, 1, 0)
+#include "esp_blockdev.h"
+#endif
 
 #ifdef __cplusplus
 extern "C" {
@@ -29,6 +33,11 @@ extern "C" {
 #ifdef USB_HOST_LIB_EVENT_FLAGS_AUTO_SUSPEND
 /** @brief Indicates that suspend and resume events are available in this build. */
 #define MSC_HOST_SUSPEND_RESUME_API_SUPPORTED
+#endif
+
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(6, 1, 0)
+/** @brief Indicates that msc_host_get_blockdev() is available in this build. */
+#define MSC_HOST_BDL_API_SUPPORTED
 #endif
 
 typedef struct msc_host_device *msc_host_device_handle_t;     /*!< Handle to a Mass Storage Device */
@@ -231,6 +240,32 @@ esp_err_t msc_host_print_descriptors(msc_host_device_handle_t device);
  *      - Other error codes from the MSC transport layer
  */
 esp_err_t msc_host_reset_recovery(msc_host_device_handle_t device);
+
+#ifdef MSC_HOST_BDL_API_SUPPORTED
+/**
+ * @brief Get a Block Device Layer handle for an installed MSC device
+ *
+ * Allocates an `esp_blockdev` handle whose read/write ops issue SCSI
+ * READ10/WRITE10.
+ *
+ * `msc_host_install_device()` already calls this so `msc_host_vfs_register()`
+ * can pass the handle to `esp_vfs_fat_bdl_mount()`. Call it yourself to mount
+ * with IDF FatFS BDL APIs without the MSC VFS helper.
+ *
+ * The handle does not own @p device. Release extra handles with
+ * `out_handle->ops->release(out_handle)`. The handle stored on the device is
+ * released in `msc_host_uninstall_device()`.
+ *
+ * @param[in]  device     Installed MSC device (geometry already filled)
+ * @param[out] out_handle BDL handle on success
+ *
+ * @return
+ *      - ESP_OK on success
+ *      - ESP_ERR_INVALID_ARG if device or out_handle is NULL
+ *      - ESP_ERR_NO_MEM if the handle cannot be allocated
+ */
+esp_err_t msc_host_get_blockdev(msc_host_device_handle_t device, esp_blockdev_handle_t *out_handle);
+#endif // MSC_HOST_BDL_API_SUPPORTED
 
 #ifdef __cplusplus
 }

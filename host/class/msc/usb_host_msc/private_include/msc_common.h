@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2015-2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2015-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -10,10 +10,15 @@
 #include <sys/queue.h>
 #include "esp_err.h"
 #include "esp_check.h"
-#include "diskio_usb.h"
+#include "esp_idf_version.h"
 #include "usb/usb_host.h"
 #include "usb/usb_types_stack.h"
 #include "freertos/semphr.h"
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(6, 1, 0)
+#include "esp_blockdev.h"
+#else
+#include "diskio_usb.h"
+#endif
 
 #ifdef __cplusplus
 extern "C"
@@ -38,7 +43,15 @@ typedef struct msc_host_device {
     usb_device_handle_t handle;
     usb_transfer_t *xfer;
     msc_config_t config;
-    usb_disk_t disk;
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(6, 1, 0)
+    struct {
+        uint32_t block_size;
+        uint32_t block_count;
+    } disk;                                    // SCSI READ CAPACITY geometry
+    esp_blockdev_handle_t bdl;                 // SCSI wrapped as BDL; created at install
+#else
+    usb_disk_t disk;                           // geometry + FatFS diskio_usb registration
+#endif
 } msc_device_t;
 
 /**

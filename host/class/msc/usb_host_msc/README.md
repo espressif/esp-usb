@@ -6,6 +6,24 @@ This directory contains an implementation of a USB Mass Storage Class Driver imp
 
 MSC driver allows access to USB flash drivers using the BOT (Bulk-Only Transport) protocol and the Transparent SCSI command set.
 
+## FatFS / VFS layering
+
+On ESP-IDF 6.1+, MSC only supplies an `esp_blockdev` handle. IDF FatFS owns diskio:
+
+```
+fopen / VFS -> FatFS -> diskio_bdl.c (IDF) -> msc_bdl read/write -> SCSI READ10/WRITE10 -> BOT/USB
+```
+
+`msc_host_install_device()` calls `msc_host_get_blockdev()`. `msc_host_vfs_register()` then calls `esp_vfs_fat_bdl_mount()`. Apps can also call `msc_host_get_blockdev()` and mount with IDF FatFS BDL APIs themselves.
+
+On older IDF, this component registers SCSI-backed FatFS callbacks itself:
+
+```
+fopen / VFS -> FatFS -> diskio_usb.c (ff_diskio_register_msc) -> SCSI READ10/WRITE10 -> BOT/USB
+```
+
+The public VFS helper (`msc_host_vfs_register`) is the same on both paths.
+
 ## Usage
 
 - First, usb host library has to be initialized by calling `usb_host_install`

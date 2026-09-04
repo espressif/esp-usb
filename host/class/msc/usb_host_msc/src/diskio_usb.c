@@ -4,6 +4,18 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+/*
+ * FatFS diskio driver for USB MSC (ESP-IDF < 6.1).
+ *
+ * ff_diskio_register_msc() hangs SCSI-backed init/status/read/write/ioctl
+ * callbacks on a FatFS drive number:
+ *
+ *   fopen / VFS -> FatFS -> usb_disk_* -> scsi_cmd_read10/write10 -> BOT/USB
+ *
+ * On ESP-IDF 6.1+ this file is not compiled. FatFS uses diskio_bdl.c instead
+ * and MSC supplies an esp_blockdev handle from msc_host_get_blockdev().
+ */
+
 #include "diskio_impl.h"
 #include "ffconf.h"
 #include "ff.h"
@@ -19,17 +31,17 @@ static usb_disk_t *s_disks[FF_VOLUMES] = { NULL };
 
 static const char *TAG = "diskio_usb";
 
-static DSTATUS usb_disk_initialize (BYTE pdrv)
+static DSTATUS usb_disk_initialize(BYTE pdrv)
 {
     return RES_OK;
 }
 
-static DSTATUS usb_disk_status (BYTE pdrv)
+static DSTATUS usb_disk_status(BYTE pdrv)
 {
     return RES_OK;
 }
 
-static DRESULT usb_disk_read (BYTE pdrv, BYTE *buff, DWORD sector, UINT count)
+static DRESULT usb_disk_read(BYTE pdrv, BYTE *buff, DWORD sector, UINT count)
 {
     assert(pdrv < FF_VOLUMES);
     assert(s_disks[pdrv]);
@@ -47,7 +59,7 @@ static DRESULT usb_disk_read (BYTE pdrv, BYTE *buff, DWORD sector, UINT count)
     return RES_OK;
 }
 
-static DRESULT usb_disk_write (BYTE pdrv, const BYTE *buff, DWORD sector, UINT count)
+static DRESULT usb_disk_write(BYTE pdrv, const BYTE *buff, DWORD sector, UINT count)
 {
     assert(pdrv < FF_VOLUMES);
     assert(s_disks[pdrv]);
@@ -64,7 +76,7 @@ static DRESULT usb_disk_write (BYTE pdrv, const BYTE *buff, DWORD sector, UINT c
     return RES_OK;
 }
 
-static DRESULT usb_disk_ioctl (BYTE pdrv, BYTE cmd, void *buff)
+static DRESULT usb_disk_ioctl(BYTE pdrv, BYTE cmd, void *buff)
 {
     assert(pdrv < FF_VOLUMES);
     assert(s_disks[pdrv]);
