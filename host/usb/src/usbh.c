@@ -1172,24 +1172,6 @@ unlock:
 
 void usbh_devs_set_pm_actions_all(usbh_dev_ctrl_t device_ctrl)
 {
-    // Decode the device_ctrl to dev_actions flags
-    uint32_t dev_actions_flags = 0;
-    if (device_ctrl & USBH_DEV_SUSPEND) {
-        dev_actions_flags |= (DEV_ACTION_EPn_HALT_FLUSH | DEV_ACTION_EP0_FLUSH);
-    }
-
-    if (device_ctrl & USBH_DEV_RESUME) {
-        dev_actions_flags |= (DEV_ACTION_EP0_CLEAR | DEV_ACTION_EPn_CLEAR);
-    }
-
-    if (device_ctrl & USBH_DEV_SUSPEND_EVT) {
-        dev_actions_flags |= DEV_ACTION_PROP_SUSPEND_EVT;
-    }
-
-    if (device_ctrl & USBH_DEV_RESUME_EVT) {
-        dev_actions_flags |= DEV_ACTION_PROP_RESUME_EVT;
-    }
-
     USBH_ENTER_CRITICAL();
     /*
     Go through the device list and mark each device with a device action.
@@ -1207,16 +1189,36 @@ void usbh_devs_set_pm_actions_all(usbh_dev_ctrl_t device_ctrl)
             dev_obj_cur = TAILQ_FIRST(&p_usbh_obj->dynamic.devs_idle_tailq);
         }
         while (dev_obj_cur != NULL) {
+            /*
+            Decode the device_ctrl to dev_actions flags for this particular device.
+            The suspend/resume events are only relevant for devices that are not/are suspended: In dual host
+            configuration a device can attach to one root port while another root port is still suspended. Resuming
+            that root port must not touch the freshly attached device, as restoring its last_state would take it out
+            of the DEFAULT state and abort its enumeration.
+            */
+            uint32_t dev_actions_flags = 0;
+            const bool dev_suspended = (dev_obj_cur->dynamic.state == USB_DEVICE_STATE_SUSPENDED);
 
-            // Update device state
-            if (device_ctrl & USBH_DEV_SUSPEND_EVT) {
+            if (device_ctrl & USBH_DEV_SUSPEND) {
+                dev_actions_flags |= (DEV_ACTION_EPn_HALT_FLUSH | DEV_ACTION_EP0_FLUSH);
+            }
+
+            if ((device_ctrl & USBH_DEV_SUSPEND_EVT) && !dev_suspended) {
                 // Change device state to suspended and backup the current device state for resuming
                 dev_obj_cur->dynamic.last_state = dev_obj_cur->dynamic.state;
                 dev_obj_cur->dynamic.state = USB_DEVICE_STATE_SUSPENDED;
+                dev_actions_flags |= DEV_ACTION_PROP_SUSPEND_EVT;
             }
-            if (device_ctrl & USBH_DEV_RESUME_EVT) {
-                // Set the device state, to the state in which it was before suspending
-                dev_obj_cur->dynamic.state = dev_obj_cur->dynamic.last_state;
+
+            if (dev_suspended) {
+                if (device_ctrl & USBH_DEV_RESUME) {
+                    dev_actions_flags |= (DEV_ACTION_EP0_CLEAR | DEV_ACTION_EPn_CLEAR);
+                }
+                if (device_ctrl & USBH_DEV_RESUME_EVT) {
+                    // Set the device state, to the state in which it was before suspending
+                    dev_obj_cur->dynamic.state = dev_obj_cur->dynamic.last_state;
+                    dev_actions_flags |= DEV_ACTION_PROP_RESUME_EVT;
+                }
             }
 
             // Keep a copy of the next item first in case we remove the current item
@@ -1229,8 +1231,7 @@ void usbh_devs_set_pm_actions_all(usbh_dev_ctrl_t device_ctrl)
 
     // As the last device is being marked, add DEV_ACTION_PROP_ALL_IDLE_EVT to event flags
     if (dev_obj_last != NULL && device_ctrl & USBH_DEV_SUSPEND) {
-        dev_actions_flags |= DEV_ACTION_PROP_ALL_IDLE_EVT;
-        _dev_set_actions(dev_obj_last, dev_actions_flags);
+        _dev_set_actions(dev_obj_last, DEV_ACTION_EPn_HALT_FLUSH | DEV_ACTION_EP0_FLUSH | DEV_ACTION_PROP_ALL_IDLE_EVT);
     }
     USBH_EXIT_CRITICAL();
 
