@@ -323,6 +323,18 @@ esp_err_t usbh_devs_mark_all_free(void);
  */
 void usbh_devs_set_pm_actions_all(usbh_dev_ctrl_t device_ctrl);
 
+/**
+ * @brief Issue a power management related device action to a device by UID
+ *
+ * @param[in] uid          Unique ID assigned to the device
+ * @param[in] device_ctrl  Device control command
+ *
+ * @return
+ *    - ESP_OK: Device action issued successfully
+ *    - ESP_ERR_NOT_FOUND: Device with provided uid not found
+ */
+esp_err_t usbh_dev_set_pm_actions_by_uid(unsigned int uid, usbh_dev_ctrl_t device_ctrl);
+
 #ifdef AUTO_PM_LIGHT_SLEEP
 /**
  * @brief Halt and flush all endpoints on all devices (synchronous)
@@ -510,6 +522,19 @@ esp_err_t usbh_dev_enum_lock(usb_device_handle_t dev_hdl);
  *    - ESP_ERR_INVALID_STATE: Device is in an invalid state and enumeration lock can't be released
  */
 esp_err_t usbh_dev_enum_unlock(usb_device_handle_t dev_hdl);
+
+/**
+ * @brief Check whether a device is locked for enumeration by UID
+ *
+ * @param[in]  uid        Unique ID assigned to the device
+ * @param[out] is_locked  Whether the device is locked for enumeration
+ *
+ * @return
+ *    - ESP_OK: Enumeration lock status obtained successfully
+ *    - ESP_ERR_INVALID_ARG: Invalid argument
+ *    - ESP_ERR_NOT_FOUND: Device with provided uid not found
+ */
+esp_err_t usbh_dev_enum_is_locked_by_uid(unsigned int uid, bool *is_locked);
 
 /**
  * @brief Set the maximum packet size of EP0 for a device
