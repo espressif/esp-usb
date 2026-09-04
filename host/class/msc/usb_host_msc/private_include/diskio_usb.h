@@ -1,36 +1,32 @@
 /*
- * SPDX-FileCopyrightText: 2015-2021 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2015-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
 
 #pragma once
 
+#include "msc_common.h" // usb_disk_t
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 /**
- * @brief Mass storage disk initialization structure
- */
-typedef struct {
-    uint32_t block_size;    /**< Block size */
-    uint32_t block_count;   /**< Block count */
-} usb_disk_t;
-
-/**
- * @brief Register mass storage disk to fat file system
+ * @brief Register SCSI-backed FatFS diskio callbacks for an MSC disk
  *
- * @param[in] pdrv Number of free drive obtained from ff_diskio_get_drive() function
- * @param[in] disk usb_disk_t structure
+ * Used only on ESP-IDF < 6.1. Obtains pdrv from ff_diskio_get_drive().
+ *
+ * @param[in] pdrv Number of free drive obtained from ff_diskio_get_drive()
+ * @param[in] disk usb_disk_t structure (embedded in msc_device_t)
  */
 void ff_diskio_register_msc(uint8_t pdrv, usb_disk_t *disk);
 
 /**
- * @brief Obtains number of drive assigned to usb disk upon calling ff_diskio_register_msc()
+ * @brief Drive number assigned by ff_diskio_register_msc()
  *
  * @param[in] disk usb_disk_t structure
- * @return Drive number
+ * @return Drive number, or 0xFF if not registered
  */
 uint8_t ff_diskio_get_pdrv_disk(const usb_disk_t *disk);
 

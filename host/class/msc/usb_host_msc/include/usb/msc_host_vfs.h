@@ -36,6 +36,11 @@ esp_err_t msc_host_vfs_format(msc_host_device_handle_t device,
 /**
  * @brief Register an MSC device with the virtual file system.
  *
+ * On ESP-IDF 6.1+, this calls `esp_vfs_fat_bdl_mount()` with the handle from
+ * `msc_host_get_blockdev()` (created at device install). On older IDF, it
+ * registers SCSI-backed FatFS diskio callbacks (`ff_diskio_register_msc`)
+ * and mounts FatFS itself.
+ *
  * @param[in] device Device handle obtained from the MSC initialization flow.
  * @param[in] base_path Base VFS path used to access the file system.
  * @param[in] mount_config FAT mount configuration.
@@ -53,7 +58,6 @@ esp_err_t msc_host_vfs_register(msc_host_device_handle_t device,
                                 const char *base_path,
                                 const esp_vfs_fat_mount_config_t *mount_config,
                                 msc_host_vfs_handle_t *vfs_handle);
-
 
 /**
  * @brief Unregister an MSC device from the virtual file system.

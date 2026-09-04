@@ -9,6 +9,7 @@
 #include <wchar.h>
 #include <stdint.h>
 #include "esp_err.h"
+#include "esp_idf_version.h"
 #include "usb/usb_host.h"
 #include "freertos/FreeRTOS.h"
 
@@ -30,6 +31,15 @@ extern "C" {
 /** @brief Indicates that suspend and resume events are available in this build. */
 #define MSC_HOST_SUSPEND_RESUME_API_SUPPORTED
 #endif
+
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(6, 1, 0)
+/** @brief Indicates that msc_host_get_blockdev() is available in this build. */
+#define MSC_HOST_BDL_API_SUPPORTED
+#endif
+
+#ifdef MSC_HOST_BDL_API_SUPPORTED
+#include "esp_blockdev.h"
+#endif // MSC_HOST_BDL_API_SUPPORTED
 
 typedef struct msc_host_device *msc_host_device_handle_t;     /*!< Handle to a Mass Storage Device */
 
@@ -231,6 +241,54 @@ esp_err_t msc_host_print_descriptors(msc_host_device_handle_t device);
  *      - Other error codes from the MSC transport layer
  */
 esp_err_t msc_host_reset_recovery(msc_host_device_handle_t device);
+
+#ifdef MSC_HOST_BDL_API_SUPPORTED
+/**
+ * @brief Allocate a Block Device Layer handle wrapping an installed MSC device
+ *
+ * Each call allocates a new esp_blockdev handle whose read/write ops issue
+ * SCSI READ10/WRITE10 against @p device. This is a factory, not an accessor:
+ * calling it twice returns two independent handles, not the same one twice.
+ *
+ * msc_host_install_device() already calls this once and stores the result on
+ * the device so msc_host_vfs_register() can pass it to esp_vfs_fat_bdl_mount().
+ * Call it yourself to mount with IDF FatFS BDL APIs without the MSC VFS
+ * helper, or to get an independent handle for other BDL consumers.
+ *
+ * @p device must stay installed for the lifetime of every handle returned
+ * from this function. Release each handle with msc_host_release_blockdev();
+ * the handle msc_host_install_device() created is released automatically in
+ * msc_host_uninstall_device().
+ *
+ * @param[in]  device     Installed MSC device (geometry already filled)
+ * @param[out] out_handle New BDL handle on success
+ *
+ * @return
+ *      - ESP_OK on success
+ *      - ESP_ERR_INVALID_ARG if device or out_handle is NULL
+ *      - ESP_ERR_NO_MEM if the handle cannot be allocated
+ */
+esp_err_t msc_host_get_blockdev(msc_host_device_handle_t device, esp_blockdev_handle_t *out_handle);
+
+/**
+ * @brief Release a Block Device Layer handle obtained from msc_host_get_blockdev()
+ *
+ * Verifies @p handle was actually allocated by msc_host_get_blockdev() before
+ * releasing it (rejects handles from other esp_blockdev producers, or a
+ * mismatched handle passed by mistake), then calls its release op.
+ *
+ * Do not call this on the handle msc_host_install_device() created and
+ * stored on the device; msc_host_uninstall_device() releases that one.
+ *
+ * @param[in] handle BDL handle obtained from msc_host_get_blockdev()
+ *
+ * @return
+ *      - ESP_OK on success
+ *      - ESP_ERR_INVALID_ARG if handle is NULL or was not created by
+ *        msc_host_get_blockdev()
+ */
+esp_err_t msc_host_release_blockdev(esp_blockdev_handle_t handle);
+#endif // MSC_HOST_BDL_API_SUPPORTED
 
 #ifdef __cplusplus
 }
