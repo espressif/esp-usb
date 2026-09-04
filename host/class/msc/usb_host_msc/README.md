@@ -14,7 +14,7 @@ On ESP-IDF 6.1+, MSC only supplies an `esp_blockdev` handle. IDF FatFS owns disk
 fopen / VFS -> FatFS -> diskio_bdl.c (IDF) -> msc_bdl read/write -> SCSI READ10/WRITE10 -> BOT/USB
 ```
 
-`msc_host_install_device()` calls `msc_host_get_blockdev()`. `msc_host_vfs_register()` then calls `esp_vfs_fat_bdl_mount()`. Apps can also call `msc_host_get_blockdev()` and mount with IDF FatFS BDL APIs themselves.
+`msc_host_install_device()` calls `msc_host_get_blockdev()`. `msc_host_vfs_register()` then calls `esp_vfs_fat_bdl_mount()`. Apps can also call `msc_host_get_blockdev()` and mount with IDF FatFS BDL APIs themselves; release extra handles with `msc_host_release_blockdev()`.
 
 On older IDF, this component registers SCSI-backed FatFS callbacks itself:
 

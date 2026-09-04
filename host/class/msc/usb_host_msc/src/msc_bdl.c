@@ -17,12 +17,24 @@
  * Pre-6.1 uses diskio_usb.c instead (SCSI callbacks registered with FatFS).
  */
 
+#include <stdbool.h>
 #include <stdlib.h>
 #include "esp_err.h"
 #include "esp_blockdev.h"
 #include "msc_common.h"
 #include "usb/msc_host.h"
 #include "msc_scsi_bot.h"
+
+static const esp_blockdev_ops_t s_msc_bdl_ops;
+
+/* Identity check: only handles whose ops table is s_msc_bdl_ops were
+ * allocated by msc_host_get_blockdev(). Guards against a caller passing a
+ * handle from a different BDL producer (or a mismatched handle1/handle2
+ * pair) into an MSC-specific entry point. */
+static bool msc_bdl_owns_handle(esp_blockdev_handle_t h)
+{
+    return h != NULL && h->ops == &s_msc_bdl_ops;
+}
 
 static esp_err_t msc_bdl_read(esp_blockdev_handle_t h, uint8_t *dst, size_t dst_size,
                               uint64_t src_addr, size_t len)
@@ -59,7 +71,7 @@ static esp_err_t msc_bdl_ioctl(esp_blockdev_handle_t h, const uint8_t cmd, void 
 
 static esp_err_t msc_bdl_release(esp_blockdev_handle_t h)
 {
-    if (h == NULL) {
+    if (!msc_bdl_owns_handle(h)) {
         return ESP_ERR_INVALID_ARG;
     }
     free(h); /* does not free msc_device_t; that is owned separately */
@@ -97,4 +109,12 @@ esp_err_t msc_host_get_blockdev(msc_host_device_handle_t device, esp_blockdev_ha
     /* device_flags stay 0: writable, no erase-before-write */
     *out_handle = h;
     return ESP_OK;
+}
+
+esp_err_t msc_host_release_blockdev(esp_blockdev_handle_t handle)
+{
+    if (!msc_bdl_owns_handle(handle)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    return handle->ops->release(handle);
 }

@@ -8,7 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
-- On ESP-IDF 6.1+, MSC wraps SCSI as an `esp_blockdev` handle via `msc_host_get_blockdev()`. FatFS mounts it with `esp_vfs_fat_bdl_mount()` / `diskio_bdl.c`; this component no longer registers USB-specific diskio callbacks.
+- On ESP-IDF 6.1+, MSC wraps SCSI as an `esp_blockdev` handle via `msc_host_get_blockdev()` (release with `msc_host_release_blockdev()`). FatFS mounts it with `esp_vfs_fat_bdl_mount()` / `diskio_bdl.c`; this component no longer registers USB-specific diskio callbacks.
 - Pre-6.1 still uses `diskio_usb.c` (`ff_diskio_register_msc`) to hang SCSI read/write on a FatFS drive number.
 
 ### Fixed
