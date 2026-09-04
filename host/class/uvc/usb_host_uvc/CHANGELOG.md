@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Added `CONFIG_UVC_CHECK_PAYLOAD_HEADER_ERR` option to control whether UVC payload header ERR packets discard the current frame.
+- Added driver-level `UVC_HOST_DRIVER_EVENT_DEVICE_DISCONNECTED`. Full never-opened-device coverage needs USB Host `notify_dev_removed` (usb >= 1.5.0); on older stacks (e.g. IDF 5.2) the event is guaranteed only while a stream is open.
 
 ### Fixed
 
