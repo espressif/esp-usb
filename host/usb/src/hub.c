@@ -770,6 +770,7 @@ esp_err_t hub_install(hub_config_t *hub_config, void **client_ret)
                 .callback = root_port_callback,
                 .callback_arg = root_hub_port, // To access the root hub port from the callback which is called from an ISR
                 .context = root_hub_port,
+                .fsls_only = hub_config->root_port_fsls_only,
                 .intr_flags = hub_config->intr_flags,
                 .fifo_config = hub_config->fifo_config,
             };
