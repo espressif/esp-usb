@@ -59,7 +59,7 @@
 #endif
 
 #define FRAME_LIST_LEN                          USB_HAL_FRAME_LIST_LEN_32
-#define NUM_BUFFERS                             2
+#define NUM_XFER_SLOTS                          2
 
 #define XFER_LIST_LEN_CTRL                      3   // One descriptor for each stage
 #define XFER_LIST_LEN_BULK                      2   // One descriptor for transfer, one to support an extra zero length packet
@@ -113,20 +113,20 @@ DEFINE_CRIT_SECTION_LOCK_STATIC(hcd_lock);
  * For other SOCs this is no-operation
  */
 #if SOC_CACHE_INTERNAL_MEM_VIA_L1CACHE
-#define CACHE_SYNC_FRAME_LIST(frame_list)           cache_sync_frame_list(frame_list)
+#define CACHE_SYNC_FRAME_LIST(frame_list)               cache_sync_frame_list(frame_list)
 #if CONFIG_USB_HOST_DMA_MODE_DESC
-#define CACHE_SYNC_XFER_DESCRIPTOR_LIST_M2C(buffer) cache_sync_xfer_descriptor_list(buffer, true)
-#define CACHE_SYNC_XFER_DESCRIPTOR_LIST_C2M(buffer) cache_sync_xfer_descriptor_list(buffer, false)
+#define CACHE_SYNC_XFER_DESCRIPTOR_LIST_M2C(urb_slot)   cache_sync_xfer_descriptor_list(urb_slot, true)
+#define CACHE_SYNC_XFER_DESCRIPTOR_LIST_C2M(urb_slot)   cache_sync_xfer_descriptor_list(urb_slot, false)
 #else // CONFIG_USB_HOST_DMA_MODE_DESC
-#define CACHE_SYNC_XFER_DESCRIPTOR_LIST_M2C(buffer)
-#define CACHE_SYNC_XFER_DESCRIPTOR_LIST_C2M(buffer)
+#define CACHE_SYNC_XFER_DESCRIPTOR_LIST_M2C(urb_slot)
+#define CACHE_SYNC_XFER_DESCRIPTOR_LIST_C2M(urb_slot)
 #endif // CONFIG_USB_HOST_DMA_MODE_DESC
-#define CACHE_SYNC_DATA_BUFFER_M2C(pipe, urb)       cache_sync_data_buffer(pipe, urb, true)
-#define CACHE_SYNC_DATA_BUFFER_C2M(pipe, urb)       cache_sync_data_buffer(pipe, urb, false)
+#define CACHE_SYNC_DATA_BUFFER_M2C(pipe, urb)           cache_sync_data_buffer(pipe, urb, true)
+#define CACHE_SYNC_DATA_BUFFER_C2M(pipe, urb)           cache_sync_data_buffer(pipe, urb, false)
 #else // SOC_CACHE_INTERNAL_MEM_VIA_L1CACHE
 #define CACHE_SYNC_FRAME_LIST(frame_list)
-#define CACHE_SYNC_XFER_DESCRIPTOR_LIST_M2C(buffer)
-#define CACHE_SYNC_XFER_DESCRIPTOR_LIST_C2M(buffer)
+#define CACHE_SYNC_XFER_DESCRIPTOR_LIST_M2C(urb_slot)
+#define CACHE_SYNC_XFER_DESCRIPTOR_LIST_C2M(urb_slot)
 #define CACHE_SYNC_DATA_BUFFER_M2C(pipe, urb)
 #define CACHE_SYNC_DATA_BUFFER_C2M(pipe, urb)
 #endif // SOC_CACHE_INTERNAL_MEM_VIA_L1CACHE
@@ -138,7 +138,7 @@ typedef struct port_obj port_t;
 
 #if CONFIG_USB_HOST_DMA_MODE_DESC
 /**
- * @brief Object representing a single buffer of a pipe's multi buffer implementation for descriptor DMA mode
+ * @brief Object representing a single slot of a pipe's multi slot implementation for descriptor DMA mode
  */
 typedef struct {
     void *xfer_desc_list;
@@ -164,27 +164,27 @@ typedef struct {
             uint32_t num_qtds: 8;           // Number of transfer descriptors filled (including NULL descriptors)
             uint32_t interval: 8;           // Interval (in number of SOF i.e., ms)
             uint32_t start_idx: 8;          // Index of the first transfer descriptor in the list
-            uint32_t next_start_idx: 8;     // Index for the first descriptor of the next buffer
+            uint32_t next_start_idx: 8;     // Index for the first descriptor of the next slot
         } isoc;
         uint32_t val;
     } flags;
     union {
         struct {
-            uint32_t executing: 1;          // The buffer is currently executing
-            uint32_t was_canceled: 1;      // Buffer was done due to a cancellation (i.e., a halt request)
+            uint32_t executing: 1;          // The slot is currently executing
+            uint32_t was_canceled: 1;       // Slot was done due to a cancellation (i.e., a halt request)
             uint32_t reserved6: 6;
             uint32_t stop_idx: 8;           // The descriptor index when the channel was halted
-            hcd_pipe_event_t pipe_event: 8; // The pipe event when the buffer was done
+            hcd_pipe_event_t pipe_event: 8; // The pipe event when the slot was done
             uint32_t reserved8: 8;
         };
         uint32_t val;
-    } status_flags;                         // Status flags for the buffer
-} dma_buffer_block_t;
+    } status_flags;                         // Status flags for the slot
+} urb_slot_t;
 
 #else // CONFIG_USB_HOST_DMA_MODE_DESC
 
 /**
- * @brief Object representing a single buffer of a pipe's multi buffer implementation for buffer DMA mode
+ * @brief Object representing a single slot of a pipe's multi slot implementation for buffer DMA mode
  */
 typedef struct {
     urb_t *urb;
@@ -193,15 +193,15 @@ typedef struct {
     } flags;
     union {
         struct {
-            uint32_t executing: 1;          // The buffer is currently executing
-            uint32_t was_canceled: 1;      // Buffer was done due to a cancellation (i.e., a halt request)
+            uint32_t executing: 1;          // The slot is currently executing
+            uint32_t was_canceled: 1;       // Slot was done due to a cancellation (i.e., a halt request)
             uint32_t reserved6: 6;
-            hcd_pipe_event_t pipe_event: 8; // The pipe event when the buffer was done
+            hcd_pipe_event_t pipe_event: 8; // The pipe event when the slot was done
             uint32_t reserved16: 16;
         };
         uint32_t val;
-    } status_flags;                         // Status flags for the buffer
-} dma_buffer_block_t;
+    } status_flags;                         // Status flags for the slot
+} urb_slot_t;
 
 #endif // CONFIG_USB_HOST_DMA_MODE_DESC
 
@@ -214,22 +214,22 @@ struct pipe_obj {
     TAILQ_HEAD(tailhead_urb_done, urb_s) done_urb_tailq;
     int num_urb_pending;
     int num_urb_done;
-    // Multi-buffer control
-    dma_buffer_block_t *buffers[NUM_BUFFERS];  // Double buffering scheme
+    // Multi-slot control
+    urb_slot_t *urb_slots[NUM_XFER_SLOTS];      // Multi-slot pipeline (double-buffered: fill/exec/parse)
     union {
         struct {
-            uint32_t buffer_num_to_fill: 2; // Number of buffers that can be filled
-            uint32_t buffer_num_to_exec: 2; // Number of buffers that are filled and need to be executed
-            uint32_t buffer_num_to_parse: 2;// Number of buffers completed execution and waiting to be parsed
+            uint32_t num_to_fill: 2;            // Number of slots that can be filled
+            uint32_t num_to_exec: 2;            // Number of slots that are filled and need to be executed
+            uint32_t num_to_parse: 2;           // Number of slots completed execution and waiting to be parsed
             uint32_t reserved2: 2;
-            uint32_t wr_idx: 1;             // Index of the next buffer to fill. Bit width must allow NUM_BUFFERS to wrap automatically
-            uint32_t rd_idx: 1;             // Index of the current buffer in-flight. Bit width must allow NUM_BUFFERS to wrap automatically
-            uint32_t fr_idx: 1;             // Index of the next buffer to parse. Bit width must allow NUM_BUFFERS to wrap automatically
-            uint32_t buffer_is_executing: 1;// One of the buffers is in flight
+            uint32_t wr_idx: 1;                 // Index of the next slot to fill. Bit width must allow NUM_XFER_SLOTS to wrap automatically
+            uint32_t rd_idx: 1;                 // Index of the current slot in-flight. Bit width must allow NUM_XFER_SLOTS to wrap automatically
+            uint32_t fr_idx: 1;                 // Index of the next slot to parse. Bit width must allow NUM_XFER_SLOTS to wrap automatically
+            uint32_t is_executing: 1;           // One of the slots is in flight
             uint32_t reserved20: 20;
         };
         uint32_t val;
-    } multi_buffer_control;
+    } urb_slot_ring;
     // HAL related
     usb_dwc_hal_chan_t *chan_obj;
     usb_dwc_hal_ep_char_t ep_char;
@@ -318,12 +318,12 @@ static inline void cache_sync_frame_list(void *frame_list)
  * @brief Sync Transfer Descriptor List
  * @note Transfer Descriptor List is only available in the Descriptor DMA
  *
- * @param[in] buffer       Buffer that holds the Transfer Descriptor List
+ * @param[in] urb_slot   URB slot that holds the Transfer Descriptor List
  * @param[in] mem_to_cache Direction of cache sync
  */
-static inline void cache_sync_xfer_descriptor_list(dma_buffer_block_t *buffer, bool mem_to_cache)
+static inline void cache_sync_xfer_descriptor_list(urb_slot_t *urb_slot, bool mem_to_cache)
 {
-    esp_err_t ret = esp_cache_msync(buffer->xfer_desc_list, buffer->xfer_desc_list_len_bytes, mem_to_cache ? ESP_CACHE_MSYNC_FLAG_DIR_M2C : 0);
+    esp_err_t ret = esp_cache_msync(urb_slot->xfer_desc_list, urb_slot->xfer_desc_list_len_bytes, mem_to_cache ? ESP_CACHE_MSYNC_FLAG_DIR_M2C : 0);
     assert(ret == ESP_OK);
     (void)ret;
 }
@@ -335,7 +335,7 @@ static inline void cache_sync_xfer_descriptor_list(dma_buffer_block_t *buffer, b
  * This function must be called before a URB is enqueued or dequeued.
  * Based on transfer direction (IN/OUT), this function will msync the data buffer associated with this URB.
  *
- * @note Here we also accept UNALIGNED data, for cases where the class drivers force overwrite the allocated data buffers
+ * @note Here we also accept UNALIGNED data, for cases where the class drivers force overwrite the allocated data slots
  *
  * @param[in] pipe Pipe belonging to this data buffer
  * @param[in] urb  URB belonging to this data buffer
@@ -354,19 +354,19 @@ static inline void cache_sync_data_buffer(pipe_t *pipe, urb_t *urb, bool done)
 }
 #endif // SOC_CACHE_INTERNAL_MEM_VIA_L1CACHE
 
-// ------------------- Buffer Control ----------------------
+// ------------------- Slot Control ----------------------
 
 /**
- * @brief Check if an inactive buffer can be filled with a pending URB
+ * @brief Check if an inactive slot can be filled with a pending URB
  *
  * @param pipe Pipe object
- * @return true There are one or more pending URBs, and the inactive buffer is yet to be filled
+ * @return true There are one or more pending URBs, and the inactive slot is yet to be filled
  * @return false Otherwise
  */
-static inline bool _buffer_can_fill(pipe_t *pipe)
+static inline bool _slot_can_fill(pipe_t *pipe)
 {
-    // We can only fill if there are pending URBs and at least one unfilled buffer
-    if (pipe->num_urb_pending > 0 && pipe->multi_buffer_control.buffer_num_to_fill > 0) {
+    // We can only fill if there are pending URBs and at least one unfilled slot
+    if (pipe->num_urb_pending > 0 && pipe->urb_slot_ring.num_to_fill > 0) {
         return true;
     } else {
         return false;
@@ -374,29 +374,29 @@ static inline bool _buffer_can_fill(pipe_t *pipe)
 }
 
 /**
- * @brief Fill an empty buffer with
+ * @brief Fill an empty slot with
  *
  * This function will:
  * - Remove an URB from the pending tailq
- * - Fill that URB into the inactive buffer
+ * - Fill that URB into the inactive slot
  *
- * @note _buffer_can_fill() must return true before calling this function
+ * @note _slot_can_fill() must return true before calling this function
  *
  * @param pipe Pipe object
  */
-static void _buffer_fill(pipe_t *pipe);
+static void _slot_fill(pipe_t *pipe);
 
 /**
- * @brief Check if there are more filled buffers than can be executed
+ * @brief Check if there are more filled slots than can be executed
  *
  * @param pipe Pipe object
- * @return true There are more filled buffers to be executed
- * @return false No more buffers to execute
+ * @return true There are more filled slots to be executed
+ * @return false No more slots to execute
  */
-static inline bool _buffer_can_exec(pipe_t *pipe)
+static inline bool _slot_can_exec(pipe_t *pipe)
 {
-    // We can only execute if there is not already a buffer executing and if there are filled buffers awaiting execution
-    if (!pipe->multi_buffer_control.buffer_is_executing && pipe->multi_buffer_control.buffer_num_to_exec > 0) {
+    // We can only execute if there is not already a slot executing and if there are filled slots awaiting execution
+    if (!pipe->urb_slot_ring.is_executing && pipe->urb_slot_ring.num_to_exec > 0) {
         return true;
     } else {
         return false;
@@ -404,26 +404,26 @@ static inline bool _buffer_can_exec(pipe_t *pipe)
 }
 
 /**
- * @brief Execute the next filled buffer
+ * @brief Execute the next filled slot
  *
- * - Must have called _buffer_can_exec() before calling this function
- * - Will start the execution of the buffer
+ * - Must have called _slot_can_exec() before calling this function
+ * - Will start the execution of the slot
  *
  * @param pipe Pipe object
  */
-static void _buffer_exec(pipe_t *pipe);
+static void _slot_exec(pipe_t *pipe);
 
 /**
- * @brief Check if a buffer as completed execution
+ * @brief Check if a slot as completed execution
  *
- * This should only be called after receiving a USB_DWC_HAL_CHAN_EVENT_CPLT event to check if a buffer is actually
+ * This should only be called after receiving a USB_DWC_HAL_CHAN_EVENT_CPLT event to check if a slot is actually
  * done.
  *
  * @param pipe Pipe object
- * @return true Buffer complete
- * @return false Buffer not complete
+ * @return true Slot complete
+ * @return false Slot not complete
  */
-static inline bool _buffer_check_done(pipe_t *pipe)
+static inline bool _slot_check_done(pipe_t *pipe)
 {
     // Only control transfers need to be continued
     if (pipe->ep_char.type != USB_DWC_XFER_TYPE_CTRL) {
@@ -435,60 +435,60 @@ static inline bool _buffer_check_done(pipe_t *pipe)
         esp_rom_delay_us(1000);
     }
 #if CONFIG_USB_HOST_DMA_MODE_DESC
-    dma_buffer_block_t *buffer_inflight = pipe->buffers[pipe->multi_buffer_control.rd_idx];
+    urb_slot_t *urb_slot_inflight = pipe->urb_slots[pipe->urb_slot_ring.rd_idx];
     // Only to pass the build, will be refactored
-    return (buffer_inflight->flags.ctrl.cur_stg == 2);
+    return (urb_slot_inflight->flags.ctrl.cur_stg == 2);
 #else // CONFIG_USB_HOST_DMA_MODE_DESC
     return true;
 #endif // CONFIG_USB_HOST_DMA_MODE_DESC
 }
 
 /**
- * @brief Continue execution of a buffer
+ * @brief Continue execution of a slot
  *
- * This should only be called after checking if a buffer has completed execution using _buffer_check_done()
+ * This should only be called after checking if a slot has completed execution using _slot_check_done()
  *
  * @param pipe Pipe object
  */
-static void _buffer_exec_cont(pipe_t *pipe);
+static void _slot_exec_cont(pipe_t *pipe);
 
 /**
- * @brief Marks the last executed buffer as complete
+ * @brief Marks the last executed slot as complete
  *
- * This should be called on a pipe that has confirmed that a buffer is completed via _buffer_check_done()
+ * This should be called on a pipe that has confirmed that a slot is completed via _slot_check_done()
  *
  * @param pipe Pipe object
- * @param stop_idx Descriptor index when the buffer stopped execution
- * @param pipe_event Pipe event that caused the buffer to be complete. Use HCD_PIPE_EVENT_NONE for halt request of disconnections
- * @param canceled Whether the buffer was done due to a canceled (i.e., halt request). Must set pipe_event to HCD_PIPE_EVENT_NONE
+ * @param stop_idx Descriptor index when the slot stopped execution
+ * @param pipe_event Pipe event that caused the slot to be complete. Use HCD_PIPE_EVENT_NONE for halt request of disconnections
+ * @param canceled Whether the slot was done due to a canceled (i.e., halt request). Must set pipe_event to HCD_PIPE_EVENT_NONE
  */
-static inline void _buffer_done(pipe_t *pipe, int stop_idx, hcd_pipe_event_t pipe_event, bool canceled)
+static inline void _slot_done(pipe_t *pipe, int stop_idx, hcd_pipe_event_t pipe_event, bool canceled)
 {
     // Store the stop_idx and pipe_event for later parsing
-    dma_buffer_block_t *buffer_done = pipe->buffers[pipe->multi_buffer_control.rd_idx];
-    buffer_done->status_flags.executing = 0;
-    buffer_done->status_flags.was_canceled = canceled;
+    urb_slot_t *urb_slot_done = pipe->urb_slots[pipe->urb_slot_ring.rd_idx];
+    urb_slot_done->status_flags.executing = 0;
+    urb_slot_done->status_flags.was_canceled = canceled;
 #if CONFIG_USB_HOST_DMA_MODE_DESC
     // Only to pass build, will be refactored
-    buffer_done->status_flags.stop_idx = stop_idx;
+    urb_slot_done->status_flags.stop_idx = stop_idx;
 #endif //CONFIG_USB_HOST_DMA_MODE_DESC
-    buffer_done->status_flags.pipe_event = pipe_event;
-    pipe->multi_buffer_control.rd_idx++;
-    pipe->multi_buffer_control.buffer_num_to_exec--;
-    pipe->multi_buffer_control.buffer_num_to_parse++;
-    pipe->multi_buffer_control.buffer_is_executing = 0;
+    urb_slot_done->status_flags.pipe_event = pipe_event;
+    pipe->urb_slot_ring.rd_idx++;
+    pipe->urb_slot_ring.num_to_exec--;
+    pipe->urb_slot_ring.num_to_parse++;
+    pipe->urb_slot_ring.is_executing = 0;
 }
 
 /**
- * @brief Checks if a pipe has one or more completed buffers to parse
+ * @brief Checks if a pipe has one or more completed slots to parse
  *
  * @param pipe Pipe object
- * @return true There are one or more buffers to parse
- * @return false There are no more buffers to parse
+ * @return true There are one or more slots to parse
+ * @return false There are no more slots to parse
  */
-static inline bool _buffer_can_parse(pipe_t *pipe)
+static inline bool _slot_can_parse(pipe_t *pipe)
 {
-    if (pipe->multi_buffer_control.buffer_num_to_parse > 0) {
+    if (pipe->urb_slot_ring.num_to_parse > 0) {
         return true;
     } else {
         return false;
@@ -496,30 +496,30 @@ static inline bool _buffer_can_parse(pipe_t *pipe)
 }
 
 /**
- * @brief Parse a completed buffer
+ * @brief Parse a completed slot
  *
  * This function will:
- * - Parse the results of an URB from a completed buffer
+ * - Parse the results of an URB from a completed slot
  * - Put the URB into the done tailq
  *
- * @note This function should only be called on the completion of a buffer
+ * @note This function should only be called on the completion of a slot
  *
  * @param pipe Pipe object
  * @param stop_idx (For INTR pipes only) The index of the descriptor that follows the last descriptor of the URB. Set to 0 otherwise
  */
-static void _buffer_parse(pipe_t *pipe);
+static void _slot_parse(pipe_t *pipe);
 
 /**
- * @brief Marks all buffers pending execution as completed, then parses those buffers
+ * @brief Marks all slots pending execution as completed, then parses those slots
  *
- * @note This should only be called on pipes do not have any currently executing buffers.
+ * @note This should only be called on pipes do not have any currently executing slots.
  *
  * @param pipe Pipe object
  * @param canceled Whether this flush is due to cancellation
- * @return true One or more buffers were flushed
- * @return false There were no buffers that needed to be flushed
+ * @return true One or more slots were flushed
+ * @return false There were no slots that needed to be flushed
  */
-static bool _buffer_flush_all(pipe_t *pipe, bool canceled);
+static bool _slot_flush_all(pipe_t *pipe, bool canceled);
 
 // ------------------------ Pipe ---------------------------
 
@@ -968,26 +968,26 @@ static hcd_pipe_event_t _intr_hdlr_chan(pipe_t *pipe, usb_dwc_hal_chan_t *chan_o
 
     switch (chan_event) {
     case USB_DWC_HAL_CHAN_EVENT_CPLT: {
-        if (!_buffer_check_done(pipe)) {
-            _buffer_exec_cont(pipe);
+        if (!_slot_check_done(pipe)) {
+            _slot_exec_cont(pipe);
             break;
         }
         pipe->last_event = HCD_PIPE_EVENT_URB_DONE;
         event = pipe->last_event;
-        // Mark the buffer as done
+        // Mark the slot as done
         int stop_idx = usb_dwc_hal_chan_get_qtd_idx(chan_obj);
-        _buffer_done(pipe, stop_idx, pipe->last_event, false);
-        // First check if there is another buffer we can execute. But we only want to execute if there's still a valid device
-        if (_buffer_can_exec(pipe) && pipe->port->flags.conn_dev_ena) {
-            // If the next buffer is filled and ready to execute, execute it
-            _buffer_exec(pipe);
+        _slot_done(pipe, stop_idx, pipe->last_event, false);
+        // First check if there is another slot we can execute. But we only want to execute if there's still a valid device
+        if (_slot_can_exec(pipe) && pipe->port->flags.conn_dev_ena) {
+            // If the next slot is filled and ready to execute, execute it
+            _slot_exec(pipe);
         }
-        // Handle the previously done buffer
-        _buffer_parse(pipe);
-        // Check to see if we can fill another buffer. But we only want to fill if there is still a valid device
-        if (_buffer_can_fill(pipe) && pipe->port->flags.conn_dev_ena) {
-            // Now that we've parsed a buffer, see if another URB can be filled in its place
-            _buffer_fill(pipe);
+        // Handle the previously done slot
+        _slot_parse(pipe);
+        // Check to see if we can fill another slot. But we only want to fill if there is still a valid device
+        if (_slot_can_fill(pipe) && pipe->port->flags.conn_dev_ena) {
+            // Now that we've parsed a slot, see if another URB can be filled in its place
+            _slot_fill(pipe);
         }
         break;
     }
@@ -997,11 +997,11 @@ static hcd_pipe_event_t _intr_hdlr_chan(pipe_t *pipe, usb_dwc_hal_chan_t *chan_o
         pipe->last_event = pipe_decode_error_event(chan_error);
         event = pipe->last_event;
         pipe->state = HCD_PIPE_STATE_HALTED;
-        // Mark the buffer as done with an error
+        // Mark the slot as done with an error
         int stop_idx = usb_dwc_hal_chan_get_qtd_idx(chan_obj);
-        _buffer_done(pipe, stop_idx, pipe->last_event, false);
-        // Parse the buffer
-        _buffer_parse(pipe);
+        _slot_done(pipe, stop_idx, pipe->last_event, false);
+        // Parse the slot
+        _slot_parse(pipe);
         break;
     }
     case USB_DWC_HAL_CHAN_EVENT_HALT_REQ: {
@@ -1012,9 +1012,9 @@ static hcd_pipe_event_t _intr_hdlr_chan(pipe_t *pipe, usb_dwc_hal_chan_t *chan_o
         // Halt request event is triggered when packet is successful completed. But just treat all halted transfers as errors
         pipe->state = HCD_PIPE_STATE_HALTED;
         int stop_idx = usb_dwc_hal_chan_get_qtd_idx(chan_obj);
-        _buffer_done(pipe, stop_idx, HCD_PIPE_EVENT_NONE, true);
-        // Parse the buffer
-        _buffer_parse(pipe);
+        _slot_done(pipe, stop_idx, HCD_PIPE_EVENT_NONE, true);
+        // Parse the slot
+        _slot_parse(pipe);
         // Notify the task waiting for the pipe halt
         *yield |= _internal_pipe_event_notify(pipe, true);
         break;
@@ -1817,19 +1817,19 @@ static inline hcd_pipe_event_t pipe_decode_error_event(usb_dwc_hal_chan_error_t 
 
 #if CONFIG_USB_HOST_DMA_MODE_DESC
 /**
- * @brief Allocate a DMA buffer block (Descriptor DMA mode)
+ * @brief Allocate a transfer slot (Descriptor DMA mode)
  *
- * Allocates the software structure used to manage a single transfer buffer, together with the transfer
+ * Allocates the software structure used to manage a single transfer slot, together with the transfer
  * descriptor (QTD) list. The descriptor list length is derived from the transfer type, and the list is
  * allocated with the alignment and memory capabilities required by the USB-DWC hardware.
  *
- * @param[in] type Transfer type the buffer block is allocated for
+ * @param[in] type Transfer type the slot is allocated for
  *
  * @return
- *    - Pointer to the allocated DMA buffer block on success
+ *    - Pointer to the allocated transfer slot on success
  *    - NULL if allocation failed
  */
-static dma_buffer_block_t *buffer_block_alloc(usb_transfer_type_t type)
+static urb_slot_t *urb_slot_alloc(usb_transfer_type_t type)
 {
     int desc_list_len;
     switch (type) {
@@ -1847,9 +1847,9 @@ static dma_buffer_block_t *buffer_block_alloc(usb_transfer_type_t type)
         break;
     }
 
-    // DMA buffer block: Software structure for managing the transfer buffer
-    dma_buffer_block_t *buffer = calloc(1, sizeof(dma_buffer_block_t));
-    if (buffer == NULL) {
+    // Transfer slot: Software structure for managing a single in-flight transfer
+    urb_slot_t *urb_slot = calloc(1, sizeof(urb_slot_t));
+    if (urb_slot == NULL) {
         return NULL;
     }
 
@@ -1857,46 +1857,46 @@ static dma_buffer_block_t *buffer_block_alloc(usb_transfer_type_t type)
     void *xfer_desc_list = heap_caps_aligned_calloc(USB_DWC_QTD_LIST_MEM_ALIGN, desc_list_len * sizeof(usb_dwc_ll_dma_qtd_t), 1, XFER_DESC_LIST_CAPS);
 
     if ((xfer_desc_list == NULL) || ((uintptr_t)xfer_desc_list & (USB_DWC_QTD_LIST_MEM_ALIGN - 1))) {
-        free(buffer);
+        free(urb_slot);
         heap_caps_free(xfer_desc_list);
         return NULL;
     }
-    buffer->xfer_desc_list = xfer_desc_list;
+    urb_slot->xfer_desc_list = xfer_desc_list;
 
     // Note for developers: We do not use heap_caps_get_allocated_size() because it is broken with HEAP_POISONING=COMPREHENSIVE
     size_t cache_align = 0;
     esp_cache_get_alignment(XFER_DESC_LIST_CAPS, &cache_align);
-    buffer->xfer_desc_list_len_bytes = ALIGN_UP(desc_list_len * sizeof(usb_dwc_ll_dma_qtd_t), cache_align);
-    return buffer;
+    urb_slot->xfer_desc_list_len_bytes = ALIGN_UP(desc_list_len * sizeof(usb_dwc_ll_dma_qtd_t), cache_align);
+    return urb_slot;
 }
 #else // CONFIG_USB_HOST_DMA_MODE_DESC
 /**
- * @brief Allocate a DMA buffer block (Buffer DMA mode)
+ * @brief Allocate a transfer slot (Buffer DMA mode)
  *
- * Allocates only the software structure used to manage a single transfer buffer. Buffer DMA mode does not
+ * Allocates only the software structure used to manage a single transfer slot. Buffer DMA mode does not
  * use a transfer descriptor list, so no descriptor list is allocated.
  *
- * @param[in] type Transfer type the buffer block is allocated for (unused in Buffer DMA mode)
+ * @param[in] type Transfer type the slot is allocated for (unused in Buffer DMA mode)
  *
  * @return
- *    - Pointer to the allocated DMA buffer block on success
+ *    - Pointer to the allocated transfer slot on success
  *    - NULL if allocation failed
  */
-static dma_buffer_block_t *buffer_block_alloc(usb_transfer_type_t type)
+static urb_slot_t *urb_slot_alloc(usb_transfer_type_t type)
 {
-    return calloc(1, sizeof(dma_buffer_block_t));
+    return calloc(1, sizeof(urb_slot_t));
 }
 #endif // CONFIG_USB_HOST_DMA_MODE_DESC
 
-static void buffer_block_free(dma_buffer_block_t *buffer)
+static void urb_slot_free(urb_slot_t *urb_slot)
 {
-    if (buffer == NULL) {
+    if (urb_slot == NULL) {
         return;
     }
 #if CONFIG_USB_HOST_DMA_MODE_DESC
-    heap_caps_free(buffer->xfer_desc_list);
+    heap_caps_free(urb_slot->xfer_desc_list);
 #endif // CONFIG_USB_HOST_DMA_MODE_DESC
-    free(buffer);
+    free(urb_slot);
 }
 
 static bool pipe_args_usb_compliance_verification(const hcd_pipe_config_t *pipe_config, usb_speed_t port_speed, usb_transfer_type_t type)
@@ -2052,8 +2052,8 @@ static esp_err_t _pipe_cmd_flush(pipe_t *pipe)
     // If the port is still valid, we are canceling transfers. Otherwise, we are flushing due to a port error
     bool canceled = pipe->port->flags.conn_dev_ena;
     bool call_pipe_cb;
-    // Flush any filled buffers
-    call_pipe_cb = _buffer_flush_all(pipe, canceled);
+    // Flush any filled slots
+    call_pipe_cb = _slot_flush_all(pipe, canceled);
     // Move all URBs from the pending tailq to the done tailq
     if (pipe->num_urb_pending > 0) {
         // Process all remaining pending URBs
@@ -2100,14 +2100,14 @@ static esp_err_t _pipe_cmd_clear(pipe_t *pipe)
     // Update the pipe's state
     pipe->state = HCD_PIPE_STATE_ACTIVE;
     if (pipe->num_urb_pending > 0) {
-        // Fill as many buffers as possible
-        while (_buffer_can_fill(pipe)) {
-            _buffer_fill(pipe);
+        // Fill as many slots as possible
+        while (_slot_can_fill(pipe)) {
+            _slot_fill(pipe);
         }
     }
-    // Execute any filled buffers
-    if (_buffer_can_exec(pipe)) {
-        _buffer_exec(pipe);
+    // Execute any filled slots
+    if (_slot_can_exec(pipe)) {
+        _slot_exec(pipe);
     }
 
     ret = ESP_OK;
@@ -2151,14 +2151,14 @@ esp_err_t hcd_pipe_alloc(hcd_port_handle_t port_hdl, const hcd_pipe_config_t *pi
     // Allocate the pipe resources
     pipe_t *pipe = calloc(1, sizeof(pipe_t));
     usb_dwc_hal_chan_t *chan_obj = calloc(1, sizeof(usb_dwc_hal_chan_t));
-    dma_buffer_block_t *buffers[NUM_BUFFERS] = {0};
+    urb_slot_t *urb_slots[NUM_XFER_SLOTS] = {0};
     if (pipe == NULL || chan_obj == NULL) {
         ret = ESP_ERR_NO_MEM;
         goto err;
     }
-    for (int i = 0; i < NUM_BUFFERS; i++) {
-        buffers[i] = buffer_block_alloc(type);
-        if (buffers[i] == NULL) {
+    for (int i = 0; i < NUM_XFER_SLOTS; i++) {
+        urb_slots[i] = urb_slot_alloc(type);
+        if (urb_slots[i] == NULL) {
             ret = ESP_ERR_NO_MEM;
             goto err;
         }
@@ -2167,10 +2167,10 @@ esp_err_t hcd_pipe_alloc(hcd_port_handle_t port_hdl, const hcd_pipe_config_t *pi
     // Initialize pipe object
     TAILQ_INIT(&pipe->pending_urb_tailq);
     TAILQ_INIT(&pipe->done_urb_tailq);
-    for (int i = 0; i < NUM_BUFFERS; i++) {
-        pipe->buffers[i] = buffers[i];
+    for (int i = 0; i < NUM_XFER_SLOTS; i++) {
+        pipe->urb_slots[i] = urb_slots[i];
     }
-    pipe->multi_buffer_control.buffer_num_to_fill = NUM_BUFFERS;
+    pipe->urb_slot_ring.num_to_fill = NUM_XFER_SLOTS;
     pipe->port = port;
     pipe->chan_obj = chan_obj;
     usb_dwc_hal_ep_char_t ep_char;
@@ -2207,8 +2207,8 @@ esp_err_t hcd_pipe_alloc(hcd_port_handle_t port_hdl, const hcd_pipe_config_t *pi
     return ESP_OK;
 
 err:
-    for (int i = 0; i < NUM_BUFFERS; i++) {
-        buffer_block_free(buffers[i]);
+    for (int i = 0; i < NUM_XFER_SLOTS; i++) {
+        urb_slot_free(urb_slots[i]);
     }
     free(chan_obj);
     free(pipe);
@@ -2230,7 +2230,7 @@ esp_err_t hcd_pipe_free(hcd_pipe_handle_t pipe_hdl)
     pipe_t *pipe = (pipe_t *)pipe_hdl;
     HCD_ENTER_CRITICAL();
     // Check that all URBs have been removed and pipe has no pending events
-    HCD_CHECK_FROM_CRIT(!pipe->multi_buffer_control.buffer_is_executing
+    HCD_CHECK_FROM_CRIT(!pipe->urb_slot_ring.is_executing
                         && !pipe->cs_flags.has_urb,
                         ESP_ERR_INVALID_STATE);
     // Remove pipe from the list of idle pipes (it must be in the idle list because it should have no queued URBs)
@@ -2240,8 +2240,8 @@ esp_err_t hcd_pipe_free(hcd_pipe_handle_t pipe_hdl)
     HCD_EXIT_CRITICAL();
 
     // Free pipe resources
-    for (int i = 0; i < NUM_BUFFERS; i++) {
-        buffer_block_free(pipe->buffers[i]);
+    for (int i = 0; i < NUM_XFER_SLOTS; i++) {
+        urb_slot_free(pipe->urb_slots[i]);
     }
     free(pipe->chan_obj);
     free(pipe);
@@ -2345,83 +2345,83 @@ hcd_pipe_event_t hcd_pipe_get_event(hcd_pipe_handle_t pipe_hdl)
     return ret;
 }
 
-// ------------------------------------------------- Buffer Control ----------------------------------------------------
+// ------------------------------------------------- Slot Control ----------------------------------------------------
 
-// ------------------------------------------------- Buffer fill -------------------------------------------------------
+// ------------------------------------------------- Slot fill -------------------------------------------------------
 
 #if CONFIG_USB_HOST_DMA_MODE_DESC
 /**
- * @brief Fill a control transfer buffer with setup, data, and status descriptors
+ * @brief Fill a control transfer slot with setup, data, and status descriptors
  *
- * @param buffer Buffer to fill
- * @param transfer Transfer to fill into the buffer
+ * @param urb_slot Slot to fill
+ * @param transfer Transfer to fill into the slot
  */
-static inline void _buffer_fill_ctrl(dma_buffer_block_t *buffer, usb_transfer_t *transfer)
+static inline void _slot_fill_ctrl(urb_slot_t *urb_slot, usb_transfer_t *transfer)
 {
     // Get information about the control transfer by analyzing the setup packet (the first 8 bytes of the URB's data)
     usb_setup_packet_t *setup_pkt = (usb_setup_packet_t *)transfer->data_buffer;
     bool data_stg_in = (setup_pkt->bmRequestType & USB_BM_REQUEST_TYPE_DIR_IN);
     bool data_stg_skip = (setup_pkt->wLength == 0);
     // Fill setup stage
-    usb_dwc_hal_xfer_desc_fill(buffer->xfer_desc_list, 0, transfer->data_buffer, sizeof(usb_setup_packet_t),
+    usb_dwc_hal_xfer_desc_fill(urb_slot->xfer_desc_list, 0, transfer->data_buffer, sizeof(usb_setup_packet_t),
                                USB_DWC_HAL_XFER_DESC_FLAG_SETUP | USB_DWC_HAL_XFER_DESC_FLAG_HOC);
     // Fill data stage
     if (data_stg_skip) {
         // Not data stage. Fill with an empty descriptor
-        usb_dwc_hal_xfer_desc_clear(buffer->xfer_desc_list, 1);
+        usb_dwc_hal_xfer_desc_clear(urb_slot->xfer_desc_list, 1);
     } else {
         // Fill data stage. Note that we still fill with transfer->num_bytes instead of setup_pkt->wLength as it's possible to require more bytes than wLength
-        usb_dwc_hal_xfer_desc_fill(buffer->xfer_desc_list, 1, transfer->data_buffer + sizeof(usb_setup_packet_t), transfer->num_bytes - sizeof(usb_setup_packet_t),
+        usb_dwc_hal_xfer_desc_fill(urb_slot->xfer_desc_list, 1, transfer->data_buffer + sizeof(usb_setup_packet_t), transfer->num_bytes - sizeof(usb_setup_packet_t),
                                    ((data_stg_in) ? USB_DWC_HAL_XFER_DESC_FLAG_IN : 0) | USB_DWC_HAL_XFER_DESC_FLAG_HOC);
     }
     // Fill status stage (i.e., a zero length packet). If data stage is skipped, the status stage is always IN.
-    usb_dwc_hal_xfer_desc_fill(buffer->xfer_desc_list, 2, NULL, 0,
+    usb_dwc_hal_xfer_desc_fill(urb_slot->xfer_desc_list, 2, NULL, 0,
                                ((data_stg_in && !data_stg_skip) ? 0 : USB_DWC_HAL_XFER_DESC_FLAG_IN) | USB_DWC_HAL_XFER_DESC_FLAG_HOC);
-    // Update buffer flags
-    buffer->flags.ctrl.data_stg_in = data_stg_in;
-    buffer->flags.ctrl.data_stg_skip = data_stg_skip;
-    buffer->flags.ctrl.cur_stg = 0;
+    // Update slot flags
+    urb_slot->flags.ctrl.data_stg_in = data_stg_in;
+    urb_slot->flags.ctrl.data_stg_skip = data_stg_skip;
+    urb_slot->flags.ctrl.cur_stg = 0;
 }
 
 /**
- * @brief Fill a bulk transfer buffer with transfer descriptors
+ * @brief Fill a bulk transfer slot with transfer descriptors
  *
- * @param buffer Buffer to fill
- * @param transfer Transfer to fill into the buffer
+ * @param urb_slot Slot to fill
+ * @param transfer Transfer to fill into the slot
  * @param is_in Whether the endpoint direction is IN
  * @param mps Endpoint maximum packet size
  */
-static inline void _buffer_fill_bulk(dma_buffer_block_t *buffer, usb_transfer_t *transfer, bool is_in, int mps)
+static inline void _slot_fill_bulk(urb_slot_t *urb_slot, usb_transfer_t *transfer, bool is_in, int mps)
 {
     // Only add a zero length packet if OUT, flag is set, and transfer length is multiple of EP's MPS
     // Minor optimization: Do the mod operation last
     bool zero_len_packet = !is_in && (transfer->flags & USB_TRANSFER_FLAG_ZERO_PACK) && (transfer->num_bytes % mps == 0);
     if (is_in) {
-        usb_dwc_hal_xfer_desc_fill(buffer->xfer_desc_list, 0, transfer->data_buffer, transfer->num_bytes,
+        usb_dwc_hal_xfer_desc_fill(urb_slot->xfer_desc_list, 0, transfer->data_buffer, transfer->num_bytes,
                                    USB_DWC_HAL_XFER_DESC_FLAG_IN | USB_DWC_HAL_XFER_DESC_FLAG_HOC);
     } else { // OUT
         if (zero_len_packet) {
             // Adding a zero length packet, so two descriptors are used.
-            usb_dwc_hal_xfer_desc_fill(buffer->xfer_desc_list, 0, transfer->data_buffer, transfer->num_bytes, 0);
-            usb_dwc_hal_xfer_desc_fill(buffer->xfer_desc_list, 1, NULL, 0, USB_DWC_HAL_XFER_DESC_FLAG_HOC);
+            usb_dwc_hal_xfer_desc_fill(urb_slot->xfer_desc_list, 0, transfer->data_buffer, transfer->num_bytes, 0);
+            usb_dwc_hal_xfer_desc_fill(urb_slot->xfer_desc_list, 1, NULL, 0, USB_DWC_HAL_XFER_DESC_FLAG_HOC);
         } else {
             // Zero length packet not required. One descriptor is enough
-            usb_dwc_hal_xfer_desc_fill(buffer->xfer_desc_list, 0, transfer->data_buffer, transfer->num_bytes, USB_DWC_HAL_XFER_DESC_FLAG_HOC);
+            usb_dwc_hal_xfer_desc_fill(urb_slot->xfer_desc_list, 0, transfer->data_buffer, transfer->num_bytes, USB_DWC_HAL_XFER_DESC_FLAG_HOC);
         }
     }
-    // Update buffer flags
-    buffer->flags.bulk.zero_len_packet = zero_len_packet;
+    // Update slot flags
+    urb_slot->flags.bulk.zero_len_packet = zero_len_packet;
 }
 
 /**
- * @brief Fill an interrupt transfer buffer with transfer descriptors
+ * @brief Fill an interrupt transfer slot with transfer descriptors
  *
- * @param buffer Buffer to fill
- * @param transfer Transfer to fill into the buffer
+ * @param urb_slot Slot to fill
+ * @param transfer Transfer to fill into the slot
  * @param is_in Whether the endpoint direction is IN
  * @param mps Endpoint maximum packet size
  */
-static inline void _buffer_fill_intr(dma_buffer_block_t *buffer, usb_transfer_t *transfer, bool is_in, int mps)
+static inline void _slot_fill_intr(urb_slot_t *urb_slot, usb_transfer_t *transfer, bool is_in, int mps)
 {
     int num_qtds;
     int mod_mps = transfer->num_bytes % mps;
@@ -2442,38 +2442,38 @@ static inline void _buffer_fill_intr(dma_buffer_block_t *buffer, usb_transfer_t 
     int bytes_filled = 0;
     // Fill all but last QTD
     for (int i = 0; i < num_qtds - 1; i++) {
-        usb_dwc_hal_xfer_desc_fill(buffer->xfer_desc_list, i, &transfer->data_buffer[bytes_filled], mps, xfer_desc_flags);
+        usb_dwc_hal_xfer_desc_fill(urb_slot->xfer_desc_list, i, &transfer->data_buffer[bytes_filled], mps, xfer_desc_flags);
         bytes_filled += mps;
     }
     // Fill last QTD and zero length packet
     if (zero_len_packet) {
         // Fill in last data packet without HOC flag
-        usb_dwc_hal_xfer_desc_fill(buffer->xfer_desc_list, num_qtds - 1, &transfer->data_buffer[bytes_filled], transfer->num_bytes - bytes_filled,
+        usb_dwc_hal_xfer_desc_fill(urb_slot->xfer_desc_list, num_qtds - 1, &transfer->data_buffer[bytes_filled], transfer->num_bytes - bytes_filled,
                                    xfer_desc_flags);
         // HOC flag goes to zero length packet instead
-        usb_dwc_hal_xfer_desc_fill(buffer->xfer_desc_list, num_qtds, NULL, 0, USB_DWC_HAL_XFER_DESC_FLAG_HOC);
+        usb_dwc_hal_xfer_desc_fill(urb_slot->xfer_desc_list, num_qtds, NULL, 0, USB_DWC_HAL_XFER_DESC_FLAG_HOC);
     } else {
         // Zero length packet not required. Fill in last QTD with HOC flag
-        usb_dwc_hal_xfer_desc_fill(buffer->xfer_desc_list, num_qtds - 1, &transfer->data_buffer[bytes_filled], transfer->num_bytes - bytes_filled,
+        usb_dwc_hal_xfer_desc_fill(urb_slot->xfer_desc_list, num_qtds - 1, &transfer->data_buffer[bytes_filled], transfer->num_bytes - bytes_filled,
                                    xfer_desc_flags | USB_DWC_HAL_XFER_DESC_FLAG_HOC);
     }
 
-    // Update buffer members and flags
-    buffer->flags.intr.num_qtds = num_qtds;
-    buffer->flags.intr.zero_len_packet = zero_len_packet;
+    // Update slot members and flags
+    urb_slot->flags.intr.num_qtds = num_qtds;
+    urb_slot->flags.intr.zero_len_packet = zero_len_packet;
 }
 
 /**
- * @brief Fill an isochronous transfer buffer with transfer descriptors
+ * @brief Fill an isochronous transfer slot with transfer descriptors
  *
- * @param buffer Buffer to fill
- * @param transfer Transfer to fill into the buffer
+ * @param urb_slot Slot to fill
+ * @param transfer Transfer to fill into the slot
  * @param is_in Whether the endpoint direction is IN
  * @param mps Endpoint maximum packet size
  * @param interval Endpoint polling interval
  * @param start_idx Index of the first descriptor in the list
  */
-static inline void IRAM_ATTR _buffer_fill_isoc(dma_buffer_block_t *buffer, usb_transfer_t *transfer, bool is_in, int mps, int interval, int start_idx)
+static inline void IRAM_ATTR _slot_fill_isoc(urb_slot_t *urb_slot, usb_transfer_t *transfer, bool is_in, int mps, int interval, int start_idx)
 {
     assert(interval > 0);
     assert(__builtin_popcount(interval) == 1); // Isochronous interval must be power of 2 according to USB2.0 specification
@@ -2482,7 +2482,7 @@ static inline void IRAM_ATTR _buffer_fill_isoc(dma_buffer_block_t *buffer, usb_t
     int desc_idx = start_idx;
     int bytes_filled = 0;
     // Zeroize the whole QTD, so we can focus only on the active descriptors
-    memset(buffer->xfer_desc_list, 0, XFER_LIST_LEN_ISOC * sizeof(usb_dwc_ll_dma_qtd_t));
+    memset(urb_slot->xfer_desc_list, 0, XFER_LIST_LEN_ISOC * sizeof(usb_dwc_ll_dma_qtd_t));
     for (int pkt_idx = 0; pkt_idx < transfer->num_isoc_packets; pkt_idx++) {
         int xfer_len = transfer->isoc_packet_desc[pkt_idx].num_bytes;
         uint32_t flags = (is_in) ? USB_DWC_HAL_XFER_DESC_FLAG_IN : 0;
@@ -2490,61 +2490,61 @@ static inline void IRAM_ATTR _buffer_fill_isoc(dma_buffer_block_t *buffer, usb_t
             // Last packet, set the the HOC flag
             flags |= USB_DWC_HAL_XFER_DESC_FLAG_HOC;
         }
-        usb_dwc_hal_xfer_desc_fill(buffer->xfer_desc_list, desc_idx, &transfer->data_buffer[bytes_filled], xfer_len, flags);
+        usb_dwc_hal_xfer_desc_fill(urb_slot->xfer_desc_list, desc_idx, &transfer->data_buffer[bytes_filled], xfer_len, flags);
         bytes_filled += xfer_len;
         desc_idx += interval;
         desc_idx %= XFER_LIST_LEN_ISOC;
     }
-    // Update buffer members and flags
-    buffer->flags.isoc.num_qtds = total_num_desc;
-    buffer->flags.isoc.interval = interval;
-    buffer->flags.isoc.start_idx = start_idx;
-    buffer->flags.isoc.next_start_idx = desc_idx;
+    // Update slot members and flags
+    urb_slot->flags.isoc.num_qtds = total_num_desc;
+    urb_slot->flags.isoc.interval = interval;
+    urb_slot->flags.isoc.start_idx = start_idx;
+    urb_slot->flags.isoc.next_start_idx = desc_idx;
 }
 #else // CONFIG_USB_HOST_DMA_MODE_DESC
 
 /**
- * @brief Fill a control transfer buffer with stage flags for buffer DMA mode
+ * @brief Fill a control transfer slot with stage flags for buffer DMA mode
  *
- * @param buffer Buffer to fill
- * @param transfer Transfer to fill into the buffer
+ * @param urb_slot Slot to fill
+ * @param transfer Transfer to fill into the slot
  */
-static inline void _buffer_fill_ctrl(dma_buffer_block_t *buffer, usb_transfer_t *transfer) {}
+static inline void _slot_fill_ctrl(urb_slot_t *urb_slot, usb_transfer_t *transfer) {}
 
 /**
- * @brief Fill a bulk transfer buffer with flags for buffer DMA mode
+ * @brief Fill a bulk transfer slot with flags for buffer DMA mode
  *
- * @param buffer Buffer to fill
- * @param transfer Transfer to fill into the buffer
+ * @param urb_slot Slot to fill
+ * @param transfer Transfer to fill into the slot
  * @param is_in Whether the endpoint direction is IN
  * @param mps Endpoint maximum packet size
  */
-static inline void _buffer_fill_bulk(dma_buffer_block_t *buffer, usb_transfer_t *transfer, bool is_in, int mps) {}
+static inline void _slot_fill_bulk(urb_slot_t *urb_slot, usb_transfer_t *transfer, bool is_in, int mps) {}
 
 /**
- * @brief Fill an interrupt transfer buffer with transfer descriptors for buffer DMA mode
+ * @brief Fill an interrupt transfer slot with transfer descriptors for buffer DMA mode
  *
- * @param buffer Buffer to fill
- * @param transfer Transfer to fill into the buffer
+ * @param urb_slot Slot to fill
+ * @param transfer Transfer to fill into the slot
  * @param is_in Whether the endpoint direction is IN
  * @param mps Endpoint maximum packet size
  */
-static inline void _buffer_fill_intr(dma_buffer_block_t *buffer, usb_transfer_t *transfer, bool is_in, int mps) {}
+static inline void _slot_fill_intr(urb_slot_t *urb_slot, usb_transfer_t *transfer, bool is_in, int mps) {}
 
 /**
- * @brief Fill an isochronous transfer buffer with transfer descriptors for buffer DMA mode
+ * @brief Fill an isochronous transfer slot with transfer descriptors for buffer DMA mode
  *
- * @param buffer Buffer to fill
- * @param transfer Transfer to fill into the buffer
+ * @param urb_slot Slot to fill
+ * @param transfer Transfer to fill into the slot
  * @param is_in Whether the endpoint direction is IN
  * @param mps Endpoint maximum packet size
  * @param interval Endpoint polling interval
  * @param start_idx Index of the first descriptor in the list
  */
-static inline void IRAM_ATTR _buffer_fill_isoc(dma_buffer_block_t *buffer, usb_transfer_t *transfer, bool is_in, int mps, int interval, int start_idx) {}
+static inline void IRAM_ATTR _slot_fill_isoc(urb_slot_t *urb_slot, usb_transfer_t *transfer, bool is_in, int mps, int interval, int start_idx) {}
 #endif // CONFIG_USB_HOST_DMA_MODE_DESC
 
-static void IRAM_ATTR _buffer_fill(pipe_t *pipe)
+static void IRAM_ATTR _slot_fill(pipe_t *pipe)
 {
     // Get an URB from the pending tailq
     urb_t *urb = TAILQ_FIRST(&pipe->pending_urb_tailq);
@@ -2552,17 +2552,17 @@ static void IRAM_ATTR _buffer_fill(pipe_t *pipe)
     TAILQ_REMOVE(&pipe->pending_urb_tailq, urb, tailq_entry);
     pipe->num_urb_pending--;
 
-    // Select the inactive buffer
-    assert(pipe->multi_buffer_control.buffer_num_to_exec <= NUM_BUFFERS);
-    dma_buffer_block_t *buffer_to_fill = pipe->buffers[pipe->multi_buffer_control.wr_idx];
-    buffer_to_fill->status_flags.val = 0;   // Clear the buffer's status flags
-    assert(buffer_to_fill->urb == NULL);
+    // Select the inactive slot
+    assert(pipe->urb_slot_ring.num_to_exec <= NUM_XFER_SLOTS);
+    urb_slot_t *urb_slot_to_fill = pipe->urb_slots[pipe->urb_slot_ring.wr_idx];
+    urb_slot_to_fill->status_flags.val = 0;   // Clear the slot's status flags
+    assert(urb_slot_to_fill->urb == NULL);
     bool is_in = pipe->ep_char.bEndpointAddress & USB_B_ENDPOINT_ADDRESS_EP_DIR_MASK;
     int mps = pipe->ep_char.mps;
     usb_transfer_t *transfer = &urb->transfer;
     switch (pipe->ep_char.type) {
     case USB_DWC_XFER_TYPE_CTRL: {
-        _buffer_fill_ctrl(buffer_to_fill, transfer);
+        _slot_fill_ctrl(urb_slot_to_fill, transfer);
         break;
     }
     case USB_DWC_XFER_TYPE_ISOCHRONOUS: {
@@ -2573,8 +2573,8 @@ static void IRAM_ATTR _buffer_fill(pipe_t *pipe)
             // Each QTD in the list corresponds to one frame/microframe. Interval > Descriptor_list does not make sense here.
             interval = XFER_LIST_LEN_ISOC;
         }
-        if (pipe->multi_buffer_control.buffer_num_to_exec == 0) {
-            // There are no more previously filled buffers to execute. We need to calculate a new start index based on HFNUM and the pipe's schedule
+        if (pipe->urb_slot_ring.num_to_exec == 0) {
+            // There are no more previously filled slots to execute. We need to calculate a new start index based on HFNUM and the pipe's schedule
             uint16_t cur_frame_num = usb_dwc_hal_port_get_cur_frame_num(pipe->port->hal);
             start_idx = cur_frame_num + 1;      // This is the next frame that the periodic scheduler will fetch
             start_idx += XFER_LIST_ISOC_MARGIN; // Start scheduling with a little delay. This will get us enough timing margin so no transfer is skipped
@@ -2589,25 +2589,25 @@ static void IRAM_ATTR _buffer_fill(pipe_t *pipe)
             }
             start_idx %= XFER_LIST_LEN_ISOC;
         } else {
-            // Start index is based on previously filled buffer
+            // Start index is based on previously filled slot
 #if CONFIG_USB_HOST_DMA_MODE_DESC
             // Only to pass the build, will be refactored
-            uint32_t prev_buffer_idx = (pipe->multi_buffer_control.wr_idx - 1) & (NUM_BUFFERS - 1);
-            dma_buffer_block_t *prev_filled_buffer = pipe->buffers[prev_buffer_idx];
-            start_idx = prev_filled_buffer->flags.isoc.next_start_idx;
+            uint32_t prev_urb_slot_idx = (pipe->urb_slot_ring.wr_idx - 1) & (NUM_XFER_SLOTS - 1);
+            urb_slot_t *prev_filled_urb_slot = pipe->urb_slots[prev_urb_slot_idx];
+            start_idx = prev_filled_urb_slot->flags.isoc.next_start_idx;
 #else // CONFIG_USB_HOST_DMA_MODE_DESC
             start_idx = 0;
 #endif // CONFIG_USB_HOST_DMA_MODE_DESC
         }
-        _buffer_fill_isoc(buffer_to_fill, transfer, is_in, mps, (int)interval, start_idx);
+        _slot_fill_isoc(urb_slot_to_fill, transfer, is_in, mps, (int)interval, start_idx);
         break;
     }
     case USB_DWC_XFER_TYPE_BULK: {
-        _buffer_fill_bulk(buffer_to_fill, transfer, is_in, mps);
+        _slot_fill_bulk(urb_slot_to_fill, transfer, is_in, mps);
         break;
     }
     case USB_DWC_XFER_TYPE_INTR: {
-        _buffer_fill_intr(buffer_to_fill, transfer, is_in, mps);
+        _slot_fill_intr(urb_slot_to_fill, transfer, is_in, mps);
         break;
     }
     default: {
@@ -2616,74 +2616,74 @@ static void IRAM_ATTR _buffer_fill(pipe_t *pipe)
     }
     }
     // Sync transfer descriptor list to memory
-    CACHE_SYNC_XFER_DESCRIPTOR_LIST_C2M(buffer_to_fill);
-    buffer_to_fill->urb = urb;
+    CACHE_SYNC_XFER_DESCRIPTOR_LIST_C2M(urb_slot_to_fill);
+    urb_slot_to_fill->urb = urb;
     urb->hcd_var = URB_HCD_STATE_INFLIGHT;
-    // Update multi buffer flags
-    pipe->multi_buffer_control.wr_idx++;
-    pipe->multi_buffer_control.buffer_num_to_fill--;
-    pipe->multi_buffer_control.buffer_num_to_exec++;
+    // Update multi slot flags
+    pipe->urb_slot_ring.wr_idx++;
+    pipe->urb_slot_ring.num_to_fill--;
+    pipe->urb_slot_ring.num_to_exec++;
 }
 
-// ------------------------------------------------- Buffer exec -------------------------------------------------------
+// ------------------------------------------------- Slot exec -------------------------------------------------------
 
 #if CONFIG_USB_HOST_DMA_MODE_DESC
 /**
  * @brief Start execution of a control transfer in descriptor DMA mode
  *
  * @param pipe Pipe object
- * @param buffer Buffer to execute
+ * @param urb_slot Slot to execute
  */
-static inline void _buffer_exec_ctrl(pipe_t *pipe, dma_buffer_block_t *buffer)
+static inline void _slot_exec_ctrl(pipe_t *pipe, urb_slot_t *urb_slot)
 {
     // Set the channel's direction to OUT and PID to 0 respectively for the setup stage
     usb_dwc_hal_chan_set_dir(pipe->chan_obj, false);   // Setup stage is always OUT
     usb_dwc_hal_chan_set_pid(pipe->chan_obj, 0);   // Setup stage always has a PID of DATA0
-    buffer->status_flags.executing = 1;
-    pipe->multi_buffer_control.buffer_is_executing = 1;
-    usb_dwc_hal_chan_activate(pipe->chan_obj, buffer->xfer_desc_list, XFER_LIST_LEN_CTRL, 0);
+    urb_slot->status_flags.executing = 1;
+    pipe->urb_slot_ring.is_executing = 1;
+    usb_dwc_hal_chan_activate(pipe->chan_obj, urb_slot->xfer_desc_list, XFER_LIST_LEN_CTRL, 0);
 }
 
 /**
  * @brief Start execution of an isochronous transfer in descriptor DMA mode
  *
  * @param pipe Pipe object
- * @param buffer Buffer to execute
+ * @param urb_slot Slot to execute
  */
-static inline void _buffer_exec_isoc(pipe_t *pipe, dma_buffer_block_t *buffer)
+static inline void _slot_exec_isoc(pipe_t *pipe, urb_slot_t *urb_slot)
 {
-    buffer->status_flags.executing = 1;
-    pipe->multi_buffer_control.buffer_is_executing = 1;
-    usb_dwc_hal_chan_activate(pipe->chan_obj, buffer->xfer_desc_list, XFER_LIST_LEN_ISOC,
-                              buffer->flags.isoc.start_idx);
+    urb_slot->status_flags.executing = 1;
+    pipe->urb_slot_ring.is_executing = 1;
+    usb_dwc_hal_chan_activate(pipe->chan_obj, urb_slot->xfer_desc_list, XFER_LIST_LEN_ISOC,
+                              urb_slot->flags.isoc.start_idx);
 }
 
 /**
  * @brief Start execution of a bulk transfer in descriptor DMA mode
  *
  * @param pipe Pipe object
- * @param buffer Buffer to execute
+ * @param urb_slot Slot to execute
  */
-static inline void _buffer_exec_bulk(pipe_t *pipe, dma_buffer_block_t *buffer)
+static inline void _slot_exec_bulk(pipe_t *pipe, urb_slot_t *urb_slot)
 {
-    int desc_list_len = (buffer->flags.bulk.zero_len_packet) ? XFER_LIST_LEN_BULK : 1;
-    buffer->status_flags.executing = 1;
-    pipe->multi_buffer_control.buffer_is_executing = 1;
-    usb_dwc_hal_chan_activate(pipe->chan_obj, buffer->xfer_desc_list, desc_list_len, 0);
+    int desc_list_len = (urb_slot->flags.bulk.zero_len_packet) ? XFER_LIST_LEN_BULK : 1;
+    urb_slot->status_flags.executing = 1;
+    pipe->urb_slot_ring.is_executing = 1;
+    usb_dwc_hal_chan_activate(pipe->chan_obj, urb_slot->xfer_desc_list, desc_list_len, 0);
 }
 
 /**
  * @brief Start execution of an interrupt transfer in descriptor DMA mode
  *
  * @param pipe Pipe object
- * @param buffer Buffer to execute
+ * @param urb_slot Slot to execute
  */
-static inline void _buffer_exec_intr(pipe_t *pipe, dma_buffer_block_t *buffer)
+static inline void _slot_exec_intr(pipe_t *pipe, urb_slot_t *urb_slot)
 {
-    int desc_list_len = (buffer->flags.intr.zero_len_packet) ? buffer->flags.intr.num_qtds + 1 : buffer->flags.intr.num_qtds;
-    buffer->status_flags.executing = 1;
-    pipe->multi_buffer_control.buffer_is_executing = 1;
-    usb_dwc_hal_chan_activate(pipe->chan_obj, buffer->xfer_desc_list, desc_list_len, 0);
+    int desc_list_len = (urb_slot->flags.intr.zero_len_packet) ? urb_slot->flags.intr.num_qtds + 1 : urb_slot->flags.intr.num_qtds;
+    urb_slot->status_flags.executing = 1;
+    pipe->urb_slot_ring.is_executing = 1;
+    usb_dwc_hal_chan_activate(pipe->chan_obj, urb_slot->xfer_desc_list, desc_list_len, 0);
 }
 
 #else // CONFIG_USB_HOST_DMA_MODE_DESC
@@ -2692,17 +2692,17 @@ static inline void _buffer_exec_intr(pipe_t *pipe, dma_buffer_block_t *buffer)
  * @brief Start execution of a control transfer in buffer DMA mode
  *
  * @param pipe Pipe object
- * @param buffer Buffer to execute
+ * @param urb_slot Slot to execute
  */
-static inline void _buffer_exec_ctrl(pipe_t *pipe, dma_buffer_block_t *buffer) {}
+static inline void _slot_exec_ctrl(pipe_t *pipe, urb_slot_t *urb_slot) {}
 
 /**
  * @brief Start execution of an isochronous transfer in buffer DMA mode
  *
  * @param pipe Pipe object
- * @param buffer Buffer to execute
+ * @param urb_slot Slot to execute
  */
-static inline void _buffer_exec_isoc(pipe_t *pipe, dma_buffer_block_t *buffer) {}
+static inline void _slot_exec_isoc(pipe_t *pipe, urb_slot_t *urb_slot) {}
 
 /**
  * @brief Start execution of a bulk transfer in buffer DMA mode
@@ -2711,41 +2711,41 @@ static inline void _buffer_exec_isoc(pipe_t *pipe, dma_buffer_block_t *buffer) {
  * in a single activation, including PID toggling and NAK/NYET retries.
  *
  * @param pipe Pipe object
- * @param buffer Buffer to execute
+ * @param urb_slot Slot to execute
  */
-static inline void _buffer_exec_bulk(pipe_t *pipe, dma_buffer_block_t *buffer) {}
+static inline void _slot_exec_bulk(pipe_t *pipe, urb_slot_t *urb_slot) {}
 
 /**
  * @brief Start execution of an interrupt transfer in buffer DMA mode
  *
  * @param pipe Pipe object
- * @param buffer Buffer to execute
+ * @param urb_slot Slot to execute
  */
-static inline void _buffer_exec_intr(pipe_t *pipe, dma_buffer_block_t *buffer) {}
+static inline void _slot_exec_intr(pipe_t *pipe, urb_slot_t *urb_slot) {}
 
 #endif // CONFIG_USB_HOST_DMA_MODE_DESC
 
-static void IRAM_ATTR _buffer_exec(pipe_t *pipe)
+static void IRAM_ATTR _slot_exec(pipe_t *pipe)
 {
-    assert(pipe->multi_buffer_control.rd_idx != pipe->multi_buffer_control.wr_idx || pipe->multi_buffer_control.buffer_num_to_exec > 0);
-    dma_buffer_block_t *buffer_to_exec = pipe->buffers[pipe->multi_buffer_control.rd_idx];
-    assert(buffer_to_exec->urb != NULL);
+    assert(pipe->urb_slot_ring.rd_idx != pipe->urb_slot_ring.wr_idx || pipe->urb_slot_ring.num_to_exec > 0);
+    urb_slot_t *urb_slot_to_exec = pipe->urb_slots[pipe->urb_slot_ring.rd_idx];
+    assert(urb_slot_to_exec->urb != NULL);
 
     switch (pipe->ep_char.type) {
     case USB_DWC_XFER_TYPE_CTRL: {
-        _buffer_exec_ctrl(pipe, buffer_to_exec);
+        _slot_exec_ctrl(pipe, urb_slot_to_exec);
         break;
     }
     case USB_DWC_XFER_TYPE_ISOCHRONOUS: {
-        _buffer_exec_isoc(pipe, buffer_to_exec);
+        _slot_exec_isoc(pipe, urb_slot_to_exec);
         break;
     }
     case USB_DWC_XFER_TYPE_BULK: {
-        _buffer_exec_bulk(pipe, buffer_to_exec);
+        _slot_exec_bulk(pipe, urb_slot_to_exec);
         break;
     }
     case USB_DWC_XFER_TYPE_INTR: {
-        _buffer_exec_intr(pipe, buffer_to_exec);
+        _slot_exec_intr(pipe, urb_slot_to_exec);
         break;
     }
     default: {
@@ -2755,63 +2755,63 @@ static void IRAM_ATTR _buffer_exec(pipe_t *pipe)
     }
 }
 
-// ------------------------------------------------- Buffer exec continue ----------------------------------------------
+// ------------------------------------------------- Slot exec continue ----------------------------------------------
 
-static void _buffer_exec_cont(pipe_t *pipe)
+static void _slot_exec_cont(pipe_t *pipe)
 {
-    // Buffer execute continue is needed for both ctrl and bulk transfers in buffer dma mode. This will be changed in upcoming PRs
+    // Slot execute continue is needed for both ctrl and bulk transfers in buffer dma mode. This will be changed in upcoming PRs
 #if CONFIG_USB_HOST_DMA_MODE_DESC
     // This should only ever be called on control transfers
     assert(pipe->ep_char.type == USB_DWC_XFER_TYPE_CTRL);
-    dma_buffer_block_t *buffer_inflight = pipe->buffers[pipe->multi_buffer_control.rd_idx];
+    urb_slot_t *urb_slot_inflight = pipe->urb_slots[pipe->urb_slot_ring.rd_idx];
     bool next_dir_is_in;
     int next_pid;
-    assert(buffer_inflight->flags.ctrl.cur_stg != 2);
-    if (buffer_inflight->flags.ctrl.cur_stg == 0) { // Just finished control stage
-        if (buffer_inflight->flags.ctrl.data_stg_skip) {
+    assert(urb_slot_inflight->flags.ctrl.cur_stg != 2);
+    if (urb_slot_inflight->flags.ctrl.cur_stg == 0) { // Just finished control stage
+        if (urb_slot_inflight->flags.ctrl.data_stg_skip) {
             // Skipping data stage. Go straight to status stage
             next_dir_is_in = true;     // With no data stage, status stage must be IN
             next_pid = 1;       // Status stage always has a PID of DATA1
-            buffer_inflight->flags.ctrl.cur_stg = 2;    // Skip over the null descriptor representing the skipped data stage
+            urb_slot_inflight->flags.ctrl.cur_stg = 2;    // Skip over the null descriptor representing the skipped data stage
         } else {
             // Go to data stage
-            next_dir_is_in = buffer_inflight->flags.ctrl.data_stg_in;
+            next_dir_is_in = urb_slot_inflight->flags.ctrl.data_stg_in;
             next_pid = 1;   // Data stage always starts with a PID of DATA1
-            buffer_inflight->flags.ctrl.cur_stg = 1;
+            urb_slot_inflight->flags.ctrl.cur_stg = 1;
         }
     } else {        // cur_stg == 1. // Just finished data stage. Go to status stage
-        next_dir_is_in = !buffer_inflight->flags.ctrl.data_stg_in;  // Status stage is always the opposite direction of data stage
+        next_dir_is_in = !urb_slot_inflight->flags.ctrl.data_stg_in;  // Status stage is always the opposite direction of data stage
         next_pid = 1;   // Status stage always has a PID of DATA1
-        buffer_inflight->flags.ctrl.cur_stg = 2;
+        urb_slot_inflight->flags.ctrl.cur_stg = 2;
     }
     // Continue the control transfer
     usb_dwc_hal_chan_set_dir(pipe->chan_obj, next_dir_is_in);
     usb_dwc_hal_chan_set_pid(pipe->chan_obj, next_pid);
-    usb_dwc_hal_chan_activate(pipe->chan_obj, buffer_inflight->xfer_desc_list, XFER_LIST_LEN_CTRL, buffer_inflight->flags.ctrl.cur_stg);
+    usb_dwc_hal_chan_activate(pipe->chan_obj, urb_slot_inflight->xfer_desc_list, XFER_LIST_LEN_CTRL, urb_slot_inflight->flags.ctrl.cur_stg);
 #endif // CONFIG_USB_HOST_DMA_MODE_DESC
 }
 
-// ------------------------------------------------- Buffer parse ------------------------------------------------------
+// ------------------------------------------------- Slot parse ------------------------------------------------------
 
 #if CONFIG_USB_HOST_DMA_MODE_DESC
 
 /**
  * @brief Parse a completed control transfer in descriptor DMA mode
  *
- * @param buffer Buffer to parse
+ * @param urb_slot Slot to parse
  */
-static inline void _buffer_parse_ctrl(dma_buffer_block_t *buffer)
+static inline void _slot_parse_ctrl(urb_slot_t *urb_slot)
 {
-    usb_transfer_t *transfer = &buffer->urb->transfer;
+    usb_transfer_t *transfer = &urb_slot->urb->transfer;
     // Update URB's actual number of bytes
-    if (buffer->flags.ctrl.data_stg_skip)     {
+    if (urb_slot->flags.ctrl.data_stg_skip)     {
         // There was no data stage. Just set the actual length to the size of the setup packet
         transfer->actual_num_bytes = sizeof(usb_setup_packet_t);
     } else {
         // Parse the data stage for the remaining length
         int rem_len;
         int desc_status;
-        usb_dwc_hal_xfer_desc_parse(buffer->xfer_desc_list, 1, &rem_len, &desc_status);
+        usb_dwc_hal_xfer_desc_parse(urb_slot->xfer_desc_list, 1, &rem_len, &desc_status);
         assert(desc_status == USB_DWC_HAL_XFER_DESC_STS_SUCCESS);
         assert(rem_len <= (transfer->num_bytes - sizeof(usb_setup_packet_t)));
         transfer->actual_num_bytes = transfer->num_bytes - rem_len;
@@ -2819,77 +2819,77 @@ static inline void _buffer_parse_ctrl(dma_buffer_block_t *buffer)
     // Update URB status
     transfer->status = USB_TRANSFER_STATUS_COMPLETED;
     // Clear the descriptor list
-    memset(buffer->xfer_desc_list, 0, XFER_LIST_LEN_CTRL * sizeof(usb_dwc_ll_dma_qtd_t));
+    memset(urb_slot->xfer_desc_list, 0, XFER_LIST_LEN_CTRL * sizeof(usb_dwc_ll_dma_qtd_t));
 }
 
 /**
  * @brief Parse a completed bulk transfer in descriptor DMA mode
  *
- * @param buffer Buffer to parse
+ * @param urb_slot Slot to parse
  */
-static inline void _buffer_parse_bulk(dma_buffer_block_t *buffer)
+static inline void _slot_parse_bulk(urb_slot_t *urb_slot)
 {
-    usb_transfer_t *transfer = &buffer->urb->transfer;
+    usb_transfer_t *transfer = &urb_slot->urb->transfer;
     // Update URB's actual number of bytes
     int rem_len;
     int desc_status;
-    usb_dwc_hal_xfer_desc_parse(buffer->xfer_desc_list, 0, &rem_len, &desc_status);
+    usb_dwc_hal_xfer_desc_parse(urb_slot->xfer_desc_list, 0, &rem_len, &desc_status);
     assert(desc_status == USB_DWC_HAL_XFER_DESC_STS_SUCCESS);
     assert(rem_len <= transfer->num_bytes);
     transfer->actual_num_bytes = transfer->num_bytes - rem_len;
     // Update URB's status
     transfer->status = USB_TRANSFER_STATUS_COMPLETED;
     // Clear the descriptor list
-    memset(buffer->xfer_desc_list, 0, XFER_LIST_LEN_BULK * sizeof(usb_dwc_ll_dma_qtd_t));
+    memset(urb_slot->xfer_desc_list, 0, XFER_LIST_LEN_BULK * sizeof(usb_dwc_ll_dma_qtd_t));
 }
 
 /**
  * @brief Parse a completed interrupt transfer in descriptor DMA mode
  *
- * @param buffer Buffer to parse
+ * @param urb_slot Slot to parse
  * @param is_in Whether the endpoint direction is IN
  * @param mps Endpoint maximum packet size
  */
-static inline void _buffer_parse_intr(dma_buffer_block_t *buffer, bool is_in, int mps)
+static inline void _slot_parse_intr(urb_slot_t *urb_slot, bool is_in, int mps)
 {
-    usb_transfer_t *transfer = &buffer->urb->transfer;
-    int intr_stop_idx = buffer->status_flags.stop_idx;
+    usb_transfer_t *transfer = &urb_slot->urb->transfer;
+    int intr_stop_idx = urb_slot->status_flags.stop_idx;
     if (is_in) {
         if (intr_stop_idx > 0) { // This is an early stop (short packet)
-            assert(intr_stop_idx <= buffer->flags.intr.num_qtds);
+            assert(intr_stop_idx <= urb_slot->flags.intr.num_qtds);
             int rem_len;
             int desc_status;
             for (int i = 0; i < intr_stop_idx - 1; i++) {    // Check all packets before the short
-                usb_dwc_hal_xfer_desc_parse(buffer->xfer_desc_list, i, &rem_len, &desc_status);
+                usb_dwc_hal_xfer_desc_parse(urb_slot->xfer_desc_list, i, &rem_len, &desc_status);
                 assert(rem_len == 0 && desc_status == USB_DWC_HAL_XFER_DESC_STS_SUCCESS);
             }
             // Check the short packet
-            usb_dwc_hal_xfer_desc_parse(buffer->xfer_desc_list, intr_stop_idx - 1, &rem_len, &desc_status);
+            usb_dwc_hal_xfer_desc_parse(urb_slot->xfer_desc_list, intr_stop_idx - 1, &rem_len, &desc_status);
             assert(rem_len > 0 && desc_status == USB_DWC_HAL_XFER_DESC_STS_SUCCESS);
             // Update actual bytes
             transfer->actual_num_bytes = (mps * intr_stop_idx - 2) + (mps - rem_len);
         } else {
             // Check that all but the last packet transmitted MPS
-            for (int i = 0; i < buffer->flags.intr.num_qtds - 1; i++) {
+            for (int i = 0; i < urb_slot->flags.intr.num_qtds - 1; i++) {
                 int rem_len;
                 int desc_status;
-                usb_dwc_hal_xfer_desc_parse(buffer->xfer_desc_list, i, &rem_len, &desc_status);
+                usb_dwc_hal_xfer_desc_parse(urb_slot->xfer_desc_list, i, &rem_len, &desc_status);
                 assert(rem_len == 0 && desc_status == USB_DWC_HAL_XFER_DESC_STS_SUCCESS);
             }
             // Check the last packet
             int last_packet_rem_len;
             int last_packet_desc_status;
-            usb_dwc_hal_xfer_desc_parse(buffer->xfer_desc_list, buffer->flags.intr.num_qtds - 1, &last_packet_rem_len, &last_packet_desc_status);
+            usb_dwc_hal_xfer_desc_parse(urb_slot->xfer_desc_list, urb_slot->flags.intr.num_qtds - 1, &last_packet_rem_len, &last_packet_desc_status);
             assert(last_packet_desc_status == USB_DWC_HAL_XFER_DESC_STS_SUCCESS);
             // All packets except last MUST be MPS. So just deduct the remaining length of the last packet to get actual number of bytes
             transfer->actual_num_bytes = transfer->num_bytes - last_packet_rem_len;
         }
     } else {
         // OUT INTR transfers can only complete successfully if all packets have been transmitted. Double check
-        for (int i = 0 ; i < buffer->flags.intr.num_qtds; i++) {
+        for (int i = 0 ; i < urb_slot->flags.intr.num_qtds; i++) {
             int rem_len;
             int desc_status;
-            usb_dwc_hal_xfer_desc_parse(buffer->xfer_desc_list, i, &rem_len, &desc_status);
+            usb_dwc_hal_xfer_desc_parse(urb_slot->xfer_desc_list, i, &rem_len, &desc_status);
             assert(rem_len == 0 && desc_status == USB_DWC_HAL_XFER_DESC_STS_SUCCESS);
         }
         transfer->actual_num_bytes = transfer->num_bytes;
@@ -2897,26 +2897,26 @@ static inline void _buffer_parse_intr(dma_buffer_block_t *buffer, bool is_in, in
     // Update URB's status
     transfer->status = USB_TRANSFER_STATUS_COMPLETED;
     // Clear the descriptor list
-    memset(buffer->xfer_desc_list, 0, XFER_LIST_LEN_INTR * sizeof(usb_dwc_ll_dma_qtd_t));
+    memset(urb_slot->xfer_desc_list, 0, XFER_LIST_LEN_INTR * sizeof(usb_dwc_ll_dma_qtd_t));
 }
 
 /**
  * @brief Parse a completed isochronous transfer in descriptor DMA mode
  *
- * @param buffer Buffer to parse
+ * @param urb_slot Slot to parse
  * @param is_in Whether the endpoint direction is IN
  */
-static inline void _buffer_parse_isoc(dma_buffer_block_t *buffer, bool is_in)
+static inline void _slot_parse_isoc(urb_slot_t *urb_slot, bool is_in)
 {
-    usb_transfer_t *transfer = &buffer->urb->transfer;
-    int desc_idx = buffer->flags.isoc.start_idx;    // Descriptor index tracks which descriptor in the QTD list
+    usb_transfer_t *transfer = &urb_slot->urb->transfer;
+    int desc_idx = urb_slot->flags.isoc.start_idx;    // Descriptor index tracks which descriptor in the QTD list
     int total_actual_num_bytes = 0;
     for (int pkt_idx = 0; pkt_idx < transfer->num_isoc_packets; pkt_idx++) {
         // Clear the filled descriptor
         int rem_len;
         int desc_status;
-        usb_dwc_hal_xfer_desc_parse(buffer->xfer_desc_list, desc_idx, &rem_len, &desc_status);
-        usb_dwc_hal_xfer_desc_clear(buffer->xfer_desc_list, desc_idx);
+        usb_dwc_hal_xfer_desc_parse(urb_slot->xfer_desc_list, desc_idx, &rem_len, &desc_status);
+        usb_dwc_hal_xfer_desc_clear(urb_slot->xfer_desc_list, desc_idx);
         switch (desc_status) {
         case USB_DWC_HAL_XFER_DESC_STS_SUCCESS:
             transfer->isoc_packet_desc[pkt_idx].status = USB_TRANSFER_STATUS_COMPLETED;
@@ -2940,7 +2940,7 @@ static inline void _buffer_parse_isoc(dma_buffer_block_t *buffer, bool is_in)
         transfer->isoc_packet_desc[pkt_idx].actual_num_bytes = transfer->isoc_packet_desc[pkt_idx].num_bytes - rem_len;
         total_actual_num_bytes += transfer->isoc_packet_desc[pkt_idx].actual_num_bytes;
         // A descriptor is also allocated for unscheduled frames. We need to skip over them
-        desc_idx += buffer->flags.isoc.interval;
+        desc_idx += urb_slot->flags.isoc.interval;
         desc_idx %= XFER_LIST_LEN_ISOC;
     }
     // Write back the actual_num_bytes and statue of entire transfer
@@ -2953,45 +2953,45 @@ static inline void _buffer_parse_isoc(dma_buffer_block_t *buffer, bool is_in)
 /**
  * @brief Parse a completed control transfer in buffer DMA mode
  *
- * @param buffer Buffer to parse
+ * @param urb_slot Slot to parse
  */
-static inline void _buffer_parse_ctrl(dma_buffer_block_t *buffer) {}
+static inline void _slot_parse_ctrl(urb_slot_t *urb_slot) {}
 
 /**
  * @brief Parse a completed bulk transfer in buffer DMA mode
  *
- * @param buffer Buffer to parse
+ * @param urb_slot Slot to parse
  */
-static inline void _buffer_parse_bulk(dma_buffer_block_t *buffer) {}
+static inline void _slot_parse_bulk(urb_slot_t *urb_slot) {}
 
 /**
  * @brief Parse a completed interrupt transfer in buffer DMA mode
  *
- * @param buffer Buffer to parse
+ * @param urb_slot Slot to parse
  * @param is_in Whether the endpoint direction is IN
  * @param mps Endpoint maximum packet size
  */
-static inline void _buffer_parse_intr(dma_buffer_block_t *buffer, bool is_in, int mps) {}
+static inline void _slot_parse_intr(urb_slot_t *urb_slot, bool is_in, int mps) {}
 
 /**
  * @brief Parse a completed isochronous transfer in buffer DMA mode
  *
- * @param buffer Buffer to parse
+ * @param urb_slot Slot to parse
  * @param is_in Whether the endpoint direction is IN
  */
-static inline void _buffer_parse_isoc(dma_buffer_block_t *buffer, bool is_in) {}
+static inline void _slot_parse_isoc(urb_slot_t *urb_slot, bool is_in) {}
 
 #endif // CONFIG_USB_HOST_DMA_MODE_DESC
 
-static inline void _buffer_parse_error(dma_buffer_block_t *buffer)
+static inline void _slot_parse_error(urb_slot_t *urb_slot)
 {
     // The URB had an error in one of its packet, or a port error), so we the entire URB an error.
-    usb_transfer_t *transfer = &buffer->urb->transfer;
+    usb_transfer_t *transfer = &urb_slot->urb->transfer;
     transfer->actual_num_bytes = 0;
     // Update the overall status of URB. Status will depend on the pipe_event
-    switch (buffer->status_flags.pipe_event) {
+    switch (urb_slot->status_flags.pipe_event) {
     case HCD_PIPE_EVENT_NONE:
-        transfer->status = (buffer->status_flags.was_canceled) ? USB_TRANSFER_STATUS_CANCELED : USB_TRANSFER_STATUS_NO_DEVICE;
+        transfer->status = (urb_slot->status_flags.was_canceled) ? USB_TRANSFER_STATUS_CANCELED : USB_TRANSFER_STATUS_NO_DEVICE;
         break;
     case HCD_PIPE_EVENT_ERROR_XFER:
         transfer->status = USB_TRANSFER_STATUS_ERROR;
@@ -3009,35 +3009,35 @@ static inline void _buffer_parse_error(dma_buffer_block_t *buffer)
     }
 }
 
-static void _buffer_parse(pipe_t *pipe)
+static void _slot_parse(pipe_t *pipe)
 {
-    assert(pipe->multi_buffer_control.buffer_num_to_parse > 0);
-    dma_buffer_block_t *buffer_to_parse = pipe->buffers[pipe->multi_buffer_control.fr_idx];
-    assert(buffer_to_parse->urb != NULL);
+    assert(pipe->urb_slot_ring.num_to_parse > 0);
+    urb_slot_t *urb_slot_to_parse = pipe->urb_slots[pipe->urb_slot_ring.fr_idx];
+    assert(urb_slot_to_parse->urb != NULL);
     bool is_in = pipe->ep_char.bEndpointAddress & USB_B_ENDPOINT_ADDRESS_EP_DIR_MASK;
     int mps = pipe->ep_char.mps;
 
     // Sync transfer descriptor list to cache
-    CACHE_SYNC_XFER_DESCRIPTOR_LIST_M2C(buffer_to_parse);
+    CACHE_SYNC_XFER_DESCRIPTOR_LIST_M2C(urb_slot_to_parse);
 
-    // Parsing the buffer will update the buffer's corresponding URB
-    if (buffer_to_parse->status_flags.pipe_event == HCD_PIPE_EVENT_URB_DONE) {
+    // Parsing the slot will update the slot's corresponding URB
+    if (urb_slot_to_parse->status_flags.pipe_event == HCD_PIPE_EVENT_URB_DONE) {
         // URB was successful
         switch (pipe->ep_char.type) {
         case USB_DWC_XFER_TYPE_CTRL: {
-            _buffer_parse_ctrl(buffer_to_parse);
+            _slot_parse_ctrl(urb_slot_to_parse);
             break;
         }
         case USB_DWC_XFER_TYPE_ISOCHRONOUS: {
-            _buffer_parse_isoc(buffer_to_parse, is_in);
+            _slot_parse_isoc(urb_slot_to_parse, is_in);
             break;
         }
         case USB_DWC_XFER_TYPE_BULK: {
-            _buffer_parse_bulk(buffer_to_parse);
+            _slot_parse_bulk(urb_slot_to_parse);
             break;
         }
         case USB_DWC_XFER_TYPE_INTR: {
-            _buffer_parse_intr(buffer_to_parse, is_in, mps);
+            _slot_parse_intr(urb_slot_to_parse, is_in, mps);
             break;
         }
         default: {
@@ -3047,33 +3047,33 @@ static void _buffer_parse(pipe_t *pipe)
         }
     } else {
         // URB failed
-        _buffer_parse_error(buffer_to_parse);
+        _slot_parse_error(urb_slot_to_parse);
     }
-    urb_t *urb = buffer_to_parse->urb;
+    urb_t *urb = urb_slot_to_parse->urb;
     urb->hcd_var = URB_HCD_STATE_DONE;
-    buffer_to_parse->urb = NULL;
-    buffer_to_parse->flags.val = 0; // Clear flags
+    urb_slot_to_parse->urb = NULL;
+    urb_slot_to_parse->flags.val = 0; // Clear flags
     // Move the URB to the done tailq
     TAILQ_INSERT_TAIL(&pipe->done_urb_tailq, urb, tailq_entry);
     pipe->num_urb_done++;
-    // Update multi buffer flags
-    pipe->multi_buffer_control.fr_idx++;
-    pipe->multi_buffer_control.buffer_num_to_parse--;
-    pipe->multi_buffer_control.buffer_num_to_fill++;
+    // Update multi slot flags
+    pipe->urb_slot_ring.fr_idx++;
+    pipe->urb_slot_ring.num_to_parse--;
+    pipe->urb_slot_ring.num_to_fill++;
 }
 
-static bool _buffer_flush_all(pipe_t *pipe, bool canceled)
+static bool _slot_flush_all(pipe_t *pipe, bool canceled)
 {
-    int cur_num_to_mark_done = pipe->multi_buffer_control.buffer_num_to_exec;
+    int cur_num_to_mark_done = pipe->urb_slot_ring.num_to_exec;
     for (int i = 0; i < cur_num_to_mark_done; i++) {
-        // Mark any filled buffers as done
-        _buffer_done(pipe, 0, HCD_PIPE_EVENT_NONE, canceled);
+        // Mark any filled slots as done
+        _slot_done(pipe, 0, HCD_PIPE_EVENT_NONE, canceled);
     }
-    int cur_num_to_parse = pipe->multi_buffer_control.buffer_num_to_parse;
+    int cur_num_to_parse = pipe->urb_slot_ring.num_to_parse;
     for (int i = 0; i < cur_num_to_parse; i++) {
-        _buffer_parse(pipe);
+        _slot_parse(pipe);
     }
-    // At this point, there should be no more filled buffers. Only URBs in the pending or done tailq
+    // At this point, there should be no more filled slots. Only URBs in the pending or done tailq
     return (cur_num_to_parse > 0);
 }
 
@@ -3146,11 +3146,11 @@ esp_err_t hcd_urb_enqueue(hcd_pipe_handle_t pipe_hdl, urb_t *urb)
 
     if (submit_urb) {
         // URB will not be deferred, can be submitted right now
-        if (_buffer_can_fill(pipe)) {
-            _buffer_fill(pipe);
+        if (_slot_can_fill(pipe)) {
+            _slot_fill(pipe);
         }
-        if (_buffer_can_exec(pipe)) {
-            _buffer_exec(pipe);
+        if (_slot_can_exec(pipe)) {
+            _slot_exec(pipe);
         }
     }
 
@@ -3183,7 +3183,7 @@ urb_t *hcd_urb_dequeue(hcd_pipe_handle_t pipe_hdl)
         urb->hcd_var = URB_HCD_STATE_IDLE;
         if (pipe->cs_flags.has_urb
                 && pipe->num_urb_pending == 0 && pipe->num_urb_done == 0
-                && pipe->multi_buffer_control.buffer_num_to_exec == 0 && pipe->multi_buffer_control.buffer_num_to_parse == 0) {
+                && pipe->urb_slot_ring.num_to_exec == 0 && pipe->urb_slot_ring.num_to_parse == 0) {
             // This pipe has no more enqueued URBs. Move the pipe to the list of idle pipes
             TAILQ_REMOVE(&pipe->port->pipes_active_tailq, pipe, tailq_entry);
             TAILQ_INSERT_TAIL(&pipe->port->pipes_idle_tailq, pipe, tailq_entry);
