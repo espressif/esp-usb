@@ -16,15 +16,17 @@
 #include "esp_intr_alloc.h"
 #include "esp_err.h"
 #include "esp_log.h"
-#include "esp_memory_utils.h"
 
 #include "hal/usb_dwc_hal.h"
 #include "hcd.h"
 #include "usb_private.h"
 #include "usb/usb_types_ch9.h"
 
+#if !CONFIG_IDF_TARGET_LINUX
+#include "esp_memory_utils.h"
 #include "esp_cache.h"
 #include "esp_private/esp_cache_private.h"
+#endif
 
 #include "esp_idf_version.h"
 // For USB PHY Compatibility in IDF 5.x
@@ -1092,7 +1094,11 @@ static void intr_hdlr_main(void *arg)
     HCD_EXIT_CRITICAL_ISR();
 
     if (yield) {
+#if !CONFIG_IDF_TARGET_LINUX
         portYIELD_FROM_ISR();
+#else
+        portYIELD_FROM_ISR(yield);
+#endif
     }
 }
 
@@ -1878,7 +1884,9 @@ static dma_buffer_block_t *buffer_block_alloc(usb_transfer_type_t type)
 
     // Note for developers: We do not use heap_caps_get_allocated_size() because it is broken with HEAP_POISONING=COMPREHENSIVE
     size_t cache_align = 0;
+#if !CONFIG_IDF_TARGET_LINUX
     esp_cache_get_alignment(XFER_DESC_LIST_CAPS, &cache_align);
+#endif // CONFIG_IDF_TARGET_LINUX
     buffer->xfer_desc_list_len_bytes = ALIGN_UP(desc_list_len * sizeof(usb_dwc_ll_dma_qtd_t), cache_align);
     return buffer;
 }
