@@ -15,6 +15,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/semphr.h"
+#include "esp_private/critical_section.h"
 #include "usb/usb_host.h"
 
 #include "usb/hid_host.h"
@@ -25,9 +26,9 @@
 #define HID_MAX_REPORT_DESC_LEN     2048u
 
 // HID spinlock
-static portMUX_TYPE hid_lock = portMUX_INITIALIZER_UNLOCKED;
-#define HID_ENTER_CRITICAL()    portENTER_CRITICAL(&hid_lock)
-#define HID_EXIT_CRITICAL()     portEXIT_CRITICAL(&hid_lock)
+DEFINE_CRIT_SECTION_LOCK_STATIC(hid_lock);
+#define HID_ENTER_CRITICAL()           esp_os_enter_critical(&hid_lock)
+#define HID_EXIT_CRITICAL()            esp_os_exit_critical(&hid_lock)
 
 // HID verification macros
 #define HID_GOTO_ON_FALSE_CRITICAL(exp, err)    \

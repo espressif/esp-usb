@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2025-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -11,6 +11,7 @@
 #include "esp_vfs_fat.h"
 #include "esp_partition.h"
 #include "esp_memory_utils.h"
+#include "esp_private/critical_section.h"
 #include "soc/soc_caps.h"
 #include "sdkconfig.h"
 #include "vfs_fat_internal.h"
@@ -103,9 +104,9 @@ typedef struct {
 
 static tinyusb_msc_driver_t *p_msc_driver;
 
-static portMUX_TYPE msc_lock = portMUX_INITIALIZER_UNLOCKED;
-#define MSC_ENTER_CRITICAL()   portENTER_CRITICAL(&msc_lock)
-#define MSC_EXIT_CRITICAL()    portEXIT_CRITICAL(&msc_lock)
+DEFINE_CRIT_SECTION_LOCK_STATIC(msc_lock);
+#define MSC_ENTER_CRITICAL()           esp_os_enter_critical(&msc_lock)
+#define MSC_EXIT_CRITICAL()            esp_os_exit_critical(&msc_lock)
 
 #define MSC_GOTO_ON_FALSE_CRITICAL(cond, err)    \
     do {                                        \

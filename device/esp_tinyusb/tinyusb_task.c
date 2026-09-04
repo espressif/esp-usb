@@ -7,6 +7,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/semphr.h"
+#include "esp_private/critical_section.h"
 #include "soc/soc_caps.h"
 #include "esp_log.h"
 #include "esp_check.h"
@@ -20,9 +21,9 @@
 
 const static char *TAG = "tinyusb_task";
 
-static portMUX_TYPE tusb_task_lock = portMUX_INITIALIZER_UNLOCKED;
-#define TINYUSB_TASK_ENTER_CRITICAL()    portENTER_CRITICAL(&tusb_task_lock)
-#define TINYUSB_TASK_EXIT_CRITICAL()     portEXIT_CRITICAL(&tusb_task_lock)
+DEFINE_CRIT_SECTION_LOCK_STATIC(tusb_task_lock);
+#define TINYUSB_TASK_ENTER_CRITICAL()    esp_os_enter_critical(&tusb_task_lock)
+#define TINYUSB_TASK_EXIT_CRITICAL()     esp_os_exit_critical(&tusb_task_lock)
 
 #define TINYUSB_TASK_CHECK(cond, ret_val) ({                \
     if (!(cond)) {                                          \

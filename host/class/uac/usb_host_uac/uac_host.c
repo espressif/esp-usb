@@ -23,14 +23,15 @@
 #include "freertos/task.h"
 #include "freertos/semphr.h"
 #include "freertos/ringbuf.h"
+#include "esp_private/critical_section.h"
 #include "usb/usb_host.h"
 #include "usb/uac_host.h"
 #include "usb/usb_types_ch9.h"
 
 // UAC spinlock
-static portMUX_TYPE uac_lock = portMUX_INITIALIZER_UNLOCKED;
-#define UAC_ENTER_CRITICAL()    portENTER_CRITICAL(&uac_lock)
-#define UAC_EXIT_CRITICAL()     portEXIT_CRITICAL(&uac_lock)
+DEFINE_CRIT_SECTION_LOCK_STATIC(uac_lock);
+#define UAC_ENTER_CRITICAL()           esp_os_enter_critical(&uac_lock)
+#define UAC_EXIT_CRITICAL()            esp_os_exit_critical(&uac_lock)
 
 // UAC verification macros
 #define UAC_GOTO_ON_FALSE_CRITICAL(exp, err)    \

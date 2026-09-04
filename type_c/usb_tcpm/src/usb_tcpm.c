@@ -13,6 +13,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
+#include "esp_private/critical_section.h"
 
 #include "usb/usb_tcpm.h"
 #include "usb_tcpm_backend.h"
@@ -21,6 +22,13 @@ static const char *TAG = "usb_tcpm";
 
 /* Define the event base */
 ESP_EVENT_DEFINE_BASE(USB_TCPM_EVENT);
+
+// tcpm spinlock
+DEFINE_CRIT_SECTION_LOCK_STATIC(tcpm_lock);
+#define TCPM_ENTER_CRITICAL_ISR()       esp_os_enter_critical_isr(&tcpm_lock)
+#define TCPM_EXIT_CRITICAL_ISR()        esp_os_exit_critical_isr(&tcpm_lock)
+#define TCPM_ENTER_CRITICAL();           esp_os_enter_critical(&tcpm_lock)
+#define TCPM_EXIT_CRITICAL();            esp_os_exit_critical(&tcpm_lock)
 
 /* ---------- Per-port context ---------- */
 /**
@@ -70,7 +78,6 @@ typedef struct typec_port {
  */
 #define USB_TCPM_SRC_DETACH_GRACE_MS (200)
 
-static portMUX_TYPE s_lock = portMUX_INITIALIZER_UNLOCKED;
 static typec_port_t *s_ports;
 static TaskHandle_t s_task;
 
@@ -78,15 +85,15 @@ static void usb_tcpm_task(void *arg);
 
 static void usb_tcpm_port_list_add(typec_port_t *ctx)
 {
-    portENTER_CRITICAL(&s_lock);
+    TCPM_ENTER_CRITICAL();
     ctx->dynamic.next = s_ports;
     s_ports = ctx;
-    portEXIT_CRITICAL(&s_lock);
+    TCPM_EXIT_CRITICAL();
 }
 
 static void usb_tcpm_port_list_remove(typec_port_t *ctx)
 {
-    portENTER_CRITICAL(&s_lock);
+    TCPM_ENTER_CRITICAL();
     typec_port_t **port_cursor = &s_ports;
     while (*port_cursor && *port_cursor != ctx) {
         port_cursor = &(*port_cursor)->dynamic.next;
@@ -95,7 +102,7 @@ static void usb_tcpm_port_list_remove(typec_port_t *ctx)
         *port_cursor = ctx->dynamic.next;
     }
     ctx->dynamic.next = NULL;
-    portEXIT_CRITICAL(&s_lock);
+    TCPM_EXIT_CRITICAL();
 }
 
 #define USB_TCPM_STATUS_LOCK(ctx) do { \
@@ -462,12 +469,12 @@ static void IRAM_ATTR usb_tcpm_gpio_isr(void *arg)
     BaseType_t higher_priority_task_woken = pdFALSE;
     TaskHandle_t task = NULL;
 
-    portENTER_CRITICAL_ISR(&s_lock);
+    TCPM_ENTER_CRITICAL_ISR();
     if (!ctx->dynamic.deleting) {
         ctx->dynamic.irq_pending = true;
         task = s_task;
     }
-    portEXIT_CRITICAL_ISR(&s_lock);
+    TCPM_EXIT_CRITICAL_ISR();
 
     if (task) {
         vTaskNotifyGiveFromISR(task, &higher_priority_task_woken);
@@ -488,7 +495,7 @@ static void usb_tcpm_task(void *arg)
         for (;;) {
             typec_port_t *ctx = NULL;
 
-            portENTER_CRITICAL(&s_lock);
+            TCPM_ENTER_CRITICAL();
             for (typec_port_t *it = s_ports; it; it = it->dynamic.next) {
                 if (it->dynamic.irq_pending && !it->dynamic.irq_processing && !it->dynamic.deleting) {
                     it->dynamic.irq_pending = false;
@@ -497,7 +504,7 @@ static void usb_tcpm_task(void *arg)
                     break;
                 }
             }
-            portEXIT_CRITICAL(&s_lock);
+            TCPM_EXIT_CRITICAL();
 
             if (!ctx) {
                 break;
@@ -527,11 +534,11 @@ static void usb_tcpm_task(void *arg)
 
             bool deleting = false;
             gpio_num_t gpio_int = GPIO_NUM_NC;
-            portENTER_CRITICAL(&s_lock);
+            TCPM_ENTER_CRITICAL();
             deleting = ctx->dynamic.deleting;
             gpio_int = ctx->constant.gpio_int;
             ctx->dynamic.irq_processing = false;
-            portEXIT_CRITICAL(&s_lock);
+            TCPM_EXIT_CRITICAL();
 
             if (!deleting) {
                 gpio_intr_enable(gpio_int);
@@ -550,9 +557,9 @@ esp_err_t usb_tcpm_install(const usb_tcpm_install_config_t *config)
         ESP_RETURN_ON_ERROR(err, TAG, "Failed to create default event loop: %s", esp_err_to_name(err));
     }
 
-    portENTER_CRITICAL(&s_lock);
+    TCPM_ENTER_CRITICAL();
     const bool already_installed = (s_task != NULL);
-    portEXIT_CRITICAL(&s_lock);
+    TCPM_EXIT_CRITICAL();
     if (already_installed) {
         return ESP_OK;
     }
@@ -573,12 +580,12 @@ esp_err_t usb_tcpm_install(const usb_tcpm_install_config_t *config)
         return ESP_ERR_NO_MEM;
     }
 
-    portENTER_CRITICAL(&s_lock);
+    TCPM_ENTER_CRITICAL();
     if (!s_task) {
         s_task = task;
         task = NULL;
     }
-    portEXIT_CRITICAL(&s_lock);
+    TCPM_EXIT_CRITICAL();
     if (task) {
         vTaskDelete(task);
     }
@@ -588,15 +595,15 @@ esp_err_t usb_tcpm_install(const usb_tcpm_install_config_t *config)
 
 esp_err_t usb_tcpm_uninstall(void)
 {
-    portENTER_CRITICAL(&s_lock);
+    TCPM_ENTER_CRITICAL();
     if (s_ports != NULL) {
-        portEXIT_CRITICAL(&s_lock);
+        TCPM_EXIT_CRITICAL();
         ESP_LOGE(TAG, "Cannot uninstall while ports are active");
         return ESP_ERR_INVALID_STATE;
     }
     const TaskHandle_t task = s_task;
     s_task = NULL;
-    portEXIT_CRITICAL(&s_lock);
+    TCPM_EXIT_CRITICAL();
 
     if (task) {
         vTaskDelete(task);
@@ -613,9 +620,9 @@ esp_err_t typec_port_new(const typec_port_backend_t *backend,
     typec_port_t *ctx = NULL;
     ESP_RETURN_ON_FALSE(backend && backend_ctx && port_cfg && out,
                         ESP_ERR_INVALID_ARG, TAG, "bad args");
-    portENTER_CRITICAL(&s_lock);
+    TCPM_ENTER_CRITICAL();
     const bool installed = (s_task != NULL);
-    portEXIT_CRITICAL(&s_lock);
+    TCPM_EXIT_CRITICAL();
     if (!installed) {
         ret = ESP_ERR_INVALID_STATE;
         goto fail;
@@ -748,10 +755,10 @@ esp_err_t usb_tcpm_port_destroy(usb_tcpm_port_handle_t port_hdl)
         return ESP_ERR_INVALID_ARG;
     }
 
-    portENTER_CRITICAL(&s_lock);
+    TCPM_ENTER_CRITICAL();
     ctx->dynamic.deleting = true;
     ctx->dynamic.irq_pending = false;
-    portEXIT_CRITICAL(&s_lock);
+    TCPM_EXIT_CRITICAL();
 
     gpio_intr_disable(ctx->constant.gpio_int);
     gpio_isr_handler_remove(ctx->constant.gpio_int);
@@ -760,9 +767,9 @@ esp_err_t usb_tcpm_port_destroy(usb_tcpm_port_handle_t port_hdl)
 
     for (;;) {
         bool busy = false;
-        portENTER_CRITICAL(&s_lock);
+        TCPM_ENTER_CRITICAL();
         busy = ctx->dynamic.irq_processing;
-        portEXIT_CRITICAL(&s_lock);
+        TCPM_EXIT_CRITICAL();
         if (!busy) {
             break;
         }
