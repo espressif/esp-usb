@@ -297,3 +297,26 @@ esp_err_t uvc_host_stream_vs_ctrl(uvc_host_stream_hdl_t stream_hdl, uint8_t sele
                              uvc_stream->constant.bInterfaceNumber,
                              len, (uint8_t *)data);
 }
+
+esp_err_t uvc_host_stream_request_key_frame(uvc_host_stream_hdl_t stream_hdl)
+{
+    UVC_CHECK(stream_hdl, ESP_ERR_INVALID_ARG);
+    const uvc_stream_t *uvc_stream = (const uvc_stream_t *)stream_hdl;
+    const usb_config_desc_t *cfg_desc;
+    ESP_RETURN_ON_ERROR(uvc_control_get_cfg_desc(stream_hdl, &cfg_desc), TAG, "Could not read the configuration descriptor");
+
+    /* Optional control. Asking a camera that does not have it costs a STALL, which the USB
+     * host library logs at ERROR - so check the descriptor first and stay off the bus. */
+    bool supported = false;
+    ESP_RETURN_ON_ERROR(
+        uvc_desc_vs_supports_control(cfg_desc, uvc_stream->constant.bInterfaceNumber,
+                                     UVC_VS_INPUT_HEADER_CTRL_GENERATE_KEY_FRAME_BIT, &supported),
+        TAG, "Could not read the VideoStreaming input header");
+    if (!supported) {
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+
+    uint8_t generate = 1;
+    return uvc_host_stream_vs_ctrl(stream_hdl, UVC_VS_GENERATE_KEY_FRAME_CONTROL,
+                                   UVC_HOST_REQ_SET_CUR, &generate, sizeof(generate));
+}

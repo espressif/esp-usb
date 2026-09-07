@@ -773,3 +773,33 @@ esp_err_t uvc_desc_unit_supports_control(const usb_config_desc_t *cfg_desc, uint
     }
     return ESP_ERR_NOT_FOUND;
 }
+
+esp_err_t uvc_desc_vs_supports_control(const usb_config_desc_t *cfg_desc, uint8_t bInterfaceNumber, uint8_t control_bit, bool *supported)
+{
+    UVC_CHECK(cfg_desc && supported, ESP_ERR_INVALID_ARG);
+
+    const uvc_vs_input_header_desc_t *vs_header = uvc_desc_get_streaming_input_header(cfg_desc, bInterfaceNumber);
+    UVC_CHECK(vs_header, ESP_ERR_NOT_FOUND);
+
+    const uint8_t control_size = vs_header->bControlSize;
+    const uint8_t byte_index = control_bit / 8;
+    *supported = false;
+    if (control_size == 0 || byte_index >= control_size) {
+        return ESP_OK;
+    }
+
+    /* bmaControls is per format: bNumFormats entries of bControlSize bytes. Report the
+     * control as available when any format claims it. */
+    const size_t array_offset = offsetof(uvc_vs_input_header_desc_t, bmaControls);
+    for (uint8_t format = 0; format < vs_header->bNumFormats; format++) {
+        const size_t byte_offset = array_offset + (size_t)format * control_size + byte_index;
+        if (byte_offset >= vs_header->bLength) {
+            break;
+        }
+        if ((vs_header->bmaControls[(size_t)format * control_size + byte_index] >> (control_bit % 8)) & 1) {
+            *supported = true;
+            break;
+        }
+    }
+    return ESP_OK;
+}

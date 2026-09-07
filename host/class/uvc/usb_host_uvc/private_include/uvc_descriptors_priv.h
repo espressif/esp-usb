@@ -181,6 +181,22 @@ esp_err_t uvc_desc_find_terminal(const usb_config_desc_t *cfg_desc, uint8_t uvc_
  */
 esp_err_t uvc_desc_unit_supports_control(const usb_config_desc_t *cfg_desc, uint8_t uvc_index, uint8_t unit_id, uint8_t control_bit, bool *supported);
 
+/**
+ * @brief Check whether a VideoStreaming interface claims a control in its bmaControls
+ *
+ * bmaControls is per format; a control is reported as available when any format claims it.
+ *
+ * @param[in]  cfg_desc         Configuration descriptor
+ * @param[in]  bInterfaceNumber VideoStreaming interface number
+ * @param[in]  control_bit      Bit position, counted from D0 across all bytes
+ * @param[out] supported        Whether the bit is set for any format
+ * @return
+ *     - ESP_OK: The interface was found and supported was written
+ *     - ESP_ERR_INVALID_ARG: cfg_desc or supported is NULL
+ *     - ESP_ERR_NOT_FOUND: No such VideoStreaming interface
+ */
+esp_err_t uvc_desc_vs_supports_control(const usb_config_desc_t *cfg_desc, uint8_t bInterfaceNumber, uint8_t control_bit, bool *supported);
+
 esp_err_t uvc_desc_get_frame_list(
     const usb_config_desc_t *config_desc,
     uint8_t uvc_index,

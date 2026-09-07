@@ -492,6 +492,24 @@ esp_err_t uvc_host_stream_vs_ctrl(uvc_host_stream_hdl_t stream_hdl, uint8_t sele
         uvc_host_req_code_t req, void *data, uint16_t len);
 
 /**
+ * @brief Ask the camera to emit a key frame now.
+ *
+ * Issues the VideoStreaming Generate Key Frame control. Useful when a viewer joins mid-GOP or
+ * after packet loss: without it, recovery is bounded by the camera's own key-frame interval,
+ * which is often several seconds.
+ *
+ * @param[in] stream_hdl UVC handle obtained from uvc_host_stream_open().
+ *
+ * @return
+ *      - ESP_OK if the key frame was requested
+ *      - ESP_ERR_INVALID_ARG if stream_hdl is NULL
+ *      - ESP_ERR_NOT_SUPPORTED if the camera does not implement the control, either by not
+ *        claiming it in its descriptor or by stalling the request. Permanent: stop asking.
+ *      - ESP_ERR_INVALID_RESPONSE if the transfer failed on the bus. Transient: try later.
+ */
+esp_err_t uvc_host_stream_request_key_frame(uvc_host_stream_hdl_t stream_hdl);
+
+/**
  * @brief Stop a UVC stream.
  *
  * @param[in] stream_hdl UVC handle obtained from uvc_host_stream_open().

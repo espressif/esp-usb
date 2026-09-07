@@ -356,6 +356,13 @@ typedef struct {
 } USB_DESC_ATTR uvc_vs_input_header_desc_t;
 
 /**
+ * @brief VideoStreaming input header bmaControls bits
+ *
+ * @see USB UVC specification ver 1.5, section 3.9.2.1
+ */
+#define UVC_VS_INPUT_HEADER_CTRL_GENERATE_KEY_FRAME_BIT 4
+
+/**
  * @brief Still Image Frame Descriptor
  *
  * Please note that this descriptor can have multiple sizes and compressions
