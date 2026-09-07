@@ -86,6 +86,22 @@ typedef struct {
 } msc_host_device_info_t;
 
 /**
+ * @brief Result of a completed logical-unit probe.
+ *
+ * Bit n in either mask describes LUN n. A ready LUN passed TEST UNIT READY
+ * and READ CAPACITY with a supported sector size. A failed LUN failed INQUIRY
+ * or READ CAPACITY, reported a non-retryable readiness error, or returned an
+ * unsupported sector size. LUNs in
+ * 0..max_lun with neither bit set remained unready (including empty slots).
+ * USB transport errors fail the probe instead of producing a partial result.
+ */
+typedef struct {
+    uint16_t ready_lun_mask;  /*!< Ready block devices; no filesystem or write-access check is performed. */
+    uint16_t failed_lun_mask; /*!< LUNs rejected by SCSI initialization or sector-size validation. */
+    uint8_t max_lun;         /*!< Highest LUN reported by GET_MAX_LUN, not a count of inserted media. */
+} msc_host_lun_info_t;
+
+/**
  * @brief Install the USB Host Mass Storage Class driver.
  *
  * @param[in] config MSC driver configuration.
@@ -111,6 +127,9 @@ esp_err_t msc_host_uninstall(void);
 /**
  * @brief Initialize an MSC device after connection.
  *
+ * @note Installs LUN 0, preserving the original single-LUN behavior.
+ *       Use msc_host_install_device_lun() to select a different LUN.
+ *
  * @param[in] device_address Device address obtained from the MSC connection callback.
  * @param[out] device Mass storage device handle to use for subsequent API calls. Must not be NULL.
  *
@@ -123,9 +142,79 @@ esp_err_t msc_host_uninstall(void);
 esp_err_t msc_host_install_device(uint8_t device_address, msc_host_device_handle_t *device);
 
 /**
+ * @brief Initialize exactly one logical unit of an MSC device.
+ *
+ * Starts a new BOT session with a Mass Storage Reset and clears both bulk
+ * endpoint halts before initializing the selected LUN.
+ *
+ * @note No other LUN is probed or used as a fallback. The binding remains
+ *       fixed for I/O and reset recovery until uninstall. LUN 0 does not
+ *       require GET_MAX_LUN; nonzero LUNs are checked against its response.
+ * @note Only one LUN of the selected MSC interface can be installed at once.
+ *       Unmount and uninstall the current device before selecting another.
+ *       Insert the medium before installation; changing media while installed
+ *       is not supported.
+ * @note This is a blocking operation. USB event processing must continue in
+ *       another task; do not call it from the MSC event callback. Serialize
+ *       installation, probing and uninstallation in the application.
+ *
+ * @param[in] device_address Address obtained from the MSC connection callback.
+ * @param[in] lun Logical unit number in 0..15.
+ * @param[out] device Installed device handle. Set to NULL on failure.
+ *
+ * @return
+ *      - ESP_OK on success
+ *      - ESP_ERR_INVALID_ARG if device is NULL or lun exceeds 15
+ *      - ESP_ERR_NOT_FOUND if lun exceeds the reported maximum
+ *      - ESP_ERR_INVALID_STATE if the driver is unavailable or the device is already open
+ *      - Other errors from device initialization or the USB Host library
+ */
+esp_err_t msc_host_install_device_lun(uint8_t device_address, uint8_t lun, msc_host_device_handle_t *device);
+
+/**
+ * @brief Discover logical units before installing an MSC device.
+ *
+ * Opens a temporary session on the same interface used by device installation,
+ * resets the BOT transport, queries GET_MAX_LUN, and probes all advertised
+ * LUNs. Releases the session before returning. No LUN is selected or mounted;
+ * the application chooses a candidate and calls msc_host_install_device_lun(),
+ * which revalidates it. GET_MAX_LUN STALL is treated as a single-LUN device.
+ *
+ * @note LUNs reporting NOT READY / MEDIUM NOT PRESENT (02/3A/xx) are skipped
+ *       without retrying and have neither result bit set. Other retryable
+ *       readiness failures share one retry window. The initial pass covers
+ *       every LUN, even with timeout_ms == 0; finding one ready LUN does not
+ *       end the scan. Individual USB transfers keep their own timeouts, so
+ *       this is not a strict total execution deadline.
+ * @note Results describe observations during this call, not persistent media
+ *       identity. The reader must remain connected through selection and
+ *       installation. Do not change cards during these operations.
+ * @note Call only before installation. This function is blocking and must not
+ *       run in the MSC event callback. USB events must be processed in another
+ *       task. Serialize probing, installation and uninstallation in the
+ *       application. Temporary handles are not delivered in MSC events.
+ *
+ * @param[in] device_address Address obtained from the MSC connection callback.
+ * @param[in] timeout_ms Readiness retry window in milliseconds; 0 scans once.
+ * @param[out] info Complete result on success; cleared on failure. Must not be NULL.
+ *
+ * @return
+ *      - ESP_OK on a complete probe, including when no LUN is ready
+ *      - ESP_ERR_INVALID_ARG if info is NULL
+ *      - ESP_ERR_INVALID_STATE if the driver is unavailable or the device is already open
+ *      - ESP_ERR_INVALID_SIZE or ESP_ERR_INVALID_RESPONSE for malformed GET_MAX_LUN
+ *      - Other errors from resource management or the USB transport
+ */
+esp_err_t msc_host_probe_luns(uint8_t device_address, uint32_t timeout_ms, msc_host_lun_info_t *info);
+
+/**
  * @brief Deinitialize an MSC device.
  *
- * @param[in] device Device handle obtained from msc_host_install_device().
+ * @note Stop I/O before calling. USB event processing must continue until
+ *       pending transfer callbacks have finished and this call returns.
+ *       No commands are sent to the device, which may already be disconnected.
+ *
+ * @param[in] device Device handle obtained from either installation API.
  *
  * @return
  *      - ESP_OK on success
