@@ -548,11 +548,12 @@ TEST_CASE("can_be_formated", "[usb_msc]")
     msc_teardown();
 
     printf("Check file does not exist after formatting\n");
+    const bool config_backup = mount_config.format_if_mount_failed;
     mount_config.format_if_mount_failed = true;
     msc_setup();
     TEST_ASSERT_FALSE(file_exists(FILE_NAME));
     msc_teardown();
-    mount_config.format_if_mount_failed = false;
+    mount_config.format_if_mount_failed = config_backup;
 }
 
 /**
@@ -892,6 +893,8 @@ TEST_CASE("suspended_device_sudden_disconnect_by_host", "[usb_msc]")
 TEST_CASE("suspended_device_sudden_disconnect_by_device", "[host_suspend_sudden_dconn]")
 {
     msc_setup();
+
+    vTaskDelay(10);
 
     ESP_OK_ASSERT(usb_host_lib_root_port_suspend());
 
