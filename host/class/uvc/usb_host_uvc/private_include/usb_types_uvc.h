@@ -315,6 +315,26 @@ typedef struct {
 } USB_DESC_ATTR uvc_processing_unit_desc_t;
 
 /**
+ * @brief Extension Unit Descriptor
+ *
+ * Variable length: baSourceID is bNrInPins bytes, followed by bControlSize,
+ * bmControls[bControlSize] and iExtension. Only the fixed head is described here;
+ * the trailing fields must be reached by offset from bNrInPins.
+ *
+ * @see USB UVC specification ver 1.5, Extension Unit Descriptor (VC_EXTENSION_UNIT)
+ */
+typedef struct {
+    uint8_t  bLength;
+    uint8_t  bDescriptorType;
+    uint8_t  bDescriptorSubType;
+    uint8_t  bUnitID;
+    uint8_t  guidExtensionCode[16];
+    uint8_t  bNumControls;
+    uint8_t  bNrInPins;
+    uint8_t  baSourceID[];
+} USB_DESC_ATTR uvc_extension_unit_desc_t;
+
+/**
  * @brief Video Streaming Interface Input Header Descriptor
  *
  * @see USB UVC specification ver 1.5, table 3-14
