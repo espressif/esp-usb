@@ -9,6 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Fixed
 
 - Validate SCSI READ CAPACITY `block_size` (power-of-two in [512, 4096]) and refuse FatFS `GET_SECTOR_SIZE` truncation that can overflow `fs->win` (BBP 574)
+- Use `esp_vfs_fat_register` instead of the deprecated `esp_vfs_fat_register_cfg` for ESP-IDF v6.0 and higher
 
 ## [1.2.0] - 2026-04-08
 
