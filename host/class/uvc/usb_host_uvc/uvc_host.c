@@ -1195,6 +1195,13 @@ esp_err_t uvc_host_usb_ctrl(uvc_host_stream_hdl_t stream_hdl, uint8_t bmRequestT
             continue;
         }
 
+        /* Report a stall apart from a bus failure. */
+        if (status == USB_TRANSFER_STATUS_STALL) {
+            ESP_LOGD(TAG, "CTRL request 0x%02x stalled: the device does not support it", bRequest);
+            ret = ESP_ERR_NOT_SUPPORTED;
+            goto unblock;
+        }
+
         ESP_GOTO_ON_FALSE(false, ESP_ERR_INVALID_RESPONSE, unblock, TAG, "Control transfer error");
     }
 
