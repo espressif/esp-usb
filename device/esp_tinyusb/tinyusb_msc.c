@@ -8,6 +8,7 @@
 #include "esp_log.h"
 #include "esp_err.h"
 #include "esp_check.h"
+#include "esp_idf_version.h"
 #include "esp_vfs_fat.h"
 #include "esp_partition.h"
 #include "esp_memory_utils.h"
@@ -485,15 +486,19 @@ static esp_err_t msc_storage_mount(msc_storage_obj_t *storage)
     char drv[3] = {(char)('0' + pdrv), ':', 0};
 
 #if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 3, 0)
-    esp_vfs_fat_conf_t conf = {
+    const esp_vfs_fat_conf_t conf = {
         .base_path = base_path,
         .fat_drive = drv,
         .max_files = max_files,
     };
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(6, 0, 0)
+    ret = esp_vfs_fat_register(&conf, &fs);
+#else
     ret = esp_vfs_fat_register_cfg(&conf, &fs);
+#endif // ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(6, 0, 0)
 #else
     ret = esp_vfs_fat_register(base_path, drv, max_files, &fs);
-#endif
+#endif // ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 3, 0)
     if (ret == ESP_ERR_INVALID_STATE) {
         ESP_LOGD(TAG, "VFS FAT already registered");
     } else if (ret != ESP_OK) {
@@ -1133,15 +1138,19 @@ esp_err_t tinyusb_msc_format_storage(tinyusb_msc_storage_handle_t handle)
     // Register FAT FS with VFS component
     char drv[3] = {(char)('0' + pdrv), ':', 0}; // FATFS drive specificator; if only one drive is used, can be an empty string
 #if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 3, 0)
-    esp_vfs_fat_conf_t conf = {
+    const esp_vfs_fat_conf_t conf = {
         .base_path = base_path,
         .fat_drive = drv,
         .max_files = max_files,
     };
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(6, 0, 0)
+    ESP_RETURN_ON_ERROR(esp_vfs_fat_register(&conf, &fs), TAG, "VFS FAT register failed");
+#else
     ESP_RETURN_ON_ERROR(esp_vfs_fat_register_cfg(&conf, &fs), TAG, "VFS FAT register failed");
+#endif // ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(6, 0, 0)
 #else
     ESP_RETURN_ON_ERROR(esp_vfs_fat_register(base_path, drv, max_files, &fs), TAG, "VFS FAT register failed");
-#endif
+#endif // ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 3, 0)
     // to make format, we need to mount the fs
     // Mount the FAT FS
     ret = vfs_fat_mount(drv, fs, true);
