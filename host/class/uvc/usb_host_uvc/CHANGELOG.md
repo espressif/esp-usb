@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- `uvc_host_usb_ctrl()` now returns `ESP_ERR_NOT_SUPPORTED` when the device STALLs a control request, rather than the `ESP_ERR_INVALID_RESPONSE` it also returns for a failed transfer.
+
+### Fixed
+
+- Fixed a single EP0 transaction error breaking every later control transfer. Control transfers are now retried a few times with a yield in between. A STALL is deliberately not retried.
+
 ## [2.5.2] - 2026-09-01
 
 ### Added
