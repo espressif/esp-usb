@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Fixed the control transfer size check ignoring the setup packet, which shares the 64-byte EP0 buffer with the payload.
 - Fixed a single EP0 transaction error breaking every later control transfer. Control transfers are now retried a few times with a yield in between. A STALL is deliberately not retried.
 
 ## [2.5.2] - 2026-09-01

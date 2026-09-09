@@ -1129,7 +1129,9 @@ esp_err_t uvc_host_usb_ctrl(uvc_host_stream_hdl_t stream_hdl, uint8_t bmRequestT
     if (wLength > 0) {
         UVC_CHECK(data, ESP_ERR_INVALID_ARG);
     }
-    UVC_CHECK(p_uvc_host_driver->ctrl_transfer->data_buffer_size >= wLength, ESP_ERR_INVALID_SIZE);
+    /* The data buffer size should account for the paylaod and the packet struct */
+    UVC_CHECK(p_uvc_host_driver->ctrl_transfer->data_buffer_size >= wLength + sizeof(usb_setup_packet_t),
+              ESP_ERR_INVALID_SIZE);
 
     esp_err_t ret;
 
