@@ -61,6 +61,7 @@ SCENARIO("USB Host install")
     usb_host_config_t usb_host_config = {
         .skip_phy_setup = false,
         .root_port_unpowered = false,
+        .root_port_fsls_only = false,
         .intr_flags = 1,
         .enum_filter_cb = nullptr,
         .fifo_settings_custom = {},
@@ -183,6 +184,7 @@ SCENARIO("USB Dual Host install - valid config")
     usb_host_config_t usb_host_config = {
         .skip_phy_setup = false,
         .root_port_unpowered = false,
+        .root_port_fsls_only = false,
         .intr_flags = 1,
         .enum_filter_cb = nullptr,
         .fifo_settings_custom = {},
@@ -246,6 +248,7 @@ SCENARIO("USB Host install - valid config")
     usb_host_config_t usb_host_config = {
         .skip_phy_setup = false,
         .root_port_unpowered = false,
+        .root_port_fsls_only = false,
         .intr_flags = 1,
         .enum_filter_cb = nullptr,
         .fifo_settings_custom = {},

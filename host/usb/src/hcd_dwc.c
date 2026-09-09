@@ -231,6 +231,7 @@ struct pipe_obj {
 struct port_obj {
     usb_dwc_hal_context_t *hal;
     void *frame_list;
+    bool fsls_only;
     // Pipes routed through this port
     TAILQ_HEAD(tailhead_pipes_idle, pipe_obj) pipes_idle_tailq;
     TAILQ_HEAD(tailhead_pipes_queued, pipe_obj) pipes_active_tailq;
@@ -1508,6 +1509,7 @@ esp_err_t hcd_port_init(int port_number, const hcd_port_config_t *port_config, h
     port_obj->callback = port_config->callback;
     port_obj->callback_arg = port_config->callback_arg;
     port_obj->context = port_config->context;
+    port_obj->fsls_only = port_config->fsls_only;
 
     // Apply custom FIFO config if provided
     if (port_config->fifo_config != NULL) {
@@ -1617,6 +1619,9 @@ esp_err_t hcd_port_command(hcd_port_handle_t port_hdl, hcd_port_cmd_t command)
             break;
         }
         case HCD_PORT_CMD_RESET: {
+            if (port->fsls_only) {
+                usb_dwc_ll_hcfg_set_fsls_supp_only(port->hal->dev);
+            }
             ret = _port_cmd_reset(port);
             break;
         }

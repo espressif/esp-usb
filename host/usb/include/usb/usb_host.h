@@ -125,6 +125,7 @@ typedef struct {
     bool root_port_unpowered;                   /**< If set, the USB Host Library will not power on the root port on installation.
                                                      This allows users to power on the root port manually by calling
                                                      usb_host_lib_set_root_port_power(). */
+    bool root_port_fsls_only;                   /**< If set, root ports enumerate devices at full/low speed only. */
     int intr_flags;                             /**< Interrupt flags for the underlying ISR used by the USB Host stack. In dual host applications, this applies to all ports.*/
     usb_host_enum_filter_cb_t enum_filter_cb;   /**< Enumeration filter callback. Enable CONFIG_USB_HOST_ENABLE_ENUM_FILTER_CALLBACK
                                                      to use this feature. Set to NULL otherwise. */

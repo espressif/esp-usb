@@ -756,6 +756,7 @@ esp_err_t usb_host_install(const usb_host_config_t *config)
     // Install Hub
     hub_config_t hub_config = {
         .port_map = peripheral_map, // Each USB-OTG peripheral maps to a root port
+        .root_port_fsls_only = config->root_port_fsls_only,
         .proc_req_cb = proc_req_callback,
         .proc_req_cb_arg = NULL,
         .event_cb = hub_event_callback,

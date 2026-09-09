@@ -176,6 +176,7 @@ typedef struct {
     void *callback_arg;                     /**< User argument for HCD port callback */
     void *context;                          /**< Context variable used to associate the port with upper layer object */
     const hcd_fifo_settings_t *fifo_config; /**< Optional pointer to custom FIFO config. If NULL, default configuration is used. */
+    bool fsls_only;                         /**< Limit this port to full/low speed */
     int intr_flags;                         /**< Interrupt flags for HCD interrupt */
 } hcd_port_config_t;
 
