@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2024-2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2024-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -221,7 +221,7 @@ esp_err_t uvc_host_stream_control_commit(uvc_host_stream_hdl_t stream_hdl, const
 /* Generic unit, terminal and VideoStreaming controls */
 
 esp_err_t uvc_host_stream_send_custom_request(uvc_host_stream_hdl_t stream_hdl, uint8_t bmRequestType,
-        uint8_t bRequest, uint16_t wValue, uint16_t wIndex, uint16_t wLength, uint8_t *data)
+                                              uint8_t bRequest, uint16_t wValue, uint16_t wIndex, uint16_t wLength, uint8_t *data)
 {
     return uvc_host_usb_ctrl(stream_hdl, bmRequestType, bRequest, wValue, wIndex, wLength, data);
 }
@@ -237,7 +237,7 @@ static esp_err_t uvc_control_get_cfg_desc(uvc_host_stream_hdl_t stream_hdl, cons
 }
 
 esp_err_t uvc_host_stream_find_extension_unit(uvc_host_stream_hdl_t stream_hdl, const uint8_t guid[16],
-        uint8_t *unit_id)
+                                              uint8_t *unit_id)
 {
     UVC_CHECK(stream_hdl && guid && unit_id, ESP_ERR_INVALID_ARG);
     const uvc_stream_t *uvc_stream = (const uvc_stream_t *)stream_hdl;
@@ -257,7 +257,7 @@ esp_err_t uvc_host_stream_find_terminal(uvc_host_stream_hdl_t stream_hdl, uint16
 }
 
 esp_err_t uvc_host_stream_unit_supports_control(uvc_host_stream_hdl_t stream_hdl, uint8_t unit_id,
-        uint8_t control_bit, bool *supported)
+                                                uint8_t control_bit, bool *supported)
 {
     UVC_CHECK(stream_hdl && supported, ESP_ERR_INVALID_ARG);
     const uvc_stream_t *uvc_stream = (const uvc_stream_t *)stream_hdl;
@@ -267,7 +267,7 @@ esp_err_t uvc_host_stream_unit_supports_control(uvc_host_stream_hdl_t stream_hdl
 }
 
 esp_err_t uvc_host_stream_unit_ctrl(uvc_host_stream_hdl_t stream_hdl, uint8_t unit_id, uint8_t selector,
-        uvc_host_req_code_t req, void *data, uint16_t len)
+                                    uvc_host_req_code_t req, void *data, uint16_t len)
 {
     UVC_CHECK(stream_hdl && data, ESP_ERR_INVALID_ARG);
     const uvc_stream_t *uvc_stream = (const uvc_stream_t *)stream_hdl;
@@ -284,7 +284,7 @@ esp_err_t uvc_host_stream_unit_ctrl(uvc_host_stream_hdl_t stream_hdl, uint8_t un
 }
 
 esp_err_t uvc_host_stream_vs_ctrl(uvc_host_stream_hdl_t stream_hdl, uint8_t selector,
-        uvc_host_req_code_t req, void *data, uint16_t len)
+                                  uvc_host_req_code_t req, void *data, uint16_t len)
 {
     UVC_CHECK(stream_hdl && data, ESP_ERR_INVALID_ARG);
     const uvc_stream_t *uvc_stream = (const uvc_stream_t *)stream_hdl;

@@ -360,7 +360,7 @@ typedef enum {
  *        transient answer, already retried a few times, and worth trying again later.
  */
 esp_err_t uvc_host_stream_send_custom_request(uvc_host_stream_hdl_t stream_hdl, uint8_t bmRequestType,
-        uint8_t bRequest, uint16_t wValue, uint16_t wIndex, uint16_t wLength, uint8_t *data);
+                                              uint8_t bRequest, uint16_t wValue, uint16_t wIndex, uint16_t wLength, uint8_t *data);
 
 /**
  * @brief Find an Extension Unit by its GUID.
@@ -378,7 +378,7 @@ esp_err_t uvc_host_stream_send_custom_request(uvc_host_stream_hdl_t stream_hdl, 
  *      - ESP_ERR_NOT_FOUND if this camera has no extension unit with that GUID
  */
 esp_err_t uvc_host_stream_find_extension_unit(uvc_host_stream_hdl_t stream_hdl, const uint8_t guid[16],
-        uint8_t *unit_id);
+                                              uint8_t *unit_id);
 
 /**
  * @brief Standard UVC terminal types.
@@ -417,7 +417,7 @@ enum uvc_host_terminal_type {
  *      - ESP_ERR_NOT_FOUND if this camera has no terminal of that type
  */
 esp_err_t uvc_host_stream_find_terminal(uvc_host_stream_hdl_t stream_hdl, uint16_t terminal_type,
-        uint8_t *terminal_id);
+                                        uint8_t *terminal_id);
 
 /**
  * @brief Ask whether a unit or terminal implements a control.
@@ -438,7 +438,7 @@ esp_err_t uvc_host_stream_find_terminal(uvc_host_stream_hdl_t stream_hdl, uint16
  *      - ESP_ERR_NOT_FOUND if there is no such unit, or it declares no bmControls
  */
 esp_err_t uvc_host_stream_unit_supports_control(uvc_host_stream_hdl_t stream_hdl, uint8_t unit_id,
-        uint8_t control_bit, bool *supported);
+                                                uint8_t control_bit, bool *supported);
 
 /**
  * @brief Issue a control request to a VideoControl unit or terminal.
@@ -464,7 +464,7 @@ esp_err_t uvc_host_stream_unit_supports_control(uvc_host_stream_hdl_t stream_hdl
  *      - Other error codes from the USB Host library
  */
 esp_err_t uvc_host_stream_unit_ctrl(uvc_host_stream_hdl_t stream_hdl, uint8_t unit_id, uint8_t selector,
-        uvc_host_req_code_t req, void *data, uint16_t len);
+                                    uvc_host_req_code_t req, void *data, uint16_t len);
 
 /**
  * @brief Issue a raw control request to the VideoStreaming interface.
@@ -489,7 +489,7 @@ esp_err_t uvc_host_stream_unit_ctrl(uvc_host_stream_hdl_t stream_hdl, uint8_t un
  *      - Other error codes from the USB Host library
  */
 esp_err_t uvc_host_stream_vs_ctrl(uvc_host_stream_hdl_t stream_hdl, uint8_t selector,
-        uvc_host_req_code_t req, void *data, uint16_t len);
+                                  uvc_host_req_code_t req, void *data, uint16_t len);
 
 /**
  * @brief Ask the camera to emit a key frame now.
