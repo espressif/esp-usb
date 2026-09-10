@@ -58,11 +58,7 @@ if(${target} STREQUAL "esp32p4" OR ${target} STREQUAL "esp32s31")
     list(APPEND srcs "tinyusb_vbus_monitor.c")
 
     # VBUS monitoring requires GPIO driver
-    if(IDF_VERSION VERSION_GREATER_EQUAL "5.3")
-        list(APPEND priv_req esp_driver_gpio)
-    else()
-        list(APPEND priv_req driver)
-    endif()
+    list(APPEND priv_req esp_driver_gpio)
 endif() # esp32p4/esp32s31
 
 # TinyUSB PM locks
