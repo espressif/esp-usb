@@ -15,7 +15,6 @@
 #include "esp_err.h"
 //
 #include "unity.h"
-#include "esp_idf_version.h"
 #include "sdkconfig.h"
 #include "storage_common.h"
 
@@ -31,15 +30,12 @@
 #define TEST_SDMMC_PIN_D2               CONFIG_TEST_SDMMC_PIN_D2
 #define TEST_SDMMC_PIN_D3               CONFIG_TEST_SDMMC_PIN_D3
 
-// IDF VERSION
-#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 3, 0)
 #if (SOC_SDMMC_IO_POWER_EXTERNAL)
 // Some boards required internal LDO to be enabled for SDMMC initialization
 // To understand if your board requires this, please refer to the board's documentation
 #define TEST_SDMMC_INIT_INTERNAL_LDO    1 // Enable internal LDO for SDMMC initialization
 #define TEST_SDMMC_LDO_CHAN_ID          4
 #endif // (SOC_SDMMC_IO_POWER_EXTERNAL)
-#endif // ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(5, 3, 0)
 
 #if (TEST_SDMMC_INIT_INTERNAL_LDO)
 #include "sd_pwr_ctrl_by_on_chip_ldo.h"
