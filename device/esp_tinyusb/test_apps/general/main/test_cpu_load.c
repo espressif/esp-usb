@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2025-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -35,19 +35,10 @@ static TaskStatus_t *end_array = NULL;
 static UBaseType_t start_array_size;
 static UBaseType_t end_array_size;
 
-#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 2, 0)
 static configRUN_TIME_COUNTER_TYPE start_run_time;
 static configRUN_TIME_COUNTER_TYPE end_run_time;
-#else
-static uint32_t start_run_time;
-static uint32_t end_run_time;
-#endif // ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 2, 0)
 
-#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 3, 0)
 #define CPU_AMOUNT_OF_CORES    CONFIG_FREERTOS_NUMBER_OF_CORES
-#else
-#define CPU_AMOUNT_OF_CORES    portNUM_PROCESSORS
-#endif // ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 3, 0)
 
 /**
  * @brief Initialize CPU load measurement
