@@ -6,14 +6,18 @@ v3.0.0 removes DCD Slave/IRQ mode. The TinyUSB DWC2 Device Controller Driver use
 
 If your project used the default DCD mode (Buffer DMA), you do not need to change application code. If your project selected Slave/IRQ mode, you must switch to Buffer DMA. Slave/IRQ mode is no longer available.
 
+v3.0.0 requires ESP-IDF v5.3 or later. Compatibility code for older ESP-IDF versions has been removed.
+
 ## Changes Required After Migration
 
+- Use ESP-IDF v5.3 or later
 - Do not set `CONFIG_TINYUSB_MODE_SLAVE` or `CONFIG_TINYUSB_MODE_DMA` as they do not have any effect anymore
 
 ## List of changes
 
 ### Removed
 
+- Support for ESP-IDF versions older than v5.3.
 - Kconfig menu `TinyUSB DCD` and choice `TINYUSB_MODE`:
   - `TINYUSB_MODE_SLAVE`,
   - `TINYUSB_MODE_DMA`.
