@@ -98,16 +98,9 @@ extern "C" {
 #endif
 
 // ------------------------------------------------------------------------
-//                              DCD DWC2 Mode
-// ------------------------------------------------------------------------
-#define CFG_TUD_DWC2_SLAVE_ENABLE   1       // Enable Slave/IRQ by default
-
-// ------------------------------------------------------------------------
 //                              DMA & Cache
 // ------------------------------------------------------------------------
-#ifdef CONFIG_TINYUSB_MODE_DMA
-// DMA Mode has a priority over Slave/IRQ mode and will be used if hardware supports it
-#define CFG_TUD_DWC2_DMA_ENABLE     1       // Enable DMA
+#define CFG_TUD_DWC2_DMA_ENABLE     1       // Enable DMA mode
 
 // DCache maintenance is only needed when the SoC actually reaches internal
 // SRAM (where TinyUSB DMA buffers live) via the L1 cache. Just having an L1
@@ -117,28 +110,15 @@ extern "C" {
 #if CONFIG_CACHE_L1_CACHE_LINE_SIZE && CONFIG_SOC_CACHE_INTERNAL_MEM_VIA_L1CACHE
 // Enable dcd_dcache clean/invalidate/clean_invalidate calls
 #   define CFG_TUD_MEM_DCACHE_ENABLE    1
-#define CFG_TUD_MEM_DCACHE_LINE_SIZE    CONFIG_CACHE_L1_CACHE_LINE_SIZE
-// NOTE: starting with esp-idf v5.3 there is specific attribute present: DRAM_DMA_ALIGNED_ATTR
-#   define CFG_TUSB_MEM_SECTION         __attribute__((aligned(CONFIG_CACHE_L1_CACHE_LINE_SIZE))) DRAM_ATTR
+#   define CFG_TUD_MEM_DCACHE_LINE_SIZE CONFIG_CACHE_L1_CACHE_LINE_SIZE
 #else
 #   define CFG_TUD_MEM_DCACHE_ENABLE    0
 #   define CFG_TUD_MEM_CACHE_ENABLE     0
-#   define CFG_TUSB_MEM_SECTION         TU_ATTR_ALIGNED(4) DRAM_ATTR
 #endif // CONFIG_CACHE_L1_CACHE_LINE_SIZE && CONFIG_SOC_CACHE_INTERNAL_MEM_VIA_L1CACHE
-#endif // CONFIG_TINYUSB_MODE_DMA
+
+#define CFG_TUSB_MEM_SECTION        DRAM_DMA_ALIGNED_ATTR
 
 #define CFG_TUSB_OS                 OPT_OS_FREERTOS
-
-/* USB DMA on some MCUs can only access a specific SRAM region with restriction on alignment.
- * Tinyusb use follows macros to declare transferring memory so that they can be put
- * into those specific section.
- * e.g
- * - CFG_TUSB_MEM SECTION : __attribute__ (( section(".usb_ram") ))
- * - CFG_TUSB_MEM_ALIGN   : __attribute__ ((aligned(4)))
- */
-#ifndef CFG_TUSB_MEM_SECTION
-#   define CFG_TUSB_MEM_SECTION
-#endif
 
 #ifndef CFG_TUSB_MEM_ALIGN
 #   define CFG_TUSB_MEM_ALIGN       TU_ATTR_ALIGNED(4)

@@ -1,3 +1,9 @@
+## 3.0.0
+
+### Breaking changes
+
+- esp_tinyusb: Removed DCD Slave/IRQ mode. Only Buffer DMA mode is supported. For more details, refer to the [Espressif's Addition to TinyUSB Migration guide v3](../../docs/device/migration-guides/v3/tinyusb.md)
+
 ## Unreleased
 
 - esp_tinyusb: MSC: Use `esp_vfs_fat_register` instead of the deprecated `esp_vfs_fat_register_cfg` for ESP-IDF v6.0 and higher
