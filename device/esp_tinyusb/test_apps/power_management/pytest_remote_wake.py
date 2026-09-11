@@ -64,7 +64,7 @@ def set_remote_wake_on_device(VID: int, PID: int) -> None:
     except usb.core.USBError as e:
         raise RuntimeError("Control transfer not sent") from e
 
-    print("CTRL transfer sent")
+    print("CTRL transfer sent", flush=True)
 
     try:
         usb.util.dispose_resources(dev)
@@ -90,9 +90,9 @@ def check_remote_wake_feature(VID: int, PID: int, has_remote_wake: bool) -> None
     remote_wake_supported = bool(cfg.bmAttributes & USB_BM_ATTRIBUTES_WAKEUP)
 
     if remote_wake_supported:
-        print("Device advertises remote wakeup feature in it's descriptor")
+        print("Device advertises remote wakeup feature in it's descriptor", flush=True)
     else:
-        print("Device does not advertise remote wakeup feature in it's descriptor")
+        print("Device does not advertise remote wakeup feature in it's descriptor", flush=True)
 
     # Assertion to fail on mismatch
     assert remote_wake_supported == has_remote_wake, (
