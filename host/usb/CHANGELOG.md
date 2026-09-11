@@ -12,6 +12,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Fixed possible OOB read during string descriptor print
 - Fixed an assertion in `_buffer_parse()` when a channel error interrupt arrives with no buffer executing, seen on device disconnect on ESP32-P4
 - Fixed an assertion in `device_release()` when an external Hub is disconnected while one of its control transfers is in flight
+- Fixed halt of isochronous and interrupt pipes: the in-flight transfer is allowed to finish instead of being aborted by a hardware channel disable. Pending URBs are canceled, and remaining filled buffers are flushed when that transfer completes.
 
 ## [1.6.0] - 2026-10-05
 
