@@ -25,6 +25,7 @@ extern "C" {
 typedef enum {
     STORAGE_MEDIUM_TYPE_SPIFLASH = 0, /*!< Storage type is SPI flash with wear leveling. */
     STORAGE_MEDIUM_TYPE_SDMMC,        /*!< Storage type is SDMMC card. */
+    STORAGE_MEDIUM_TYPE_BLOCKDEV,     /*!< Storage type is a generic esp_blockdev handle (IDF >= 6.0). */
 } storage_medium_type_t;
 
 /**

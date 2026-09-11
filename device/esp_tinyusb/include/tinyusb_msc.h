@@ -18,6 +18,11 @@ extern "C" {
 #if (SOC_SDMMC_HOST_SUPPORTED)
 #include "driver/sdmmc_host.h"
 #endif // SOC_SDMMC_HOST_SUPPORTED
+#include "esp_idf_version.h"
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(6, 0, 0)
+#define TINYUSB_MSC_BDL_SUPPORTED 1
+#include "esp_blockdev.h"
+#endif // ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(6, 0, 0)
 
 /**
  * @brief Opaque handle for a TinyUSB MSC storage instance.
@@ -89,6 +94,9 @@ typedef struct {
 #if (SOC_SDMMC_HOST_SUPPORTED)
         sdmmc_card_t *card;                 /*!< SD/MMC card descriptor. */
 #endif // SOC_SDMMC_HOST_SUPPORTED
+#if (TINYUSB_MSC_BDL_SUPPORTED)
+        esp_blockdev_handle_t blockdev;      /*!< Generic block device handle (IDF >= 6.0). */
+#endif // TINYUSB_MSC_BDL_SUPPORTED
     } medium;                               /*!< Storage medium selector. */
     tinyusb_msc_fatfs_config_t fat_fs;      /*!< FAT filesystem configuration. */
     tinyusb_msc_mount_point_t mount_point;  /*!< Requested initial storage owner after creation. */
@@ -168,6 +176,32 @@ esp_err_t tinyusb_msc_new_storage_spiflash(const tinyusb_msc_storage_config_t *c
 esp_err_t tinyusb_msc_new_storage_sdmmc(const tinyusb_msc_storage_config_t *config,
                                         tinyusb_msc_storage_handle_t *handle);
 #endif // SOC_SDMMC_HOST_SUPPORTED
+
+#if (TINYUSB_MSC_BDL_SUPPORTED)
+/**
+ * @brief Create a TinyUSB MSC storage instance backed by a generic esp_blockdev handle.
+ *
+ * Recommended on ESP-IDF >= 6.0 for any medium exposed as an esp_blockdev
+ * (SPI flash, SD/MMC, or future media IDF adds blockdev support for).
+ *
+ * @note The handle is borrowed: release it (`handle->ops->release()`) only after
+ *       tinyusb_msc_delete_storage(). Only one blockdev-backed instance can be
+ *       active at a time; a second call returns ESP_ERR_INVALID_STATE.
+ *
+ * @param[in] config Storage configuration. Must not be NULL.
+ * @param[out] handle Optional output for the created storage handle.
+ *
+ * @return
+ *      - ESP_OK on success
+ *      - ESP_ERR_INVALID_ARG if `config` is NULL or `config->medium.blockdev` is invalid
+ *      - ESP_ERR_INVALID_STATE if a block-device-backed storage instance is already open
+ *      - ESP_ERR_NO_MEM if memory allocation fails
+ *      - ESP_FAIL if the storage cannot be mapped to a LUN
+ *      - Other error codes from driver installation, storage medium setup, or filesystem mounting
+ */
+esp_err_t tinyusb_msc_new_storage_blockdev(const tinyusb_msc_storage_config_t *config,
+                                           tinyusb_msc_storage_handle_t *handle);
+#endif // TINYUSB_MSC_BDL_SUPPORTED
 
 /**
  * @brief Delete a TinyUSB MSC storage instance.
