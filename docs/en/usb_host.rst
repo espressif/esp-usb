@@ -397,6 +397,15 @@ USB Host library supports global Suspend/Resume, which suspends and resumes the 
 
 Note that the global Suspend/Resume also suspends/resumes the USB-OTG peripheral (not the whole SoC) on the USB Host side, and therefore reduces power consumption on the host controller itself. The global suspend/resume implements power saving by the DWC-OTG internal clock gating.
 
+.. only:: esp32p4
+
+    Global Suspend/Resume in dual host configuration
+    """"""""""""""""""""""""""""""""""""""""""""""""
+
+    When both USB-OTG controllers are enabled as USB hosts, they share a single power management state. :cpp:func:`usb_host_lib_root_port_suspend` suspends every root port that has a device connected, and :cpp:func:`usb_host_lib_root_port_resume` resumes every suspended root port. Root ports without a connected device are not affected.
+
+    Because both buses are always kept in the same power management state, anything that makes one bus active resumes the other one as well. This includes a device attach on a root port that was empty, a remote wakeup, and the automatic resume by transfer submit. Consequently, :cpp:member:`usb_host_lib_info_t::root_port_suspended` reports ``true`` only when no root port has an active device.
+
 Events
 ^^^^^^
 
@@ -429,7 +438,7 @@ Important considerations for the auto suspend timer:
 - When the timer expires, the USB Host library event is delivered only if:
 
     - A device is currently connected to the root port, and
-    - The root port is not already in a suspended state
+    - No root port with a connected device is already in a suspended state
 
 The auto suspend timer can be configured in the following modes:
 
@@ -545,6 +554,10 @@ The registered light sleep callbacks are:
   - the library does **not** automatically resume the root port. It only schedules the deferred suspend notification created by the pre-sleep callback, if that callback suspended the root port.
 
 After the SoC exits light sleep, the root port is kept suspended until the application is ready to communicate with the device again. Users can resume it explicitly with :cpp:func:`usb_host_lib_root_port_resume`, or submit a transfer to a suspended device and let the automatic resume-by-transfer path described in `Auto Resume by Transfer Submit`_ start the resume sequence.
+
+.. only:: esp32p4
+
+    In dual host configuration, all the root ports with a connected device enter and exit light sleep together. The state of every root port is validated before any of them is suspended, so the SoC never enters light sleep with one bus suspended and the other one still sending SOFs. If any root port is busy (for example executing a reset or a recovery sequence), the pre-sleep suspend is skipped entirely.
 
 Kconfig prerequisites
 """""""""""""""""""""

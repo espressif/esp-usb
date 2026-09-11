@@ -539,7 +539,7 @@ static void get_config_desc_transfer_cb(usb_transfer_t *transfer)
  * - Callback unblocks the usb_host_lib_handle_events() and delivers suspend USB Host lib event
  * - Event flag is dellivered, only if:
  *      - A device is connected to the the root port
- *      - The root port is not already in suspended state
+ *      - No root port with a connected device is already in suspended state
  * @param[in] xTimer Timer handle
  */
 static void auto_suspend_timer_cb(TimerHandle_t xTimer)
