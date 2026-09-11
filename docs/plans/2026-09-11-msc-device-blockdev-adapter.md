@@ -796,6 +796,8 @@ git commit -m "docs(device/msc): document tinyusb_msc_new_storage_blockdev usage
   - Not decided whether this is worth doing now vs. as a separate follow-up PR once/if a real use case for simultaneous multi-LUN blockdev storage shows up (e.g. someone actually wanting SPI-flash-blockdev + SDMMC-blockdev, or two SD cards, active at once). Flagging here explicitly so the idea isn't lost, not committing to doing it.
 - **[ ] Test coverage gap: blockdev backend has no USB-host-round-trip test.** `test_msc_filesystem.c`'s full USB-mount + real host enumeration test only exercises the legacy `storage_spiflash.c` path. The new `storage_blockdev.c` backend's SCSI-layer behavior (as seen by a real USB host, not just APP-mounted VFS) is unverified.
 
+- **[ ] Upstream ESP-IDF proposal: de-duplicate `gcd_size`/`lcm2_size`.** `storage_blockdev.c` copies these two helpers verbatim from `components/fatfs/diskio/diskio_bdl.c`, where they're `static inline` and not exposed via `diskio_bdl.h` or the public `esp_blockdev`/`esp_blockdev_util` API. No shared header exists to depend on instead. Proposal: promote them to public inline helpers in `esp_blockdev.h` (or add to `esp_blockdev_util`, which already hosts this kind of shared helper - see `generic_partition.h`, `memory.h`) so any blockdev-consuming adapter (not just us) can reuse them. Requires a separate ESP-IDF PR; if it lands, this component would still need an IDF-version gate to use the shared helper only once available. See team discussion doc for details.
+
 ## Verification checklist before calling this done
 
 - [ ] `idf.py build` succeeds for `test_apps/msc_storage` on an IDF < 6.0 toolchain (storage_blockdev.c absent, old behavior unchanged)
