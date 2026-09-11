@@ -31,8 +31,8 @@ _EXTENDED_MTP_TEST_REASON = 'set MTP_RUN_EXTENDED_TESTS=1 to run extended MTP ho
     ],
     indirect=['target'],
 )
-def test_usb_device_mtp_storage(dut: IdfDut, config: str) -> None:
-    dut.run_all_single_board_cases(group=['ci'])
+def test_usb_device_mtp_storage(dut: IdfDut) -> None:
+    dut.run_all_single_board_cases(group=['ci'], timeout=60)
 
 
 def _gio(*args: str, check: bool = True, input_data: bytes | None = None, timeout: float = 10) -> subprocess.CompletedProcess[bytes]:
