@@ -34,6 +34,7 @@ def test_usb_hcd(config: str, dut: IdfDut) -> None:
     if config == 'buffer_dma':
 
         transfer_type_group=[]
+        transfer_type_group.append('bulk')
         transfer_type_group.append('ctrl')
 
         for transfer_type in transfer_type_group:

@@ -95,6 +95,29 @@ void test_hcd_expect_no_pipe_event_impl(hcd_pipe_handle_t pipe_hdl, const char *
 #define TEST_HCD_EXPECT_NO_PIPE_EVENT(pipe_hdl) test_hcd_expect_no_pipe_event_impl((pipe_hdl), __FILE__, __LINE__)
 
 /**
+ * @brief Wait for an HCD pipe event and return it (without asserting on the event type)
+ *
+ * Like test_hcd_expect_pipe_event(), this asserts that an event arrives within the timeout, but instead of checking
+ * the event against an expected value it returns the delivered event.
+ *
+ * @note Use the TEST_HCD_WAIT_FOR_PIPE_EVENT() macro, which automatically fills in the file and line.
+ *
+ * @param pipe_hdl Pipe handle to wait for an event from
+ * @return hcd_pipe_event_t The pipe event that was delivered
+ */
+hcd_pipe_event_t test_hcd_wait_for_pipe_event_impl(hcd_pipe_handle_t pipe_hdl, const char *file, int line);
+
+/**
+ * @brief Wait for an HCD pipe event and return it (without asserting on the event type)
+ *
+ * This function waits for an pipe event and returns the devivered event
+ *
+ * @param pipe_hdl Pipe handle to expect event from
+ * @return hcd_pipe_event_t The pipe event that was delivered
+ */
+#define TEST_HCD_WAIT_FOR_PIPE_EVENT(pipe_hdl) test_hcd_wait_for_pipe_event_impl((pipe_hdl), __FILE__, __LINE__)
+
+/**
  * @brief Expect (assert) that an HCD port is in a given state
  *
  * @note Use the TEST_HCD_EXPECT_PORT_STATE() macro, which automatically fills in the file and line.
