@@ -270,14 +270,12 @@ Power Management
 Suspend and Resume Events
 ^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Suspend and resume device events are optional and disabled by default. Enable the following Kconfig options to receive them through the USB Device Event callback (:cpp:member:`tinyusb_config_t::event_cb`):
+esp_tinyusb always implements :cpp:func:`tud_suspend_cb` and :cpp:func:`tud_resume_cb` and dispatches the following events through the USB Device Event callback (:cpp:member:`tinyusb_config_t::event_cb`):
 
-- :ref:`CONFIG_TINYUSB_SUSPEND_CALLBACK` enables :cpp:enumerator:`TINYUSB_EVENT_SUSPENDED <tinyusb_event_id_t::TINYUSB_EVENT_SUSPENDED>`
-- :ref:`CONFIG_TINYUSB_RESUME_CALLBACK` enables :cpp:enumerator:`TINYUSB_EVENT_RESUMED <tinyusb_event_id_t::TINYUSB_EVENT_RESUMED>`
+- :cpp:enumerator:`TINYUSB_EVENT_SUSPENDED <tinyusb_event_id_t::TINYUSB_EVENT_SUSPENDED>`
+- :cpp:enumerator:`TINYUSB_EVENT_RESUMED <tinyusb_event_id_t::TINYUSB_EVENT_RESUMED>`
 
-When these options are enabled, esp_tinyusb provides strong implementations of :cpp:func:`tud_suspend_cb` and :cpp:func:`tud_resume_cb`. User applications **must not** define these callbacks themselves, or a linker error will occur due to multiple definitions.
-
-If the Kconfig options are disabled, users may implement :cpp:func:`tud_suspend_cb` and :cpp:func:`tud_resume_cb` directly in the application instead.
+User applications **must not** define these TinyUSB callbacks. Doing so causes a linker error due to multiple definitions.
 
 Remote Wakeup
 ^^^^^^^^^^^^^
@@ -296,8 +294,6 @@ Kconfig prerequisites
 
     Enable :ref:`CONFIG_TINYUSB_PM` in menuconfig. This option requires the following config options:
 
-    - :ref:`CONFIG_TINYUSB_SUSPEND_CALLBACK`
-    - :ref:`CONFIG_TINYUSB_RESUME_CALLBACK`
     - :ref:`CONFIG_PM_ENABLE <esp-idf:config_pm_enable>`
     - :ref:`CONFIG_FREERTOS_USE_TICKLESS_IDLE <esp-idf:config_freertos_use_tickless_idle>`
 
@@ -332,8 +328,6 @@ Lock behavior
 - On :cpp:enumerator:`TINYUSB_EVENT_DETACHED <tinyusb_event_id_t::TINYUSB_EVENT_DETACHED>`, the lock is acquired and the suspend PM state is cleared.
 - :cpp:func:`tinyusb_remote_wakeup` acquires the lock before signaling remote wakeup to the host.
 
-Suspend and Resume callbacks :ref:`CONFIG_TINYUSB_SUSPEND_CALLBACK` and :ref:`CONFIG_TINYUSB_RESUME_CALLBACK` must be enabled, registered inside the esp_tinyusb, otherwise the PM module would not have information about the device being suspended or resumed.
-
 Use :cpp:func:`tinyusb_pm_get_lock_status` to query whether the PM lock is currently held.
 
 .. only:: esp32p4 or esp32s31
@@ -366,8 +360,6 @@ Light Sleep with USB Wakeup
 
     In addition to :ref:`CONFIG_TINYUSB_USB_OTG_WAKEUP`, enable the following options in menuconfig as appropriate for your application:
 
-    - :ref:`CONFIG_TINYUSB_SUSPEND_CALLBACK`
-    - :ref:`CONFIG_TINYUSB_RESUME_CALLBACK`
     - :ref:`CONFIG_PM_ENABLE <esp-idf:config_pm_enable>`
     - :ref:`CONFIG_FREERTOS_USE_TICKLESS_IDLE <esp-idf:config_freertos_use_tickless_idle>`
     - :ref:`CONFIG_ESP_SLEEP_EVENT_CALLBACKS <esp-idf:config_esp_sleep_event_callbacks>`

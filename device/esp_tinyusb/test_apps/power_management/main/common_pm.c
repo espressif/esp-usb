@@ -114,7 +114,6 @@ static void device_event_handler(tinyusb_event_t *event, void *arg)
         printf("TINYUSB_EVENT_DETACHED\n");
         event_bits = EVENT_BITS_DETACHED;
         break;
-#if CONFIG_TINYUSB_SUSPEND_CALLBACK
     case TINYUSB_EVENT_SUSPENDED:
         if (event->suspended.remote_wakeup) {
             printf("TINYUSB_EVENT_SUSPENDED_REMOTE_WAKE_EN\n");
@@ -124,13 +123,10 @@ static void device_event_handler(tinyusb_event_t *event, void *arg)
             event_bits = EVENT_BITS_SUSPENDED_REMOTE_WAKE_DIS;
         }
         break;
-#endif // CONFIG_TINYUSB_SUSPEND_CALLBACK
-#if CONFIG_TINYUSB_RESUME_CALLBACK
     case TINYUSB_EVENT_RESUMED:
         printf("TINYUSB_EVENT_RESUMED\n");
         event_bits = EVENT_BITS_RESUMED;
         break;
-#endif // CONFIG_TINYUSB_RESUME_CALLBACK
     default:
         return;
     }
