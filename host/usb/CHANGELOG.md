@@ -9,6 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Fixed
 
 - Fixed a race that could trigger an assertion when closing a device immediately after its control transfer completion callback.
+- Fixed halt of isochronous and interrupt pipes: the in-flight transfer is allowed to finish instead of being aborted by a hardware channel disable. Pending URBs are canceled, and remaining filled buffers are flushed when that transfer completes.
 
 ## [1.5.0] - 2026-06-16
 
