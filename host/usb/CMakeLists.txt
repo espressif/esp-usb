@@ -63,6 +63,10 @@ if(CONFIG_USB_HOST_HUBS_SUPPORTED)
                      "src/ext_port.c")
 endif()
 
+if(CONFIG_USB_HOST_LIGHT_SLEEP_PROBE)
+    list(APPEND srcs "src/usb_host_probe.c")
+endif()
+
 idf_component_register(SRCS ${srcs}
                        INCLUDE_DIRS ${include}
                        PRIV_INCLUDE_DIRS ${priv_includes}

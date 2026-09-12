@@ -26,6 +26,11 @@ extern "C" {
 #define AUTO_PM_LIGHT_SLEEP
 #endif // CONFIG_USB_HOST_AUTO_PM_LIGHT_SLEEP
 
+// Post-light-sleep GET_DESCRIPTOR probe on FS/LS root ports (disconnect cannot be detected during sleep)
+#ifdef CONFIG_USB_HOST_LIGHT_SLEEP_PROBE
+#define LIGHT_SLEEP_PROBE
+#endif // CONFIG_USB_HOST_LIGHT_SLEEP_PROBE
+
 // ----------------------- Configs -------------------------
 
 #define HCD_NUM_PORTS                           SOC_USB_OTG_PERIPH_NUM   // Each peripheral is a root port

@@ -24,9 +24,12 @@
 #include "hcd.h"
 #include "esp_private/usb_phy.h"
 #include "usb/usb_host.h"
-#ifdef  AUTO_PM_LIGHT_SLEEP
+#ifdef AUTO_PM_LIGHT_SLEEP
 #include "esp_private/sleep_event.h"        // For light sleep event callbacks
 #endif // AUTO_PM_LIGHT_SLEEP
+#ifdef LIGHT_SLEEP_PROBE
+#include "usb_host_probe.h"
+#endif // LIGHT_SLEEP_PROBE
 
 #if SOC_USB_OTG_SUPPORTED
 #include "esp_idf_version.h"
@@ -61,6 +64,9 @@ DEFINE_CRIT_SECTION_LOCK_STATIC(host_lock);
 #define PROCESS_REQUEST_PENDING_FLAG_USBH       (1 << 0)
 #define PROCESS_REQUEST_PENDING_FLAG_HUB        (1 << 1)
 #define PROCESS_REQUEST_PENDING_FLAG_ENUM       (1 << 2)
+#ifdef LIGHT_SLEEP_PROBE
+#define PROCESS_REQUEST_PENDING_FLAG_PROBE      (1 << 3)
+#endif // LIGHT_SLEEP_PROBE
 
 #define SHORT_DESC_REQ_LEN                      8
 #define CTRL_TRANSFER_MAX_DATA_LEN              CONFIG_USB_HOST_CONTROL_TRANSFER_MAX_SIZE
@@ -164,6 +170,9 @@ typedef struct {
         TimerHandle_t auto_suspend_timer;             // Freertos timer used for automatic suspend of the root port
         usb_phy_handle_t phy_handles[HCD_NUM_PORTS];  // One per port; NULL if skip_phy_setup or port not enabled
         void *enum_client;                            // Pointer to Enum driver (acting as a client). Used to reroute completed USBH control transfers
+#ifdef LIGHT_SLEEP_PROBE
+        void *probe_client;                           // Pointer to Probe driver (acting as a client)
+#endif // LIGHT_SLEEP_PROBE
         void *hub_client;                             // Pointer to External Hub driver (acting as a client). Used to reroute completed USBH control transfers. NULL, when External Hub Driver not available.
     } constant;
 } host_lib_t;
@@ -239,6 +248,11 @@ static inline bool is_internal_client(void *client)
     if (p_host_lib_obj->constant.enum_client && (client == p_host_lib_obj->constant.enum_client)) {
         return true;
     }
+#ifdef LIGHT_SLEEP_PROBE
+    if (p_host_lib_obj->constant.probe_client && (client == p_host_lib_obj->constant.probe_client)) {
+        return true;
+    }
+#endif // LIGHT_SLEEP_PROBE
 #if ENABLE_USB_HUBS
     if (p_host_lib_obj->constant.hub_client && (client == p_host_lib_obj->constant.hub_client)) {
         return true;
@@ -348,6 +362,13 @@ static bool proc_req_callback(usb_proc_req_source_t source, bool in_isr, void *a
         break;
     case USB_PROC_REQ_SOURCE_ENUM:
         p_host_lib_obj->dynamic.process_pending_flags |= PROCESS_REQUEST_PENDING_FLAG_ENUM;
+        break;
+#ifdef LIGHT_SLEEP_PROBE
+    case USB_PROC_REQ_SOURCE_PROBE:
+        p_host_lib_obj->dynamic.process_pending_flags |= PROCESS_REQUEST_PENDING_FLAG_PROBE;
+        break;
+#endif // LIGHT_SLEEP_PROBE
+    default:
         break;
     }
     bool yield = _unblock_lib(in_isr);
@@ -460,11 +481,19 @@ static void hub_event_callback(hub_event_data_t *event_data, void *arg)
         enum_start(event_data->connected.uid);
         break;
     case HUB_EVENT_RESET_COMPLETED:
-        ESP_ERROR_CHECK(enum_proceed(event_data->reset_completed.uid));
+        bool enum_locked;
+        usbh_dev_enum_is_locked_by_uid(event_data->reset_completed.uid, &enum_locked);
+        if (enum_locked) {
+            // Proceed with enum only when enum lock is taken
+            ESP_ERROR_CHECK(enum_proceed(event_data->reset_completed.uid));
+        }
         break;
     case HUB_EVENT_DISCONNECTED:
         // Cancel enumeration process
         enum_cancel(event_data->disconnected.uid);
+#ifdef LIGHT_SLEEP_PROBE
+        probe_cancel(event_data->disconnected.uid);
+#endif // LIGHT_SLEEP_PROBE
         // We allow this to fail in case the device object was already freed
         usbh_devs_remove(event_data->disconnected.uid);
         break;
@@ -500,6 +529,31 @@ static void enum_event_callback(enum_event_data_t *event_data, void *arg)
         break;
     }
 }
+
+#ifdef LIGHT_SLEEP_PROBE
+static void probe_event_callback(probe_event_data_t *event_data, void *arg)
+{
+    probe_event_t event = event_data->event;
+
+    switch (event) {
+    case PROBE_EVENT_PASSED:
+        ESP_LOGI(USB_HOST_TAG, "PROBE_EVENT_PASSED");
+        // Send resume event only to those device which passed the probe
+        ESP_ERROR_CHECK_WITHOUT_ABORT(usbh_dev_set_pm_actions_by_uid(event_data->passed.uid, USBH_DEV_RESUME_EVT));
+        break;
+    case PROBE_EVENT_FAILED:
+        ESP_LOGI(USB_HOST_TAG, "PROBE_EVENT_FAILED");
+        // Connected device underwent a power cycle during light sleep, or it's different (not enumerated) device
+        // Remove the device
+        hub_node_reset(event_data->failed.uid);
+        //hub_dev_gone_by_uid(event_data->failed.uid);
+        break;
+    default:
+        abort();    // Should never occur
+        break;
+    }
+}
+#endif // LIGHT_SLEEP_PROBE
 
 // ------------------- Client Related ----------------------
 
@@ -753,6 +807,20 @@ esp_err_t usb_host_install(const usb_host_config_t *config)
         goto enum_err;
     }
 
+#ifdef LIGHT_SLEEP_PROBE
+    probe_config_t probe_config = {
+        .proc_req_cb = proc_req_callback,
+        .proc_req_cb_arg = NULL,
+        .probe_event_cb = probe_event_callback,
+        .probe_event_cb_arg = NULL,
+    };
+    ret = probe_install(&probe_config, &host_lib_obj->constant.probe_client);
+    if (ret != ESP_OK) {
+        ESP_LOGE(USB_HOST_TAG, "Probe driver install error: %s", esp_err_to_name(ret));
+        goto probe_err;
+    }
+#endif // LIGHT_SLEEP_PROBE
+
     // Install Hub
     hub_config_t hub_config = {
         .port_map = peripheral_map, // Each USB-OTG peripheral maps to a root port
@@ -818,6 +886,10 @@ sleep_cb_err:
 #endif // AUTO_PM_LIGHT_SLEEP
     ESP_ERROR_CHECK(hub_uninstall());
 hub_err:
+#ifdef LIGHT_SLEEP_PROBE
+    ESP_ERROR_CHECK(probe_uninstall());
+probe_err:
+#endif // LIGHT_SLEEP_PROBE
     ESP_ERROR_CHECK(enum_uninstall());
 enum_err:
     ESP_ERROR_CHECK(usbh_uninstall());
@@ -876,6 +948,9 @@ esp_err_t usb_host_uninstall(void)
     - USB PHY
     */
     ESP_ERROR_CHECK(hub_uninstall());
+#ifdef LIGHT_SLEEP_PROBE
+    ESP_ERROR_CHECK(probe_uninstall());
+#endif // LIGHT_SLEEP_PROBE
     ESP_ERROR_CHECK(enum_uninstall());
     ESP_ERROR_CHECK(usbh_uninstall());
     // Delete all PHYs that were created
@@ -931,6 +1006,11 @@ esp_err_t usb_host_lib_handle_events(TickType_t timeout_ticks, uint32_t *event_f
         if (process_pending_flags & PROCESS_REQUEST_PENDING_FLAG_ENUM) {
             ESP_ERROR_CHECK(enum_process());
         }
+#ifdef LIGHT_SLEEP_PROBE
+        if (process_pending_flags & PROCESS_REQUEST_PENDING_FLAG_PROBE) {
+            ESP_ERROR_CHECK(probe_process());
+        }
+#endif // LIGHT_SLEEP_PROBE
 
         ret = ESP_OK;
         // Set timeout_ticks to 0 so that we can check for events again without blocking
