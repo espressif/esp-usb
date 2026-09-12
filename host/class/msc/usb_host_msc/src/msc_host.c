@@ -184,12 +184,21 @@ static esp_err_t msc_mass_reset(msc_host_device_handle_t dev)
     return ESP_OK;
 }
 
+static esp_err_t msc_reset_transport(msc_device_t *dev)
+{
+    // BOT reset recovery: reset the command state, then synchronize both
+    // endpoints. A class reset alone preserves data toggles and STALLs.
+    MSC_RETURN_ON_ERROR(msc_mass_reset(dev));
+    MSC_RETURN_ON_ERROR(clear_feature(dev, dev->config.bulk_in_ep));
+    return clear_feature(dev, dev->config.bulk_out_ep);
+}
+
 /**
  * @brief MSC get maximum Logical Unit Number
  *
  * If the device implements 3 LUNs, the returned value is 2. (LUN0, LUN1, LUN2).
  *
- * This driver does not support multiple LUNs yet.
+ * Discovery reports candidates; the application selects the LUN to install.
  *
  * @see USB Mass Storage Class – Bulk Only Transport, Chapter 3.2
  *
@@ -197,13 +206,23 @@ static esp_err_t msc_mass_reset(msc_host_device_handle_t dev)
  * @param[out] lun Maximum Logical Unit Number
  * @return esp_err_t
  */
-__attribute__((unused)) static esp_err_t msc_get_max_lun(msc_host_device_handle_t dev, uint8_t *lun)
+static esp_err_t msc_get_max_lun(msc_host_device_handle_t dev, uint8_t *lun)
 {
     msc_device_t *device = (msc_device_t *)dev;
     usb_transfer_t *xfer = device->xfer;
 
     USB_MASS_REQ_INIT_GET_MAX_LUN((usb_setup_packet_t *)xfer->data_buffer, device->config.iface_num);
-    MSC_RETURN_ON_ERROR( msc_control_transfer(device, USB_SETUP_PACKET_SIZE + 1) );
+    esp_err_t err = msc_control_transfer(device, USB_SETUP_PACKET_SIZE + 1);
+    // BOT permits single-LUN devices to STALL this request.
+    if (err == ESP_ERR_MSC_STALL) {
+        *lun = 0;
+        return ESP_OK;
+    }
+    MSC_RETURN_ON_ERROR(err);
+    MSC_RETURN_ON_FALSE(xfer->actual_num_bytes == USB_SETUP_PACKET_SIZE + 1,
+                        ESP_ERR_INVALID_SIZE);
+    MSC_RETURN_ON_FALSE(xfer->data_buffer[USB_SETUP_PACKET_SIZE] <= 15,
+                        ESP_ERR_INVALID_RESPONSE);
 
     *lun = xfer->data_buffer[USB_SETUP_PACKET_SIZE];
 
@@ -257,29 +276,88 @@ static esp_err_t extract_config_from_descriptor(const usb_config_desc_t *cfg_des
     return ESP_OK;
 }
 
-static esp_err_t msc_deinit_device(msc_device_t *dev, bool install_failed)
+static esp_err_t msc_deinit_device(msc_device_t *dev, bool interface_claimed)
 {
-    MSC_ENTER_CRITICAL();
-    MSC_RETURN_ON_FALSE_CRITICAL( dev, ESP_ERR_INVALID_STATE );
-    STAILQ_REMOVE(&s_msc_driver->devices_tailq, dev, msc_host_device, tailq_entry);
-    MSC_EXIT_CRITICAL();
+    if (interface_claimed) {
+        esp_err_t ret;
+        do {
+            ret = usb_host_interface_release(s_msc_driver->client_handle, dev->handle, dev->config.iface_num);
+            if (ret == ESP_ERR_INVALID_STATE) {
+                // The transfer callback wakes the caller before USB Host
+                // retires the endpoint's in-flight count. Let its event task
+                // finish, even when it has a lower priority than this task.
+                vTaskDelay(1);
+            }
+        } while (ret == ESP_ERR_INVALID_STATE);
+        MSC_RETURN_ON_ERROR(ret);
+    }
+    if (dev->handle) {
+        MSC_RETURN_ON_ERROR(usb_host_device_close(s_msc_driver->client_handle, dev->handle));
+    }
+    if (dev->xfer) {
+        MSC_RETURN_ON_ERROR(usb_host_transfer_free(dev->xfer));
+    }
 
     if (dev->transfer_done) {
         vSemaphoreDelete(dev->transfer_done);
     }
-    if (install_failed) {
-        // Error code is unchecked, as it's unknown at what point installation failed.
-        usb_host_interface_release(s_msc_driver->client_handle, dev->handle, dev->config.iface_num);
-        usb_host_device_close(s_msc_driver->client_handle, dev->handle);
-        usb_host_transfer_free(dev->xfer);
-    } else {
-        MSC_RETURN_ON_ERROR( usb_host_interface_release(s_msc_driver->client_handle, dev->handle, dev->config.iface_num) );
-        MSC_RETURN_ON_ERROR( usb_host_device_close(s_msc_driver->client_handle, dev->handle) );
-        MSC_RETURN_ON_ERROR( usb_host_transfer_free(dev->xfer) );
-    }
 
+    // Keep the driver occupied until all USB resources have been released.
+    MSC_ENTER_CRITICAL();
+    STAILQ_REMOVE(&s_msc_driver->devices_tailq, dev, msc_host_device, tailq_entry);
+    MSC_EXIT_CRITICAL();
     free(dev);
     return ESP_OK;
+}
+
+// Reuse the same resource ownership for installed devices and temporary probes.
+static esp_err_t msc_init_device(uint8_t device_address, bool probe_only, msc_device_t **device)
+{
+    esp_err_t ret;
+    bool interface_claimed = false;
+    const usb_config_desc_t *config_desc;
+    msc_device_t *dev = calloc(1, sizeof(msc_device_t));
+    MSC_RETURN_ON_FALSE(dev, ESP_ERR_NO_MEM);
+    dev->probe_only = probe_only;
+    MSC_ENTER_CRITICAL();
+    if (!s_msc_driver || !s_msc_driver->client_handle || s_msc_driver->end_client_event_handling) {
+        MSC_EXIT_CRITICAL();
+        free(dev);
+        return ESP_ERR_INVALID_STATE;
+    }
+    STAILQ_INSERT_TAIL(&s_msc_driver->devices_tailq, dev, tailq_entry);
+    MSC_EXIT_CRITICAL();
+
+    MSC_GOTO_ON_FALSE(dev->transfer_done = xSemaphoreCreateBinary(), ESP_ERR_NO_MEM);
+    MSC_GOTO_ON_ERROR(usb_host_device_open(s_msc_driver->client_handle, device_address, &dev->handle));
+    MSC_GOTO_ON_ERROR(usb_host_get_active_config_descriptor(dev->handle, &config_desc));
+    MSC_GOTO_ON_ERROR(extract_config_from_descriptor(config_desc, &dev->config));
+    MSC_GOTO_ON_ERROR(usb_host_transfer_alloc(DEFAULT_XFER_SIZE, 0, &dev->xfer));
+    MSC_GOTO_ON_ERROR(usb_host_interface_claim(s_msc_driver->client_handle, dev->handle, dev->config.iface_num, 0));
+    interface_claimed = true;
+    // New host pipes start at DATA0; the device may retain toggles and BOT
+    // state from a previous session. Synchronize before the first command.
+    MSC_GOTO_ON_ERROR(msc_reset_transport(dev));
+    *device = dev;
+    return ESP_OK;
+
+fail:
+    msc_deinit_device(dev, interface_claimed);
+    return ret;
+}
+
+// On ESP_FAIL, sense contains the result of a successful REQUEST SENSE.
+static esp_err_t msc_check_ready_state(msc_device_t *dev, scsi_sense_data_t *sense)
+{
+    esp_err_t err = scsi_cmd_unit_ready(dev);
+    if (err == ESP_FAIL) {
+        esp_err_t sense_err = scsi_cmd_sense(dev, sense);
+        if (sense_err != ESP_OK) {
+            // A failed REQUEST SENSE cannot classify the original failure.
+            return sense_err == ESP_FAIL ? ESP_ERR_MSC_INTERNAL : sense_err;
+        }
+    }
+    return err;
 }
 
 // Some MSC devices requires to change its internal state from non-ready to ready
@@ -306,6 +384,74 @@ static esp_err_t msc_wait_for_ready_state(msc_device_t *dev, size_t timeout_ms)
     } while (trials-- && err);
 
     return err;
+}
+
+static bool msc_valid_block_size(uint32_t block_size)
+{
+    // Validate peer-controlled block size before FatFS sizes fs->win from a
+    // truncated WORD while reads use the full uint32_t length (BBP 574).
+    return block_size >= 512 && block_size <= 4096 && (block_size & (block_size - 1)) == 0;
+}
+
+static esp_err_t msc_probe_luns(msc_device_t *dev, uint32_t timeout_ms, msc_host_lun_info_t *info)
+{
+    MSC_RETURN_ON_ERROR(msc_get_max_lun(dev, &info->max_lun));
+    uint16_t pending = UINT16_MAX >> (15 - info->max_lun);
+    const TickType_t started = xTaskGetTickCount();
+    const TickType_t timeout = pdMS_TO_TICKS(timeout_ms);
+    bool first_pass = true;
+
+    for (;;) {
+        for (uint8_t lun = 0; lun <= info->max_lun; lun++) {
+            const uint16_t bit = (uint16_t)(1U << lun);
+            if (!(pending & bit)) {
+                continue;
+            }
+            dev->lun = lun;
+            if (first_pass) {
+                esp_err_t err = scsi_cmd_inquiry(dev);
+                if (err == ESP_FAIL) {
+                    info->failed_lun_mask |= bit;
+                    pending &= ~bit;
+                    continue;
+                }
+                MSC_RETURN_ON_ERROR(err);
+            }
+
+            scsi_sense_data_t sense;
+            esp_err_t err = msc_check_ready_state(dev, &sense);
+            if (err == ESP_FAIL) {
+                if (sense.key == MSC_NOT_READY && sense.code == 0x3a) {
+                    // MEDIUM NOT PRESENT: an empty slot is not a failed LUN.
+                    pending &= ~bit;
+                } else if (sense.key != MSC_NOT_READY &&
+                           sense.key != MSC_UNIT_ATTENTION &&
+                           sense.key != MSC_NO_SENSE) {
+                    info->failed_lun_mask |= bit;
+                    pending &= ~bit;
+                }
+                continue;
+            }
+            MSC_RETURN_ON_ERROR(err);
+
+            uint32_t block_size, block_count;
+            err = scsi_cmd_read_capacity(dev, &block_size, &block_count);
+            MSC_RETURN_ON_FALSE(err == ESP_OK || err == ESP_FAIL, err);
+            pending &= ~bit;
+            if (err == ESP_FAIL || !msc_valid_block_size(block_size)) {
+                info->failed_lun_mask |= bit;
+            } else {
+                info->ready_lun_mask |= bit;
+            }
+        }
+
+        const TickType_t elapsed = xTaskGetTickCount() - started;
+        if (pending == 0 || elapsed >= timeout) {
+            return ESP_OK;
+        }
+        first_pass = false;
+        vTaskDelay(MIN(pdMS_TO_TICKS(100), timeout - elapsed));
+    }
 }
 
 static bool is_mass_storage_device(uint8_t dev_addr)
@@ -366,7 +512,7 @@ static msc_device_t *find_msc_device(usb_device_handle_t device_handle)
 
     MSC_ENTER_CRITICAL();
     STAILQ_FOREACH(iter, &s_msc_driver->devices_tailq, tailq_entry) {
-        if (device_handle == iter->handle) {
+        if (!iter->probe_only && device_handle == iter->handle) {
             device_found = iter;
             break;
         }
@@ -517,42 +663,37 @@ esp_err_t msc_host_uninstall(void)
 
 esp_err_t msc_host_install_device(uint8_t device_address, msc_host_device_handle_t *msc_device_handle)
 {
+    return msc_host_install_device_lun(device_address, 0, msc_device_handle);
+}
+
+esp_err_t msc_host_install_device_lun(uint8_t device_address, uint8_t lun, msc_host_device_handle_t *msc_device_handle)
+{
     esp_err_t ret;
     uint32_t block_size, block_count;
-    const usb_config_desc_t *config_desc;
     msc_device_t *msc_device;
 
-    MSC_GOTO_ON_FALSE( msc_device = calloc(1, sizeof(msc_device_t)), ESP_ERR_NO_MEM );
+    MSC_RETURN_ON_INVALID_ARG(msc_device_handle);
+    *msc_device_handle = NULL;
+    MSC_RETURN_ON_FALSE(lun <= 15, ESP_ERR_INVALID_ARG);
+    MSC_RETURN_ON_ERROR(msc_init_device(device_address, false, &msc_device));
+    msc_device->lun = lun;
 
-    MSC_ENTER_CRITICAL();
-    MSC_GOTO_ON_FALSE_CRITICAL( s_msc_driver, ESP_ERR_INVALID_STATE );
-    MSC_GOTO_ON_FALSE_CRITICAL( s_msc_driver->client_handle, ESP_ERR_INVALID_STATE );
-    STAILQ_INSERT_TAIL(&s_msc_driver->devices_tailq, msc_device, tailq_entry);
-    MSC_EXIT_CRITICAL();
-
-    MSC_GOTO_ON_FALSE( msc_device->transfer_done = xSemaphoreCreateBinary(), ESP_ERR_NO_MEM);
-    MSC_GOTO_ON_ERROR( usb_host_device_open(s_msc_driver->client_handle, device_address, &msc_device->handle) );
-    MSC_GOTO_ON_ERROR( usb_host_get_active_config_descriptor(msc_device->handle, &config_desc) );
-    MSC_GOTO_ON_ERROR( extract_config_from_descriptor(config_desc, &msc_device->config) );
-    MSC_GOTO_ON_ERROR( usb_host_transfer_alloc(DEFAULT_XFER_SIZE, 0, &msc_device->xfer) );
-    MSC_GOTO_ON_ERROR( usb_host_interface_claim(
-                           s_msc_driver->client_handle,
-                           msc_device->handle,
-                           msc_device->config.iface_num, 0) );
-
+    // Preserve the original LUN 0 path, including devices that do not handle
+    // GET_MAX_LUN correctly. Nonzero targets must be advertised by the reader.
+    if (lun != 0) {
+        uint8_t max_lun;
+        MSC_GOTO_ON_ERROR(msc_get_max_lun(msc_device, &max_lun));
+        MSC_GOTO_ON_FALSE(lun <= max_lun, ESP_ERR_NOT_FOUND);
+    }
     MSC_GOTO_ON_ERROR( scsi_cmd_inquiry(msc_device) );
     MSC_GOTO_ON_ERROR( msc_wait_for_ready_state(msc_device, WAIT_FOR_READY_TIMEOUT_MS) );
     MSC_GOTO_ON_ERROR( scsi_cmd_read_capacity(msc_device, &block_size, &block_count) );
 
-    // Validate peer-controlled block size before FatFS sizes fs->win from a
-    // truncated WORD while reads use the full uint32_t length (BBP 574).
-    MSC_GOTO_ON_FALSE(block_size >= 512 &&
-                      block_size <= 4096 &&
-                      (block_size & (block_size - 1)) == 0,
-                      ESP_ERR_INVALID_SIZE);
+    MSC_GOTO_ON_FALSE(msc_valid_block_size(block_size), ESP_ERR_INVALID_SIZE);
 
     msc_device->disk.block_size = block_size;
     msc_device->disk.block_count = block_count;
+    ESP_LOGI(TAG, "selected LUN %u", (unsigned)msc_device->lun);
     *msc_device_handle = msc_device;
 
     return ESP_OK;
@@ -565,7 +706,26 @@ fail:
 esp_err_t msc_host_uninstall_device(msc_host_device_handle_t device)
 {
     MSC_RETURN_ON_INVALID_ARG(device);
-    return msc_deinit_device((msc_device_t *)device, false);
+    return msc_deinit_device((msc_device_t *)device, true);
+}
+
+esp_err_t msc_host_probe_luns(uint8_t device_address, uint32_t timeout_ms, msc_host_lun_info_t *info)
+{
+    MSC_RETURN_ON_INVALID_ARG(info);
+    memset(info, 0, sizeof(*info));
+    msc_device_t *device;
+    MSC_RETURN_ON_ERROR(msc_init_device(device_address, true, &device));
+
+    msc_host_lun_info_t result = { 0 };
+    esp_err_t ret = msc_probe_luns(device, timeout_ms, &result);
+    esp_err_t cleanup_err = msc_deinit_device(device, true);
+    if (ret == ESP_OK) {
+        ret = cleanup_err;
+    }
+    if (ret == ESP_OK) {
+        *info = result;
+    }
+    return ret;
 }
 
 esp_err_t msc_host_read_sector(msc_host_device_handle_t device, size_t sector, void *data, size_t size)
@@ -725,7 +885,14 @@ esp_err_t msc_control_transfer(msc_device_t *device, size_t len)
     xfer->context = device;
 
     MSC_RETURN_ON_ERROR( usb_host_transfer_submit_control(s_msc_driver->client_handle, xfer));
-    return wait_for_transfer_done(xfer) == USB_TRANSFER_STATUS_COMPLETED ? ESP_OK : ESP_ERR_MSC_INTERNAL;
+    switch (wait_for_transfer_done(xfer)) {
+    case USB_TRANSFER_STATUS_COMPLETED:
+        return ESP_OK;
+    case USB_TRANSFER_STATUS_STALL:
+        return ESP_ERR_MSC_STALL;
+    default:
+        return ESP_ERR_MSC_INTERNAL;
+    }
 }
 
 esp_err_t msc_host_reset_recovery(msc_host_device_handle_t device)

@@ -59,7 +59,6 @@ static const char *TAG = "USB_MSC_SCSI";
         .signature = 0x43425355,                \
         .tag = ++cbw_tag,                       \
         .flags = dir,                           \
-        .lun = 0,                               \
         .data_length = data_len,                \
         .cbw_length = cbw_len,                  \
     }
@@ -244,7 +243,17 @@ static esp_err_t check_csw(msc_csw_t *csw, uint32_t tag)
         ESP_LOGD(TAG, "CSW failed: bCSWStatus 0x%02"PRIx8"", csw->status);
     }
 
-    return csw_ok ? ESP_OK : ESP_FAIL;
+    if (csw_ok) {
+        return ESP_OK;
+    }
+    if (csw->signature != CSW_SIGNATURE || csw->tag != tag || csw->status > 2) {
+        return ESP_ERR_INVALID_RESPONSE;
+    }
+    if (csw->status == 2) {
+        return ESP_ERR_MSC_INTERNAL; // BOT phase error, not a SCSI command failure.
+    }
+    // Only a valid Command Failed status can be classified by REQUEST SENSE.
+    return csw->status == 1 ? ESP_FAIL : ESP_ERR_INVALID_RESPONSE;
 }
 
 /**
@@ -268,8 +277,9 @@ static esp_err_t check_csw(msc_csw_t *csw, uint32_t tag)
  */
 esp_err_t bot_execute_command(msc_device_t *device, msc_cbw_t *cbw, void *data, size_t size)
 {
-    msc_csw_t csw;
+    msc_csw_t csw = { .status = UINT8_MAX }; // An incomplete CSW must not look successful.
     msc_endpoint_t ep = (cbw->flags & CWB_FLAG_DIRECTION_IN) ? MSC_EP_IN : MSC_EP_OUT;
+    cbw->lun = device->lun;
 
     // 1. Command transport
     MSC_RETURN_ON_ERROR( msc_bulk_transfer(device, (uint8_t *)cbw, CBW_SIZE, MSC_EP_OUT) );
@@ -381,10 +391,11 @@ esp_err_t scsi_cmd_read_capacity(msc_host_device_handle_t dev, uint32_t *block_s
 
     esp_err_t ret = bot_execute_command(device, &cbw.base, &response, sizeof(response));
 
-    // In case of an error, get an error code
-    if (unlikely(ret != ESP_OK)) {
+    // Request sense only for a SCSI failure; preserve USB/BOT transport errors.
+    if (unlikely(ret == ESP_FAIL)) {
         MSC_RETURN_ON_ERROR( scsi_cmd_sense(device, NULL));
     }
+    MSC_RETURN_ON_ERROR(ret);
 
     *block_count = __builtin_bswap32(response.block_count);
     *block_size = __builtin_bswap32(response.block_size);
@@ -400,13 +411,8 @@ esp_err_t scsi_cmd_unit_ready(msc_host_device_handle_t dev)
         .opcode = SCSI_CMD_TEST_UNIT_READY,
     };
 
-    esp_err_t ret = bot_execute_command(device, &cbw.base, NULL, 0);
-
-    // In case of an error, get an error code
-    if (unlikely(ret != ESP_OK)) {
-        MSC_RETURN_ON_ERROR( scsi_cmd_sense(device, NULL));
-    }
-    return ret;
+    // The readiness loop reads sense once; a second request can clear it.
+    return bot_execute_command(device, &cbw.base, NULL, 0);
 }
 
 esp_err_t scsi_cmd_sense(msc_host_device_handle_t dev, scsi_sense_data_t *sense)
@@ -450,8 +456,8 @@ esp_err_t scsi_cmd_inquiry(msc_host_device_handle_t dev)
 
     esp_err_t ret = bot_execute_command(device, &cbw.base, &response, sizeof(response) );
 
-    // In case of an error, get an error code
-    if (unlikely(ret != ESP_OK)) {
+    // Request sense only for a SCSI failure; preserve USB/BOT transport errors.
+    if (unlikely(ret == ESP_FAIL)) {
         MSC_RETURN_ON_ERROR( scsi_cmd_sense(device, NULL));
     }
     return ret;
