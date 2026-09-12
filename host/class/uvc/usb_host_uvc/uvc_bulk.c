@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2024-2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2024-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -141,8 +141,12 @@ label_sof:
         }
 
         // We detected start of new frame. Update Frame ID and start fetching this frame
-        uvc_stream->single_thread.current_frame_id   = payload_header->bmHeaderInfo.frame_id;
-        uvc_stream->single_thread.skip_current_frame = payload_header->bmHeaderInfo.error; // Check for error flag
+        uvc_stream->single_thread.current_frame_id = payload_header->bmHeaderInfo.frame_id;
+#ifdef CONFIG_UVC_CHECK_PAYLOAD_HEADER_ERR
+        uvc_stream->single_thread.skip_current_frame = payload_header->bmHeaderInfo.error;
+#else
+        uvc_stream->single_thread.skip_current_frame = false;
+#endif // CONFIG_UVC_CHECK_PAYLOAD_HEADER_ERR
         payload_data     += payload_header->bHeaderLength; // Pointer arithmetic!
         payload_data_len -= payload_header->bHeaderLength;
 
@@ -152,12 +156,14 @@ label_sof:
             goto skip_sof;
         }
 
+#ifdef CONFIG_UVC_CHECK_PAYLOAD_HEADER_ERR
         // Drop frame if device signals error in header
         if (payload_header->bmHeaderInfo.error) {
             ESP_LOGW(TAG, "frame error flag set");
             uvc_stream->single_thread.skip_current_frame = true;
             goto skip_sof;
         }
+#endif // CONFIG_UVC_CHECK_PAYLOAD_HEADER_ERR
 
         // Check mjpeg frame start
         if (uvc_stream->dynamic.vs_format.format == UVC_VS_FORMAT_MJPEG &&
@@ -217,7 +223,9 @@ skip_sof:
             break;
         }
 
-        uvc_stream->single_thread.skip_current_frame |= payload_header->bmHeaderInfo.error; // Check for error flag
+#ifdef CONFIG_UVC_CHECK_PAYLOAD_HEADER_ERR
+        uvc_stream->single_thread.skip_current_frame |= payload_header->bmHeaderInfo.error;
+#endif // CONFIG_UVC_CHECK_PAYLOAD_HEADER_ERR
         const bool start_of_frame = (uvc_stream->single_thread.current_frame_id != payload_header->bmHeaderInfo.frame_id);
 
         if (!start_of_frame && payload_header->bmHeaderInfo.end_of_frame == false && payload_data_len > 0) {

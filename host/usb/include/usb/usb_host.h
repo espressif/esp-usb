@@ -22,6 +22,7 @@ extern "C" {
 // ------------------------------------------------- Macros and Types --------------------------------------------------
 
 #define REMOTE_WAKE_HAL_SUPPORTED (1)  // Define for class drivers that this version of usb component supports the remote wakeup HAL API.
+#define USB_HOST_DEV_REMOVED_SUPPORTED (1)  // Defines support for USB_HOST_CLIENT_EVENT_DEV_REMOVED and notify_dev_removed.
 
 // ----------------------- Handles -------------------------
 

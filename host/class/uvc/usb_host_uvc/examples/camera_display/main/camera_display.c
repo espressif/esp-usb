@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2024-2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2024-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -54,6 +54,9 @@ void stream_callback(const uvc_host_stream_event_data_t *event, void *user_ctx)
     case UVC_HOST_DEVICE_DISCONNECTED:
         ESP_LOGW(TAG, "Device disconnected");
         ESP_ERROR_CHECK(uvc_host_stream_close(event->device_disconnected.stream_hdl));
+        if (stream == event->device_disconnected.stream_hdl) {
+            stream = NULL;
+        }
         xSemaphoreGive(device_disconnected_sem);
         break;
     case UVC_HOST_FRAME_BUFFER_OVERFLOW:
@@ -70,6 +73,20 @@ void stream_callback(const uvc_host_stream_event_data_t *event, void *user_ctx)
         ESP_LOGI(TAG, "Device resumed");
         break;
 #endif // UVC_HOST_SUSPEND_RESUME_API_SUPPORTED
+    default:
+        abort();
+        break;
+    }
+}
+
+static void uvc_event_cb(const uvc_host_driver_event_data_t *event, void *user_ctx)
+{
+    switch (event->type) {
+    case UVC_HOST_DRIVER_EVENT_DEVICE_CONNECTED:
+        break;
+    case UVC_HOST_DRIVER_EVENT_DEVICE_DISCONNECTED:
+        ESP_LOGW(TAG, "Device disconnected");
+        break;
     default:
         abort();
         break;
@@ -211,6 +228,7 @@ void app_main(void)
         .driver_task_priority = 6,
         .xCoreID = tskNO_AFFINITY,
         .create_background_task = true,
+        .event_cb = uvc_event_cb,
     };
     ESP_ERROR_CHECK(uvc_host_install(&uvc_driver_config));
 
