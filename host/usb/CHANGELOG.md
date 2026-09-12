@@ -10,6 +10,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - Fixed a race that could trigger an assertion when closing a device immediately after its control transfer completion callback.
 
+### Added
+
+- Buffer DMA support for USB Host
+
 ## [1.5.0] - 2026-06-16
 
 ### Changed

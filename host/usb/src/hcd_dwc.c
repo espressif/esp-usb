@@ -114,8 +114,13 @@ DEFINE_CRIT_SECTION_LOCK_STATIC(hcd_lock);
  */
 #if SOC_CACHE_INTERNAL_MEM_VIA_L1CACHE
 #define CACHE_SYNC_FRAME_LIST(frame_list)           cache_sync_frame_list(frame_list)
+#if CONFIG_USB_HOST_DMA_MODE_DESC
 #define CACHE_SYNC_XFER_DESCRIPTOR_LIST_M2C(buffer) cache_sync_xfer_descriptor_list(buffer, true)
 #define CACHE_SYNC_XFER_DESCRIPTOR_LIST_C2M(buffer) cache_sync_xfer_descriptor_list(buffer, false)
+#else // CONFIG_USB_HOST_DMA_MODE_DESC
+#define CACHE_SYNC_XFER_DESCRIPTOR_LIST_M2C(buffer)
+#define CACHE_SYNC_XFER_DESCRIPTOR_LIST_C2M(buffer)
+#endif // CONFIG_USB_HOST_DMA_MODE_DESC
 #define CACHE_SYNC_DATA_BUFFER_M2C(pipe, urb)       cache_sync_data_buffer(pipe, urb, true)
 #define CACHE_SYNC_DATA_BUFFER_C2M(pipe, urb)       cache_sync_data_buffer(pipe, urb, false)
 #else // SOC_CACHE_INTERNAL_MEM_VIA_L1CACHE
@@ -131,8 +136,9 @@ DEFINE_CRIT_SECTION_LOCK_STATIC(hcd_lock);
 typedef struct pipe_obj pipe_t;
 typedef struct port_obj port_t;
 
+#if CONFIG_USB_HOST_DMA_MODE_DESC
 /**
- * @brief Object representing a single buffer of a pipe's multi buffer implementation
+ * @brief Object representing a single buffer of a pipe's multi buffer implementation for descriptor DMA mode
  */
 typedef struct {
     void *xfer_desc_list;
@@ -174,6 +180,30 @@ typedef struct {
         uint32_t val;
     } status_flags;                         // Status flags for the buffer
 } dma_buffer_block_t;
+
+#else // CONFIG_USB_HOST_DMA_MODE_DESC
+
+/**
+ * @brief Object representing a single buffer of a pipe's multi buffer implementation for buffer DMA mode
+ */
+typedef struct {
+    urb_t *urb;
+    union {
+        uint32_t val;
+    } flags;
+    union {
+        struct {
+            uint32_t executing: 1;          // The buffer is currently executing
+            uint32_t was_canceled: 1;      // Buffer was done due to a cancellation (i.e., a halt request)
+            uint32_t reserved6: 6;
+            hcd_pipe_event_t pipe_event: 8; // The pipe event when the buffer was done
+            uint32_t reserved16: 16;
+        };
+        uint32_t val;
+    } status_flags;                         // Status flags for the buffer
+} dma_buffer_block_t;
+
+#endif // CONFIG_USB_HOST_DMA_MODE_DESC
 
 /**
  * @brief Object representing a pipe in the HCD layer
@@ -283,8 +313,10 @@ static inline void cache_sync_frame_list(void *frame_list)
     (void)ret;
 }
 
+#if CONFIG_USB_HOST_DMA_MODE_DESC
 /**
  * @brief Sync Transfer Descriptor List
+ * @note Transfer Descriptor List is only available in the Descriptor DMA
  *
  * @param[in] buffer       Buffer that holds the Transfer Descriptor List
  * @param[in] mem_to_cache Direction of cache sync
@@ -295,6 +327,7 @@ static inline void cache_sync_xfer_descriptor_list(dma_buffer_block_t *buffer, b
     assert(ret == ESP_OK);
     (void)ret;
 }
+#endif // CONFIG_USB_HOST_DMA_MODE_DESC
 
 /**
  * @brief Sync Transfer data buffer
@@ -401,8 +434,13 @@ static inline bool _buffer_check_done(pipe_t *pipe)
     if (pipe->ep_char.ls_via_fs_hub) {
         esp_rom_delay_us(1000);
     }
+#if CONFIG_USB_HOST_DMA_MODE_DESC
     dma_buffer_block_t *buffer_inflight = pipe->buffers[pipe->multi_buffer_control.rd_idx];
+    // Only to pass the build, will be refactored
     return (buffer_inflight->flags.ctrl.cur_stg == 2);
+#else // CONFIG_USB_HOST_DMA_MODE_DESC
+    return true;
+#endif // CONFIG_USB_HOST_DMA_MODE_DESC
 }
 
 /**
@@ -430,7 +468,10 @@ static inline void _buffer_done(pipe_t *pipe, int stop_idx, hcd_pipe_event_t pip
     dma_buffer_block_t *buffer_done = pipe->buffers[pipe->multi_buffer_control.rd_idx];
     buffer_done->status_flags.executing = 0;
     buffer_done->status_flags.was_canceled = canceled;
+#if CONFIG_USB_HOST_DMA_MODE_DESC
+    // Only to pass build, will be refactored
     buffer_done->status_flags.stop_idx = stop_idx;
+#endif //CONFIG_USB_HOST_DMA_MODE_DESC
     buffer_done->status_flags.pipe_event = pipe_event;
     pipe->multi_buffer_control.rd_idx++;
     pipe->multi_buffer_control.buffer_num_to_exec--;
@@ -1774,6 +1815,20 @@ static inline hcd_pipe_event_t pipe_decode_error_event(usb_dwc_hal_chan_error_t 
     return event;
 }
 
+#if CONFIG_USB_HOST_DMA_MODE_DESC
+/**
+ * @brief Allocate a DMA buffer block (Descriptor DMA mode)
+ *
+ * Allocates the software structure used to manage a single transfer buffer, together with the transfer
+ * descriptor (QTD) list. The descriptor list length is derived from the transfer type, and the list is
+ * allocated with the alignment and memory capabilities required by the USB-DWC hardware.
+ *
+ * @param[in] type Transfer type the buffer block is allocated for
+ *
+ * @return
+ *    - Pointer to the allocated DMA buffer block on success
+ *    - NULL if allocation failed
+ */
 static dma_buffer_block_t *buffer_block_alloc(usb_transfer_type_t type)
 {
     int desc_list_len;
@@ -1814,13 +1869,33 @@ static dma_buffer_block_t *buffer_block_alloc(usb_transfer_type_t type)
     buffer->xfer_desc_list_len_bytes = ALIGN_UP(desc_list_len * sizeof(usb_dwc_ll_dma_qtd_t), cache_align);
     return buffer;
 }
+#else // CONFIG_USB_HOST_DMA_MODE_DESC
+/**
+ * @brief Allocate a DMA buffer block (Buffer DMA mode)
+ *
+ * Allocates only the software structure used to manage a single transfer buffer. Buffer DMA mode does not
+ * use a transfer descriptor list, so no descriptor list is allocated.
+ *
+ * @param[in] type Transfer type the buffer block is allocated for (unused in Buffer DMA mode)
+ *
+ * @return
+ *    - Pointer to the allocated DMA buffer block on success
+ *    - NULL if allocation failed
+ */
+static dma_buffer_block_t *buffer_block_alloc(usb_transfer_type_t type)
+{
+    return calloc(1, sizeof(dma_buffer_block_t));
+}
+#endif // CONFIG_USB_HOST_DMA_MODE_DESC
 
 static void buffer_block_free(dma_buffer_block_t *buffer)
 {
     if (buffer == NULL) {
         return;
     }
+#if CONFIG_USB_HOST_DMA_MODE_DESC
     heap_caps_free(buffer->xfer_desc_list);
+#endif // CONFIG_USB_HOST_DMA_MODE_DESC
     free(buffer);
 }
 
@@ -2272,6 +2347,15 @@ hcd_pipe_event_t hcd_pipe_get_event(hcd_pipe_handle_t pipe_hdl)
 
 // ------------------------------------------------- Buffer Control ----------------------------------------------------
 
+// ------------------------------------------------- Buffer fill -------------------------------------------------------
+
+#if CONFIG_USB_HOST_DMA_MODE_DESC
+/**
+ * @brief Fill a control transfer buffer with setup, data, and status descriptors
+ *
+ * @param buffer Buffer to fill
+ * @param transfer Transfer to fill into the buffer
+ */
 static inline void _buffer_fill_ctrl(dma_buffer_block_t *buffer, usb_transfer_t *transfer)
 {
     // Get information about the control transfer by analyzing the setup packet (the first 8 bytes of the URB's data)
@@ -2299,6 +2383,14 @@ static inline void _buffer_fill_ctrl(dma_buffer_block_t *buffer, usb_transfer_t 
     buffer->flags.ctrl.cur_stg = 0;
 }
 
+/**
+ * @brief Fill a bulk transfer buffer with transfer descriptors
+ *
+ * @param buffer Buffer to fill
+ * @param transfer Transfer to fill into the buffer
+ * @param is_in Whether the endpoint direction is IN
+ * @param mps Endpoint maximum packet size
+ */
 static inline void _buffer_fill_bulk(dma_buffer_block_t *buffer, usb_transfer_t *transfer, bool is_in, int mps)
 {
     // Only add a zero length packet if OUT, flag is set, and transfer length is multiple of EP's MPS
@@ -2321,6 +2413,14 @@ static inline void _buffer_fill_bulk(dma_buffer_block_t *buffer, usb_transfer_t 
     buffer->flags.bulk.zero_len_packet = zero_len_packet;
 }
 
+/**
+ * @brief Fill an interrupt transfer buffer with transfer descriptors
+ *
+ * @param buffer Buffer to fill
+ * @param transfer Transfer to fill into the buffer
+ * @param is_in Whether the endpoint direction is IN
+ * @param mps Endpoint maximum packet size
+ */
 static inline void _buffer_fill_intr(dma_buffer_block_t *buffer, usb_transfer_t *transfer, bool is_in, int mps)
 {
     int num_qtds;
@@ -2363,6 +2463,16 @@ static inline void _buffer_fill_intr(dma_buffer_block_t *buffer, usb_transfer_t 
     buffer->flags.intr.zero_len_packet = zero_len_packet;
 }
 
+/**
+ * @brief Fill an isochronous transfer buffer with transfer descriptors
+ *
+ * @param buffer Buffer to fill
+ * @param transfer Transfer to fill into the buffer
+ * @param is_in Whether the endpoint direction is IN
+ * @param mps Endpoint maximum packet size
+ * @param interval Endpoint polling interval
+ * @param start_idx Index of the first descriptor in the list
+ */
 static inline void IRAM_ATTR _buffer_fill_isoc(dma_buffer_block_t *buffer, usb_transfer_t *transfer, bool is_in, int mps, int interval, int start_idx)
 {
     assert(interval > 0);
@@ -2391,6 +2501,48 @@ static inline void IRAM_ATTR _buffer_fill_isoc(dma_buffer_block_t *buffer, usb_t
     buffer->flags.isoc.start_idx = start_idx;
     buffer->flags.isoc.next_start_idx = desc_idx;
 }
+#else // CONFIG_USB_HOST_DMA_MODE_DESC
+
+/**
+ * @brief Fill a control transfer buffer with stage flags for buffer DMA mode
+ *
+ * @param buffer Buffer to fill
+ * @param transfer Transfer to fill into the buffer
+ */
+static inline void _buffer_fill_ctrl(dma_buffer_block_t *buffer, usb_transfer_t *transfer) {}
+
+/**
+ * @brief Fill a bulk transfer buffer with flags for buffer DMA mode
+ *
+ * @param buffer Buffer to fill
+ * @param transfer Transfer to fill into the buffer
+ * @param is_in Whether the endpoint direction is IN
+ * @param mps Endpoint maximum packet size
+ */
+static inline void _buffer_fill_bulk(dma_buffer_block_t *buffer, usb_transfer_t *transfer, bool is_in, int mps) {}
+
+/**
+ * @brief Fill an interrupt transfer buffer with transfer descriptors for buffer DMA mode
+ *
+ * @param buffer Buffer to fill
+ * @param transfer Transfer to fill into the buffer
+ * @param is_in Whether the endpoint direction is IN
+ * @param mps Endpoint maximum packet size
+ */
+static inline void _buffer_fill_intr(dma_buffer_block_t *buffer, usb_transfer_t *transfer, bool is_in, int mps) {}
+
+/**
+ * @brief Fill an isochronous transfer buffer with transfer descriptors for buffer DMA mode
+ *
+ * @param buffer Buffer to fill
+ * @param transfer Transfer to fill into the buffer
+ * @param is_in Whether the endpoint direction is IN
+ * @param mps Endpoint maximum packet size
+ * @param interval Endpoint polling interval
+ * @param start_idx Index of the first descriptor in the list
+ */
+static inline void IRAM_ATTR _buffer_fill_isoc(dma_buffer_block_t *buffer, usb_transfer_t *transfer, bool is_in, int mps, int interval, int start_idx) {}
+#endif // CONFIG_USB_HOST_DMA_MODE_DESC
 
 static void IRAM_ATTR _buffer_fill(pipe_t *pipe)
 {
@@ -2438,9 +2590,14 @@ static void IRAM_ATTR _buffer_fill(pipe_t *pipe)
             start_idx %= XFER_LIST_LEN_ISOC;
         } else {
             // Start index is based on previously filled buffer
+#if CONFIG_USB_HOST_DMA_MODE_DESC
+            // Only to pass the build, will be refactored
             uint32_t prev_buffer_idx = (pipe->multi_buffer_control.wr_idx - 1) & (NUM_BUFFERS - 1);
             dma_buffer_block_t *prev_filled_buffer = pipe->buffers[prev_buffer_idx];
             start_idx = prev_filled_buffer->flags.isoc.next_start_idx;
+#else // CONFIG_USB_HOST_DMA_MODE_DESC
+            start_idx = 0;
+#endif // CONFIG_USB_HOST_DMA_MODE_DESC
         }
         _buffer_fill_isoc(buffer_to_fill, transfer, is_in, mps, (int)interval, start_idx);
         break;
@@ -2468,53 +2625,142 @@ static void IRAM_ATTR _buffer_fill(pipe_t *pipe)
     pipe->multi_buffer_control.buffer_num_to_exec++;
 }
 
+// ------------------------------------------------- Buffer exec -------------------------------------------------------
+
+#if CONFIG_USB_HOST_DMA_MODE_DESC
+/**
+ * @brief Start execution of a control transfer in descriptor DMA mode
+ *
+ * @param pipe Pipe object
+ * @param buffer Buffer to execute
+ */
+static inline void _buffer_exec_ctrl(pipe_t *pipe, dma_buffer_block_t *buffer)
+{
+    // Set the channel's direction to OUT and PID to 0 respectively for the setup stage
+    usb_dwc_hal_chan_set_dir(pipe->chan_obj, false);   // Setup stage is always OUT
+    usb_dwc_hal_chan_set_pid(pipe->chan_obj, 0);   // Setup stage always has a PID of DATA0
+    buffer->status_flags.executing = 1;
+    pipe->multi_buffer_control.buffer_is_executing = 1;
+    usb_dwc_hal_chan_activate(pipe->chan_obj, buffer->xfer_desc_list, XFER_LIST_LEN_CTRL, 0);
+}
+
+/**
+ * @brief Start execution of an isochronous transfer in descriptor DMA mode
+ *
+ * @param pipe Pipe object
+ * @param buffer Buffer to execute
+ */
+static inline void _buffer_exec_isoc(pipe_t *pipe, dma_buffer_block_t *buffer)
+{
+    buffer->status_flags.executing = 1;
+    pipe->multi_buffer_control.buffer_is_executing = 1;
+    usb_dwc_hal_chan_activate(pipe->chan_obj, buffer->xfer_desc_list, XFER_LIST_LEN_ISOC,
+                              buffer->flags.isoc.start_idx);
+}
+
+/**
+ * @brief Start execution of a bulk transfer in descriptor DMA mode
+ *
+ * @param pipe Pipe object
+ * @param buffer Buffer to execute
+ */
+static inline void _buffer_exec_bulk(pipe_t *pipe, dma_buffer_block_t *buffer)
+{
+    int desc_list_len = (buffer->flags.bulk.zero_len_packet) ? XFER_LIST_LEN_BULK : 1;
+    buffer->status_flags.executing = 1;
+    pipe->multi_buffer_control.buffer_is_executing = 1;
+    usb_dwc_hal_chan_activate(pipe->chan_obj, buffer->xfer_desc_list, desc_list_len, 0);
+}
+
+/**
+ * @brief Start execution of an interrupt transfer in descriptor DMA mode
+ *
+ * @param pipe Pipe object
+ * @param buffer Buffer to execute
+ */
+static inline void _buffer_exec_intr(pipe_t *pipe, dma_buffer_block_t *buffer)
+{
+    int desc_list_len = (buffer->flags.intr.zero_len_packet) ? buffer->flags.intr.num_qtds + 1 : buffer->flags.intr.num_qtds;
+    buffer->status_flags.executing = 1;
+    pipe->multi_buffer_control.buffer_is_executing = 1;
+    usb_dwc_hal_chan_activate(pipe->chan_obj, buffer->xfer_desc_list, desc_list_len, 0);
+}
+
+#else // CONFIG_USB_HOST_DMA_MODE_DESC
+
+/**
+ * @brief Start execution of a control transfer in buffer DMA mode
+ *
+ * @param pipe Pipe object
+ * @param buffer Buffer to execute
+ */
+static inline void _buffer_exec_ctrl(pipe_t *pipe, dma_buffer_block_t *buffer) {}
+
+/**
+ * @brief Start execution of an isochronous transfer in buffer DMA mode
+ *
+ * @param pipe Pipe object
+ * @param buffer Buffer to execute
+ */
+static inline void _buffer_exec_isoc(pipe_t *pipe, dma_buffer_block_t *buffer) {}
+
+/**
+ * @brief Start execution of a bulk transfer in buffer DMA mode
+ *
+ * Programs the channel with the full data buffer. The hardware handles all MPS-sized packets
+ * in a single activation, including PID toggling and NAK/NYET retries.
+ *
+ * @param pipe Pipe object
+ * @param buffer Buffer to execute
+ */
+static inline void _buffer_exec_bulk(pipe_t *pipe, dma_buffer_block_t *buffer) {}
+
+/**
+ * @brief Start execution of an interrupt transfer in buffer DMA mode
+ *
+ * @param pipe Pipe object
+ * @param buffer Buffer to execute
+ */
+static inline void _buffer_exec_intr(pipe_t *pipe, dma_buffer_block_t *buffer) {}
+
+#endif // CONFIG_USB_HOST_DMA_MODE_DESC
+
 static void IRAM_ATTR _buffer_exec(pipe_t *pipe)
 {
     assert(pipe->multi_buffer_control.rd_idx != pipe->multi_buffer_control.wr_idx || pipe->multi_buffer_control.buffer_num_to_exec > 0);
     dma_buffer_block_t *buffer_to_exec = pipe->buffers[pipe->multi_buffer_control.rd_idx];
     assert(buffer_to_exec->urb != NULL);
 
-    uint32_t start_idx;
-    int desc_list_len;
     switch (pipe->ep_char.type) {
     case USB_DWC_XFER_TYPE_CTRL: {
-        start_idx = 0;
-        desc_list_len = XFER_LIST_LEN_CTRL;
-        // Set the channel's direction to OUT and PID to 0 respectively for the the setup stage
-        usb_dwc_hal_chan_set_dir(pipe->chan_obj, false);   // Setup stage is always OUT
-        usb_dwc_hal_chan_set_pid(pipe->chan_obj, 0);   // Setup stage always has a PID of DATA0
+        _buffer_exec_ctrl(pipe, buffer_to_exec);
         break;
     }
     case USB_DWC_XFER_TYPE_ISOCHRONOUS: {
-        start_idx = buffer_to_exec->flags.isoc.start_idx;
-        desc_list_len = XFER_LIST_LEN_ISOC;
+        _buffer_exec_isoc(pipe, buffer_to_exec);
         break;
     }
     case USB_DWC_XFER_TYPE_BULK: {
-        start_idx = 0;
-        desc_list_len = (buffer_to_exec->flags.bulk.zero_len_packet) ? XFER_LIST_LEN_BULK : 1;
+        _buffer_exec_bulk(pipe, buffer_to_exec);
         break;
     }
     case USB_DWC_XFER_TYPE_INTR: {
-        start_idx = 0;
-        desc_list_len = (buffer_to_exec->flags.intr.zero_len_packet) ? buffer_to_exec->flags.intr.num_qtds + 1 : buffer_to_exec->flags.intr.num_qtds;
+        _buffer_exec_intr(pipe, buffer_to_exec);
         break;
     }
     default: {
-        start_idx = 0;
-        desc_list_len = 0;
         abort();
         break;
     }
     }
-    // Update buffer and multi buffer flags
-    buffer_to_exec->status_flags.executing = 1;
-    pipe->multi_buffer_control.buffer_is_executing = 1;
-    usb_dwc_hal_chan_activate(pipe->chan_obj, buffer_to_exec->xfer_desc_list, desc_list_len, start_idx);
 }
+
+// ------------------------------------------------- Buffer exec continue ----------------------------------------------
 
 static void _buffer_exec_cont(pipe_t *pipe)
 {
+    // Buffer execute continue is needed for both ctrl and bulk transfers in buffer dma mode. This will be changed in upcoming PRs
+#if CONFIG_USB_HOST_DMA_MODE_DESC
     // This should only ever be called on control transfers
     assert(pipe->ep_char.type == USB_DWC_XFER_TYPE_CTRL);
     dma_buffer_block_t *buffer_inflight = pipe->buffers[pipe->multi_buffer_control.rd_idx];
@@ -2542,8 +2788,18 @@ static void _buffer_exec_cont(pipe_t *pipe)
     usb_dwc_hal_chan_set_dir(pipe->chan_obj, next_dir_is_in);
     usb_dwc_hal_chan_set_pid(pipe->chan_obj, next_pid);
     usb_dwc_hal_chan_activate(pipe->chan_obj, buffer_inflight->xfer_desc_list, XFER_LIST_LEN_CTRL, buffer_inflight->flags.ctrl.cur_stg);
+#endif // CONFIG_USB_HOST_DMA_MODE_DESC
 }
 
+// ------------------------------------------------- Buffer parse ------------------------------------------------------
+
+#if CONFIG_USB_HOST_DMA_MODE_DESC
+
+/**
+ * @brief Parse a completed control transfer in descriptor DMA mode
+ *
+ * @param buffer Buffer to parse
+ */
 static inline void _buffer_parse_ctrl(dma_buffer_block_t *buffer)
 {
     usb_transfer_t *transfer = &buffer->urb->transfer;
@@ -2566,6 +2822,11 @@ static inline void _buffer_parse_ctrl(dma_buffer_block_t *buffer)
     memset(buffer->xfer_desc_list, 0, XFER_LIST_LEN_CTRL * sizeof(usb_dwc_ll_dma_qtd_t));
 }
 
+/**
+ * @brief Parse a completed bulk transfer in descriptor DMA mode
+ *
+ * @param buffer Buffer to parse
+ */
 static inline void _buffer_parse_bulk(dma_buffer_block_t *buffer)
 {
     usb_transfer_t *transfer = &buffer->urb->transfer;
@@ -2582,6 +2843,13 @@ static inline void _buffer_parse_bulk(dma_buffer_block_t *buffer)
     memset(buffer->xfer_desc_list, 0, XFER_LIST_LEN_BULK * sizeof(usb_dwc_ll_dma_qtd_t));
 }
 
+/**
+ * @brief Parse a completed interrupt transfer in descriptor DMA mode
+ *
+ * @param buffer Buffer to parse
+ * @param is_in Whether the endpoint direction is IN
+ * @param mps Endpoint maximum packet size
+ */
 static inline void _buffer_parse_intr(dma_buffer_block_t *buffer, bool is_in, int mps)
 {
     usb_transfer_t *transfer = &buffer->urb->transfer;
@@ -2632,6 +2900,12 @@ static inline void _buffer_parse_intr(dma_buffer_block_t *buffer, bool is_in, in
     memset(buffer->xfer_desc_list, 0, XFER_LIST_LEN_INTR * sizeof(usb_dwc_ll_dma_qtd_t));
 }
 
+/**
+ * @brief Parse a completed isochronous transfer in descriptor DMA mode
+ *
+ * @param buffer Buffer to parse
+ * @param is_in Whether the endpoint direction is IN
+ */
 static inline void _buffer_parse_isoc(dma_buffer_block_t *buffer, bool is_in)
 {
     usb_transfer_t *transfer = &buffer->urb->transfer;
@@ -2674,6 +2948,40 @@ static inline void _buffer_parse_isoc(dma_buffer_block_t *buffer, bool is_in)
     transfer->actual_num_bytes = total_actual_num_bytes;
     transfer->status = USB_TRANSFER_STATUS_COMPLETED;
 }
+#else // CONFIG_USB_HOST_DMA_MODE_DESC
+
+/**
+ * @brief Parse a completed control transfer in buffer DMA mode
+ *
+ * @param buffer Buffer to parse
+ */
+static inline void _buffer_parse_ctrl(dma_buffer_block_t *buffer) {}
+
+/**
+ * @brief Parse a completed bulk transfer in buffer DMA mode
+ *
+ * @param buffer Buffer to parse
+ */
+static inline void _buffer_parse_bulk(dma_buffer_block_t *buffer) {}
+
+/**
+ * @brief Parse a completed interrupt transfer in buffer DMA mode
+ *
+ * @param buffer Buffer to parse
+ * @param is_in Whether the endpoint direction is IN
+ * @param mps Endpoint maximum packet size
+ */
+static inline void _buffer_parse_intr(dma_buffer_block_t *buffer, bool is_in, int mps) {}
+
+/**
+ * @brief Parse a completed isochronous transfer in buffer DMA mode
+ *
+ * @param buffer Buffer to parse
+ * @param is_in Whether the endpoint direction is IN
+ */
+static inline void _buffer_parse_isoc(dma_buffer_block_t *buffer, bool is_in) {}
+
+#endif // CONFIG_USB_HOST_DMA_MODE_DESC
 
 static inline void _buffer_parse_error(dma_buffer_block_t *buffer)
 {
