@@ -937,14 +937,20 @@ static hcd_pipe_event_t _intr_hdlr_chan(pipe_t *pipe, usb_dwc_hal_chan_t *chan_o
         int stop_idx = usb_dwc_hal_chan_get_qtd_idx(chan_obj);
         _buffer_done(pipe, stop_idx, pipe->last_event, false);
         // First check if there is another buffer we can execute. But we only want to execute if there's still a valid device
-        if (_buffer_can_exec(pipe) && pipe->port->flags.conn_dev_ena) {
+        if (_buffer_can_exec(pipe) && pipe->port->flags.conn_dev_ena && pipe->state == HCD_PIPE_STATE_ACTIVE) {
             // If the next buffer is filled and ready to execute, execute it
             _buffer_exec(pipe);
         }
         // Handle the previously done buffer
         _buffer_parse(pipe);
-        // Check to see if we can fill another buffer. But we only want to fill if there is still a valid device
-        if (_buffer_can_fill(pipe) && pipe->port->flags.conn_dev_ena) {
+
+        if (pipe->state == HCD_PIPE_STATE_HALTED) {
+            // Periodic pipe can have 'channel event complete' even when it is halted
+            // because periodic pipes must always finish their in-flight transfer and cannot be halted with HCCHAR.ChDis.
+            // Once the transfer is finished and parsed, we flush all other filled buffers.
+            // The periodic pipe was halted -> mark all filled buffers as cancelled
+            _buffer_flush_all(pipe, true);
+        } else if (_buffer_can_fill(pipe) && pipe->port->flags.conn_dev_ena) { // Check to see if we can fill another buffer. But we only want to fill if there is still a valid device
             // Now that we've parsed a buffer, see if another URB can be filled in its place
             _buffer_fill(pipe);
         }
@@ -1941,13 +1947,19 @@ static void pipe_set_ep_char(const hcd_pipe_config_t *pipe_config, usb_transfer_
 
 static esp_err_t _pipe_cmd_halt(pipe_t *pipe)
 {
-    esp_err_t ret;
-
     // If pipe is already halted, just return.
     if (pipe->state == HCD_PIPE_STATE_HALTED) {
-        ret = ESP_OK;
         goto exit;
     }
+
+    // Periodic pipes cannot be halted by writing HCCHAR.ChDis
+    // They must finish the already started transfer
+    // The periodic pipe will be halted automatically, when last transfer completes
+    if (pipe->ep_char.type == USB_DWC_XFER_TYPE_ISOCHRONOUS || pipe->ep_char.type == USB_DWC_XFER_TYPE_INTR) {
+        pipe->state = HCD_PIPE_STATE_HALTED;
+        goto exit;
+    }
+
     // If the pipe's port is invalid, we just mark the pipe as halted without needing to halt the underlying channel
     if (pipe->port->flags.conn_dev_ena // Skip halting the underlying channel if the port is invalid
             && !usb_dwc_hal_chan_request_halt(pipe->chan_obj)) {   // Check if the channel is already halted
@@ -1961,9 +1973,8 @@ static esp_err_t _pipe_cmd_halt(pipe_t *pipe)
         usb_dwc_hal_chan_mark_halted(pipe->chan_obj);
         pipe->state = HCD_PIPE_STATE_HALTED;
     }
-    ret = ESP_OK;
 exit:
-    return ret;
+    return ESP_OK;
 }
 
 static esp_err_t _pipe_cmd_flush(pipe_t *pipe)
@@ -1975,10 +1986,16 @@ static esp_err_t _pipe_cmd_flush(pipe_t *pipe)
         goto exit;
     }
     // If the port is still valid, we are canceling transfers. Otherwise, we are flushing due to a port error
-    bool canceled = pipe->port->flags.conn_dev_ena;
-    bool call_pipe_cb;
-    // Flush any filled buffers
-    call_pipe_cb = _buffer_flush_all(pipe, canceled);
+    const bool canceled = pipe->port->flags.conn_dev_ena;
+    const usb_transfer_status_t urb_status = (canceled) ? USB_TRANSFER_STATUS_CANCELED : USB_TRANSFER_STATUS_NO_DEVICE;
+    bool call_pipe_cb = false;
+
+    if (pipe->ep_char.type == USB_DWC_XFER_TYPE_CTRL || pipe->ep_char.type == USB_DWC_XFER_TYPE_BULK) {
+        // We flush the buffer only for non-periodic pipes
+        // Periodic pipes must finish already started transfer
+        call_pipe_cb = _buffer_flush_all(pipe, canceled);
+    }
+
     // Move all URBs from the pending tailq to the done tailq
     if (pipe->num_urb_pending > 0) {
         // Process all remaining pending URBs
@@ -1988,12 +2005,12 @@ static esp_err_t _pipe_cmd_flush(pipe_t *pipe)
             urb->hcd_var = URB_HCD_STATE_DONE;
             // URBs were never executed, Update the actual_num_bytes and status
             urb->transfer.actual_num_bytes = 0;
-            urb->transfer.status = (canceled) ? USB_TRANSFER_STATUS_CANCELED : USB_TRANSFER_STATUS_NO_DEVICE;
+            urb->transfer.status = urb_status;
             if (pipe->ep_char.type == USB_DWC_XFER_TYPE_ISOCHRONOUS) {
                 // Update the URB's isoc packet descriptors as well
                 for (int pkt_idx = 0; pkt_idx < urb->transfer.num_isoc_packets; pkt_idx++) {
                     urb->transfer.isoc_packet_desc[pkt_idx].actual_num_bytes = 0;
-                    urb->transfer.isoc_packet_desc[pkt_idx].status = (canceled) ? USB_TRANSFER_STATUS_CANCELED : USB_TRANSFER_STATUS_NO_DEVICE;
+                    urb->transfer.isoc_packet_desc[pkt_idx].status = urb_status;
                 }
             }
         }
