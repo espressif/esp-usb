@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2024-2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2024-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -216,4 +216,107 @@ esp_err_t uvc_host_stream_control_commit(uvc_host_stream_hdl_t stream_hdl, const
 
     // Commit the negotiated format
     return uvc_control_commit(stream_hdl, &vs_result, vs_format);
+}
+
+/* Generic unit, terminal and VideoStreaming controls */
+
+esp_err_t uvc_host_stream_send_custom_request(uvc_host_stream_hdl_t stream_hdl, uint8_t bmRequestType,
+                                              uint8_t bRequest, uint16_t wValue, uint16_t wIndex, uint16_t wLength, uint8_t *data)
+{
+    return uvc_host_usb_ctrl(stream_hdl, bmRequestType, bRequest, wValue, wIndex, wLength, data);
+}
+
+/**
+ * @brief Fetch the active configuration descriptor of the camera behind this stream
+ */
+static esp_err_t uvc_control_get_cfg_desc(uvc_host_stream_hdl_t stream_hdl, const usb_config_desc_t **cfg_desc)
+{
+    UVC_CHECK(stream_hdl, ESP_ERR_INVALID_ARG);
+    const uvc_stream_t *uvc_stream = (const uvc_stream_t *)stream_hdl;
+    return usb_host_get_active_config_descriptor(uvc_stream->constant.dev_hdl, cfg_desc);
+}
+
+esp_err_t uvc_host_stream_find_extension_unit(uvc_host_stream_hdl_t stream_hdl, const uint8_t guid[16],
+                                              uint8_t *unit_id)
+{
+    UVC_CHECK(stream_hdl && guid && unit_id, ESP_ERR_INVALID_ARG);
+    const uvc_stream_t *uvc_stream = (const uvc_stream_t *)stream_hdl;
+    const usb_config_desc_t *cfg_desc;
+    ESP_RETURN_ON_ERROR(uvc_control_get_cfg_desc(stream_hdl, &cfg_desc), TAG, "Could not read the configuration descriptor");
+    return uvc_desc_find_extension_unit(cfg_desc, uvc_stream->constant.uvc_index, guid, unit_id);
+}
+
+esp_err_t uvc_host_stream_find_terminal(uvc_host_stream_hdl_t stream_hdl, uint16_t terminal_type,
+                                        uint8_t *terminal_id)
+{
+    UVC_CHECK(stream_hdl && terminal_id, ESP_ERR_INVALID_ARG);
+    const uvc_stream_t *uvc_stream = (const uvc_stream_t *)stream_hdl;
+    const usb_config_desc_t *cfg_desc;
+    ESP_RETURN_ON_ERROR(uvc_control_get_cfg_desc(stream_hdl, &cfg_desc), TAG, "Could not read the configuration descriptor");
+    return uvc_desc_find_terminal(cfg_desc, uvc_stream->constant.uvc_index, terminal_type, terminal_id);
+}
+
+esp_err_t uvc_host_stream_unit_supports_control(uvc_host_stream_hdl_t stream_hdl, uint8_t unit_id,
+                                                uint8_t control_bit, bool *supported)
+{
+    UVC_CHECK(stream_hdl && supported, ESP_ERR_INVALID_ARG);
+    const uvc_stream_t *uvc_stream = (const uvc_stream_t *)stream_hdl;
+    const usb_config_desc_t *cfg_desc;
+    ESP_RETURN_ON_ERROR(uvc_control_get_cfg_desc(stream_hdl, &cfg_desc), TAG, "Could not read the configuration descriptor");
+    return uvc_desc_unit_supports_control(cfg_desc, uvc_stream->constant.uvc_index, unit_id, control_bit, supported);
+}
+
+esp_err_t uvc_host_stream_unit_ctrl(uvc_host_stream_hdl_t stream_hdl, uint8_t unit_id, uint8_t selector,
+                                    uvc_host_req_code_t req, void *data, uint16_t len)
+{
+    UVC_CHECK(stream_hdl && data, ESP_ERR_INVALID_ARG);
+    const uvc_stream_t *uvc_stream = (const uvc_stream_t *)stream_hdl;
+
+    uint8_t bmRequestType = USB_BM_REQUEST_TYPE_TYPE_CLASS | USB_BM_REQUEST_TYPE_RECIP_INTERFACE;
+    bmRequestType |= (req == UVC_HOST_REQ_SET_CUR) ? USB_BM_REQUEST_TYPE_DIR_OUT : USB_BM_REQUEST_TYPE_DIR_IN;
+
+    /* Unit and terminal controls are addressed to the VideoControl interface: wIndex carries
+     * the unit ID in the high byte and the interface number in the low byte. */
+    return uvc_host_usb_ctrl(stream_hdl, bmRequestType, (uint8_t)req,
+                             (uint16_t)selector << 8,
+                             ((uint16_t)unit_id << 8) | uvc_stream->constant.bControlInterfaceNumber,
+                             len, (uint8_t *)data);
+}
+
+esp_err_t uvc_host_stream_vs_ctrl(uvc_host_stream_hdl_t stream_hdl, uint8_t selector,
+                                  uvc_host_req_code_t req, void *data, uint16_t len)
+{
+    UVC_CHECK(stream_hdl && data, ESP_ERR_INVALID_ARG);
+    const uvc_stream_t *uvc_stream = (const uvc_stream_t *)stream_hdl;
+
+    uint8_t bmRequestType = USB_BM_REQUEST_TYPE_TYPE_CLASS | USB_BM_REQUEST_TYPE_RECIP_INTERFACE;
+    bmRequestType |= (req == UVC_HOST_REQ_SET_CUR) ? USB_BM_REQUEST_TYPE_DIR_OUT : USB_BM_REQUEST_TYPE_DIR_IN;
+
+    return uvc_host_usb_ctrl(stream_hdl, bmRequestType, (uint8_t)req,
+                             (uint16_t)selector << 8,
+                             uvc_stream->constant.bInterfaceNumber,
+                             len, (uint8_t *)data);
+}
+
+esp_err_t uvc_host_stream_request_key_frame(uvc_host_stream_hdl_t stream_hdl)
+{
+    UVC_CHECK(stream_hdl, ESP_ERR_INVALID_ARG);
+    const uvc_stream_t *uvc_stream = (const uvc_stream_t *)stream_hdl;
+    const usb_config_desc_t *cfg_desc;
+    ESP_RETURN_ON_ERROR(uvc_control_get_cfg_desc(stream_hdl, &cfg_desc), TAG, "Could not read the configuration descriptor");
+
+    /* Optional control. Asking a camera that does not have it costs a STALL, which the USB
+     * host library logs at ERROR - so check the descriptor first and stay off the bus. */
+    bool supported = false;
+    ESP_RETURN_ON_ERROR(
+        uvc_desc_vs_supports_control(cfg_desc, uvc_stream->constant.bInterfaceNumber,
+                                     UVC_VS_INPUT_HEADER_CTRL_GENERATE_KEY_FRAME_BIT, &supported),
+        TAG, "Could not read the VideoStreaming input header");
+    if (!supported) {
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+
+    uint8_t generate = 1;
+    return uvc_host_stream_vs_ctrl(stream_hdl, UVC_VS_GENERATE_KEY_FRAME_CONTROL,
+                                   UVC_HOST_REQ_SET_CUR, &generate, sizeof(generate));
 }

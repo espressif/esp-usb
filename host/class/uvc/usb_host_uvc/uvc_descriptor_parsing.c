@@ -374,7 +374,7 @@ static inline bool uvc_desc_is_format_supported(
     return false;
 }
 
-static const uvc_vc_header_desc_t *uvc_desc_get_control_interface_header(const usb_config_desc_t *cfg_desc, unsigned uvc_idx)
+static const uvc_vc_header_desc_t *uvc_desc_get_control_interface_header(const usb_config_desc_t *cfg_desc, unsigned uvc_idx, uint8_t *vc_intf_num_ret)
 {
     UVC_CHECK(cfg_desc, NULL);
 
@@ -388,6 +388,9 @@ static const uvc_vc_header_desc_t *uvc_desc_get_control_interface_header(const u
         if (iad_desc->bFunctionClass == USB_CLASS_VIDEO && iad_desc->bFunctionSubClass == UVC_SC_VIDEO_INTERFACE_COLLECTION) {
             if (uvc_idx == uvc_iad_idx) {
                 // This is the IAD that we are looking for. Find its first Video Control interface header descriptor
+                if (vc_intf_num_ret) {
+                    *vc_intf_num_ret = iad_desc->bFirstInterface;
+                }
                 header_desc_ret = (const uvc_vc_header_desc_t *)usb_parse_next_descriptor_of_type(current_desc, cfg_desc->wTotalLength, UVC_CS_INTERFACE, &offset);
                 // Peer may omit the class header after a Video IAD (BBP 573 NULL deref).
                 UVC_CHECK(header_desc_ret, NULL);
@@ -458,7 +461,7 @@ esp_err_t uvc_desc_get_streaming_interface_num(
     esp_err_t ret = ESP_ERR_NOT_FOUND;
 
     // Get Interface header with uvc_index
-    const uvc_vc_header_desc_t *vc_header_desc = uvc_desc_get_control_interface_header(cfg_desc, uvc_index);
+    const uvc_vc_header_desc_t *vc_header_desc = uvc_desc_get_control_interface_header(cfg_desc, uvc_index, NULL);
     if (!vc_header_desc) {
         return ESP_ERR_NOT_FOUND;
     }
@@ -500,7 +503,7 @@ esp_err_t uvc_desc_get_frame_list(const usb_config_desc_t *config_desc, uint8_t 
     // Support frame number for VS Interface Header
     size_t num_frame = 0;
 
-    const uvc_vc_header_desc_t *vc_header = uvc_desc_get_control_interface_header(config_desc, uvc_index);
+    const uvc_vc_header_desc_t *vc_header = uvc_desc_get_control_interface_header(config_desc, uvc_index, NULL);
     UVC_CHECK(vc_header, ESP_ERR_NOT_FOUND);
     UVC_CHECK(vc_header->bInCollection > 0, ESP_ERR_NOT_FOUND);
 
@@ -601,4 +604,202 @@ esp_err_t uvc_desc_get_frame_list(const usb_config_desc_t *config_desc, uint8_t 
 
     *list_size = frame_info_list ? frame_index : num_frame;
     return ret;
+}
+
+/**
+ * @brief Clamp a VideoControl header's wTotalLength to what the configuration descriptor holds
+ *
+ * Same guard as uvc_desc_get_safe_wTotalLength() applies to the VideoStreaming header: a
+ * device that overstates wTotalLength must not send us walking off the end of the buffer.
+ */
+static uint16_t uvc_desc_get_safe_vc_total_length(const usb_config_desc_t *cfg_desc, const uvc_vc_header_desc_t *vc_header)
+{
+    const uintptr_t cfg_start = (uintptr_t)cfg_desc;
+    const uintptr_t header_start = (uintptr_t)vc_header;
+    if (header_start <= cfg_start) {
+        return 0;
+    }
+    const size_t offset = (size_t)(header_start - cfg_start);
+    if (offset >= cfg_desc->wTotalLength) {
+        return 0;
+    }
+    const size_t remaining = cfg_desc->wTotalLength - offset;
+    return (vc_header->wTotalLength > remaining) ? (uint16_t)remaining : vc_header->wTotalLength;
+}
+
+/**
+ * @brief Locate the bmControls bitmap of a VideoControl unit or terminal descriptor
+ *
+ * Every unit type puts bmControls somewhere else, and the Extension Unit puts it after a
+ * variable-length baSourceID array, so the offset can only be computed at runtime.
+ *
+ * @param[in]  desc      VideoControl class-specific descriptor
+ * @param[out] size_ret  Length of the bitmap in bytes
+ * @param[out] id_ret    bUnitID / bTerminalID of this descriptor
+ * @return Pointer to bmControls, or NULL if this descriptor type carries none or is truncated
+ */
+static const uint8_t *uvc_desc_unit_bmcontrols(const usb_standard_desc_t *desc, uint8_t *size_ret, uint8_t *id_ret)
+{
+    const uint8_t *raw = (const uint8_t *)desc;
+    const uint8_t bLength = raw[0];
+    size_t size_offset;
+
+    switch (raw[2]) { // bDescriptorSubType
+    case UVC_VC_DESC_SUBTYPE_INPUT_TERMINAL: {
+        // Only a Camera Terminal has the extended layout that carries bmControls
+        if (bLength < offsetof(uvc_input_terminal_camera_desc_t, bControlSize) + 1) {
+            return NULL;
+        }
+        const uvc_input_terminal_camera_desc_t *term = (const uvc_input_terminal_camera_desc_t *)desc;
+        if (term->wTerminalType != UVC_HOST_ITT_CAMERA) {
+            return NULL;
+        }
+        size_offset = offsetof(uvc_input_terminal_camera_desc_t, bControlSize);
+        break;
+    }
+    case UVC_VC_DESC_SUBTYPE_PROCESSING_UNIT:
+        if (bLength < offsetof(uvc_processing_unit_desc_t, bControlSize) + 1) {
+            return NULL;
+        }
+        size_offset = offsetof(uvc_processing_unit_desc_t, bControlSize);
+        break;
+    case UVC_VC_DESC_SUBTYPE_EXTENSION_UNIT: {
+        if (bLength < offsetof(uvc_extension_unit_desc_t, baSourceID)) {
+            return NULL;
+        }
+        const uvc_extension_unit_desc_t *xu = (const uvc_extension_unit_desc_t *)desc;
+        size_offset = offsetof(uvc_extension_unit_desc_t, baSourceID) + xu->bNrInPins;
+        break;
+    }
+    default:
+        return NULL;
+    }
+
+    if (bLength < size_offset + 1) {
+        return NULL;
+    }
+    const uint8_t control_size = raw[size_offset];
+    if (control_size == 0 || bLength < size_offset + 1 + control_size) {
+        return NULL;
+    }
+
+    *size_ret = control_size;
+    *id_ret = raw[3]; // bUnitID / bTerminalID sits at the same offset for every unit and terminal
+    return &raw[size_offset + 1];
+}
+
+esp_err_t uvc_desc_get_control_interface_num(const usb_config_desc_t *cfg_desc, uint8_t uvc_index, uint8_t *bInterfaceNumber)
+{
+    UVC_CHECK(cfg_desc && bInterfaceNumber, ESP_ERR_INVALID_ARG);
+    const uvc_vc_header_desc_t *vc_header = uvc_desc_get_control_interface_header(cfg_desc, uvc_index, bInterfaceNumber);
+    return vc_header ? ESP_OK : ESP_ERR_NOT_FOUND;
+}
+
+esp_err_t uvc_desc_find_extension_unit(const usb_config_desc_t *cfg_desc, uint8_t uvc_index, const uint8_t guid[16], uint8_t *bUnitID)
+{
+    UVC_CHECK(cfg_desc && guid && bUnitID, ESP_ERR_INVALID_ARG);
+
+    const uvc_vc_header_desc_t *vc_header = uvc_desc_get_control_interface_header(cfg_desc, uvc_index, NULL);
+    UVC_CHECK(vc_header, ESP_ERR_NOT_FOUND);
+    const uint16_t safe_len = uvc_desc_get_safe_vc_total_length(cfg_desc, vc_header);
+
+    int offset = 0;
+    const usb_standard_desc_t *current = (const usb_standard_desc_t *)vc_header;
+    while ((current = usb_parse_next_descriptor_of_type(current, safe_len, UVC_CS_INTERFACE, &offset))) {
+        const uvc_extension_unit_desc_t *xu = (const uvc_extension_unit_desc_t *)current;
+        if (xu->bDescriptorSubType != UVC_VC_DESC_SUBTYPE_EXTENSION_UNIT) {
+            continue;
+        }
+        if (xu->bLength < offsetof(uvc_extension_unit_desc_t, bNumControls)) {
+            continue;
+        }
+        if (memcmp(xu->guidExtensionCode, guid, sizeof(xu->guidExtensionCode)) == 0) {
+            *bUnitID = xu->bUnitID;
+            return ESP_OK;
+        }
+    }
+    return ESP_ERR_NOT_FOUND;
+}
+
+esp_err_t uvc_desc_find_terminal(const usb_config_desc_t *cfg_desc, uint8_t uvc_index, uint16_t terminal_type, uint8_t *bTerminalID)
+{
+    UVC_CHECK(cfg_desc && bTerminalID, ESP_ERR_INVALID_ARG);
+
+    const uvc_vc_header_desc_t *vc_header = uvc_desc_get_control_interface_header(cfg_desc, uvc_index, NULL);
+    UVC_CHECK(vc_header, ESP_ERR_NOT_FOUND);
+    const uint16_t safe_len = uvc_desc_get_safe_vc_total_length(cfg_desc, vc_header);
+
+    int offset = 0;
+    const usb_standard_desc_t *current = (const usb_standard_desc_t *)vc_header;
+    while ((current = usb_parse_next_descriptor_of_type(current, safe_len, UVC_CS_INTERFACE, &offset))) {
+        const uint8_t *raw = (const uint8_t *)current;
+        /* Input and output terminals both carry bTerminalID at offset 3 and wTerminalType at
+         * offset 4, so one scan covers both and the type alone says which was wanted - the
+         * standard input (0x02xx) and output (0x03xx) ranges do not overlap. */
+        if (raw[2] != UVC_VC_DESC_SUBTYPE_INPUT_TERMINAL && raw[2] != UVC_VC_DESC_SUBTYPE_OUTPUT_TERMINAL) {
+            continue;
+        }
+        if (raw[0] < offsetof(uvc_output_terminal_desc_t, bAssocTerminal)) {
+            continue;   // Truncated before wTerminalType
+        }
+        if ((uint16_t)(raw[4] | (raw[5] << 8)) == terminal_type) {
+            *bTerminalID = raw[3];
+            return ESP_OK;
+        }
+    }
+    return ESP_ERR_NOT_FOUND;
+}
+
+esp_err_t uvc_desc_unit_supports_control(const usb_config_desc_t *cfg_desc, uint8_t uvc_index, uint8_t unit_id, uint8_t control_bit, bool *supported)
+{
+    UVC_CHECK(cfg_desc && supported, ESP_ERR_INVALID_ARG);
+
+    const uvc_vc_header_desc_t *vc_header = uvc_desc_get_control_interface_header(cfg_desc, uvc_index, NULL);
+    UVC_CHECK(vc_header, ESP_ERR_NOT_FOUND);
+    const uint16_t safe_len = uvc_desc_get_safe_vc_total_length(cfg_desc, vc_header);
+
+    int offset = 0;
+    const usb_standard_desc_t *current = (const usb_standard_desc_t *)vc_header;
+    while ((current = usb_parse_next_descriptor_of_type(current, safe_len, UVC_CS_INTERFACE, &offset))) {
+        uint8_t control_size = 0;
+        uint8_t current_id = 0;
+        const uint8_t *bmControls = uvc_desc_unit_bmcontrols(current, &control_size, &current_id);
+        if (!bmControls || current_id != unit_id) {
+            continue;
+        }
+        const uint8_t byte_index = control_bit / 8;
+        *supported = (byte_index < control_size) && ((bmControls[byte_index] >> (control_bit % 8)) & 1);
+        return ESP_OK;
+    }
+    return ESP_ERR_NOT_FOUND;
+}
+
+esp_err_t uvc_desc_vs_supports_control(const usb_config_desc_t *cfg_desc, uint8_t bInterfaceNumber, uint8_t control_bit, bool *supported)
+{
+    UVC_CHECK(cfg_desc && supported, ESP_ERR_INVALID_ARG);
+
+    const uvc_vs_input_header_desc_t *vs_header = uvc_desc_get_streaming_input_header(cfg_desc, bInterfaceNumber);
+    UVC_CHECK(vs_header, ESP_ERR_NOT_FOUND);
+
+    const uint8_t control_size = vs_header->bControlSize;
+    const uint8_t byte_index = control_bit / 8;
+    *supported = false;
+    if (control_size == 0 || byte_index >= control_size) {
+        return ESP_OK;
+    }
+
+    /* bmaControls is per format: bNumFormats entries of bControlSize bytes. Report the
+     * control as available when any format claims it. */
+    const size_t array_offset = offsetof(uvc_vs_input_header_desc_t, bmaControls);
+    for (uint8_t format = 0; format < vs_header->bNumFormats; format++) {
+        const size_t byte_offset = array_offset + (size_t)format * control_size + byte_index;
+        if (byte_offset >= vs_header->bLength) {
+            break;
+        }
+        if ((vs_header->bmaControls[(size_t)format * control_size + byte_index] >> (control_bit % 8)) & 1) {
+            *supported = true;
+            break;
+        }
+    }
+    return ESP_OK;
 }

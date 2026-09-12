@@ -116,6 +116,87 @@ void uvc_print_desc(const usb_standard_desc_t *_desc);
  *      - ESP_ERR_NOT_FOUND: Input header descriptor not found.
  *      - ESP_ERR_NO_MEM: Memory allocation failure.
  */
+/**
+ * @brief Get the VideoControl interface number of a UVC function
+ *
+ * Unit and terminal control requests are addressed to the VideoControl interface, not to
+ * the VideoStreaming interface the stream was opened on.
+ *
+ * @param[in]  cfg_desc         Configuration descriptor
+ * @param[in]  uvc_index        Index of the UVC function
+ * @param[out] bInterfaceNumber VideoControl interface number
+ * @return
+ *     - ESP_OK: Success
+ *     - ESP_ERR_INVALID_ARG: cfg_desc or bInterfaceNumber is NULL
+ *     - ESP_ERR_NOT_FOUND: No such UVC function
+ */
+esp_err_t uvc_desc_get_control_interface_num(const usb_config_desc_t *cfg_desc, uint8_t uvc_index, uint8_t *bInterfaceNumber);
+
+/**
+ * @brief Find an Extension Unit by its GUID
+ *
+ * Unit IDs are assigned per camera, so a GUID is the only portable way to address an
+ * extension unit. A camera may expose several.
+ *
+ * @param[in]  cfg_desc  Configuration descriptor
+ * @param[in]  uvc_index Index of the UVC function
+ * @param[in]  guid      16-byte GUID, little-endian as it appears in the descriptor
+ * @param[out] bUnitID   Unit ID of the matching extension unit
+ * @return
+ *     - ESP_OK: Success
+ *     - ESP_ERR_INVALID_ARG: An argument is NULL
+ *     - ESP_ERR_NOT_FOUND: No extension unit with this GUID
+ */
+esp_err_t uvc_desc_find_extension_unit(const usb_config_desc_t *cfg_desc, uint8_t uvc_index, const uint8_t guid[16], uint8_t *bUnitID);
+
+/**
+ * @brief Find a terminal by its type
+ *
+ * Input and output terminals are both searched. Their standard wTerminalType ranges do not
+ * overlap, so the type alone identifies which is wanted.
+ *
+ * @param[in]  cfg_desc      Configuration descriptor
+ * @param[in]  uvc_index     Index of the UVC function
+ * @param[in]  terminal_type wTerminalType to look for, e.g. UVC_HOST_ITT_CAMERA
+ * @param[out] bTerminalID   Terminal ID of the matching terminal
+ * @return
+ *     - ESP_OK: Success
+ *     - ESP_ERR_INVALID_ARG: cfg_desc or bTerminalID is NULL
+ *     - ESP_ERR_NOT_FOUND: This function has no terminal of that type
+ */
+esp_err_t uvc_desc_find_terminal(const usb_config_desc_t *cfg_desc, uint8_t uvc_index, uint16_t terminal_type, uint8_t *bTerminalID);
+
+/**
+ * @brief Check whether a unit or terminal claims a control in its bmControls
+ *
+ * @param[in]  cfg_desc    Configuration descriptor
+ * @param[in]  uvc_index   Index of the UVC function
+ * @param[in]  unit_id     bUnitID or bTerminalID to inspect
+ * @param[in]  control_bit Bit position in bmControls, counted from D0 across all bytes
+ * @param[out] supported   Whether the bit is set
+ * @return
+ *     - ESP_OK: The unit was found and supported was written
+ *     - ESP_ERR_INVALID_ARG: cfg_desc or supported is NULL
+ *     - ESP_ERR_NOT_FOUND: No unit with this ID, or it carries no bmControls
+ */
+esp_err_t uvc_desc_unit_supports_control(const usb_config_desc_t *cfg_desc, uint8_t uvc_index, uint8_t unit_id, uint8_t control_bit, bool *supported);
+
+/**
+ * @brief Check whether a VideoStreaming interface claims a control in its bmaControls
+ *
+ * bmaControls is per format; a control is reported as available when any format claims it.
+ *
+ * @param[in]  cfg_desc         Configuration descriptor
+ * @param[in]  bInterfaceNumber VideoStreaming interface number
+ * @param[in]  control_bit      Bit position, counted from D0 across all bytes
+ * @param[out] supported        Whether the bit is set for any format
+ * @return
+ *     - ESP_OK: The interface was found and supported was written
+ *     - ESP_ERR_INVALID_ARG: cfg_desc or supported is NULL
+ *     - ESP_ERR_NOT_FOUND: No such VideoStreaming interface
+ */
+esp_err_t uvc_desc_vs_supports_control(const usb_config_desc_t *cfg_desc, uint8_t bInterfaceNumber, uint8_t control_bit, bool *supported);
+
 esp_err_t uvc_desc_get_frame_list(
     const usb_config_desc_t *config_desc,
     uint8_t uvc_index,

@@ -42,6 +42,8 @@ struct uvc_host_stream_s {
         // Constant USB descriptor values
         uint16_t bcdUVC;                      // Version of UVC specs this device implements
         uint8_t  bInterfaceNumber;            // USB Video Streaming interface claimed by this stream. Needed for ISOC Stream start and CTRL transfers
+        uint8_t  bControlInterfaceNumber;     // USB VideoControl interface of this function. Needed to address unit and terminal controls
+        uint8_t  uvc_index;                   // Index of this UVC function in the device. Needed for descriptor lookups
         uint8_t  bAlternateSetting;           // Alternate setting for selected interface. Needed for ISOC Stream start
         uint8_t  bEndpointAddress;            // Streaming endpoint address. Needed for BULK Stream stop
 
