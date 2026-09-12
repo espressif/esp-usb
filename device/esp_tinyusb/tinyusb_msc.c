@@ -28,6 +28,10 @@
 #include "diskio_sdmmc.h"
 #endif // SOC_SDMMC_HOST_SUPPORTED
 
+#if (TINYUSB_MSC_BDL_SUPPORTED)
+#include "storage_blockdev.h"
+#endif // TINYUSB_MSC_BDL_SUPPORTED
+
 static const char *TAG = "tinyusb_msc_storage";
 
 #define MSC_STORAGE_MEM_ALIGN 4
@@ -982,6 +986,80 @@ driver_err:
     return ret;
 }
 #endif // SOC_SDMMC_HOST_SUPPORTED
+
+#if (TINYUSB_MSC_BDL_SUPPORTED)
+esp_err_t tinyusb_msc_new_storage_blockdev(const tinyusb_msc_storage_config_t *config,
+                                           tinyusb_msc_storage_handle_t *handle)
+{
+    ESP_RETURN_ON_FALSE(config != NULL, ESP_ERR_INVALID_ARG, TAG, "Config can't be NULL");
+    ESP_RETURN_ON_FALSE(config->medium.blockdev != ESP_BLOCKDEV_HANDLE_INVALID, ESP_ERR_INVALID_ARG, TAG, "Block device handle should be valid");
+
+    bool need_to_install_driver = false;
+    const storage_medium_t *medium = NULL;
+    msc_storage_obj_t *storage = NULL;
+    esp_err_t ret;
+
+    MSC_ENTER_CRITICAL();
+    if (p_msc_driver == NULL) {
+        need_to_install_driver = true;
+    }
+    MSC_EXIT_CRITICAL();
+
+    if (need_to_install_driver) {
+        tinyusb_msc_driver_config_t default_cfg = {
+            .callback = msc_storage_event_default_cb,
+        };
+        ret = msc_driver_install(&default_cfg, true);
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to install MSC driver");
+            goto driver_err;
+        }
+    }
+
+    ret = storage_blockdev_open_medium(config->medium.blockdev, &medium);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to open block device medium");
+        goto medium_err;
+    }
+    ret = msc_storage_new(config, medium, &storage);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to create MSC storage object");
+        goto storage_err;
+    }
+    MSC_ENTER_CRITICAL();
+    if (!_msc_storage_map_to_lun(storage)) {
+        MSC_EXIT_CRITICAL();
+        ESP_LOGE(TAG, "Failed to map storage to LUN");
+        ret = ESP_FAIL;
+        goto map_err;
+    }
+    MSC_EXIT_CRITICAL();
+
+    if (config->mount_point == TINYUSB_MSC_STORAGE_MOUNT_APP) {
+        ret = msc_storage_mount(storage);
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to mount storage to application");
+            goto map_err;
+        }
+    }
+
+    if (handle != NULL) {
+        *handle = (tinyusb_msc_storage_handle_t)storage;
+    }
+    return ESP_OK;
+
+map_err:
+    msc_storage_delete(storage);
+storage_err:
+    medium->close();
+medium_err:
+    if (need_to_install_driver) {
+        tinyusb_msc_uninstall_driver();
+    }
+driver_err:
+    return ret;
+}
+#endif // TINYUSB_MSC_BDL_SUPPORTED
 
 esp_err_t tinyusb_msc_delete_storage(tinyusb_msc_storage_handle_t handle)
 {

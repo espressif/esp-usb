@@ -434,6 +434,31 @@ void main(void)
 }
 ```
 
+**Generic Block Device Storage (IDF >= 6.0)**
+
+Any medium exposed as an `esp_blockdev_handle_t` (SPI flash, SD/MMC, or future media) can back an MSC LUN directly, with no new code needed here.
+
+```c
+void main(void)
+{
+  esp_blockdev_handle_t partition_bdl, wl_bdl;
+  esp_partition_get_blockdev(ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_FAT, "storage", &partition_bdl);
+  wl_get_blockdev(partition_bdl, &wl_bdl);
+
+  tinyusb_msc_storage_handle_t storage_hdl;
+  const tinyusb_msc_storage_config_t cfg = {
+    .medium.blockdev = wl_bdl,
+  };
+  tinyusb_msc_new_storage_blockdev(&cfg, &storage_hdl);
+
+  // Handle is borrowed; release after tinyusb_msc_delete_storage():
+  //   wl_bdl->ops->release(wl_bdl);
+  //   partition_bdl->ops->release(partition_bdl);
+}
+```
+
+> **Note:** `tinyusb_msc_new_storage_spiflash()`/`_sdmmc()` remain unchanged.
+
 **Dual Storage**
 
 ```c

@@ -140,7 +140,36 @@ void storage_deinit_sdmmc(sdmmc_card_t *card)
     sd_pwr_ctrl_del_on_chip_ldo(pwr_ctrl_handle);
 #endif // TEST_SDMMC_INIT_INTERNAL_LDO
 }
+
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(6, 0, 0)
+void storage_get_blockdev_sdmmc(sdmmc_card_t *card, esp_blockdev_handle_t *card_bdl)
+{
+    esp_blockdev_handle_t bdl = ESP_BLOCKDEV_HANDLE_INVALID;
+    TEST_ASSERT_EQUAL_MESSAGE(ESP_OK, sdmmc_get_blockdev(card, &bdl), "Failed to get SDMMC blockdev");
+    *card_bdl = bdl;
+}
+#endif // ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(6, 0, 0)
 #endif // SOC_SDMMC_HOST_SUPPORTED
+
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(6, 0, 0)
+void storage_init_blockdev_spiflash(esp_blockdev_handle_t *partition_bdl, esp_blockdev_handle_t *wl_bdl)
+{
+    esp_blockdev_handle_t part = ESP_BLOCKDEV_HANDLE_INVALID;
+    esp_blockdev_handle_t wl = ESP_BLOCKDEV_HANDLE_INVALID;
+
+    TEST_ASSERT_EQUAL_MESSAGE(ESP_OK,
+                              esp_partition_get_blockdev(ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_FAT, "storage", &part),
+                              "Failed to get partition blockdev for storage partition");
+    TEST_ASSERT_EQUAL_MESSAGE(ESP_OK, wl_get_blockdev(part, &wl), "Failed to wrap partition blockdev with wear levelling");
+
+    printf("Blockdev (WL over SPI flash) initialized successfully\n");
+    printf("\tDisk size: %llu bytes\n", wl->geometry.disk_size);
+    printf("\tRead size: %u, Write size: %u\n", (unsigned)wl->geometry.read_size, (unsigned)wl->geometry.write_size);
+
+    *partition_bdl = part;
+    *wl_bdl = wl;
+}
+#endif // ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(6, 0, 0)
 
 
 #endif // SOC_USB_OTG_SUPPORTED

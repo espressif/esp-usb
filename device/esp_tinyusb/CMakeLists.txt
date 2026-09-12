@@ -45,6 +45,16 @@ if(CONFIG_TINYUSB_MSC_ENABLED)
             "storage_sdmmc.c"
             )
     endif() # CONFIG_SOC_SDMMC_HOST_SUPPORTED
+    if(IDF_VERSION VERSION_GREATER_EQUAL "6.0.0")
+        list(APPEND srcs
+            "storage_blockdev.c"
+            )
+        # esp_blockdev must be a PUBLIC requirement (not priv_req): the public
+        # header include/tinyusb_msc.h includes esp_blockdev.h and exposes
+        # esp_blockdev_handle_t in tinyusb_msc_storage_config_t, so consumers
+        # of this component need esp_blockdev's include paths propagated too.
+        list(APPEND req esp_blockdev)
+    endif() # IDF_VERSION >= 6.0.0
 endif() # CONFIG_TINYUSB_MSC_ENABLED
 
 if(CONFIG_TINYUSB_NET_MODE_NCM)
