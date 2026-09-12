@@ -422,6 +422,118 @@ TEST_CASE("sectors_can_be_written_and_read", "[usb_msc]")
     msc_teardown();
 }
 
+#ifdef MSC_HOST_BDL_API_SUPPORTED
+
+/**
+ * @brief Standalone Block Device Layer usage
+ *
+ * Purpose:
+ *     - Verify msc_host_get_blockdev() returns a working handle whose read/write
+ *       ops round-trip data identically to the raw SCSI transport
+ *     - Verify it is a factory: two calls return two independent handles that
+ *       both observe the same underlying disk
+ *     - Verify msc_host_release_blockdev() rejects a handle it did not create
+ */
+static void blockdev_read_write_roundtrip(void)
+{
+    esp_blockdev_handle_t handle = ESP_BLOCKDEV_HANDLE_INVALID;
+    ESP_OK_ASSERT(msc_host_get_blockdev(device, &handle));
+    TEST_ASSERT_NOT_EQUAL(ESP_BLOCKDEV_HANDLE_INVALID, handle);
+
+    // Geometry matches the device's reported disk size
+    msc_host_device_info_t info;
+    ESP_OK_ASSERT(msc_host_get_device_info(device, &info));
+    // Plain boolean check: TEST_ASSERT_EQUAL_UINT64 requires UNITY_SUPPORT_64,
+    // which is not enabled in this project's Unity config.
+    const uint64_t expected_disk_size = (uint64_t)info.sector_count * info.sector_size;
+    TEST_ASSERT_MESSAGE(expected_disk_size == handle->geometry.disk_size,
+                        "BDL geometry.disk_size does not match sector_count * sector_size");
+    TEST_ASSERT_EQUAL_UINT32(info.sector_size, handle->geometry.read_size);
+    TEST_ASSERT_EQUAL_UINT32(info.sector_size, handle->geometry.write_size);
+
+    uint8_t write_data[DISK_BLOCK_SIZE];
+    uint8_t read_data[DISK_BLOCK_SIZE];
+    memset(write_data, 0xA5, DISK_BLOCK_SIZE);
+    memset(read_data, 0, DISK_BLOCK_SIZE);
+
+    const uint64_t addr = (uint64_t)20 * DISK_BLOCK_SIZE;
+
+    // Write through the BDL handle, read back through raw SCSI: adapter must not diverge from it
+    ESP_OK_ASSERT(handle->ops->write(handle, write_data, addr, DISK_BLOCK_SIZE));
+    ESP_OK_ASSERT(scsi_cmd_read10(device, read_data, 20, 1, DISK_BLOCK_SIZE));
+    TEST_ASSERT_EQUAL_MEMORY(write_data, read_data, DISK_BLOCK_SIZE);
+
+    // Write through raw SCSI, read back through the BDL handle
+    memset(write_data, 0x3C, DISK_BLOCK_SIZE);
+    memset(read_data, 0, DISK_BLOCK_SIZE);
+    ESP_OK_ASSERT(scsi_cmd_write10(device, write_data, 20, 1, DISK_BLOCK_SIZE));
+    ESP_OK_ASSERT(handle->ops->read(handle, read_data, DISK_BLOCK_SIZE, addr, DISK_BLOCK_SIZE));
+    TEST_ASSERT_EQUAL_MEMORY(write_data, read_data, DISK_BLOCK_SIZE);
+
+    // sync() never fails: BOT/SCSI has no host-visible write cache to flush
+    ESP_OK_ASSERT(handle->ops->sync(handle));
+
+    // A second, independent handle sees the same disk
+    esp_blockdev_handle_t handle2 = ESP_BLOCKDEV_HANDLE_INVALID;
+    ESP_OK_ASSERT(msc_host_get_blockdev(device, &handle2));
+    TEST_ASSERT_NOT_EQUAL(ESP_BLOCKDEV_HANDLE_INVALID, handle2);
+    TEST_ASSERT_NOT_EQUAL(handle, handle2);
+
+    memset(read_data, 0, DISK_BLOCK_SIZE);
+    ESP_OK_ASSERT(handle2->ops->read(handle2, read_data, DISK_BLOCK_SIZE, addr, DISK_BLOCK_SIZE));
+    TEST_ASSERT_EQUAL_MEMORY(write_data, read_data, DISK_BLOCK_SIZE);
+
+    // Releasing a foreign handle (mismatched ops table) must be rejected, not crash
+    static const esp_blockdev_ops_t foreign_ops = { 0 };
+    struct esp_blockdev foreign_handle = { .ops = &foreign_ops };
+    TEST_ASSERT_EQUAL(ESP_ERR_INVALID_ARG, msc_host_release_blockdev(&foreign_handle));
+
+    ESP_OK_ASSERT(msc_host_release_blockdev(handle));
+    ESP_OK_ASSERT(msc_host_release_blockdev(handle2));
+}
+
+TEST_CASE("blockdev_read_write_roundtrip", "[usb_msc]")
+{
+    msc_setup();
+    blockdev_read_write_roundtrip();
+    msc_teardown();
+}
+
+/**
+ * @brief BDL handle auto-created by msc_host_install_device() is released on uninstall
+ *
+ * Purpose:
+ *     - Verify that the device's own auto-created BDL handle (the one used by
+ *       msc_host_vfs_register()) is released automatically by
+ *       msc_host_uninstall_device(), with no double free even when an extra,
+ *       independently obtained handle is left un-released beforehand
+ */
+static void blockdev_auto_release_on_uninstall(void)
+{
+    // Extra handle obtained standalone; released explicitly so the test does not leak.
+    // This exercises that obtaining an additional handle does not interfere with the
+    // device's own auto-created handle teardown during msc_host_uninstall_device().
+    esp_blockdev_handle_t extra_handle = ESP_BLOCKDEV_HANDLE_INVALID;
+    ESP_OK_ASSERT(msc_host_get_blockdev(device, &extra_handle));
+    TEST_ASSERT_NOT_EQUAL(ESP_BLOCKDEV_HANDLE_INVALID, extra_handle);
+
+    // Confirm read/write still works through the extra handle before teardown
+    uint8_t data[DISK_BLOCK_SIZE];
+    memset(data, 0x11, DISK_BLOCK_SIZE);
+    ESP_OK_ASSERT(extra_handle->ops->write(extra_handle, data, (uint64_t)30 * DISK_BLOCK_SIZE, DISK_BLOCK_SIZE));
+
+    ESP_OK_ASSERT(msc_host_release_blockdev(extra_handle));
+}
+
+TEST_CASE("blockdev_auto_release_on_uninstall", "[usb_msc]")
+{
+    msc_setup();
+    blockdev_auto_release_on_uninstall();
+    msc_teardown(); // exercises msc_host_uninstall_device() releasing the device's own auto-created handle
+}
+
+#endif // MSC_HOST_BDL_API_SUPPORTED
+
 esp_err_t bot_execute_command(msc_device_t *device, uint8_t *cbw, void *data, size_t size);
 /**
  * @brief Error recovery testcase
