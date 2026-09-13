@@ -140,6 +140,22 @@ static void cdc_acm_mock_device_run(void)
     printf("USB initialization DONE\n");
 }
 
+static void cdc_acm_mock_device_deinit(void)
+{
+    vQueueDelete(dev_evt_queue);
+    ESP_LOGI(CDC_DEV_TAG, "Deinitialization");
+
+    TEST_ASSERT(tud_disconnect());
+    vTaskDelay(50);
+    TEST_ASSERT_EQUAL(ESP_OK, tinyusb_cdcacm_deinit(0));
+#if (CONFIG_TINYUSB_CDC_COUNT > 1)
+    TEST_ASSERT_EQUAL(ESP_OK, tinyusb_cdcacm_deinit(1));
+#endif
+
+    TEST_ASSERT_EQUAL(ESP_OK, tinyusb_driver_uninstall());
+    ESP_LOGI(CDC_DEV_TAG, "Deinitialization done");
+}
+
 /* Following test cases implement dual CDC-ACM USB device that can be used as mock device for CDC-ACM Host tests */
 
 /**
@@ -228,11 +244,69 @@ TEST_CASE("mock_dev_app_suspend_sudden_dconn", "[cdc_acm_mock_dev][suspend_sudde
 /**
  * @brief Run CDC-ACM Device with 2 interfaces in a loopback mode
  *
- * Device performs a disconnect receiving Suspend callback using long connection delay to simulate device not being present
+ * Device performs a disconnect upon receiving Suspend callback using long connection delay to simulate device not being present
  */
 TEST_CASE("mock_dev_app_suspend_dconn_no_dev", "[cdc_acm_mock_dev][suspend_dconn_no_dev][ignore]")
 {
     device_suspend_common(1000, 5000);
+}
+
+/**
+ * @brief Run CDC-ACM Device with 2 interfaces in a loopback mode
+ *
+ * Device performs sudden disconnect followed by a connect upon receiving Suspend callback
+ *
+ * @param[in] dconn_delay_ms Delay in ms before disconnecting the port
+ * @param[in] conn_delay_ms Delay in ms before connecting the port back
+ */
+static void device_suspend_reconnect(size_t dconn_delay_ms, size_t conn_delay_ms)
+{
+    cdc_acm_mock_device_run();
+    bool tinyusb_deinit = false;
+
+    while (!tinyusb_deinit) {
+        tinyusb_event_t dev_event;
+        if (xQueueReceive(dev_evt_queue, &dev_event, portMAX_DELAY)) {
+
+            switch (dev_event.id) {
+            case TINYUSB_EVENT_SUSPENDED:
+
+                // Optional delay before disconnection (depends on the test case whether sudden disconnect, or just disconnect)
+                dconn_conn_delay(dconn_delay_ms);
+                tinyusb_deinit = true;
+                break;
+            default:
+                break;
+            }
+        }
+    }
+
+    // Deinit device and tinyusb driver to simulate hard disconnect
+    cdc_acm_mock_device_deinit();
+    dconn_conn_delay(conn_delay_ms);
+    // Init the device back to simulate hard connect
+    cdc_acm_mock_device_run();
+
+    while (1) {
+        tinyusb_event_t dev_event;
+        if (xQueueReceive(dev_evt_queue, &dev_event, portMAX_DELAY)) {
+
+            switch (dev_event.id) {
+            default:
+                break;
+            }
+        }
+    }
+}
+
+/**
+ * @brief Run CDC-ACM Device with 2 interfaces in a loopback mode
+ *
+ * Device performs a disconnect upon receiving Suspend callback using short connection delay to simulate device being present
+ */
+TEST_CASE("mock_dev_app_suspend_dev_reconnect", "[cdc_acm_mock_dev][suspend_dev_reconnect][ignore]")
+{
+    device_suspend_reconnect(1000, 1000);
 }
 
 static void device_resume_common(size_t dconn_delay_ms, size_t conn_delay_ms)

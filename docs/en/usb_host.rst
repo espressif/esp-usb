@@ -42,6 +42,7 @@ The Host Library has the following features:
     - Supports automatic global resume by submitting a transfer.
     - USB PHY (both, the UTMI and internal FSLS PHY) clocks are automatically controlled by the DWC2 when the core enters/exits resumed state, effectively lowering power consumption on the host side.
     - Automatic root-port suspend before light sleep (If option :ref:`CONFIG_USB_HOST_AUTO_PM_LIGHT_SLEEP` is enabled).
+    - Post-light-sleep device presence probe on Full-Speed root ports (enabled automatically with :ref:`CONFIG_USB_HOST_AUTO_PM_LIGHT_SLEEP` on targets with an internal FSLS PHY).
 
 Currently, the Host Library and the underlying Host Stack has the following limitations:
 
@@ -54,7 +55,7 @@ Currently, the Host Library and the underlying Host Stack has the following limi
     - The External Hub Driver: Remote Wakeup feature is not supported (External Hubs are active, even if there are no devices inserted).
     - The External Hub Driver: Doesn't handle error cases (overcurrent handling, errors during initialization etc. are not implemented yet).
     - The External Hub Driver: No Interface selection. The Driver uses the first available Interface with Hub Class code (09h).
-    - Light sleep: USB Host with a USB Device connected does not detect device reconnection during light sleep. Treats it as a suspend/resume cycle.
+    - Light sleep: On Full-Speed root ports, device disconnect/reconnect during light sleep is not detected unless :ref:`CONFIG_USB_HOST_AUTO_PM_LIGHT_SLEEP` is enabled. See `Post-light-sleep device probe`_.
     :esp32s31 or esp32p4: - The External Hub Driver: No Transaction Translator layer (No FS/LS Devices support when a Hub is attached to HS Host).
 
 
@@ -594,11 +595,26 @@ Figures are indicative; exact values depend on the connected device, bus speed, 
 
 **Exit (after light sleep).** The post-sleep hook does not start root-port resume. The synchronous work that runs inside the sleep exit callback only schedules the deferred suspend notification. The root port stays suspended until the application calls :cpp:func:`usb_host_lib_root_port_resume`, a submitted transfer triggers automatic resume, or a remote-wakeup-capable device initiates remote wakeup.
 
+Post-light-sleep device probe
+"""""""""""""""""""""""""""""
+
+On Full-Speed root ports that use the internal FSLS PHY, the USB controller cannot observe a disconnect followed by a reconnect while the SoC is in light sleep. After wake-up, the Host Library may still treat a previously enumerated device as connected even though the physical device was power-cycled or replaced during sleep.
+
+When :ref:`CONFIG_USB_HOST_AUTO_PM_LIGHT_SLEEP` is enabled on a target with an internal FSLS PHY, the library automatically enables a **device probe** that runs after the root port resumes from light sleep. The probe sends a ``GET_DESCRIPTOR(DEVICE)`` control transfer to the device and checks that it still responds at its assigned address.
+
+Probe outcome:
+
+- **Passed** — The device is still present and in addressed state. Clients that opened the device receive :cpp:enumerator:`USB_HOST_CLIENT_EVENT_DEV_RESUMED` as usual.
+- **Failed** — The device is absent, or a different (not yet enumerated) device is connected. The library removes the stale device from the stack; clients that opened it receive :cpp:enumerator:`USB_HOST_CLIENT_EVENT_DEV_GONE`.
+
+The probe requires no application code. It is installed and driven internally when :cpp:func:`usb_host_install` is called with automatic light-sleep integration enabled. Currently, only devices attached directly to the root port are probed (not devices behind external hubs).
 
 Disconnect during light sleep
 """""""""""""""""""""""""""""
 
 If a device disconnects while the SoC is in light sleep, the disconnect may only be observed after waking up from the light sleep. The USB OTG peripheral disconnect interrupt is delivered after exiting light sleep. Even though the library still thinks the device is present until :cpp:func:`usb_host_lib_handle_events` runs, the lower USB Host stack layers detect the disconnected port and suppress deferred suspend notification for that device. Thus no suspend notification is delivered to the clients when a disconnect happens during light sleep.
+
+If the device disconnects and then reconnects during light sleep on a Full-Speed root port, the disconnect interrupt is also missed. In that case, the `Post-light-sleep device probe`_ detects the stale device after resume and removes it from the stack so that clients can handle the event via :cpp:enumerator:`USB_HOST_CLIENT_EVENT_DEV_GONE`.
 
 Deep sleep usage with USB Host
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
