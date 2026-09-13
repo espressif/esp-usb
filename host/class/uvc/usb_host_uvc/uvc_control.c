@@ -226,23 +226,14 @@ esp_err_t uvc_host_stream_send_custom_request(uvc_host_stream_hdl_t stream_hdl, 
     return uvc_host_usb_ctrl(stream_hdl, bmRequestType, bRequest, wValue, wIndex, wLength, data);
 }
 
-/**
- * @brief Fetch the active configuration descriptor of the camera behind this stream
- */
-static esp_err_t uvc_control_get_cfg_desc(uvc_host_stream_hdl_t stream_hdl, const usb_config_desc_t **cfg_desc)
-{
-    UVC_CHECK(stream_hdl, ESP_ERR_INVALID_ARG);
-    const uvc_stream_t *uvc_stream = (const uvc_stream_t *)stream_hdl;
-    return usb_host_get_active_config_descriptor(uvc_stream->constant.dev_hdl, cfg_desc);
-}
-
 esp_err_t uvc_host_stream_find_extension_unit(uvc_host_stream_hdl_t stream_hdl, const uint8_t guid[16],
                                               uint8_t *unit_id)
 {
     UVC_CHECK(stream_hdl && guid && unit_id, ESP_ERR_INVALID_ARG);
     const uvc_stream_t *uvc_stream = (const uvc_stream_t *)stream_hdl;
     const usb_config_desc_t *cfg_desc;
-    ESP_RETURN_ON_ERROR(uvc_control_get_cfg_desc(stream_hdl, &cfg_desc), TAG, "Could not read the configuration descriptor");
+    ESP_RETURN_ON_ERROR(usb_host_get_active_config_descriptor(uvc_stream->constant.dev_hdl, &cfg_desc),
+                        TAG, "Could not read the configuration descriptor");
     return uvc_desc_find_extension_unit(cfg_desc, uvc_stream->constant.uvc_index, guid, unit_id);
 }
 
@@ -252,7 +243,8 @@ esp_err_t uvc_host_stream_find_terminal(uvc_host_stream_hdl_t stream_hdl, uint16
     UVC_CHECK(stream_hdl && terminal_id, ESP_ERR_INVALID_ARG);
     const uvc_stream_t *uvc_stream = (const uvc_stream_t *)stream_hdl;
     const usb_config_desc_t *cfg_desc;
-    ESP_RETURN_ON_ERROR(uvc_control_get_cfg_desc(stream_hdl, &cfg_desc), TAG, "Could not read the configuration descriptor");
+    ESP_RETURN_ON_ERROR(usb_host_get_active_config_descriptor(uvc_stream->constant.dev_hdl, &cfg_desc),
+                        TAG, "Could not read the configuration descriptor");
     return uvc_desc_find_terminal(cfg_desc, uvc_stream->constant.uvc_index, terminal_type, terminal_id);
 }
 
@@ -262,7 +254,8 @@ esp_err_t uvc_host_stream_unit_supports_control(uvc_host_stream_hdl_t stream_hdl
     UVC_CHECK(stream_hdl && supported, ESP_ERR_INVALID_ARG);
     const uvc_stream_t *uvc_stream = (const uvc_stream_t *)stream_hdl;
     const usb_config_desc_t *cfg_desc;
-    ESP_RETURN_ON_ERROR(uvc_control_get_cfg_desc(stream_hdl, &cfg_desc), TAG, "Could not read the configuration descriptor");
+    ESP_RETURN_ON_ERROR(usb_host_get_active_config_descriptor(uvc_stream->constant.dev_hdl, &cfg_desc),
+                        TAG, "Could not read the configuration descriptor");
     return uvc_desc_unit_supports_control(cfg_desc, uvc_stream->constant.uvc_index, unit_id, control_bit, supported);
 }
 
@@ -303,7 +296,8 @@ esp_err_t uvc_host_stream_request_key_frame(uvc_host_stream_hdl_t stream_hdl)
     UVC_CHECK(stream_hdl, ESP_ERR_INVALID_ARG);
     const uvc_stream_t *uvc_stream = (const uvc_stream_t *)stream_hdl;
     const usb_config_desc_t *cfg_desc;
-    ESP_RETURN_ON_ERROR(uvc_control_get_cfg_desc(stream_hdl, &cfg_desc), TAG, "Could not read the configuration descriptor");
+    ESP_RETURN_ON_ERROR(usb_host_get_active_config_descriptor(uvc_stream->constant.dev_hdl, &cfg_desc),
+                        TAG, "Could not read the configuration descriptor");
 
     /* Optional control. Asking a camera that does not have it costs a STALL, which the USB
      * host library logs at ERROR - so check the descriptor first and stay off the bus. */

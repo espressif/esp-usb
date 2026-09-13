@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Added a generic control API for VideoControl units and terminals: `uvc_host_stream_find_extension_unit()`, `uvc_host_stream_find_terminal()`, `uvc_host_stream_unit_supports_control()` and `uvc_host_stream_unit_ctrl()`. An application can now drive Camera Terminal, Processing Unit and vendor Extension Unit controls without the device handle and VideoControl interface number, which are private to the driver. Extension Unit payloads are vendor-defined, so the driver cannot interpret them for the caller - it supplies the addressing and the capability check.
+- Added `uvc_host_stream_send_custom_request()` for vendor-specific class requests, and `uvc_host_stream_vs_ctrl()` as an escape hatch for VideoStreaming selectors this driver does not implement.
+- Added `uvc_host_stream_request_key_frame()`, the VideoStreaming Generate Key Frame control. It returns `ESP_ERR_NOT_SUPPORTED` without touching the bus when the camera's descriptor does not claim the control.
+
 ### Changed
 
 - `uvc_host_usb_ctrl()` now returns `ESP_ERR_NOT_SUPPORTED` when the device STALLs a control request, rather than the `ESP_ERR_INVALID_RESPONSE` it also returns for a failed transfer.

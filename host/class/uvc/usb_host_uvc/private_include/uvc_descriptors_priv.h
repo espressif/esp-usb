@@ -116,21 +116,25 @@ void uvc_print_desc(const usb_standard_desc_t *_desc);
  *      - ESP_ERR_NOT_FOUND: Input header descriptor not found.
  *      - ESP_ERR_NO_MEM: Memory allocation failure.
  */
+esp_err_t uvc_desc_get_frame_list(
+    const usb_config_desc_t *config_desc,
+    uint8_t uvc_index,
+    uvc_host_frame_info_t (*frame_info_list)[],
+    size_t *list_size);
+
 /**
- * @brief Get the VideoControl interface number of a UVC function
+ * @brief Get the VideoControl interface header of a UVC function
  *
- * Unit and terminal control requests are addressed to the VideoControl interface, not to
- * the VideoStreaming interface the stream was opened on.
+ * Also yields the VideoControl interface number, which unit and terminal control requests are
+ * addressed to - not the VideoStreaming interface the stream was opened on.
  *
  * @param[in]  cfg_desc         Configuration descriptor
- * @param[in]  uvc_index        Index of the UVC function
- * @param[out] bInterfaceNumber VideoControl interface number
- * @return
- *     - ESP_OK: Success
- *     - ESP_ERR_INVALID_ARG: cfg_desc or bInterfaceNumber is NULL
- *     - ESP_ERR_NOT_FOUND: No such UVC function
+ * @param[in]  uvc_idx          Index of the UVC function
+ * @param[out] vc_intf_num_ret  VideoControl interface number, or NULL if not wanted
+ * @return Pointer to the VideoControl interface header descriptor, or NULL if this UVC function
+ *         does not exist or does not carry one
  */
-esp_err_t uvc_desc_get_control_interface_num(const usb_config_desc_t *cfg_desc, uint8_t uvc_index, uint8_t *bInterfaceNumber);
+const uvc_vc_header_desc_t *uvc_desc_get_control_interface_header(const usb_config_desc_t *cfg_desc, uint8_t uvc_idx, uint8_t *vc_intf_num_ret);
 
 /**
  * @brief Find an Extension Unit by its GUID
@@ -196,12 +200,6 @@ esp_err_t uvc_desc_unit_supports_control(const usb_config_desc_t *cfg_desc, uint
  *     - ESP_ERR_NOT_FOUND: No such VideoStreaming interface
  */
 esp_err_t uvc_desc_vs_supports_control(const usb_config_desc_t *cfg_desc, uint8_t bInterfaceNumber, uint8_t control_bit, bool *supported);
-
-esp_err_t uvc_desc_get_frame_list(
-    const usb_config_desc_t *config_desc,
-    uint8_t uvc_index,
-    uvc_host_frame_info_t (*frame_info_list)[],
-    size_t *list_size);
 
 #ifdef __cplusplus
 }

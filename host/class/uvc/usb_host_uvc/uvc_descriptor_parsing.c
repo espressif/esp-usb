@@ -9,6 +9,7 @@
 #include <string.h> // strncmp for guid format parsing
 #include <math.h>   // fabsf for float comparison
 #include <sys/param.h> // MIN
+#include "esp_bit_defs.h"
 #include "usb/usb_helpers.h"
 #include "usb/uvc_host.h"
 #include "uvc_check_priv.h"
@@ -374,7 +375,7 @@ static inline bool uvc_desc_is_format_supported(
     return false;
 }
 
-static const uvc_vc_header_desc_t *uvc_desc_get_control_interface_header(const usb_config_desc_t *cfg_desc, unsigned uvc_idx, uint8_t *vc_intf_num_ret)
+const uvc_vc_header_desc_t *uvc_desc_get_control_interface_header(const usb_config_desc_t *cfg_desc, uint8_t uvc_idx, uint8_t *vc_intf_num_ret)
 {
     UVC_CHECK(cfg_desc, NULL);
 
@@ -640,11 +641,12 @@ static uint16_t uvc_desc_get_safe_vc_total_length(const usb_config_desc_t *cfg_d
  */
 static const uint8_t *uvc_desc_unit_bmcontrols(const usb_standard_desc_t *desc, uint8_t *size_ret, uint8_t *id_ret)
 {
+    const uvc_vc_entity_desc_t *entity = (const uvc_vc_entity_desc_t *)desc;
     const uint8_t *raw = (const uint8_t *)desc;
-    const uint8_t bLength = raw[0];
+    const uint8_t bLength = entity->bLength;
     size_t size_offset;
 
-    switch (raw[2]) { // bDescriptorSubType
+    switch (entity->bDescriptorSubType) {
     case UVC_VC_DESC_SUBTYPE_INPUT_TERMINAL: {
         // Only a Camera Terminal has the extended layout that carries bmControls
         if (bLength < offsetof(uvc_input_terminal_camera_desc_t, bControlSize) + 1) {
@@ -684,15 +686,10 @@ static const uint8_t *uvc_desc_unit_bmcontrols(const usb_standard_desc_t *desc, 
     }
 
     *size_ret = control_size;
-    *id_ret = raw[3]; // bUnitID / bTerminalID sits at the same offset for every unit and terminal
+    *id_ret = entity->bEntityID;
+    /* The one part that cannot be typed: the Extension Unit puts bmControls after a baSourceID
+     * array whose length is only known at run time. */
     return &raw[size_offset + 1];
-}
-
-esp_err_t uvc_desc_get_control_interface_num(const usb_config_desc_t *cfg_desc, uint8_t uvc_index, uint8_t *bInterfaceNumber)
-{
-    UVC_CHECK(cfg_desc && bInterfaceNumber, ESP_ERR_INVALID_ARG);
-    const uvc_vc_header_desc_t *vc_header = uvc_desc_get_control_interface_header(cfg_desc, uvc_index, bInterfaceNumber);
-    return vc_header ? ESP_OK : ESP_ERR_NOT_FOUND;
 }
 
 esp_err_t uvc_desc_find_extension_unit(const usb_config_desc_t *cfg_desc, uint8_t uvc_index, const uint8_t guid[16], uint8_t *bUnitID)
@@ -732,18 +729,19 @@ esp_err_t uvc_desc_find_terminal(const usb_config_desc_t *cfg_desc, uint8_t uvc_
     int offset = 0;
     const usb_standard_desc_t *current = (const usb_standard_desc_t *)vc_header;
     while ((current = usb_parse_next_descriptor_of_type(current, safe_len, UVC_CS_INTERFACE, &offset))) {
-        const uint8_t *raw = (const uint8_t *)current;
-        /* Input and output terminals both carry bTerminalID at offset 3 and wTerminalType at
-         * offset 4, so one scan covers both and the type alone says which was wanted - the
-         * standard input (0x02xx) and output (0x03xx) ranges do not overlap. */
-        if (raw[2] != UVC_VC_DESC_SUBTYPE_INPUT_TERMINAL && raw[2] != UVC_VC_DESC_SUBTYPE_OUTPUT_TERMINAL) {
+        const uvc_terminal_desc_t *term = (const uvc_terminal_desc_t *)current;
+        /* Input and output terminal descriptors share this head, so one scan covers both and
+         * the type alone says which was wanted - the standard input (0x02xx) and output
+         * (0x03xx) ranges do not overlap. */
+        if (term->bDescriptorSubType != UVC_VC_DESC_SUBTYPE_INPUT_TERMINAL &&
+                term->bDescriptorSubType != UVC_VC_DESC_SUBTYPE_OUTPUT_TERMINAL) {
             continue;
         }
-        if (raw[0] < offsetof(uvc_output_terminal_desc_t, bAssocTerminal)) {
+        if (term->bLength < offsetof(uvc_terminal_desc_t, bAssocTerminal)) {
             continue;   // Truncated before wTerminalType
         }
-        if ((uint16_t)(raw[4] | (raw[5] << 8)) == terminal_type) {
-            *bTerminalID = raw[3];
+        if (term->wTerminalType == terminal_type) {
+            *bTerminalID = term->bTerminalID;
             return ESP_OK;
         }
     }
@@ -768,7 +766,7 @@ esp_err_t uvc_desc_unit_supports_control(const usb_config_desc_t *cfg_desc, uint
             continue;
         }
         const uint8_t byte_index = control_bit / 8;
-        *supported = (byte_index < control_size) && ((bmControls[byte_index] >> (control_bit % 8)) & 1);
+        *supported = (byte_index < control_size) && (bmControls[byte_index] & BIT(control_bit % 8));
         return ESP_OK;
     }
     return ESP_ERR_NOT_FOUND;
@@ -796,7 +794,7 @@ esp_err_t uvc_desc_vs_supports_control(const usb_config_desc_t *cfg_desc, uint8_
         if (byte_offset >= vs_header->bLength) {
             break;
         }
-        if ((vs_header->bmaControls[(size_t)format * control_size + byte_index] >> (control_bit % 8)) & 1) {
+        if (vs_header->bmaControls[(size_t)format * control_size + byte_index] & BIT(control_bit % 8)) {
             *supported = true;
             break;
         }
