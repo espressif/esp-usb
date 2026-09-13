@@ -1,4 +1,4 @@
-## Unreleased
+## 2.3.0
 
 - esp_tinyusb: MSC: Use `esp_vfs_fat_register` instead of the deprecated `esp_vfs_fat_register_cfg` for ESP-IDF v6.0 and higher
 - esp_tinyusb: Added support for exposing already-mounted VFS/FATFS paths through Media Transfer Protocol
