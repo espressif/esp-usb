@@ -47,6 +47,8 @@ struct uvc_host_stream_s {
 
         // USB host related members
         usb_device_handle_t dev_hdl;          // USB device handle
+        uint8_t dev_addr;                     // USB device address used by removal events that do not provide a handle
+        uint8_t uvc_stream_index;             // UVC function index selected by the user
         unsigned num_of_xfers;                // Number of USB transfers
         usb_transfer_t **xfers;               // Pointer to array of USB transfers. Accessible only by the UVC driver
     } constant; // Constant members do no change after installation thus do not require a critical section

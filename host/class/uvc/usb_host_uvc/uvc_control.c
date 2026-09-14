@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2024-2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2024-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -33,7 +33,8 @@ static uint16_t uvc_vs_control_size(uint16_t uvc_version)
     }
 }
 
-static esp_err_t uvc_host_stream_control(uvc_host_stream_hdl_t stream_hdl, uvc_vs_ctrl_t *vs_control, uvc_host_stream_format_t *vs_format, enum uvc_req_code req_code, bool commit)
+static esp_err_t uvc_host_stream_control(uvc_host_stream_hdl_t stream_hdl, uvc_vs_ctrl_t *vs_control, uvc_host_stream_format_t *vs_format,
+                                         enum uvc_req_code req_code, bool commit, bool allow_unmapped_get)
 {
     uvc_stream_t *uvc_stream = (uvc_stream_t *)stream_hdl;
     uint8_t bmRequestType, bRequest;
@@ -84,17 +85,34 @@ static esp_err_t uvc_host_stream_control(uvc_host_stream_hdl_t stream_hdl, uvc_v
     }
 
     // Issue CTRL request
-    ESP_RETURN_ON_ERROR(
-        uvc_host_usb_ctrl(stream_hdl, bmRequestType, bRequest, wValue, wIndex, wLength, (uint8_t *)vs_control),
-        TAG, "Control request failed");
+    ret = uvc_host_usb_ctrl(stream_hdl, bmRequestType, bRequest, wValue, wIndex, wLength, (uint8_t *)vs_control);
+    if (ret != ESP_OK) {
+        if (req_code == UVC_GET_MIN || req_code == UVC_GET_MAX) {
+            // Windows-like fallback: optional Probe range queries must not block Commit on non-conforming devices.
+            ESP_LOGW(TAG, "%s req 0x%02X failed: %s", commit ? "COMMIT" : "PROBE", req_code, esp_err_to_name(ret));
+            return ESP_OK;
+        }
+        ESP_LOGE(TAG, "%s req 0x%02X failed: %s", commit ? "COMMIT" : "PROBE", req_code, esp_err_to_name(ret));
+        return ret;
+    }
 
     if (!set) {
         // Get Video Stream control parameters from the received data and parse it to user
         const uvc_format_desc_t *format_desc = NULL;
         const uvc_frame_desc_t *frame_desc = NULL;
-        ESP_RETURN_ON_ERROR(
-            uvc_desc_get_frame_format_by_index(cfg_desc, uvc_stream->constant.bInterfaceNumber, vs_control->bFormatIndex, vs_control->bFrameIndex, &format_desc, &frame_desc),
-            TAG, "Could not find requested frame format");
+        ret = uvc_desc_get_frame_format_by_index(cfg_desc, uvc_stream->constant.bInterfaceNumber, vs_control->bFormatIndex, vs_control->bFrameIndex,
+                                                 &format_desc, &frame_desc);
+        if (ret != ESP_OK) {
+            ESP_LOGW(TAG, "%s req 0x%02X unmapped: fmt=%u frame=%u interval=%"PRIu32" frame_size=%"PRIu32" payload=%"PRIu32,
+                     commit ? "COMMIT" : "PROBE", req_code, vs_control->bFormatIndex, vs_control->bFrameIndex,
+                     vs_control->dwFrameInterval, vs_control->dwMaxVideoFrameSize, vs_control->dwMaxPayloadTransferSize);
+            if (allow_unmapped_get) {
+                // Windows-like fallback: keep the caller's known requested format when optional GET data is malformed.
+                return ESP_OK;
+            }
+            ESP_LOGW(TAG, "Could not find requested frame format");
+            return ret;
+        }
 
         vs_format->format = uvc_desc_parse_format(format_desc);
         vs_format->h_res  = frame_desc->wWidth;
@@ -106,27 +124,17 @@ static esp_err_t uvc_host_stream_control(uvc_host_stream_hdl_t stream_hdl, uvc_v
 
 static inline esp_err_t uvc_control_probe_set(uvc_host_stream_hdl_t stream_hdl, uvc_vs_ctrl_t *vs_control, const uvc_host_stream_format_t *vs_format)
 {
-    return uvc_host_stream_control(stream_hdl, vs_control, (uvc_host_stream_format_t *)vs_format, UVC_SET_CUR, false);
+    return uvc_host_stream_control(stream_hdl, vs_control, (uvc_host_stream_format_t *)vs_format, UVC_SET_CUR, false, false);
 }
 
-static inline esp_err_t uvc_control_probe_get(uvc_host_stream_hdl_t stream_hdl, uvc_vs_ctrl_t *vs_control, uvc_host_stream_format_t *vs_format)
+static inline esp_err_t uvc_control_probe_get(uvc_host_stream_hdl_t stream_hdl, uvc_vs_ctrl_t *vs_control, uvc_host_stream_format_t *vs_format, bool relaxed)
 {
-    return uvc_host_stream_control(stream_hdl, vs_control, vs_format, UVC_GET_CUR, false);
-}
-
-static inline esp_err_t uvc_control_probe_get_max(uvc_host_stream_hdl_t stream_hdl, uvc_vs_ctrl_t *vs_control, uvc_host_stream_format_t *vs_format)
-{
-    return uvc_host_stream_control(stream_hdl, vs_control, vs_format, UVC_GET_MAX, false);
-}
-
-static inline esp_err_t uvc_control_probe_get_min(uvc_host_stream_hdl_t stream_hdl, uvc_vs_ctrl_t *vs_control, uvc_host_stream_format_t *vs_format)
-{
-    return uvc_host_stream_control(stream_hdl, vs_control, vs_format, UVC_GET_MIN, false);
+    return uvc_host_stream_control(stream_hdl, vs_control, vs_format, UVC_GET_CUR, false, relaxed);
 }
 
 static inline esp_err_t uvc_control_commit(uvc_host_stream_hdl_t stream_hdl, uvc_vs_ctrl_t *vs_control, const uvc_host_stream_format_t *vs_format)
 {
-    return uvc_host_stream_control(stream_hdl, vs_control, (uvc_host_stream_format_t *)vs_format, UVC_SET_CUR, true);
+    return uvc_host_stream_control(stream_hdl, vs_control, (uvc_host_stream_format_t *)vs_format, UVC_SET_CUR, true, false);
 }
 
 static inline bool uvc_is_vs_format_equal(const uvc_host_stream_format_t *a, const uvc_host_stream_format_t *b)
@@ -148,15 +156,15 @@ esp_err_t uvc_host_stream_control_probe(uvc_host_stream_hdl_t stream_hdl, uvc_ho
     uvc_vs_ctrl_t vs_result = {0};
     uvc_host_stream_format_t default_format = {0};
 
-    // Notes: Some cameras require 'probe_get' to be the 1st negotiation call
-    // It returns 'default' format and frame settings which will be used if requested format is UVC_VS_FORMAT_DEFAULT
-    ret = uvc_control_probe_get(stream_hdl, &vs_result, &default_format);
+    // Notes: Some cameras require 'probe_get' to be the 1st negotiation call.
+    // GET_CUR returns the current probe state, which is used only when the whole format is requested as default.
+    ret = uvc_control_probe_get(stream_hdl, &vs_result, &default_format, false);
     if (ret == ESP_OK) {
-        ESP_LOGI(TAG, "Default format from camera: %dx%d@%2.1fFPS, fmt=%d, frame_size=%"PRIu32", payload=%"PRIu32,
+        ESP_LOGI(TAG, "Current probe from camera: %dx%d@%2.1fFPS, fmt=%d, frame_size=%"PRIu32", payload=%"PRIu32,
                  default_format.h_res, default_format.v_res, default_format.fps, default_format.format,
                  vs_result.dwMaxVideoFrameSize, vs_result.dwMaxPayloadTransferSize);
     } else {
-        ESP_LOGW(TAG, "Default probe GET_CUR failed: %s, raw fmt=%u frame=%u interval=%"PRIu32" frame_size=%"PRIu32" payload=%"PRIu32,
+        ESP_LOGW(TAG, "Initial probe GET_CUR failed: %s, raw fmt=%u frame=%u interval=%"PRIu32" frame_size=%"PRIu32" payload=%"PRIu32,
                  esp_err_to_name(ret), vs_result.bFormatIndex, vs_result.bFrameIndex, vs_result.dwFrameInterval,
                  vs_result.dwMaxVideoFrameSize, vs_result.dwMaxPayloadTransferSize);
     }
@@ -165,8 +173,13 @@ esp_err_t uvc_host_stream_control_probe(uvc_host_stream_hdl_t stream_hdl, uvc_ho
         memcpy(requested_format, &default_format, sizeof(uvc_host_stream_format_t));
     }
 
-    uvc_control_probe_set(stream_hdl, &vs_result, requested_format); // Set the requested frame format
-    ret = uvc_control_probe_get(stream_hdl, &vs_result, requested_format); // Get back the format
+    ret = uvc_control_probe_set(stream_hdl, &vs_result, requested_format); // Set the requested frame format
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Probe SET_CUR failed for requested format %dx%d@%2.1fFPS, fmt=%d: %s",
+                 requested_format->h_res, requested_format->v_res, requested_format->fps, requested_format->format, esp_err_to_name(ret));
+        return ret;
+    }
+    ret = uvc_control_probe_get(stream_hdl, &vs_result, requested_format, true); // Get back the format, tolerating malformed Windows-compatible devices
 
     // Pass the result to user
     if (vs_result_ret) {
@@ -186,7 +199,7 @@ esp_err_t uvc_host_stream_control_commit(uvc_host_stream_hdl_t stream_hdl, const
     esp_err_t ret = ESP_ERR_NOT_FOUND;
     uvc_vs_ctrl_t vs_result = {0};
     uvc_vs_ctrl_t vs_result_ignored = {0};
-    uvc_host_stream_format_t format_set, format_ignored;
+    uvc_host_stream_format_t format_set, format_ignored = {0};
 
     // Try 2x. Some camera may return error on first try
     for (int i = 0; i < 2; i++) {
@@ -198,12 +211,13 @@ esp_err_t uvc_host_stream_control_commit(uvc_host_stream_hdl_t stream_hdl, const
 
         // We do this to mimic Windows driver: The Min/Max values are ignored by this driver.
         // These values can be used if we wanted to negotiate advanced parameters, such as wCompQuality to select JPEG encoding quality
-        uvc_control_probe_get_max(stream_hdl, &vs_result_ignored, &format_ignored);
-        uvc_control_probe_get_min(stream_hdl, &vs_result_ignored, &format_ignored);
+        uvc_host_stream_control(stream_hdl, &vs_result_ignored, &format_ignored, UVC_GET_MAX, false, true);
+        uvc_host_stream_control(stream_hdl, &vs_result_ignored, &format_ignored, UVC_GET_MIN, false, true);
 
         // Probe that the camera accepts our format before committing
+        memcpy(&format_set, vs_format, sizeof(uvc_host_stream_format_t));
         ret = uvc_control_probe_set(stream_hdl, &vs_result, vs_format);
-        ret |= uvc_control_probe_get(stream_hdl, &vs_result, &format_set);
+        ret |= uvc_control_probe_get(stream_hdl, &vs_result, &format_set, true);
         UVC_CHECK(ret == ESP_OK, ret);
         if (uvc_is_vs_format_equal(&format_set, vs_format)) {
             // If the 'set format' equals 'get format', the camera accepts our format and we can commit it

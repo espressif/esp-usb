@@ -15,13 +15,13 @@ menu "USB HOST UVC"
 
     config UVC_CHECK_PAYLOAD_HEADER_EOH
         bool "Check EOH bit in payload header"
-        default y
+        default n
         help
             "If EOH is set in the header, this is the last header group in the packet"
 
     config UVC_CHECK_PAYLOAD_HEADER_ERR
         bool "Check ERR bit in payload header"
-        default y
+        default n
         help
             "If ERR is set in the header, this is an error packet, and the frame will be discarded"
 endmenu
