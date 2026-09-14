@@ -1,3 +1,7 @@
+## Unreleased
+
+- esp_tinyusb: MSC: Added generic block device storage support (IDF >= 6.0.4). This is an additive feature; `tinyusb_msc_new_storage_spiflash` and `tinyusb_msc_new_storage_sdmmc` remain unchanged.
+
 ## 2.3.0
 
 - esp_tinyusb: MSC: Use `esp_vfs_fat_register` instead of the deprecated `esp_vfs_fat_register_cfg` for ESP-IDF v6.0 and higher
