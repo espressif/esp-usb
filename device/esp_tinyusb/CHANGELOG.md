@@ -6,6 +6,7 @@
 - esp_tinyusb: Dropped support for ESP-IDF versions older than v5.3. ESP-IDF v5.3 or later is now required
 - esp_tinyusb: Suspend and resume TinyUSB callbacks (`tud_suspend_cb`, `tud_resume_cb`) are now always registered inside esp_tinyusb. Kconfig options `CONFIG_TINYUSB_SUSPEND_CALLBACK` and `CONFIG_TINYUSB_RESUME_CALLBACK` were removed. Applications must handle `TINYUSB_EVENT_SUSPENDED` and `TINYUSB_EVENT_RESUMED` via the device event callback and must not define `tud_suspend_cb()` or `tud_resume_cb()`.
 - esp_tinyusb: Each release now ships a fixed TinyUSB version from the component submodule. Selecting a TinyUSB version independently is no longer supported.
+- esp_tinyusb: Removed already deprecated header files tusb_cdc_acm.h, tusb_console.h and tusb_msc_storage.h
 - For more details, refer to the [Espressif's Addition to TinyUSB Migration guide v3](../../docs/device/migration-guides/v3/tinyusb.md)
 
 ### Added
