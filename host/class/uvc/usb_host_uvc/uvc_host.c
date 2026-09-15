@@ -604,9 +604,17 @@ static esp_err_t uvc_claim_interface(uvc_stream_t *uvc_stream, uint8_t uvc_index
     // Save all constant information about the UVC stream
     uvc_stream->constant.bInterfaceNumber  = bInterfaceNumber;
     uvc_stream->constant.bcdUVC            = bcdUVC;
+    uvc_stream->constant.uvc_index         = uvc_index;
     uvc_stream->constant.bAlternateSetting = intf_desc->bAlternateSetting;
     uvc_stream->constant.bEndpointAddress  = ep_desc->bEndpointAddress;
     *ep_desc_ret                           = ep_desc;
+
+    // Unit and terminal controls are addressed to the VideoControl interface, not to the
+    // VideoStreaming interface claimed below. Resolve it once here.
+    const uvc_vc_header_desc_t *vc_header = uvc_desc_get_control_interface_header(
+                                                cfg_desc, uvc_index, &uvc_stream->constant.bControlInterfaceNumber);
+    ESP_RETURN_ON_FALSE(vc_header, ESP_ERR_NOT_FOUND, TAG,
+                        "Could not find VideoControl interface of UVC function %d", uvc_index);
 
     // Claim the interface in USB Host Lib
     return usb_host_interface_claim(
@@ -1122,7 +1130,9 @@ esp_err_t uvc_host_usb_ctrl(uvc_host_stream_hdl_t stream_hdl, uint8_t bmRequestT
     if (wLength > 0) {
         UVC_CHECK(data, ESP_ERR_INVALID_ARG);
     }
-    UVC_CHECK(p_uvc_host_driver->ctrl_transfer->data_buffer_size >= wLength, ESP_ERR_INVALID_SIZE);
+    /* The data buffer size must account for the payload and the setup packet, which share it */
+    UVC_CHECK(p_uvc_host_driver->ctrl_transfer->data_buffer_size >= wLength + sizeof(usb_setup_packet_t),
+              ESP_ERR_INVALID_SIZE);
 
     esp_err_t ret;
 
