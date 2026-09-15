@@ -312,21 +312,20 @@ If you use the external PHY (ESP32-S3 only), you must initialize the PHY explici
 To enable USB Serial Device:
 
 - select the option from `menuconfig`.
-- initialize the USB Serial Device with `tusb_cdc_acm_init` and a `tinyusb_config_cdcacm_t` structure
+- initialize the USB Serial Device with `tinyusb_cdcacm_init()` and a `tinyusb_config_cdcacm_t` structure
 
 ```c
 const tinyusb_config_cdcacm_t acm_cfg = {
   .cdc_port = TINYUSB_CDC_ACM_0,
-  .rx_unread_buf_sz = 64,
   .callback_rx = NULL,
   .callback_rx_wanted_char = NULL,
   .callback_line_state_changed = NULL,
   .callback_line_coding_changed = NULL
 };
-tusb_cdc_acm_init(&acm_cfg);
+tinyusb_cdcacm_init(&acm_cfg);
 ```
 
-Redirect standard I/O streams to USB with `esp_tusb_init_console` and revert with `esp_tusb_deinit_console`.
+Redirect standard I/O streams to USB with `tinyusb_console_init()` and revert with `tinyusb_console_deinit()`.
 
 ### USB Mass Storage Device (MSC)
 
