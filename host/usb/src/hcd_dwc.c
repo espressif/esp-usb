@@ -2807,17 +2807,27 @@ static inline void _buffer_parse_ctrl(dma_buffer_block_t *buffer)
     if (buffer->flags.ctrl.data_stg_skip)     {
         // There was no data stage. Just set the actual length to the size of the setup packet
         transfer->actual_num_bytes = sizeof(usb_setup_packet_t);
+        // Update URB status
+        transfer->status = USB_TRANSFER_STATUS_COMPLETED;
     } else {
         // Parse the data stage for the remaining length
         int rem_len;
         int desc_status;
         usb_dwc_hal_xfer_desc_parse(buffer->xfer_desc_list, 1, &rem_len, &desc_status);
-        assert(desc_status == USB_DWC_HAL_XFER_DESC_STS_SUCCESS);
-        assert(rem_len <= (transfer->num_bytes - sizeof(usb_setup_packet_t)));
-        transfer->actual_num_bytes = transfer->num_bytes - rem_len;
+        if (desc_status != USB_DWC_HAL_XFER_DESC_STS_SUCCESS) {
+            // A channel completion (CPLT) can be reported with a non-successful descriptor status when the
+            // transfer was torn down before it actually finished, e.g. the bus was auto-suspended for light
+            // sleep while this control transfer was still in flight. Report the transfer as an error instead
+            // of asserting, so the class driver can handle/retry it.
+            transfer->actual_num_bytes = 0;
+            transfer->status = USB_TRANSFER_STATUS_ERROR;
+        } else {
+            assert(rem_len <= (transfer->num_bytes - sizeof(usb_setup_packet_t)));
+            transfer->actual_num_bytes = transfer->num_bytes - rem_len;
+            // Update URB status
+            transfer->status = USB_TRANSFER_STATUS_COMPLETED;
+        }
     }
-    // Update URB status
-    transfer->status = USB_TRANSFER_STATUS_COMPLETED;
     // Clear the descriptor list
     memset(buffer->xfer_desc_list, 0, XFER_LIST_LEN_CTRL * sizeof(usb_dwc_ll_dma_qtd_t));
 }
@@ -2834,11 +2844,20 @@ static inline void _buffer_parse_bulk(dma_buffer_block_t *buffer)
     int rem_len;
     int desc_status;
     usb_dwc_hal_xfer_desc_parse(buffer->xfer_desc_list, 0, &rem_len, &desc_status);
-    assert(desc_status == USB_DWC_HAL_XFER_DESC_STS_SUCCESS);
-    assert(rem_len <= transfer->num_bytes);
-    transfer->actual_num_bytes = transfer->num_bytes - rem_len;
-    // Update URB's status
-    transfer->status = USB_TRANSFER_STATUS_COMPLETED;
+    if (desc_status != USB_DWC_HAL_XFER_DESC_STS_SUCCESS) {
+        // A channel completion (CPLT) can be reported with a non-successful descriptor status when the
+        // transfer was torn down before it actually finished, e.g. the bus was auto-suspended for light
+        // sleep while this bulk transfer was still in flight. Report the transfer as an error instead of
+        // asserting, so the class driver can handle/retry it.
+        transfer->actual_num_bytes = 0;
+        transfer->status = USB_TRANSFER_STATUS_ERROR;
+    } else {
+        assert(rem_len <= transfer->num_bytes);
+        transfer->actual_num_bytes = transfer->num_bytes - rem_len;
+        // Update URB's status
+        transfer->status = USB_TRANSFER_STATUS_COMPLETED;
+    }
+
     // Clear the descriptor list
     memset(buffer->xfer_desc_list, 0, XFER_LIST_LEN_BULK * sizeof(usb_dwc_ll_dma_qtd_t));
 }
