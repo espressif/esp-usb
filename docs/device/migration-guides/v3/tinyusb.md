@@ -33,6 +33,11 @@ v3.0.0 always registers TinyUSB suspend and resume callbacks. esp_tinyusb dispat
 - Kconfig menu `TinyUSB callbacks`:
   - `TINYUSB_SUSPEND_CALLBACK`,
   - `TINYUSB_RESUME_CALLBACK`.
+- Deprecated compatibility headers and the APIs they exposed:
+  - `tusb_cdc_acm.h`: `tusb_cdc_acm_init()`, `tusb_cdc_acm_deinit()`, `tusb_cdc_acm_initialized()`
+  - `tusb_console.h`: `esp_tusb_init_console()`, `esp_tusb_deinit_console()`
+  - `tusb_msc_storage.h`: `tinyusb_msc_storage_init_spiflash()`, `tinyusb_msc_storage_init_sdmmc()`, `tinyusb_msc_storage_deinit()`, and related helpers
+- Deprecated MSC event field `tinyusb_msc_event_t::mount_changed_data`
 
 ### Changed
 
