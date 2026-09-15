@@ -2,6 +2,8 @@
 
 This migration guide is intended for users upgrading from Espressif's TinyUSB addition v2.x.x to v3.0.0 of the component.
 
+v3.0.0 integrates the TinyUSB stack into the `esp_tinyusb` component as a git submodule. `esp_tinyusb` no longer depends on a separate `tinyusb` component from the ESP Component Registry.
+
 v3.0.0 removes DCD Slave/IRQ mode. The TinyUSB DWC2 Device Controller Driver uses Buffer DMA mode only.
 
 If your project used the default DCD mode (Buffer DMA), you do not need to change application code. If your project selected Slave/IRQ mode, you must switch to Buffer DMA. Slave/IRQ mode is no longer available.
@@ -16,6 +18,7 @@ v3.0.0 always registers TinyUSB suspend and resume callbacks. esp_tinyusb dispat
 - Do not set `CONFIG_TINYUSB_MODE_SLAVE` or `CONFIG_TINYUSB_MODE_DMA` as they do not have any effect anymore
 - Remove `CONFIG_TINYUSB_SUSPEND_CALLBACK` and `CONFIG_TINYUSB_RESUME_CALLBACK` from `sdkconfig` or `sdkconfig.defaults`.
 - Remove `tud_suspend_cb()` and `tud_resume_cb()` from application code. Handle suspend and resume in `tinyusb_config_t::event_cb`.
+- Remove any explicit `tinyusb` (or `espressif/tinyusb`) dependency from your project's `idf_component.yml`. The standalone component is unused when `esp_tinyusb` is present. Keeping it compiles a second copy of TinyUSB and can confuse version selection.
 
 ## List of changes
 
