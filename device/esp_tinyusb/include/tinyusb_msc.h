@@ -59,10 +59,6 @@ typedef struct {
         struct {
 
         } event_data;                                /*!< Reserved for future event-specific data. */
-        // Deprecated in v2.0.0, could be removed in future releases
-        struct {
-            bool is_mounted;                        /*!< `true` when the storage is mounted. */
-        } mount_changed_data __attribute__((deprecated)); /*!< Deprecated compatibility field. */
     };
 } tinyusb_msc_event_t;
 
