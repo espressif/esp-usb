@@ -198,6 +198,9 @@ TEST_CASE("Test USB Host light sleep", "[usb_sleep_modes][light_sleep]")
     usb_host_sleep_common(ESP_SLEEP_MODE_LIGHT_SLEEP);
 }
 
+// Deep sleep test is unstable on esp32p4 ECO4, disabling the test
+#if !CONFIG_ESP32P4_SELECTS_REV_LESS_V3
+
 /**
  * @brief Deep sleep test case stage 1
  *
@@ -272,6 +275,8 @@ Procedure:
     - Device is expected to be disconnected during deep sleep
 */
 TEST_CASE_MULTIPLE_STAGES("Test USB Host deep sleep", "[usb_sleep_modes][deep_sleep]", usb_host_deep_sleep_1, usb_host_deep_sleep_2, usb_host_deep_sleep_3);
+
+#endif // CONFIG_ESP32P4_SELECTS_REV_LESS_V3
 
 /**
  * TEST CASE: Test USB Host enter light sleep error handling
