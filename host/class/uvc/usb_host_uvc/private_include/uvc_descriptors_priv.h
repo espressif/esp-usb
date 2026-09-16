@@ -122,6 +122,69 @@ esp_err_t uvc_desc_get_frame_list(
     uvc_host_frame_info_t (*frame_info_list)[],
     size_t *list_size);
 
+/**
+ * @brief Get the VideoControl interface header of a UVC function
+ *
+ * Also yields the VideoControl interface number, which unit and terminal control requests are
+ * addressed to - not the VideoStreaming interface the stream was opened on.
+ *
+ * @param[in]  cfg_desc         Configuration descriptor
+ * @param[in]  uvc_idx          Index of the UVC function
+ * @param[out] vc_intf_num_ret  VideoControl interface number, or NULL if not wanted
+ * @return Pointer to the VideoControl interface header descriptor, or NULL if this UVC function
+ *         does not exist or does not carry one
+ */
+const uvc_vc_header_desc_t *uvc_desc_get_control_interface_header(const usb_config_desc_t *cfg_desc, uint8_t uvc_idx, uint8_t *vc_intf_num_ret);
+
+/**
+ * @brief Find an Extension Unit by its GUID
+ *
+ * Unit IDs are assigned per camera, so a GUID is the only portable way to address an
+ * extension unit. A camera may expose several.
+ *
+ * @param[in]  cfg_desc  Configuration descriptor
+ * @param[in]  uvc_index Index of the UVC function
+ * @param[in]  guid      16-byte GUID, little-endian as it appears in the descriptor
+ * @param[out] bUnitID   Unit ID of the matching extension unit
+ * @return
+ *     - ESP_OK: Success
+ *     - ESP_ERR_INVALID_ARG: An argument is NULL
+ *     - ESP_ERR_NOT_FOUND: No extension unit with this GUID
+ */
+esp_err_t uvc_desc_find_extension_unit(const usb_config_desc_t *cfg_desc, uint8_t uvc_index, const uint8_t guid[16], uint8_t *bUnitID);
+
+/**
+ * @brief Find a terminal by its type
+ *
+ * Input and output terminals are both searched. Their standard wTerminalType ranges do not
+ * overlap, so the type alone identifies which is wanted.
+ *
+ * @param[in]  cfg_desc      Configuration descriptor
+ * @param[in]  uvc_index     Index of the UVC function
+ * @param[in]  terminal_type wTerminalType to look for, e.g. UVC_HOST_ITT_CAMERA
+ * @param[out] bTerminalID   Terminal ID of the matching terminal
+ * @return
+ *     - ESP_OK: Success
+ *     - ESP_ERR_INVALID_ARG: cfg_desc or bTerminalID is NULL
+ *     - ESP_ERR_NOT_FOUND: This function has no terminal of that type
+ */
+esp_err_t uvc_desc_find_terminal(const usb_config_desc_t *cfg_desc, uint8_t uvc_index, uint16_t terminal_type, uint8_t *bTerminalID);
+
+/**
+ * @brief Check whether a unit or terminal claims a control in its bmControls
+ *
+ * @param[in]  cfg_desc    Configuration descriptor
+ * @param[in]  uvc_index   Index of the UVC function
+ * @param[in]  unit_id     bUnitID or bTerminalID to inspect
+ * @param[in]  control_bit Bit position in bmControls, counted from D0 across all bytes
+ * @param[out] supported   Whether the bit is set
+ * @return
+ *     - ESP_OK: The unit was found and supported was written
+ *     - ESP_ERR_INVALID_ARG: cfg_desc or supported is NULL
+ *     - ESP_ERR_NOT_FOUND: No unit with this ID, or it carries no bmControls
+ */
+esp_err_t uvc_desc_unit_supports_control(const usb_config_desc_t *cfg_desc, uint8_t uvc_index, uint8_t unit_id, uint8_t control_bit, bool *supported);
+
 #ifdef __cplusplus
 }
 #endif
