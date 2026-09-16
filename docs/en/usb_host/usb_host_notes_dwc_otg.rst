@@ -200,6 +200,77 @@ Thus, isochronous transfers in Host Mode Scatter/Gather DMA have the following p
 - **Each filled QTD must represent a single transaction instead of the entire transfer**.
 - Because isochronous transactions are not retried on failure, the status of each completed QTD must be checked.
 
+Transfer Size Limits
+--------------------
+
+The maximum size of a single transfer is bounded differently depending on the DMA mode:
+
+- In **Buffer (non-Scatter/Gather) DMA** mode, the transfer length is carried by the channel's ``HCTSIZ`` register (``HCTSIZ.XferSize`` byte count and ``HCTSIZ.PktCnt`` packet count). The usable width of these two counters is a core-synthesis parameter reported at runtime by ``GHWCFG3.OTG_TRANS_COUNT_WIDTH`` and ``GHWCFG3.OTG_PACKET_COUNT_WIDTH``, so the resulting bound is **core-revision specific**.
+- In **Scatter/Gather (SG) DMA** mode, the transfer length is carried by each QTD's "Total bytes to transfer" field (in this mode ``HCTSIZ`` instead carries the QTD list length (NTD) and the scheduling info; see Databook section 5.4.41). The QTD format is fixed by the DWC_OTG specification, so these bounds are **identical across all supported core revisions**. Periodic (interrupt and isochronous) transfers are additionally bounded by the length of the HCD's QTD descriptor list, which is shorter than what the QTD byte-count field alone would allow.
+
+The first table lists the hardware bounds (the "limited by" sources) for both DMA modes and both supported core revisions. The core revision is reported by the ``GSNPSID`` register.
+
+.. list-table:: Hardware bounds that limit the transfer size
+    :widths: 24 15 15 46
+    :header-rows: 1
+
+    * - Bound
+      - 4.30a
+      - 4.00a
+      - Source
+    * - Buffer DMA byte counter
+      - 2^19 - 1 = 524287 B
+      - 2^16 - 1 = 65535 B
+      - ``HCTSIZ.XferSize``, width = ``GHWCFG3.OTG_TRANS_COUNT_WIDTH`` + 11
+    * - Buffer DMA packet counter
+      - 2^10 - 1 = 1023 packets
+      - 2^7 - 1 = 127 packets
+      - ``HCTSIZ.PktCnt``, width = ``GHWCFG3.OTG_PACKET_COUNT_WIDTH`` + 4
+    * - SG non-isochronous QTD byte count
+      - 2^17 - 1 = 131071 B
+      - 2^17 - 1 = 131071 B
+      - QTD "Total bytes to transfer", 17-bit field
+    * - SG isochronous QTD byte count
+      - 2^12 - 1 = 4095 B
+      - 2^12 - 1 = 4095 B
+      - isochronous QTD "Total bytes to transfer", 12-bit field
+    * - Interrupt descriptor list
+      - 32 QTDs
+      - 32 QTDs
+      - ``XFER_LIST_LEN_INTR`` = frame list length (1 QTD = 1 packet = 1 frame slot)
+    * - Isochronous descriptor list
+      - 64 QTDs (-3 margin)
+      - 64 QTDs (-3 margin)
+      - ``XFER_LIST_LEN_ISOC``, circular, QTDs spaced by ``interval``
+
+The second table gives the resulting maximum transfer size per transfer type in Scatter/Gather DMA mode.
+
+.. list-table:: Maximum transfer size per transfer type (Scatter/Gather DMA)
+    :widths: 18 42 40
+    :header-rows: 1
+
+    * - Transfer type
+      - Maximum transfer size
+      - Limited by
+    * - Control (data stage)
+      - 131071 B floored to MPS = 131008 B (MPS 64)
+      - QTD 17-bit field
+    * - Bulk
+      - 131071 B floored to MPS = 130560 B (HS, MPS 512) / 131008 B (FS, MPS 64)
+      - QTD 17-bit field
+    * - Interrupt
+      - 32 * MPS = 32768 B (HS, MPS 1024) / 2048 B (FS, MPS 64)
+      - descriptor list length (32 QTDs), not the QTD byte-count field
+    * - Isochronous
+      - up to 61 packets * MPS at interval = 1 (61 KiB at HS, MPS = 1024); fewer as the interval grows
+      - descriptor list length: ``num_isoc_packets * interval <= 64 - 3``; the per-packet 12-bit field (4095 B) never binds because MPS <= 1024
+
+.. note::
+
+    - For non-isochronous transfers, the HCD floors the limit to a whole number of the endpoint's Maximum Packet Size (MPS); see ``hcd_pipe_get_xfer_size_limit()``.
+    - For control transfers, the limit applies to the data stage only; the 8-byte setup packet is excluded.
+    - For Scatter/Gather DMA, the interrupt and isochronous limits are set by the HCD's descriptor list lengths (``XFER_LIST_LEN_INTR`` = 32 and ``XFER_LIST_LEN_ISOC`` = 64 with a 3-QTD timing margin), which bind before the QTD byte-count field or the 8-bit ``HCTSIZ.NTD`` field (up to 256 QTDs).
+
 Supplemental Notes
 ------------------
 

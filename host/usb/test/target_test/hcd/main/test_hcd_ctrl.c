@@ -270,9 +270,13 @@ TEST_CASE("Test HCD control pipe runtime halt and clear", "[ctrl][low_speed][ful
     TEST_ASSERT_EQUAL(ESP_OK, hcd_pipe_command(default_pipe, HCD_PIPE_CMD_CLEAR));
     TEST_HCD_EXPECT_PIPE_STATE(default_pipe, HCD_PIPE_STATE_ACTIVE);
     ESP_LOGI(TAG, "Pipe cleared");
-    vTaskDelay(pdMS_TO_TICKS(100)); // Give some time pending for transfers to restart and complete
 
-    // Wait for each URB to be done, dequeue, and check results
+    // Await 2 remaining URB_DONE events before dequeuing them
+    for (int i = 0; i < NUM_URBS - 1; i++) {
+        TEST_HCD_EXPECT_PIPE_EVENT(default_pipe, HCD_PIPE_EVENT_URB_DONE);
+    }
+
+    // Dequeue each URB and check results
     for (int i = 0; i < NUM_URBS; i++) {
         urb_t *urb = hcd_urb_dequeue(default_pipe);
         TEST_ASSERT_EQUAL_PTR(urb_list[i], urb);
