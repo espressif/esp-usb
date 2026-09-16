@@ -1,4 +1,4 @@
 idf_component_register(SRC_DIRS .
                        INCLUDE_DIRS .
-                       REQUIRES unity
+                       REQUIRES unity esp_driver_uart
                        WHOLE_ARCHIVE)

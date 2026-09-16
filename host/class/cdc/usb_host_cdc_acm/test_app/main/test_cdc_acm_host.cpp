@@ -1630,6 +1630,8 @@ TEST_CASE("light_sleep", "[cdc_acm][light_sleep]")
         printf("Returned from light sleep, reason: timer, t=%lld ms, slept for %lld ms\n", t_after_us / 1000, (t_after_us - t_before_us) / 1000);
     }
 
+    // Disable timer wakeup source
+    TEST_ASSERT_EQUAL(ESP_OK, esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_TIMER));
     TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_close(cdc_dev));
     TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_uninstall());
     vTaskDelay(20); // Short delay to allow task to be cleaned up
@@ -1748,6 +1750,8 @@ TEST_CASE("light_sleep_during_io", "[cdc_acm][light_sleep]")
     vEventGroupDelete(s_stress_io_event_group);
     s_stress_io_event_group = NULL;
 
+    // Disable timer wakeup source
+    TEST_ASSERT_EQUAL(ESP_OK, esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_TIMER));
     TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_close(cdc_dev));
     TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_uninstall());
     vTaskDelay(20); // Short delay to allow task to be cleaned up
@@ -1790,6 +1794,8 @@ TEST_CASE("light_sleep_dconn_no_dev", "[light_sleep][host_suspend_dconn_no_dev]"
 
     light_sleep_enter_catch();                                 // Enter light sleep
 
+    // Disable timer wakeup source after exiting light sleep
+    TEST_ASSERT_EQUAL(ESP_OK, esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_TIMER));
     // Make sure there is no stale device is present right after exiting light sleep
     usb_host_lib_info_t info;
     TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_info(&info));
@@ -1871,7 +1877,7 @@ static void cdc_acm_host_deep_sleep_2(void)
 {
     // Get reset reason and check if it's deep sleep reset
     soc_reset_reason_t reason = esp_rom_get_reset_reason(0);
-    TEST_ASSERT(reason == RESET_REASON_CORE_DEEP_SLEEP);
+    TEST_ASSERT_MESSAGE(reason == RESET_REASON_CORE_DEEP_SLEEP, "Incorrect reset reason after exiting deep sleep");
     cdc_acm_deep_sleep_common();
 }
 
@@ -1884,7 +1890,7 @@ static void cdc_acm_host_deep_sleep_3(void)
 {
     // Get reset reason and check if it's deep sleep reset
     soc_reset_reason_t reason = esp_rom_get_reset_reason(0);
-    TEST_ASSERT(reason == RESET_REASON_CORE_DEEP_SLEEP);
+    TEST_ASSERT_MESSAGE(reason == RESET_REASON_CORE_DEEP_SLEEP, "Incorrect reset reason after exiting deep sleep");
 }
 
 /**

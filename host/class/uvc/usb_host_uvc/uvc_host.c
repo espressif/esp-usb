@@ -34,6 +34,12 @@
 
 static const char *TAG = "uvc";
 
+/* Retries for a control transfer whose pipe a transaction error left halted. The USB host
+ * library clears EP0 from its own task, so a retry has to yield first; three attempts, 10 ms
+ * apart, covers that with room to spare. A STALL is not retried - see uvc_host_usb_ctrl(). */
+#define UVC_CTRL_MAX_ATTEMPTS    3
+#define UVC_CTRL_RETRY_DELAY_MS  10
+
 // UVC spinlock
 portMUX_TYPE uvc_lock = portMUX_INITIALIZER_UNLOCKED;
 
@@ -598,9 +604,17 @@ static esp_err_t uvc_claim_interface(uvc_stream_t *uvc_stream, uint8_t uvc_index
     // Save all constant information about the UVC stream
     uvc_stream->constant.bInterfaceNumber  = bInterfaceNumber;
     uvc_stream->constant.bcdUVC            = bcdUVC;
+    uvc_stream->constant.uvc_index         = uvc_index;
     uvc_stream->constant.bAlternateSetting = intf_desc->bAlternateSetting;
     uvc_stream->constant.bEndpointAddress  = ep_desc->bEndpointAddress;
     *ep_desc_ret                           = ep_desc;
+
+    // Unit and terminal controls are addressed to the VideoControl interface, not to the
+    // VideoStreaming interface claimed below. Resolve it once here.
+    const uvc_vc_header_desc_t *vc_header = uvc_desc_get_control_interface_header(
+                                                cfg_desc, uvc_index, &uvc_stream->constant.bControlInterfaceNumber);
+    ESP_RETURN_ON_FALSE(vc_header, ESP_ERR_NOT_FOUND, TAG,
+                        "Could not find VideoControl interface of UVC function %d", uvc_index);
 
     // Claim the interface in USB Host Lib
     return usb_host_interface_claim(
@@ -1116,7 +1130,9 @@ esp_err_t uvc_host_usb_ctrl(uvc_host_stream_hdl_t stream_hdl, uint8_t bmRequestT
     if (wLength > 0) {
         UVC_CHECK(data, ESP_ERR_INVALID_ARG);
     }
-    UVC_CHECK(p_uvc_host_driver->ctrl_transfer->data_buffer_size >= wLength, ESP_ERR_INVALID_SIZE);
+    /* The data buffer size must account for the payload and the setup packet, which share it */
+    UVC_CHECK(p_uvc_host_driver->ctrl_transfer->data_buffer_size >= wLength + sizeof(usb_setup_packet_t),
+              ESP_ERR_INVALID_SIZE);
 
     esp_err_t ret;
 
@@ -1143,13 +1159,69 @@ esp_err_t uvc_host_usb_ctrl(uvc_host_stream_hdl_t stream_hdl, uint8_t bmRequestT
         memcpy(start_of_data, data, wLength);
     }
 
-    ESP_GOTO_ON_ERROR(
-        usb_host_transfer_submit_control(p_uvc_host_driver->usb_client_hdl, p_uvc_host_driver->ctrl_transfer),
-        unblock, TAG, "CTRL transfer failed");
+    /* Submit, and let the USB host library's asynchronous EP0 recovery finish before giving up.
+     *
+     * ep0_pipe_callback() queues DEV_ACTION_EP0_DEQUEUE | DEV_ACTION_EP0_CLEAR on a STALL and
+     * adds DEV_ACTION_EP0_FLUSH on a transaction error - but it does that on the USB host library
+     * task not inline. Until that task runs, every usb_host_transfer_submit_control()
+     * returns ESP_ERR_INVALID_STATE against the halted pipe. */
+    esp_err_t attempt_err = ESP_ERR_INVALID_RESPONSE;
+    bool completed = false;
 
-    taken = xSemaphoreTake((SemaphoreHandle_t)p_uvc_host_driver->ctrl_transfer->context, pdMS_TO_TICKS(5000)); // This is a fixed timeout. Every device should be able to respond to CTRL transfer in 5 seconds
-    ESP_GOTO_ON_FALSE(taken, ESP_ERR_TIMEOUT, unblock, TAG, "CTRL timeout");
-    ESP_GOTO_ON_FALSE(p_uvc_host_driver->ctrl_transfer->status == USB_TRANSFER_STATUS_COMPLETED, ESP_ERR_INVALID_RESPONSE, unblock, TAG, "Control transfer error");
+    for (int attempt = 0; attempt < UVC_CTRL_MAX_ATTEMPTS; attempt++) {
+        if (attempt > 0) {
+            vTaskDelay(pdMS_TO_TICKS(UVC_CTRL_RETRY_DELAY_MS));   // Let USBH recover EP0
+        }
+
+        const esp_err_t sub = usb_host_transfer_submit_control(p_uvc_host_driver->usb_client_hdl,
+                                                               p_uvc_host_driver->ctrl_transfer);
+        if (sub != ESP_OK) {
+            // ESP_ERR_INVALID_STATE means the default pipe is still halted from an earlier
+            // failure and USBH has not finished recovering it yet. Anything else is our fault.
+            if (sub != ESP_ERR_INVALID_STATE) {
+                ret = sub;
+                ESP_LOGE(TAG, "CTRL transfer failed: %s", esp_err_to_name(sub));
+                goto unblock;
+            }
+            ESP_LOGD(TAG, "CTRL request 0x%02x: EP0 still halted, waiting for recovery", bRequest);
+            attempt_err = sub;
+            continue;
+        }
+
+        taken = xSemaphoreTake((SemaphoreHandle_t)p_uvc_host_driver->ctrl_transfer->context, pdMS_TO_TICKS(5000)); // This is a fixed timeout. Every device should be able to respond to CTRL transfer in 5 seconds
+        ESP_GOTO_ON_FALSE(taken, ESP_ERR_TIMEOUT, unblock, TAG, "CTRL timeout");
+
+        const usb_transfer_status_t status = p_uvc_host_driver->ctrl_transfer->status;
+        if (status == USB_TRANSFER_STATUS_COMPLETED) {
+            completed = true;
+            break;
+        }
+
+        /* Retry a transaction error, never a stall. */
+        if (status == USB_TRANSFER_STATUS_ERROR) {
+            ESP_LOGD(TAG, "CTRL request 0x%02x errored; letting USBH clear EP0 and retrying (%d/%d)",
+                     bRequest, attempt + 1, UVC_CTRL_MAX_ATTEMPTS);
+            attempt_err = ESP_ERR_INVALID_RESPONSE;
+            continue;
+        }
+
+        /* Report a stall apart from a bus failure. */
+        if (status == USB_TRANSFER_STATUS_STALL) {
+            ESP_LOGD(TAG, "CTRL request 0x%02x stalled: the device does not support it", bRequest);
+            ret = ESP_ERR_NOT_SUPPORTED;
+            goto unblock;
+        }
+
+        ESP_GOTO_ON_FALSE(false, ESP_ERR_INVALID_RESPONSE, unblock, TAG, "Control transfer error");
+    }
+
+    if (!completed) {
+        ret = attempt_err;
+        ESP_LOGE(TAG, "CTRL request 0x%02x gave up after %d attempts: %s",
+                 bRequest, UVC_CTRL_MAX_ATTEMPTS, esp_err_to_name(ret));
+        goto unblock;
+    }
+
     ESP_GOTO_ON_FALSE(p_uvc_host_driver->ctrl_transfer->actual_num_bytes == p_uvc_host_driver->ctrl_transfer->num_bytes, ESP_ERR_INVALID_RESPONSE, unblock, TAG, "Incorrect number of bytes transferred");
 
     // For OUT transfers, we must transfer data ownership to user

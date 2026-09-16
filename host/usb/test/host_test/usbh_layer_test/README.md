@@ -3,6 +3,7 @@
 This directory contains test code for `USBH layer` of USB Host stack. Namely:
 
 - USBH public API calls to install and uninstall the USBH driver with partially mocked USB Host stack to test Linux build and Cmock run for this partial Mock
+- Control transfer completion followed by immediate device close from a higher-priority task, including STALL, transfer errors and resubmission from the completion callback
 - Mocked are all layers of the USB Host stack below the USBH layer, which is used as a real component
 
 Tests are written using [Catch2](https://github.com/catchorg/Catch2) test framework, use CMock, so you must install Ruby on your machine to run them.

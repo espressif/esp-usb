@@ -56,6 +56,19 @@ typedef struct {
 void tinyusb_usb_wakeup_register_pm_cbs(const tinyusb_usb_wakeup_pm_cbs_t *cbs);
 
 /**
+ * @brief Notify the wakeup module that the USB bus has resumed
+ *
+ * Restores the UTMI OTG suspend state that was armed on the last light-sleep enter, if it is
+ * still armed. Must be called by `tinyusb_pm.c` from the `TINYUSB_EVENT_RESUMED` handler.
+ *
+ * The light-sleep exit callback only restores the OTG state when the wakeup was caused by USB.
+ * When the bus is instead resumed by a device-initiated remote wakeup (after e.g. a UART, or GPIO wake),
+ * the OTG state stays armed with a stale wakeup latch; this hook clears it so the next
+ * light-sleep cycle re-arms the PHY cleanly.
+ */
+void tinyusb_usb_wakeup_notify_bus_resumed(void);
+
+/**
  * @brief Initialize USB Device light-sleep wakeup integration
  *
  * Registers light-sleep event callbacks that prepare and restore UTMI OTG suspend state

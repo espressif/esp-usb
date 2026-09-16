@@ -207,11 +207,13 @@ jobs:
       - name: Run USB Test App on target
         if: success() && steps.download_artifact.outcome == 'success'
         run: |
-          # Set target argument: usb_host tests require 2 DUTs (device and host)
+          # Set target and port args: usb_host tests require 2 DUTs (device and host)
           if [ "${{ matrix.runner_tag }}" = "usb_host" ]; then
             TARGET_ARG="--target=${{ matrix.idf_target }},${{ matrix.idf_target }}"
+            PORT_ARG='--port=/dev/ttyUSB0|/dev/ttyUSB1'
           else
             TARGET_ARG="--target=${{ matrix.idf_target }}"
+            PORT_ARG='--port=/dev/ttyUSB0'
           fi
 
           MARKER_EXPR="${{ matrix.runner_tag }}"
@@ -224,12 +226,12 @@ jobs:
             fi
           fi
 
-          # Run pytest with the configured target and marker
-          echo "Running pytest with target: $TARGET_ARG and marker: $MARKER_EXPR"
+          # Run pytest with the configured target, port, and marker
+          echo "Running pytest with target: $TARGET_ARG, port: $PORT_ARG, marker: $MARKER_EXPR"
           if [ "${{ matrix.runner_tag }}" = "usb_device" ]; then
             MTP_IGNORE="--ignore=device/esp_tinyusb/test_apps/mtp_storage"
           fi
-          pytest --ignore-no-tests-collected-error $TARGET_ARG -m "$MARKER_EXPR" ${MTP_IGNORE:-} --build-dir=build_${{ matrix.idf_target }}_
+          pytest --ignore-no-tests-collected-error $TARGET_ARG $PORT_ARG -m "$MARKER_EXPR" ${MTP_IGNORE:-} --build-dir=build_${{ matrix.idf_target }}_
       - name: Run MTP Test App on target
         if: success() && steps.check_mtp_artifact.outputs.exists == 'true'
         run: |
@@ -244,5 +246,5 @@ jobs:
 
           export XDG_RUNTIME_DIR=/tmp/xdg-runtime
           install -d -m 700 "$XDG_RUNTIME_DIR"
-          dbus-run-session -- pytest --target=${{ matrix.idf_target }} -m "$MARKER_EXPR" device/esp_tinyusb/test_apps/mtp_storage/pytest_mtp_storage.py \
+          dbus-run-session -- pytest --target=${{ matrix.idf_target }} --port=/dev/ttyUSB0 -m "$MARKER_EXPR" device/esp_tinyusb/test_apps/mtp_storage/pytest_mtp_storage.py \
             --build-dir=build_${{ matrix.idf_target }}_

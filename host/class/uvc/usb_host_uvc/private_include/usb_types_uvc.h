@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2024-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -226,6 +226,39 @@ typedef struct {
 } USB_DESC_ATTR uvc_vc_header_desc_t;
 
 /**
+ * @brief Common head of every VideoControl unit and terminal descriptor
+ *
+ * Every unit and terminal descriptor starts with these four fields, so a walk over the
+ * VideoControl interface can read a descriptor's subtype and entity ID before it knows which
+ * concrete type it is looking at.
+ *
+ * @see USB UVC specification ver 1.5, tables 3-4 to 3-11
+ */
+typedef struct {
+    uint8_t  bLength;
+    uint8_t  bDescriptorType;
+    uint8_t  bDescriptorSubType;
+    uint8_t  bEntityID; // bUnitID or bTerminalID, depending on bDescriptorSubType
+} USB_DESC_ATTR uvc_vc_entity_desc_t;
+
+/**
+ * @brief Common head of an Input and an Output Terminal Descriptor
+ *
+ * Input and output terminal descriptors agree up to bAssocTerminal and diverge after it, so
+ * this head is enough to identify a terminal by its type and ID regardless of direction.
+ *
+ * @see USB UVC specification ver 1.5, tables 3-4 and 3-5
+ */
+typedef struct {
+    uint8_t  bLength;
+    uint8_t  bDescriptorType;
+    uint8_t  bDescriptorSubType;
+    uint8_t  bTerminalID;
+    uint16_t wTerminalType;
+    uint8_t  bAssocTerminal;
+} USB_DESC_ATTR uvc_terminal_desc_t;
+
+/**
  * @brief Input Terminal Camera Descriptor
  *
  * @see USB UVC specification ver 1.5, table 3-6
@@ -315,6 +348,26 @@ typedef struct {
 } USB_DESC_ATTR uvc_processing_unit_desc_t;
 
 /**
+ * @brief Extension Unit Descriptor
+ *
+ * Variable length: baSourceID is bNrInPins bytes, followed by bControlSize,
+ * bmControls[bControlSize] and iExtension. Only the fixed head is described here;
+ * the trailing fields must be reached by offset from bNrInPins.
+ *
+ * @see USB UVC specification ver 1.5, Extension Unit Descriptor (VC_EXTENSION_UNIT)
+ */
+typedef struct {
+    uint8_t  bLength;
+    uint8_t  bDescriptorType;
+    uint8_t  bDescriptorSubType;
+    uint8_t  bUnitID;
+    uint8_t  guidExtensionCode[16];
+    uint8_t  bNumControls;
+    uint8_t  bNrInPins;
+    uint8_t  baSourceID[];
+} USB_DESC_ATTR uvc_extension_unit_desc_t;
+
+/**
  * @brief Video Streaming Interface Input Header Descriptor
  *
  * @see USB UVC specification ver 1.5, table 3-14
@@ -334,6 +387,13 @@ typedef struct {
     uint8_t  bControlSize;  // Typically == 1
     uint8_t  bmaControls[]; // This field is an array with size bNumFormats x bControlSize bytes
 } USB_DESC_ATTR uvc_vs_input_header_desc_t;
+
+/**
+ * @brief VideoStreaming input header bmaControls bits
+ *
+ * @see USB UVC specification ver 1.5, section 3.9.2.1
+ */
+#define UVC_VS_INPUT_HEADER_CTRL_GENERATE_KEY_FRAME_BIT 4
 
 /**
  * @brief Still Image Frame Descriptor
