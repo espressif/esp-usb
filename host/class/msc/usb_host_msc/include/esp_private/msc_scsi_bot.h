@@ -39,6 +39,7 @@ esp_err_t scsi_cmd_read_capacity(msc_host_device_handle_t device,
 
 esp_err_t scsi_cmd_sense(msc_host_device_handle_t device, scsi_sense_data_t *sense);
 
+/* The caller must request sense after a failed SCSI readiness command. */
 esp_err_t scsi_cmd_unit_ready(msc_host_device_handle_t device);
 
 esp_err_t scsi_cmd_inquiry(msc_host_device_handle_t device);

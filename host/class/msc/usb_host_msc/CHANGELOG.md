@@ -6,9 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- Added `msc_host_install_device_lun` to install an application-selected LUN without falling back to another slot, while preserving LUN 0 behavior in `msc_host_install_device`
+- Added `msc_host_probe_luns` and `msc_host_lun_info_t` to report ready and failed LUNs through a temporary discovery session, leaving candidate selection to the application
+
 ### Fixed
 
 - Fix READ CAPACITY(10) off-by-one: the last accessible LBA was used as a block count, under-reporting device capacity by one block
+- Skip LUNs reporting MEDIUM NOT PRESENT during discovery without consuming the readiness retry window, while retaining installation and reset recovery retries
+- Reset BOT state and synchronize both bulk endpoints when opening a session, allowing LUN switching and retries after failed probes or installations
+- Wait for USB Host to retire completed bulk transfers before releasing an interface, keeping the session owned until cleanup completes
+- Keep temporary discovery handles out of MSC events
+- Keep malformed BOT status and USB transfer errors distinct from SCSI command failures during LUN discovery
+- Address the explicitly installed LUN in SCSI commands and reset recovery so multi-slot card readers can access media outside LUN 0
+- Read initialization sense data once per failed readiness command so retries retain the reported device status
 
 ## [1.3.0] - 2026-09-14
 
@@ -18,7 +30,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Pre-6.0 still uses `diskio_usb.c` (`ff_diskio_register_msc`) to hang SCSI read/write on a FatFS drive number.
 
 ### Fixed
-
 - Validate SCSI READ CAPACITY `block_size` (power-of-two in [512, 4096]) and refuse FatFS `GET_SECTOR_SIZE` truncation that can overflow `fs->win` (BBP 574)
 - Use `esp_vfs_fat_register` instead of the deprecated `esp_vfs_fat_register_cfg` for ESP-IDF v6.0 and higher
 
