@@ -302,7 +302,18 @@ static inline void cache_sync_xfer_descriptor_list(dma_buffer_block_t *buffer, b
  * This function must be called before a URB is enqueued or dequeued.
  * Based on transfer direction (IN/OUT), this function will msync the data buffer associated with this URB.
  *
- * @note Here we also accept UNALIGNED data, for cases where the class drivers force overwrite the allocated data buffers
+ * The operation depends on the transfer direction and on whether the buffer is about to be processed
+ * (enqueue) or was just processed (dequeue):
+ * - Enqueue (all directions): writeback (C2M). For OUT/CTRL this pushes the data the host is about to
+ *   send. For IN it cleans any dirty lines left by prior CPU writes (e.g. a memset of the buffer): on a
+ *   write-back cache that the DMA does not snoop, a dirty line evicted after the DMA has written its
+ *   memory would be written back over the received data, corrupting it. Cleaning at enqueue removes that
+ *   hazard. This is only observable for transfers larger than the D-cache, where a full buffer write
+ *   cannot stay resident until the dequeue-time invalidate.
+ * - Dequeue (IN/CTRL): invalidate (M2C) so the CPU reads the DMA-received data rather than stale cached
+ *   copies.
+ *
+ * @note Here we also accept UNALIGNED data, for cases where the class drivers force overwrite the allocated data slots
  *
  * @param[in] pipe Pipe belonging to this data buffer
  * @param[in] urb  URB belonging to this data buffer
@@ -312,8 +323,11 @@ static inline void cache_sync_data_buffer(pipe_t *pipe, urb_t *urb, bool done)
 {
     const bool is_in = pipe->ep_char.bEndpointAddress & USB_B_ENDPOINT_ADDRESS_EP_DIR_MASK;
     const bool is_ctrl = (pipe->ep_char.type == USB_DWC_XFER_TYPE_CTRL);
-    if ((is_in == done) || is_ctrl) {
-        uint32_t flags = (done) ? ESP_CACHE_MSYNC_FLAG_DIR_M2C : ESP_CACHE_MSYNC_FLAG_UNALIGNED;
+    // Writeback at enqueue for every direction (!done); invalidate at dequeue for IN/CTRL (is_in || is_ctrl)
+    if (!done || is_in || is_ctrl) {
+        // Enqueue: writeback (C2M). Dequeue: invalidate (M2C). UNALIGNED permits non-cache-line-aligned buffers.
+        uint32_t flags = (done) ? ESP_CACHE_MSYNC_FLAG_DIR_M2C
+                         : (ESP_CACHE_MSYNC_FLAG_DIR_C2M | ESP_CACHE_MSYNC_FLAG_UNALIGNED);
         esp_err_t ret = esp_cache_msync(urb->transfer.data_buffer, urb->transfer.data_buffer_size, flags);
         assert(ret == ESP_OK);
         (void)ret;
@@ -2150,6 +2164,24 @@ int hcd_pipe_get_mps(hcd_pipe_handle_t pipe_hdl)
     return mps;
 }
 
+int hcd_pipe_get_xfer_size_limit(hcd_pipe_handle_t pipe_hdl)
+{
+    pipe_t *pipe = (pipe_t *)pipe_hdl;
+    int limit;
+    HCD_ENTER_CRITICAL();
+    // the HAL returns the per-transfer byte limit floored to a whole number of maximum-sized packets
+#if ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(6, 0, 0)
+    // Api not present in HAL for idf lower than 6.0
+#define USB_DWC_QTD_NON_ISO_MAX_XFER_SIZE ((1U << 17) - 1)
+    limit = USB_DWC_QTD_NON_ISO_MAX_XFER_SIZE;
+    limit -= (limit % pipe->ep_char.mps);
+#else
+    limit = (int)usb_dwc_hal_get_xfer_size_limit(pipe->port->hal, pipe->ep_char.mps);
+#endif
+    HCD_EXIT_CRITICAL();
+    return limit;
+}
+
 esp_err_t hcd_pipe_free(hcd_pipe_handle_t pipe_hdl)
 {
     pipe_t *pipe = (pipe_t *)pipe_hdl;
@@ -2820,6 +2852,17 @@ esp_err_t hcd_urb_enqueue(hcd_pipe_handle_t pipe_hdl, urb_t *urb)
         !((pipe->ep_char.type == USB_DWC_XFER_TYPE_ISOCHRONOUS) && (urb->transfer.num_isoc_packets * pipe->ep_char.periodic.interval > XFER_LIST_LEN_ISOC)),
         ESP_ERR_INVALID_SIZE
     );
+    // Reject bulk/control transfers larger than the controller can move in a single transfer. Otherwise the transfer
+    // size would silently truncate upon qTD XferSize (Scatter/Gather) field. Periodic (INTR/ISOC) transfers
+    // are bounded by their descriptor list length, which is checked separately when the descriptor list is filled.
+    if (pipe->ep_char.type == USB_DWC_XFER_TYPE_BULK || pipe->ep_char.type == USB_DWC_XFER_TYPE_CTRL) {
+        // For control transfers only the data stage is bounded by the limit, so exclude the setup packet.
+        int data_len = urb->transfer.num_bytes;
+        if (pipe->ep_char.type == USB_DWC_XFER_TYPE_CTRL) {
+            data_len -= (int)sizeof(usb_setup_packet_t);
+        }
+        HCD_CHECK(data_len <= hcd_pipe_get_xfer_size_limit(pipe_hdl), ESP_ERR_INVALID_SIZE);
+    }
 
     // Sync user's data from cache to memory. For OUT and CTRL transfers
     CACHE_SYNC_DATA_BUFFER_C2M(pipe, urb);
