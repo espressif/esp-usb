@@ -56,7 +56,7 @@ esp_err_t uvc_desc_get_streaming_interface_num(
 esp_err_t uvc_desc_get_streaming_intf_and_ep(
     const usb_config_desc_t *cfg_desc,
     uint8_t bInterfaceNumber,
-    uint16_t dwMaxPayloadTransferSize,
+    uint32_t dwMaxPayloadTransferSize,
     const usb_intf_desc_t **intf_desc_ret,
     const usb_ep_desc_t **ep_desc_ret);
 

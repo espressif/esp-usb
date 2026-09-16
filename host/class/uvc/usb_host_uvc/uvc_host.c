@@ -9,6 +9,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <sys/queue.h>
+#include <sys/param.h>
 
 #include "esp_log.h"
 #include "esp_check.h"
@@ -567,6 +568,70 @@ static inline esp_err_t uvc_set_interface(uvc_host_stream_hdl_t stream_hdl, bool
 }
 
 /**
+ * @brief Select and claim the alternate setting that fits a given payload size
+ *
+ * @param[in]  uvc_stream      Stream whose bInterfaceNumber is already resolved
+ * @param[in]  max_payload     Largest payload the chosen endpoint may have to carry
+ * @param[in]  already_claimed Release the currently claimed alternate setting first
+ * @param[out] ep_desc_ret     Endpoint descriptor of the selected alternate setting
+ * @return
+ *     - ESP_OK:              Alternate setting selected and claimed
+ *     - ESP_ERR_INVALID_ARG: Input parameter is NULL
+ *     - ESP_ERR_NOT_FOUND:   No alternate setting fits max_payload
+ *     - Other:               Error during interface claim
+ */
+static esp_err_t uvc_select_alt_setting(uvc_stream_t *uvc_stream, uint32_t max_payload,
+                                        bool already_claimed, const usb_ep_desc_t **ep_desc_ret)
+{
+    UVC_CHECK(uvc_stream && ep_desc_ret, ESP_ERR_INVALID_ARG);
+
+    const usb_config_desc_t *cfg_desc;
+    const usb_intf_desc_t *intf_desc;
+    const usb_ep_desc_t *ep_desc;
+
+    ESP_RETURN_ON_ERROR(
+        usb_host_get_active_config_descriptor(uvc_stream->constant.dev_hdl, &cfg_desc),
+        TAG, "Could not read the active configuration descriptor");
+    /* The host IN FIFO is the hard ceiling whatever the camera asks for. */
+    const uint32_t capped_payload = MIN(max_payload, (uint32_t)MAX_MPS_IN);
+    if (capped_payload != max_payload) {
+        ESP_LOGW(TAG, "Negotiated payload %"PRIu32" B exceeds the host IN FIFO, capping at %d B",
+                 max_payload, MAX_MPS_IN);
+    }
+
+    ESP_RETURN_ON_ERROR(
+        uvc_desc_get_streaming_intf_and_ep(cfg_desc, uvc_stream->constant.bInterfaceNumber,
+                                           capped_payload, &intf_desc, &ep_desc),
+        TAG, "No alternate setting of interface %d carries %"PRIu32" B",
+        uvc_stream->constant.bInterfaceNumber, capped_payload);
+
+    *ep_desc_ret = ep_desc;
+
+    if (already_claimed) {
+        if (intf_desc->bAlternateSetting == uvc_stream->constant.bAlternateSetting) {
+            return ESP_OK;   // Already on the right one
+        }
+        ESP_LOGI(TAG, "Alternate setting %d -> %d to match negotiated payload %"PRIu32" B",
+                 uvc_stream->constant.bAlternateSetting, intf_desc->bAlternateSetting, capped_payload);
+        usb_host_interface_release(p_uvc_host_driver->usb_client_hdl,
+                                   uvc_stream->constant.dev_hdl,
+                                   uvc_stream->constant.bInterfaceNumber);
+    }
+
+    ESP_RETURN_ON_ERROR(
+        usb_host_interface_claim(p_uvc_host_driver->usb_client_hdl,
+                                 uvc_stream->constant.dev_hdl,
+                                 intf_desc->bInterfaceNumber,
+                                 intf_desc->bAlternateSetting),
+        TAG, "Could not claim streaming interface %d-%d",
+        intf_desc->bInterfaceNumber, intf_desc->bAlternateSetting);
+
+    uvc_stream->constant.bAlternateSetting = intf_desc->bAlternateSetting;
+    uvc_stream->constant.bEndpointAddress  = ep_desc->bEndpointAddress;
+    return ESP_OK;
+}
+
+/**
  * @brief Find and claim interface for selected frame format
  *
  * @param[in]  uvc_stream  Pointer to UVC stream
@@ -584,8 +649,6 @@ static esp_err_t uvc_claim_interface(uvc_stream_t *uvc_stream, uint8_t uvc_index
     UVC_CHECK(uvc_stream && vs_format && ep_desc_ret, ESP_ERR_INVALID_ARG);
 
     const usb_config_desc_t *cfg_desc;
-    const usb_intf_desc_t *intf_desc;
-    const usb_ep_desc_t *ep_desc;
     ESP_ERROR_CHECK(usb_host_get_active_config_descriptor(uvc_stream->constant.dev_hdl, &cfg_desc));
 
     // Find UVC USB function with desired index
@@ -597,23 +660,11 @@ static esp_err_t uvc_claim_interface(uvc_stream_t *uvc_stream, uint8_t uvc_index
         TAG, "Could not find frame format %dx%d@%2.1fFPS",
         vs_format->h_res, vs_format->v_res, vs_format->fps);
 
-    ESP_RETURN_ON_ERROR(
-        uvc_desc_get_streaming_intf_and_ep(cfg_desc, bInterfaceNumber, MAX_MPS_IN, &intf_desc, &ep_desc),
-        TAG, "Could not find Streaming interface %d", bInterfaceNumber);
-
     // Save all constant information about the UVC stream
     uvc_stream->constant.bInterfaceNumber  = bInterfaceNumber;
     uvc_stream->constant.bcdUVC            = bcdUVC;
-    uvc_stream->constant.bAlternateSetting = intf_desc->bAlternateSetting;
-    uvc_stream->constant.bEndpointAddress  = ep_desc->bEndpointAddress;
-    *ep_desc_ret                           = ep_desc;
 
-    // Claim the interface in USB Host Lib
-    return usb_host_interface_claim(
-               p_uvc_host_driver->usb_client_hdl,
-               uvc_stream->constant.dev_hdl,
-               intf_desc->bInterfaceNumber,
-               intf_desc->bAlternateSetting);
+    return uvc_select_alt_setting(uvc_stream, MAX_MPS_IN, false, ep_desc_ret);
 }
 
 esp_err_t uvc_host_install(const uvc_host_driver_config_t *driver_config)
@@ -849,6 +900,19 @@ esp_err_t uvc_host_stream_open(const uvc_host_stream_config_t *stream_config, in
     ESP_GOTO_ON_ERROR(
         uvc_host_stream_control_probe(uvc_stream, &real_format, &vs_result),
         err, TAG, "Failed to negotiate requested Video Stream format");
+
+    /* Now that the camera has said how much it will actually send per microframe, re-select
+     * the alternate setting to match. uvc_claim_interface() could only cap on MAX_MPS_IN and
+     * takes the largest endpoint the target supports.
+     *
+     * Isochronous only. bAlternateSetting == 0 is how this driver spells "bulk stream"
+     * throughout, and a bulk streaming interface has no alternate settings to choose
+     * between, so re-selecting there could only re-derive what open already claimed. */
+    if (uvc_stream->constant.bAlternateSetting != 0 && vs_result.dwMaxPayloadTransferSize > 0) {
+        ESP_GOTO_ON_ERROR(
+            uvc_select_alt_setting(uvc_stream, vs_result.dwMaxPayloadTransferSize, true, &ep_desc),
+            err, TAG, "Could not match the alternate setting to the negotiated payload");
+    }
 
     // Allocate USB transfers
     ESP_GOTO_ON_ERROR(
