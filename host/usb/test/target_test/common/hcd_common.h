@@ -182,6 +182,15 @@ int test_hcd_get_num_pipe_events(hcd_pipe_handle_t pipe_hdl);
 hcd_port_handle_t test_hcd_setup(void);
 
 /**
+ * @brief Sets up the HCD and initializes an HCD port in Full/Low-Speed only mode.
+ *
+ * Same as `test_hcd_setup()`, but High-Speed capable ports will not respond to a device's High-Speed chirp.
+ *
+ * @return hcd_port_handle_t Port handle
+ */
+hcd_port_handle_t test_hcd_setup_fsls_only(void);
+
+/**
  * @brief Frees and HCD port and uninstalls the HCD
  *
  * @param port_hdl Port handle
