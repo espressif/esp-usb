@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <stdbool.h>
 #include <stdint.h>
+#include <inttypes.h>
 #include <string.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -14,6 +15,7 @@
 #include "esp_log.h"
 #include "mock_msc.h"
 #include "dev_msc.h"
+#include "dev_isoc.h"
 #include "hcd_common.h"
 
 static const char *TAG = "XFER_SIZE_LIMIT";
@@ -32,6 +34,30 @@ ESP_ERR_INVALID_SIZE before any hardware/buffer access.
 
 Control is exercised with a real GET_CONFIGURATION_DESCRIPTOR whose data stage is sized to L - MPS, L and L + MPS; the
 first two MUST be accepted (and complete via the device's short descriptor packet), and the last MUST be rejected.
+
+Periodic (interrupt/isochronous) transfers are not bounded by the qTD byte-count field: they use one qTD per packet,
+so their size is bounded by the descriptor list length - XFER_LIST_LEN_INTR (== FRAME_LIST_LEN) qTDs for interrupt,
+XFER_LIST_LEN_ISOC minus a scheduling timing margin for isochronous. They are exercised with endpoint descriptors
+targeting a non-existent device address (isochronous OUT completes without a handshake; interrupt acceptance is fully
+exercised by the synchronous descriptor list fill at enqueue), so no periodic-capable device is required.
+
+Maximum transfer sizes in Scatter/Gather DMA mode, per transfer type. The limits are set by the qTD byte-count
+fields and the HCD's descriptor list lengths, so they are identical on all targets regardless of the DWC2 core
+revision (4.30a on P4 ECO5+/S31, 4.00a on P4 ECO4/S2/S3/H4):
+
++-------+---------------------------+---------------------------+------------------------------------------------------+
+| Type  | Max bytes (HS)            | Max bytes (FS)            | Limited by                                           |
++-------+---------------------------+---------------------------+------------------------------------------------------+
+| CTRL  | 131008 (MPS 64)           | 131008 (MPS 64)           | 17-bit non-iso qTD "Total bytes to transfer" field   |
+| BULK  | 130560 (MPS 512)          | 131008 (MPS 64)           | (131071 B), floored to a whole number of MPS         |
+| INTR  | 32768 (32 x MPS 1024)     | 2048 (32 x MPS 64)        | XFER_LIST_LEN_INTR (32) qTDs, one packet per qTD     |
+| ISOC  | 62464 (61 x MPS 1024)     | 62403 (61 x MPS 1023)     | XFER_LIST_LEN_ISOC (64) - XFER_LIST_ISOC_MARGIN (3)  |
+|       |                           |                           | descriptors; (61 / interval) packets of <= MPS each  |
++-------+---------------------------+---------------------------+------------------------------------------------------+
+
+All limits are enforced at enqueue time with ESP_ERR_INVALID_SIZE. The ISOC row shows interval = 1; the packet count
+scales down with the pipe's interval (61 / interval). The CTRL limit applies to the data stage only (the 8-byte setup
+packet is excluded).
 */
 
 // -----------------------------------------------------------------------------
@@ -275,6 +301,217 @@ TEST_CASE("Test HCD bulk transfer size limit", "[bulk][full_speed][high_speed]")
 
     test_hcd_pipe_free(bulk_out_pipe);
     test_hcd_pipe_free(bulk_in_pipe);
+    test_hcd_pipe_free(default_pipe);
+    test_hcd_wait_for_disconn(port_hdl, false);
+}
+
+// -----------------------------------------------------------------------------
+// Periodic transfer size limits
+// -----------------------------------------------------------------------------
+
+// Mirror the HCD's periodic descriptor list lengths (hcd_dwc.c): periodic transfers use one qTD per packet, so their
+// size is bounded by the descriptor list length - not by hcd_pipe_get_xfer_size_limit(), which applies to bulk/control
+#define TEST_INTR_XFER_LIST_LEN     32  // XFER_LIST_LEN_INTR == FRAME_LIST_LEN (USB_HAL_FRAME_LIST_LEN_32)
+#define TEST_ISOC_XFER_LIST_LEN     64  // XFER_LIST_LEN_ISOC
+#define TEST_ISOC_XFER_LIST_MARGIN  3   // XFER_LIST_ISOC_MARGIN: list slots reserved for scheduling timing margin
+#define TEST_INTR_MPS               64  // Fabricated interrupt endpoint MPS, legal at both FS and HS
+
+/**
+ * @brief Assert the HCD rejects an over-limit interrupt transfer at enqueue time
+ *
+ * The rejection happens before the data buffer is touched or the channel is activated, so a tiny buffer with an
+ * over-sized num_bytes is sufficient.
+ *
+ * @param pipe       Interrupt pipe to enqueue on
+ * @param num_bytes  Total transfer num_bytes
+ * @param flags      Transfer flags (e.g. USB_TRANSFER_FLAG_ZERO_PACK)
+ */
+static void expect_reject_intr(hcd_pipe_handle_t pipe, int num_bytes, uint32_t flags)
+{
+    urb_t *urb = test_hcd_alloc_urb(0, TEST_INTR_MPS);
+    urb->transfer.num_bytes = num_bytes;
+    urb->transfer.flags = flags;
+    ESP_LOGI(TAG, "Expecting reject (intr): num_bytes=%d flags=0x%"PRIx32, num_bytes, flags);
+    TEST_ASSERT_EQUAL(ESP_ERR_INVALID_SIZE, hcd_urb_enqueue(pipe, urb));
+    test_hcd_free_urb(urb);
+}
+
+/**
+ * @brief Assert the HCD rejects an over-limit isochronous transfer at enqueue time
+ *
+ * The rejection happens before the data buffer is touched or the channel is activated, so a tiny buffer is
+ * sufficient.
+ *
+ * @param pipe              Isochronous pipe to enqueue on
+ * @param num_isoc_packets  Number of isochronous packets in the transfer
+ * @param mps               Packet size used for each packet descriptor
+ */
+static void expect_reject_isoc(hcd_pipe_handle_t pipe, int num_isoc_packets, int mps)
+{
+    urb_t *urb = test_hcd_alloc_urb(num_isoc_packets, mps);
+    urb->transfer.num_bytes = num_isoc_packets * mps;
+    for (int i = 0; i < num_isoc_packets; i++) {
+        urb->transfer.isoc_packet_desc[i].num_bytes = mps;
+    }
+    ESP_LOGI(TAG, "Expecting reject (isoc): num_isoc_packets=%d", num_isoc_packets);
+    TEST_ASSERT_EQUAL(ESP_ERR_INVALID_SIZE, hcd_urb_enqueue(pipe, urb));
+    test_hcd_free_urb(urb);
+}
+
+/**
+ * @brief Assert the HCD accepts an at/under-limit isochronous transfer and completes it
+ *
+ * The pipe targets a non-existent device address: isochronous transfers have no handshake, so the URB completes
+ * on its own once scheduled.
+ *
+ * @param pipe              Isochronous pipe to enqueue on
+ * @param num_isoc_packets  Number of isochronous packets in the transfer
+ * @param mps               Packet size used for each packet descriptor
+ */
+static void expect_accept_isoc(hcd_pipe_handle_t pipe, int num_isoc_packets, int mps)
+{
+    urb_t *urb = test_hcd_alloc_urb(num_isoc_packets, num_isoc_packets * mps);
+    urb->transfer.num_bytes = num_isoc_packets * mps;
+    for (int i = 0; i < num_isoc_packets; i++) {
+        urb->transfer.isoc_packet_desc[i].num_bytes = mps;
+    }
+    ESP_LOGI(TAG, "Expecting accept (isoc): num_isoc_packets=%d (%d bytes)", num_isoc_packets, num_isoc_packets * mps);
+    TEST_ASSERT_EQUAL(ESP_OK, hcd_urb_enqueue(pipe, urb));
+    TEST_HCD_EXPECT_PIPE_EVENT(pipe, HCD_PIPE_EVENT_URB_DONE);
+    TEST_ASSERT_EQUAL_PTR(urb, hcd_urb_dequeue(pipe));
+    TEST_HCD_EXPECT_TRANSFER_STATUS(urb, USB_TRANSFER_STATUS_COMPLETED);
+    TEST_ASSERT_EQUAL(num_isoc_packets * mps, urb->transfer.actual_num_bytes);
+    for (int i = 0; i < num_isoc_packets; i++) {
+        TEST_ASSERT_EQUAL_MESSAGE(USB_TRANSFER_STATUS_COMPLETED, urb->transfer.isoc_packet_desc[i].status, "Packet NOT completed");
+    }
+    test_hcd_free_urb(urb);
+}
+
+/*
+Test HCD interrupt transfer size limit
+
+Purpose:
+    - Interrupt transfers use one qTD per packet (plus one extra qTD for the optional zero-length packet), so the
+      transfer is bounded by the interrupt descriptor list length (XFER_LIST_LEN_INTR == FRAME_LIST_LEN == 32 qTDs)
+    - Verify the HCD rejects interrupt transfers needing more qTDs than the list holds with ESP_ERR_INVALID_SIZE,
+      including the zero-length-packet corner case (an MPS-aligned OUT transfer with USB_TRANSFER_FLAG_ZERO_PACK
+      needs one extra qTD)
+    - Verify the HCD accepts interrupt transfers that fill the descriptor list exactly (the list is filled
+      synchronously at enqueue, so an accepted transfer must not trip the fill-time assert)
+
+Procedure:
+    - Setup HCD and wait for connection (no enumeration: the pipes target a non-existent device address, the
+      acceptance path is fully exercised by the synchronous descriptor list fill at enqueue)
+    - Allocate interrupt IN and OUT pipes with a fabricated endpoint descriptor (MPS=64, bInterval=1)
+    - Enqueue 33*MPS IN, 32*MPS+1 OUT and 32*MPS+ZLP OUT (all need 33 qTDs) -> rejected with ESP_ERR_INVALID_SIZE
+    - Enqueue 32*MPS IN and 31*MPS+ZLP OUT (both exactly 32 qTDs) -> accepted; halt+flush to reclaim the URBs
+    - Teardown
+*/
+TEST_CASE("Test HCD interrupt transfer size limit", "[intr][full_speed][high_speed]")
+{
+    usb_speed_t port_speed = test_hcd_wait_for_conn(port_hdl);
+    vTaskDelay(pdMS_TO_TICKS(100));
+
+    // Fabricated endpoint descriptors; the device address is intentionally left non-existent (no enumeration)
+    usb_ep_desc_t intr_in_ep_desc = {
+        .bLength = USB_EP_DESC_SIZE,
+        .bDescriptorType = USB_B_DESCRIPTOR_TYPE_ENDPOINT,
+        .bEndpointAddress = 0x81, // IN endpoint
+        .bmAttributes = USB_BM_ATTRIBUTES_XFER_INT,
+        .wMaxPacketSize = TEST_INTR_MPS,
+        .bInterval = 1,
+    };
+    usb_ep_desc_t intr_out_ep_desc = intr_in_ep_desc;
+    intr_out_ep_desc.bEndpointAddress = 0x02; // OUT endpoint
+    hcd_pipe_handle_t intr_in_pipe = test_hcd_pipe_alloc(port_hdl, &intr_in_ep_desc, 1, port_speed);
+    hcd_pipe_handle_t intr_out_pipe = test_hcd_pipe_alloc(port_hdl, &intr_out_ep_desc, 1, port_speed);
+
+    // --- Rejected: need more qTDs than the descriptor list holds (33 > 32) ---
+    expect_reject_intr(intr_in_pipe, (TEST_INTR_XFER_LIST_LEN + 1) * TEST_INTR_MPS, 0);          // IN: 33 packets
+    expect_reject_intr(intr_out_pipe, TEST_INTR_XFER_LIST_LEN * TEST_INTR_MPS + 1, 0);            // OUT: 32 packets + short packet
+    expect_reject_intr(intr_out_pipe, TEST_INTR_XFER_LIST_LEN * TEST_INTR_MPS, USB_TRANSFER_FLAG_ZERO_PACK); // OUT: 32 packets + ZLP
+
+    // --- Accepted: exactly fills the descriptor list (32 qTDs) ---
+    // IN: 32 packets
+    urb_t *urb_in = test_hcd_alloc_urb(0, TEST_INTR_XFER_LIST_LEN * TEST_INTR_MPS);
+    urb_in->transfer.num_bytes = TEST_INTR_XFER_LIST_LEN * TEST_INTR_MPS;
+    TEST_ASSERT_EQUAL(ESP_OK, hcd_urb_enqueue(intr_in_pipe, urb_in));
+    // OUT: 31 packets + zero-length packet
+    urb_t *urb_out = test_hcd_alloc_urb(0, (TEST_INTR_XFER_LIST_LEN - 1) * TEST_INTR_MPS);
+    urb_out->transfer.num_bytes = (TEST_INTR_XFER_LIST_LEN - 1) * TEST_INTR_MPS;
+    urb_out->transfer.flags = USB_TRANSFER_FLAG_ZERO_PACK;
+    TEST_ASSERT_EQUAL(ESP_OK, hcd_urb_enqueue(intr_out_pipe, urb_out));
+
+    // Reclaim the URBs: the non-existent endpoint can never complete them
+    TEST_ASSERT_EQUAL(ESP_OK, hcd_pipe_command(intr_in_pipe, HCD_PIPE_CMD_HALT));
+    TEST_ASSERT_EQUAL(ESP_OK, hcd_pipe_command(intr_out_pipe, HCD_PIPE_CMD_HALT));
+    TEST_ASSERT_EQUAL(ESP_OK, hcd_pipe_command(intr_in_pipe, HCD_PIPE_CMD_FLUSH));
+    TEST_ASSERT_EQUAL(ESP_OK, hcd_pipe_command(intr_out_pipe, HCD_PIPE_CMD_FLUSH));
+    TEST_HCD_EXPECT_PIPE_EVENT(intr_in_pipe, HCD_PIPE_EVENT_URB_DONE);
+    TEST_HCD_EXPECT_PIPE_EVENT(intr_out_pipe, HCD_PIPE_EVENT_URB_DONE);
+    TEST_ASSERT_EQUAL_PTR(urb_in, hcd_urb_dequeue(intr_in_pipe));
+    TEST_ASSERT_EQUAL_PTR(urb_out, hcd_urb_dequeue(intr_out_pipe));
+    test_hcd_free_urb(urb_in);
+    test_hcd_free_urb(urb_out);
+
+    test_hcd_pipe_free(intr_in_pipe);
+    test_hcd_pipe_free(intr_out_pipe);
+    test_hcd_wait_for_disconn(port_hdl, false);
+}
+
+/*
+Test HCD isochronous transfer size limit
+
+Purpose:
+    - Isochronous transfers use one qTD per packet, spaced by the pipe's interval in a circular descriptor list of
+      XFER_LIST_LEN_ISOC (64) entries, with XFER_LIST_ISOC_MARGIN (3) slots reserved for scheduling timing margin.
+      The transfer is thus bounded to (64 - 3) / interval packets
+    - Verify the HCD rejects isochronous transfers whose packets do not fit into the descriptor list with
+      ESP_ERR_INVALID_SIZE
+    - Verify the HCD accepts isochronous transfers that exactly fit the descriptor list and completes them
+    - Verify the bound scales with the pipe's interval
+
+Procedure:
+    - Setup HCD, connect, enumerate the device
+    - Allocate an ISOC OUT pipe to a non-existent device address (isochronous transfers have no handshake, so the
+      URBs complete without a device), interval = 1
+    - Enqueue 62 packets (62 descriptors > 61) -> rejected; enqueue 61 packets (== 61) -> accepted and completes
+    - Reallocate the pipe with bInterval = 2 (interval = 2 for both FS and HS isochronous)
+    - Enqueue 31 packets (62 descriptors > 61) -> rejected; enqueue 30 packets (60 <= 61) -> accepted and completes
+    - Teardown
+*/
+TEST_CASE("Test HCD isochronous transfer size limit", "[isoc][full_speed][high_speed]")
+{
+    usb_speed_t port_speed = test_hcd_wait_for_conn(port_hdl);
+    vTaskDelay(pdMS_TO_TICKS(100));
+
+    hcd_pipe_handle_t default_pipe = test_hcd_pipe_alloc(port_hdl, NULL, 0, port_speed);
+    uint8_t dev_addr = test_hcd_enum_device(default_pipe);
+
+    // ISOC OUT pipe to a non-existent endpoint, interval = 1
+    usb_ep_desc_t isoc_ep_desc;
+    memcpy(&isoc_ep_desc, dev_isoc_get_out_ep_desc(port_speed), sizeof(usb_ep_desc_t));
+    const int mps = USB_EP_DESC_GET_MPS(&isoc_ep_desc);
+    hcd_pipe_handle_t isoc_pipe = test_hcd_pipe_alloc(port_hdl, &isoc_ep_desc, dev_addr + 1, port_speed);
+
+    // Effective limit in packets at interval = 1: list length minus the scheduling margin
+    const int max_packets = TEST_ISOC_XFER_LIST_LEN - TEST_ISOC_XFER_LIST_MARGIN;
+
+    // Over the limit (62 descriptors > 61) -> rejected at enqueue, before the descriptor list is touched
+    expect_reject_isoc(isoc_pipe, max_packets + 1, mps);
+    // Exactly at the limit (61 descriptors) -> accepted and completes
+    expect_accept_isoc(isoc_pipe, max_packets, mps);
+
+    // Interval scaling: interval = 2^(bInterval-1) = 2 (micro)frames for both FS and HS isochronous
+    isoc_ep_desc.bInterval = 2;
+    hcd_pipe_handle_t isoc_pipe_i2 = test_hcd_pipe_alloc(port_hdl, &isoc_ep_desc, dev_addr + 1, port_speed);
+    // 31 packets * interval 2 = 62 descriptors > 61 -> rejected
+    expect_reject_isoc(isoc_pipe_i2, max_packets / 2 + 1, mps);
+    // 30 packets * interval 2 = 60 descriptors <= 61 -> accepted and completes
+    expect_accept_isoc(isoc_pipe_i2, max_packets / 2, mps);
+
+    test_hcd_pipe_free(isoc_pipe_i2);
+    test_hcd_pipe_free(isoc_pipe);
     test_hcd_pipe_free(default_pipe);
     test_hcd_wait_for_disconn(port_hdl, false);
 }

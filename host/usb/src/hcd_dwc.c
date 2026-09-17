@@ -2368,7 +2368,7 @@ static inline void _buffer_fill_intr(dma_buffer_block_t *buffer, usb_transfer_t 
             num_qtds++; // Add a short packet for the remainder
         }
     }
-    assert((zero_len_packet) ? num_qtds + 1 : num_qtds <= XFER_LIST_LEN_INTR); // Check that the number of QTDs doesn't exceed the QTD list's length
+    assert(((zero_len_packet) ? num_qtds + 1 : num_qtds) <= XFER_LIST_LEN_INTR); // Check that the number of QTDs doesn't exceed the QTD list's length
 
     uint32_t xfer_desc_flags = (is_in) ? USB_DWC_HAL_XFER_DESC_FLAG_IN : 0;
     int bytes_filled = 0;
@@ -2848,10 +2848,23 @@ esp_err_t hcd_urb_enqueue(hcd_pipe_handle_t pipe_hdl, urb_t *urb)
     pipe_t *pipe = (pipe_t *)pipe_hdl;
     // Check if the ISOC pipe can handle all packets:
     // In case the pipe's interval is too long and there are too many ISOC packets, they might not fit into the transfer descriptor list
+    // (XFER_LIST_ISOC_MARGIN slots are reserved for scheduling timing margin, see _buffer_fill_isoc())
     HCD_CHECK(
-        !((pipe->ep_char.type == USB_DWC_XFER_TYPE_ISOCHRONOUS) && (urb->transfer.num_isoc_packets * pipe->ep_char.periodic.interval > XFER_LIST_LEN_ISOC)),
+        !((pipe->ep_char.type == USB_DWC_XFER_TYPE_ISOCHRONOUS) && (urb->transfer.num_isoc_packets * pipe->ep_char.periodic.interval > XFER_LIST_LEN_ISOC - XFER_LIST_ISOC_MARGIN)),
         ESP_ERR_INVALID_SIZE
     );
+    // Interrupt transfers use one qTD per packet (plus one extra qTD for the optional zero-length packet), so the
+    // transfer is bounded by the interrupt descriptor list length. Reject over-limit transfers here: the descriptor
+    // list is filled synchronously on enqueue, where an overflow could otherwise only assert.
+    if (pipe->ep_char.type == USB_DWC_XFER_TYPE_INTR) {
+        const int mps = pipe->ep_char.mps;
+        int num_qtds = (urb->transfer.num_bytes + mps - 1) / mps;   // One qTD per (short) packet
+        const bool is_in = pipe->ep_char.bEndpointAddress & USB_B_ENDPOINT_ADDRESS_EP_DIR_MASK;
+        if (!is_in && (urb->transfer.flags & USB_TRANSFER_FLAG_ZERO_PACK) && (urb->transfer.num_bytes % mps) == 0) {
+            num_qtds++;     // Extra qTD for the terminating zero-length packet
+        }
+        HCD_CHECK(num_qtds <= XFER_LIST_LEN_INTR, ESP_ERR_INVALID_SIZE);
+    }
     // Reject bulk/control transfers larger than the controller can move in a single transfer. Otherwise the transfer
     // size would silently truncate upon qTD XferSize (Scatter/Gather) field. Periodic (INTR/ISOC) transfers
     // are bounded by their descriptor list length, which is checked separately when the descriptor list is filled.
