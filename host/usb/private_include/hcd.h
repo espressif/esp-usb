@@ -366,6 +366,19 @@ esp_err_t hcd_pipe_alloc(hcd_port_handle_t port_hdl, const hcd_pipe_config_t *pi
 int hcd_pipe_get_mps(hcd_pipe_handle_t pipe_hdl);
 
 /**
+ * @brief Get the maximum transfer size (in bytes) the controller can move in a single bulk/control transfer
+ *
+ * The limit is DMA-mode aware (Buffer DMA vs Scatter/Gather) and is floored to a whole number of
+ * maximum-sized packets. Periodic (INTR/ISOC) transfers are instead bounded by their descriptor list
+ * length and are not covered by this value.
+ *
+ * @param[in] pipe_hdl Pipe handle
+ *
+ * @return Maximum transfer size in bytes for a bulk/control transfer on this pipe
+ */
+unsigned int hcd_pipe_get_xfer_size_limit(hcd_pipe_handle_t pipe_hdl);
+
+/**
  * @brief Free a pipe
  *
  * Frees the resources used by an HCD pipe. The pipe's handle should be discarded after calling this function. The pipe
