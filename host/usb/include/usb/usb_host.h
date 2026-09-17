@@ -145,6 +145,9 @@ typedef struct {
                                        - On Full-Speed only targets, the default is the Full-Speed peripheral.
                                        - Example: peripheral_map = BIT1; installs USB host on peripheral 1.
                                        - The mapping of bits to specific peripherals is defined in the USB_DWC_LL_GET_HW() macro. */
+    bool fsls_only;               /**< If set, High-Speed capable USB-OTG peripherals operate as Full/Low-Speed only
+                                       hosts. The host will not respond to a connected device's High-Speed chirp.
+                                       Has no effect on Full-Speed only peripherals. */
 } usb_host_config_t;
 
 /**
@@ -180,6 +183,8 @@ typedef struct {
  *       called.
  *
  * @note In dual host configuration, fifo_settings_custom field is ignored and intr_flags field is used for all ports.
+ * @note `fsls_only` must be set at install time. The underlying USB-DWC core latches Full/Low-Speed only support
+ *       during Host Controller initialization and applies it on the first port reset.
  *
  * @param[in] config USB Host Library configuration
  * @return
@@ -188,6 +193,7 @@ typedef struct {
  *    - ESP_ERR_INVALID_STATE: USB Host Library is not in correct state to be installed
  *      (eg. the library itself of one of it's drivers is already installed)
  *    - ESP_ERR_NO_MEM: Insufficient memory
+ *    - ESP_ERR_NOT_SUPPORTED: `fsls_only` was requested but the ESP-IDF USB DWC HAL does not support it
  */
 esp_err_t usb_host_install(const usb_host_config_t *config);
 
