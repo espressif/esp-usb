@@ -29,6 +29,7 @@ The Host Library has the following features:
 
     :esp32s2 or esp32s3 or esp32h4: - Supports Full Speed (FS) and Low Speed (LS) Devices.
     :esp32s31 or esp32p4: - Supports High Speed (HS), Full Speed (FS) and Low Speed (LS) Devices.
+    :esp32s31 or esp32p4: - High-Speed USB-OTG peripherals can operate as Full/Low-Speed only hosts when :cpp:member:`usb_host_config_t::fsls_only` is set.
     - Supports all four transfer types: Control, Bulk, Interrupt, and Isochronous.
     :esp32s31 or esp32p4: - Supports High-Bandwidth Isochronous endpoints.
     :esp32p4: - {IDF_TARGET_NAME} has two USB 2.0 OTG controllers: one High-Speed and one Full-Speed. Each controller can operate as a USB host independently, so either one alone or both together can function as USB hosts simultaneously.
@@ -55,7 +56,7 @@ Currently, the Host Library and the underlying Host Stack has the following limi
     - The External Hub Driver: Doesn't handle error cases (overcurrent handling, errors during initialization etc. are not implemented yet).
     - The External Hub Driver: No Interface selection. The Driver uses the first available Interface with Hub Class code (09h).
     - Light sleep: USB Host with a USB Device connected does not detect device reconnection during light sleep. Treats it as a suspend/resume cycle.
-    :esp32s31 or esp32p4: - The External Hub Driver: No Transaction Translator layer (No FS/LS Devices support when a Hub is attached to HS Host).
+    :esp32s31 or esp32p4: - The External Hub Driver: No Transaction Translator layer (No FS/LS Devices support when a Hub is attached to HS Host). Operate the High-Speed peripheral as a Full/Low-Speed only host to avoid this limitation, see `Full/Low-Speed Only Host`_.
 
 
 .. -------------------------------------------------- Architecture -----------------------------------------------------
@@ -733,6 +734,34 @@ UVC
 
 Host Stack Configuration
 ------------------------
+
+.. only:: esp32p4 or esp32s31
+
+    Full/Low-Speed Only Host
+    ^^^^^^^^^^^^^^^^^^^^^^^^
+
+    High-Speed capable USB-OTG peripherals can operate as Full/Low-Speed only hosts. Set :cpp:member:`usb_host_config_t::fsls_only` when calling :cpp:func:`usb_host_install`. The host does not respond to a connected device's High-Speed chirp, so High-Speed devices enumerate at Full Speed.
+
+    Typical uses:
+
+    - Force Full-Speed operation for debugging or protocol analysis.
+    - Connect Full-Speed or Low-Speed devices through an external hub. Scatter/Gather DMA does not support split transactions, so those devices do not work when a High-Speed hub is attached to a High-Speed host. See `Features & Limitations`_.
+
+    This option has no effect on Full-Speed only peripherals.
+
+    .. note::
+
+        Set ``fsls_only`` at install time. The USB-DWC core latches Full/Low-Speed only support during Host Controller initialization and applies it on the first port reset.
+
+        On ESP-IDF versions that do not provide USB DWC HAL configuration support, :cpp:func:`usb_host_install` returns ``ESP_ERR_NOT_SUPPORTED``.
+
+    .. code-block:: c
+
+        usb_host_config_t host_config = {
+            .fsls_only = true,
+            // Add other host configuration fields as needed
+        };
+        ESP_ERROR_CHECK(usb_host_install(&host_config));
 
 Non-Compliant Device Support
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^

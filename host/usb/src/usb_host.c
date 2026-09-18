@@ -762,6 +762,7 @@ esp_err_t usb_host_install(const usb_host_config_t *config)
         .event_cb_arg = NULL,
         .intr_flags = config->intr_flags,
         .fifo_config = NULL,
+        .fsls_only = config->fsls_only,
     };
 
     // Check if user has provided a custom FIFO configuration (not used for multi-port)

@@ -320,7 +320,7 @@ int test_hcd_get_num_pipe_events(hcd_pipe_handle_t pipe_hdl)
 
 // ----------------------------------------------- Driver/Port Related -------------------------------------------------
 
-hcd_port_handle_t test_hcd_setup(void)
+static hcd_port_handle_t test_hcd_setup_internal(bool fsls_only)
 {
     test_setup_usb_phy(TEST_PHY);
 
@@ -334,11 +334,22 @@ hcd_port_handle_t test_hcd_setup(void)
         .context = (void *)port_evt_queue,
         .fifo_config = NULL, // Default: use bias strategy from Kconfig
         .intr_flags = ESP_INTR_FLAG_LOWMED,
+        .fsls_only = fsls_only,
     };
     hcd_port_handle_t port_hdl;
     TEST_ASSERT_EQUAL(ESP_OK, hcd_port_init(TEST_PORT_NUM, &port_config, &port_hdl));
     TEST_ASSERT_NOT_NULL(port_hdl);
     return port_hdl;
+}
+
+hcd_port_handle_t test_hcd_setup(void)
+{
+    return test_hcd_setup_internal(false);
+}
+
+hcd_port_handle_t test_hcd_setup_fsls_only(void)
+{
+    return test_hcd_setup_internal(true);
 }
 
 void test_hcd_teardown(hcd_port_handle_t port_hdl)

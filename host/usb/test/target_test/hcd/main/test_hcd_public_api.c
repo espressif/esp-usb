@@ -47,6 +47,7 @@ TEST_CASE("Test HCD public API: Interrupt alloc failed", "[api][low_speed][full_
         .context = NULL,
         .fifo_config = NULL,
         .intr_flags = ESP_INTR_FLAG_NMI,
+        .fsls_only = false,
     };
     TEST_ASSERT_EQUAL(ESP_ERR_INVALID_ARG, hcd_port_init(TEST_PORT_NUM, &port_config, &port_hdl));
     TEST_ASSERT_NULL(port_hdl);

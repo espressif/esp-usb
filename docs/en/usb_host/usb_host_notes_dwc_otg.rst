@@ -220,3 +220,12 @@ Port Reset Interrupts
 
 - When the DWC_OTG issues a reset signal on its port, and during the reset signal the device disconnects, the disconnection interrupt (i.e., ``HPRT.PrtConnDet``) is not generated until the reset is deasserted.
 - When resetting an already enabled port (i.e., ``HPRT.PrtEna``) such as a second reset during enumeration or a run-time reset, a Port Enable/Disable Change interrupt (i.e., ``HPRT.PrtEnChng``) is generated both on the assertion and deassertion of the reset signal.
+
+.. only:: esp32s31 or esp32p4
+
+    Full/Low-Speed Only on High-Speed Cores
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+    A High-Speed capable DWC_OTG core can force Full/Low-Speed only operation by setting ``HCFG.FSLSSupp`` before the first port reset. The host then does not respond to a device High-Speed chirp.
+
+    The Host Stack exposes this as :cpp:member:`usb_host_config_t::fsls_only`, which maps to ``USB_DWC_HAL_CONFIG_FLAG_FSLS_ONLY`` at HAL init. The HAL writes ``HCFG.FSLSSupp`` when asserting port reset. Do not change this field after initial programming.
