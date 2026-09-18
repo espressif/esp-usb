@@ -164,7 +164,7 @@ DEFINE_CRIT_SECTION_LOCK_STATIC(hub_driver_lock);
  * @param in_isr Whether callback is in an ISR context
  * @return Whether a yield is required
  */
-static bool root_port_callback(hcd_port_handle_t port_hdl, hcd_port_event_t port_event, void *user_arg, bool in_isr);
+static bool USB_HOST_ISR_ATTR root_port_callback(hcd_port_handle_t port_hdl, hcd_port_event_t port_event, void *user_arg, bool in_isr);
 
 // ---------------------- Internal Logic ------------------------
 
@@ -353,7 +353,7 @@ static esp_err_t dev_tree_node_remove_by_parent(ext_hub_handle_t parent, uint8_t
 
 // ---------------------- Callbacks ------------------------
 
-static bool root_port_callback(hcd_port_handle_t port_hdl, hcd_port_event_t port_event, void *user_arg, bool in_isr)
+static bool USB_HOST_ISR_ATTR root_port_callback(hcd_port_handle_t port_hdl, hcd_port_event_t port_event, void *user_arg, bool in_isr)
 {
     root_hub_port_t *root_hub_port = (root_hub_port_t *)user_arg;
     HUB_DRIVER_ENTER_CRITICAL_SAFE();
@@ -372,7 +372,7 @@ static bool root_port_callback(hcd_port_handle_t port_hdl, hcd_port_event_t port
 }
 
 #ifdef ENABLE_USB_HUBS
-static bool ext_hub_callback(bool in_isr, void *user_arg)
+static bool USB_HOST_ISR_ATTR ext_hub_callback(bool in_isr, void *user_arg)
 {
     HUB_DRIVER_ENTER_CRITICAL_SAFE();
     p_hub_driver_obj->dynamic.flags.actions |= HUB_DRIVER_ACTION_EXT_HUB;

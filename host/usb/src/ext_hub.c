@@ -178,7 +178,7 @@ DEFINE_CRIT_SECTION_LOCK_STATIC(ext_hub_driver_lock);
 // -----------------------------------------------------------------------------
 // ----------------------- Forward declaration ---------------------------------
 // -----------------------------------------------------------------------------
-static bool _device_set_actions(ext_hub_dev_t *ext_hub_dev, uint32_t action_flags);
+static bool USB_HOST_ISR_ATTR _device_set_actions(ext_hub_dev_t *ext_hub_dev, uint32_t action_flags);
 static void device_error(ext_hub_dev_t *ext_hub_dev);
 static void device_status_change_handle(ext_hub_dev_t *ext_hub_dev, const uint8_t *data, const int length);
 
@@ -186,7 +186,7 @@ static void device_status_change_handle(ext_hub_dev_t *ext_hub_dev, const uint8_
 // ---------------------- Callbacks (implementation) ---------------------------
 // -----------------------------------------------------------------------------
 
-static bool interrupt_pipe_cb(usbh_ep_handle_t ep_hdl, usbh_ep_event_t ep_event, void *user_arg, bool in_isr)
+static bool USB_HOST_ISR_ATTR interrupt_pipe_cb(usbh_ep_handle_t ep_hdl, usbh_ep_event_t ep_event, void *user_arg, bool in_isr)
 {
     uint32_t action_flags;
     ext_hub_dev_t *ext_hub_dev = (ext_hub_dev_t *)user_arg;
@@ -286,7 +286,7 @@ static void interrupt_transfer_complete_cb(usb_transfer_t *intr_xfer)
 // --------------------------- Internal Logic  ---------------------------------
 // -----------------------------------------------------------------------------
 
-static bool _device_set_actions(ext_hub_dev_t *ext_hub_dev, uint32_t action_flags)
+static bool USB_HOST_ISR_ATTR _device_set_actions(ext_hub_dev_t *ext_hub_dev, uint32_t action_flags)
 {
     /*
     THIS FUNCTION MUST BE CALLED FROM A CRITICAL SECTION

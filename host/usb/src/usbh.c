@@ -148,11 +148,11 @@ DEFINE_CRIT_SECTION_LOCK_STATIC(usbh_lock);
 
 // ------------------------------------------------- Forward Declare ---------------------------------------------------
 
-static bool ep0_pipe_callback(hcd_pipe_handle_t pipe_hdl, hcd_pipe_event_t pipe_event, void *user_arg, bool in_isr);
+static bool USB_HOST_ISR_ATTR ep0_pipe_callback(hcd_pipe_handle_t pipe_hdl, hcd_pipe_event_t pipe_event, void *user_arg, bool in_isr);
 
-static bool epN_pipe_callback(hcd_pipe_handle_t pipe_hdl, hcd_pipe_event_t pipe_event, void *user_arg, bool in_isr);
+static bool USB_HOST_ISR_ATTR epN_pipe_callback(hcd_pipe_handle_t pipe_hdl, hcd_pipe_event_t pipe_event, void *user_arg, bool in_isr);
 
-static bool _dev_set_actions(device_t *dev_obj, uint32_t action_flags);
+static bool USB_HOST_ISR_ATTR _dev_set_actions(device_t *dev_obj, uint32_t action_flags);
 
 // -----------------------------------------------------------------------------
 // ---------------------------- Helpers ----------------------------------------
@@ -443,7 +443,7 @@ static void device_free(device_t *dev_obj)
 // -------------------------- Callbacks ----------------------------------------
 // -----------------------------------------------------------------------------
 
-static bool ep0_pipe_callback(hcd_pipe_handle_t pipe_hdl, hcd_pipe_event_t pipe_event, void *user_arg, bool in_isr)
+static bool USB_HOST_ISR_ATTR ep0_pipe_callback(hcd_pipe_handle_t pipe_hdl, hcd_pipe_event_t pipe_event, void *user_arg, bool in_isr)
 {
     uint32_t action_flags;
     device_t *dev_obj = (device_t *)user_arg;
@@ -490,7 +490,7 @@ static bool ep0_pipe_callback(hcd_pipe_handle_t pipe_hdl, hcd_pipe_event_t pipe_
     return yield;
 }
 
-static bool epN_pipe_callback(hcd_pipe_handle_t pipe_hdl, hcd_pipe_event_t pipe_event, void *user_arg, bool in_isr)
+static bool USB_HOST_ISR_ATTR epN_pipe_callback(hcd_pipe_handle_t pipe_hdl, hcd_pipe_event_t pipe_event, void *user_arg, bool in_isr)
 {
     endpoint_t *ep_obj = (endpoint_t *)user_arg;
     return ep_obj->constant.ep_cb((usbh_ep_handle_t)ep_obj,
@@ -503,7 +503,7 @@ static bool epN_pipe_callback(hcd_pipe_handle_t pipe_hdl, hcd_pipe_event_t pipe_
 // ------------------------- Event Related -------------------------------------
 // -----------------------------------------------------------------------------
 
-static bool _dev_set_actions(device_t *dev_obj, uint32_t action_flags)
+static bool USB_HOST_ISR_ATTR _dev_set_actions(device_t *dev_obj, uint32_t action_flags)
 {
     /*
     THIS FUNCTION MUST BE CALLED FROM A CRITICAL SECTION
