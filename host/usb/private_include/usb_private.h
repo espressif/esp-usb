@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2015-2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2015-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -10,9 +10,27 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <sys/queue.h>
+#include "sdkconfig.h"
 #include "esp_assert.h"
 #include "usb/usb_types_ch9.h"
 #include "usb/usb_types_stack.h"
+
+/**
+ * @brief Attribute for functions executed from the USB Host ISR.
+ *
+ * When CONFIG_USB_HOST_ISR_IN_IRAM is enabled, the ISR and its call tree are placed
+ * in IRAM to avoid instruction-cache misses.
+ *
+ * @note Apply this attribute only on the function definition, not on a separate
+ *       forward declaration. IRAM_ATTR uses __COUNTER__, so using it in both
+ *       places assigns conflicting unique section names.
+ */
+#ifdef CONFIG_USB_HOST_ISR_IN_IRAM
+#include "esp_attr.h"
+#define USB_HOST_ISR_ATTR    IRAM_ATTR
+#else
+#define USB_HOST_ISR_ATTR
+#endif
 
 #ifdef __cplusplus
 extern "C" {

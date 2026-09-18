@@ -11,6 +11,20 @@ menu "USB-OTG"
             - The maximum length of control transfers is limited
             - Device's with configuration descriptors larger than this limit cannot be supported
 
+    config USB_HOST_ISR_IN_IRAM
+        bool "Place USB Host ISR handlers into IRAM"
+        default y
+        help
+            Place the USB Host interrupt handler and all functions it calls into IRAM
+            to avoid instruction-cache misses and make USB interrupt latency more
+            predictable.
+
+            Disable this option to save IRAM, at the cost of less predictable ISR latency.
+
+            To keep the USB interrupt enabled during flash operations, also set
+            ESP_INTR_FLAG_IRAM in usb_host_config_t::intr_flags. In that case, class-driver
+            and user callbacks invoked from the ISR must also reside in IRAM.
+
     choice USB_HOST_HW_BUFFER_BIAS
         prompt "Hardware FIFO size biasing"
         default USB_HOST_HW_BUFFER_BIAS_BALANCED
