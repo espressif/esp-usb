@@ -20,6 +20,10 @@
  *
  * When CONFIG_USB_HOST_ISR_IN_IRAM is enabled, the ISR and its call tree are placed
  * in IRAM to avoid instruction-cache misses.
+ *
+ * @note Apply this attribute only on the function definition, not on a separate
+ *       forward declaration. IRAM_ATTR uses __COUNTER__, so using it in both
+ *       places assigns conflicting unique section names.
  */
 #ifdef CONFIG_USB_HOST_ISR_IN_IRAM
 #include "esp_attr.h"

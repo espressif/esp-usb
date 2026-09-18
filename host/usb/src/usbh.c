@@ -148,11 +148,11 @@ DEFINE_CRIT_SECTION_LOCK_STATIC(usbh_lock);
 
 // ------------------------------------------------- Forward Declare ---------------------------------------------------
 
-static bool USB_HOST_ISR_ATTR ep0_pipe_callback(hcd_pipe_handle_t pipe_hdl, hcd_pipe_event_t pipe_event, void *user_arg, bool in_isr);
+static bool ep0_pipe_callback(hcd_pipe_handle_t pipe_hdl, hcd_pipe_event_t pipe_event, void *user_arg, bool in_isr);
 
-static bool USB_HOST_ISR_ATTR epN_pipe_callback(hcd_pipe_handle_t pipe_hdl, hcd_pipe_event_t pipe_event, void *user_arg, bool in_isr);
+static bool epN_pipe_callback(hcd_pipe_handle_t pipe_hdl, hcd_pipe_event_t pipe_event, void *user_arg, bool in_isr);
 
-static bool USB_HOST_ISR_ATTR _dev_set_actions(device_t *dev_obj, uint32_t action_flags);
+static bool _dev_set_actions(device_t *dev_obj, uint32_t action_flags);
 
 // -----------------------------------------------------------------------------
 // ---------------------------- Helpers ----------------------------------------

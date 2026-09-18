@@ -164,7 +164,7 @@ DEFINE_CRIT_SECTION_LOCK_STATIC(hub_driver_lock);
  * @param in_isr Whether callback is in an ISR context
  * @return Whether a yield is required
  */
-static bool USB_HOST_ISR_ATTR root_port_callback(hcd_port_handle_t port_hdl, hcd_port_event_t port_event, void *user_arg, bool in_isr);
+static bool root_port_callback(hcd_port_handle_t port_hdl, hcd_port_event_t port_event, void *user_arg, bool in_isr);
 
 // ---------------------- Internal Logic ------------------------
 

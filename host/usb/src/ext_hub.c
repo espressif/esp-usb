@@ -178,7 +178,7 @@ DEFINE_CRIT_SECTION_LOCK_STATIC(ext_hub_driver_lock);
 // -----------------------------------------------------------------------------
 // ----------------------- Forward declaration ---------------------------------
 // -----------------------------------------------------------------------------
-static bool USB_HOST_ISR_ATTR _device_set_actions(ext_hub_dev_t *ext_hub_dev, uint32_t action_flags);
+static bool _device_set_actions(ext_hub_dev_t *ext_hub_dev, uint32_t action_flags);
 static void device_error(ext_hub_dev_t *ext_hub_dev);
 static void device_status_change_handle(ext_hub_dev_t *ext_hub_dev, const uint8_t *data, const int length);
 

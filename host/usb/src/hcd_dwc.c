@@ -351,7 +351,7 @@ static inline bool USB_HOST_ISR_ATTR _buffer_can_fill(pipe_t *pipe)
  *
  * @param pipe Pipe object
  */
-static void USB_HOST_ISR_ATTR _buffer_fill(pipe_t *pipe);
+static void _buffer_fill(pipe_t *pipe);
 
 /**
  * @brief Check if there are more filled buffers than can be executed
@@ -378,7 +378,7 @@ static inline bool USB_HOST_ISR_ATTR _buffer_can_exec(pipe_t *pipe)
  *
  * @param pipe Pipe object
  */
-static void USB_HOST_ISR_ATTR _buffer_exec(pipe_t *pipe);
+static void _buffer_exec(pipe_t *pipe);
 
 /**
  * @brief Check if a buffer as completed execution
@@ -412,7 +412,7 @@ static inline bool USB_HOST_ISR_ATTR _buffer_check_done(pipe_t *pipe)
  *
  * @param pipe Pipe object
  */
-static void USB_HOST_ISR_ATTR _buffer_exec_cont(pipe_t *pipe);
+static void _buffer_exec_cont(pipe_t *pipe);
 
 /**
  * @brief Marks the last executed buffer as complete
@@ -466,7 +466,7 @@ static inline bool _buffer_can_parse(pipe_t *pipe)
  * @param pipe Pipe object
  * @param stop_idx (For INTR pipes only) The index of the descriptor that follows the last descriptor of the URB. Set to 0 otherwise
  */
-static void USB_HOST_ISR_ATTR _buffer_parse(pipe_t *pipe);
+static void _buffer_parse(pipe_t *pipe);
 
 /**
  * @brief Marks all buffers pending execution as completed, then parses those buffers
@@ -478,7 +478,7 @@ static void USB_HOST_ISR_ATTR _buffer_parse(pipe_t *pipe);
  * @return true One or more buffers were flushed
  * @return false There were no buffers that needed to be flushed
  */
-static bool USB_HOST_ISR_ATTR _buffer_flush_all(pipe_t *pipe, bool canceled);
+static bool _buffer_flush_all(pipe_t *pipe, bool canceled);
 
 // ------------------------ Pipe ---------------------------
 
@@ -488,7 +488,7 @@ static bool USB_HOST_ISR_ATTR _buffer_flush_all(pipe_t *pipe, bool canceled);
  * @param chan_error The HAL channel error
  * @return hcd_pipe_event_t The corresponding pipe error event
  */
-static inline hcd_pipe_event_t USB_HOST_ISR_ATTR pipe_decode_error_event(usb_dwc_hal_chan_error_t chan_error);
+static inline hcd_pipe_event_t pipe_decode_error_event(usb_dwc_hal_chan_error_t chan_error);
 
 /**
  * @brief Halt a pipe
@@ -728,7 +728,7 @@ static void _internal_port_event_wait(port_t *port);
  * @return true A yield is required
  * @return false Whether a yield is required or not
  */
-static bool USB_HOST_ISR_ATTR _internal_port_event_notify_from_isr(port_t *port);
+static bool _internal_port_event_notify_from_isr(port_t *port);
 
 /**
  * @brief Wait for an internal event from a particular pipe
@@ -748,7 +748,7 @@ static void _internal_pipe_event_wait(pipe_t *pipe);
  * @return true A yield is required
  * @return false Whether a yield is required or not. Always false when from_isr is also false
  */
-static bool USB_HOST_ISR_ATTR _internal_pipe_event_notify(pipe_t *pipe, bool from_isr);
+static bool _internal_pipe_event_notify(pipe_t *pipe, bool from_isr);
 
 // ----------------------------------------------- Interrupt Handling --------------------------------------------------
 
