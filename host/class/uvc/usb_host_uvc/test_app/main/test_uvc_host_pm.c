@@ -80,7 +80,7 @@ static void usb_lib_task_pm(void *arg)
 {
     const usb_host_config_t host_config = {
         .skip_phy_setup = false,
-        .intr_flags = ESP_INTR_FLAG_LOWMED,
+        .intr_flags = ESP_INTR_FLAG_LOWMED | ESP_INTR_FLAG_IRAM,
     };
     TEST_ASSERT_EQUAL(ESP_OK, usb_host_install(&host_config));
     printf("USB Host installed\n");

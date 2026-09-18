@@ -14,7 +14,7 @@
 static const char *TAG = "CTRL";
 
 #define TEST_DEV_ADDR               0
-#define NUM_URBS                    3
+#define NUM_URBS                    5
 #define TRANSFER_MAX_BYTES          256
 #define URB_DATA_BUFF_SIZE          (sizeof(usb_setup_packet_t) + TRANSFER_MAX_BYTES)   // 256 is worst case size for configuration descriptors
 
@@ -229,7 +229,10 @@ TEST_CASE("Test HCD control pipe STALL", "[ctrl][full_speed][high_speed]")
 /*
 Test control pipe run-time halt and clear
 
-@todo this test is not passing on P4: test with bus analyzer IDF-10996
+Note: Halting a pipe with a transfer in-flight can inherently create race conditions.
+There are two sources of timing uncertainty:
+    - USB Core scheduler: The core will start the transfer in next frame/microframe.
+    - ESP instruction cache: If CONFIG_USB_HOST_ISR_IN_IRAM is disabled, the ISR handler is not in IRAM, so it has unpredictable latency.
 
 Purpose:
     - Test that a control pipe can be halted with HCD_PIPE_CMD_HALT whilst there are ongoing URBs
@@ -246,7 +249,7 @@ Procedure:
     - Check that all URBs have completed successfully
     - Dequeue URBs and teardown
 */
-TEST_CASE("Test HCD control pipe runtime halt and clear", "[ctrl][low_speed][full_speed]")
+TEST_CASE("Test HCD control pipe runtime halt and clear", "[ctrl][low_speed][full_speed][high_speed]")
 {
     usb_speed_t port_speed = test_hcd_wait_for_conn(port_hdl);  // Trigger a connection
     vTaskDelay(pdMS_TO_TICKS(100)); // Short delay send of SOF (for FS) or EOPs (for LS)
@@ -261,6 +264,7 @@ TEST_CASE("Test HCD control pipe runtime halt and clear", "[ctrl][low_speed][ful
     for (int i = 0; i < NUM_URBS; i++) {
         TEST_ASSERT_EQUAL(ESP_OK, hcd_urb_enqueue(default_pipe, urb_list[i]));
     }
+    esp_rom_delay_us(100); // We want to test halting an _active_ channel. Give the USB core some time to actually start the first transfer.
     TEST_ASSERT_EQUAL(ESP_OK, hcd_pipe_command(default_pipe, HCD_PIPE_CMD_HALT));
     TEST_HCD_EXPECT_PIPE_EVENT(default_pipe, HCD_PIPE_EVENT_URB_DONE);
     TEST_HCD_EXPECT_PIPE_STATE(default_pipe, HCD_PIPE_STATE_HALTED);
@@ -276,7 +280,7 @@ TEST_CASE("Test HCD control pipe runtime halt and clear", "[ctrl][low_speed][ful
     for (int i = 0; i < NUM_URBS; i++) {
         urb_t *urb = hcd_urb_dequeue(default_pipe);
         TEST_ASSERT_EQUAL_PTR(urb_list[i], urb);
-        TEST_ASSERT(urb->transfer.status == USB_TRANSFER_STATUS_COMPLETED || urb->transfer.status == USB_TRANSFER_STATUS_CANCELED);
+        TEST_ASSERT(urb->transfer.status == USB_TRANSFER_STATUS_COMPLETED || urb->transfer.status == USB_TRANSFER_STATUS_CANCELED || urb->transfer.status == USB_TRANSFER_STATUS_ERROR);
         if (urb->transfer.status == USB_TRANSFER_STATUS_COMPLETED) {
             // We must have transmitted at least the setup packet, but device may return less than bytes requested
             TEST_ASSERT_GREATER_OR_EQUAL(sizeof(usb_setup_packet_t), urb->transfer.actual_num_bytes);
@@ -284,6 +288,11 @@ TEST_CASE("Test HCD control pipe runtime halt and clear", "[ctrl][low_speed][ful
             usb_config_desc_t *config_desc = (usb_config_desc_t *)(urb->transfer.data_buffer + sizeof(usb_setup_packet_t));
             TEST_ASSERT_EQUAL(USB_B_DESCRIPTOR_TYPE_CONFIGURATION, config_desc->bDescriptorType);
             ESP_LOGI(TAG, "Config Desc wTotalLength %d", config_desc->wTotalLength);
+        } else if (urb->transfer.status == USB_TRANSFER_STATUS_ERROR) {
+            // Errors on EP0 need special handling
+            ESP_LOGI(TAG, "Error on EP0, flushing...");
+            TEST_ASSERT_EQUAL(ESP_OK, hcd_pipe_command(default_pipe, HCD_PIPE_CMD_HALT));
+            TEST_ASSERT_EQUAL(ESP_OK, hcd_pipe_command(default_pipe, HCD_PIPE_CMD_FLUSH));
         } else {
             // A failed transfer should 0 actual number of bytes transmitted
             TEST_ASSERT_EQUAL(0, urb->transfer.actual_num_bytes);
