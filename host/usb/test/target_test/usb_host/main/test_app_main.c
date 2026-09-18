@@ -42,7 +42,7 @@ void setUp(void)
     usb_host_config_t host_config = {
         .skip_phy_setup = true,
         .root_port_unpowered = false,
-        .intr_flags = ESP_INTR_FLAG_LOWMED,
+        .intr_flags = ESP_INTR_FLAG_LOWMED | ESP_INTR_FLAG_IRAM,
         .peripheral_map = TEST_PERIPHERAL_MAP,
     };
     ESP_ERROR_CHECK(usb_host_install(&host_config));
