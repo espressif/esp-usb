@@ -2122,6 +2122,14 @@ esp_err_t hcd_pipe_alloc(hcd_port_handle_t port_hdl, const hcd_pipe_config_t *pi
         goto err;
     }
     usb_dwc_hal_chan_set_ep_char(port->hal, pipe->chan_obj, &pipe->ep_char);
+    ESP_EARLY_LOGI(HCD_DWC_TAG, "HCD channel alloc: pipe=%p chan=%p dev_addr=%d ep=%d type=%d dir_in=%d default=%d",
+                   pipe,
+                   pipe->chan_obj,
+                   pipe->ep_char.dev_addr,
+                   pipe->ep_char.bEndpointAddress & USB_B_ENDPOINT_ADDRESS_EP_NUM_MASK,
+                   type,
+                   (pipe->ep_char.bEndpointAddress & USB_B_ENDPOINT_ADDRESS_EP_DIR_MASK) ? 1 : 0,
+                   is_default ? 1 : 0);
     CACHE_SYNC_FRAME_LIST(port->frame_list);
     // Add the pipe to the list of idle pipes in the port object
     TAILQ_INSERT_TAIL(&port->pipes_idle_tailq, pipe, tailq_entry);
@@ -2161,6 +2169,12 @@ esp_err_t hcd_pipe_free(hcd_pipe_handle_t pipe_hdl)
     // Remove pipe from the list of idle pipes (it must be in the idle list because it should have no queued URBs)
     TAILQ_REMOVE(&pipe->port->pipes_idle_tailq, pipe, tailq_entry);
     pipe->port->num_pipes_idle--;
+    ESP_EARLY_LOGI(HCD_DWC_TAG, "HCD channel free: pipe=%p chan=%p dev_addr=%d ep=%d dir_in=%d",
+                   pipe,
+                   pipe->chan_obj,
+                   pipe->ep_char.dev_addr,
+                   pipe->ep_char.bEndpointAddress & USB_B_ENDPOINT_ADDRESS_EP_NUM_MASK,
+                   (pipe->ep_char.bEndpointAddress & USB_B_ENDPOINT_ADDRESS_EP_DIR_MASK) ? 1 : 0);
     usb_dwc_hal_chan_free(pipe->port->hal, pipe->chan_obj);
     HCD_EXIT_CRITICAL();
 
