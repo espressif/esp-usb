@@ -443,9 +443,10 @@ static esp_err_t msc_probe_luns(msc_device_t *dev, uint32_t timeout_ms, msc_host
 
             uint32_t block_size, block_count;
             err = scsi_cmd_read_capacity(dev, &block_size, &block_count);
-            MSC_RETURN_ON_FALSE(err == ESP_OK || err == ESP_FAIL, err);
+            // Unsupported capacity rejects this LUN, not the entire probe.
+            MSC_RETURN_ON_FALSE(err == ESP_OK || err == ESP_FAIL || err == ESP_ERR_NOT_SUPPORTED, err);
             pending &= ~bit;
-            if (err == ESP_FAIL || !msc_valid_block_size(block_size)) {
+            if (err != ESP_OK || !msc_valid_block_size(block_size)) {
                 info->failed_lun_mask |= bit;
             } else {
                 info->ready_lun_mask |= bit;
@@ -700,7 +701,7 @@ esp_err_t msc_host_install_device_lun(uint8_t device_address, uint8_t lun, msc_h
 
     msc_device->disk.block_size = block_size;
     msc_device->disk.block_count = block_count;
-    ESP_LOGI(TAG, "selected LUN %u", (unsigned)msc_device->lun);
+    ESP_LOGD(TAG, "Selected LUN %u", (unsigned)msc_device->lun);
 #ifdef MSC_HOST_BDL_API_SUPPORTED
     /* Allocate the BDL handle now; msc_host_vfs_register() mounts it. */
     MSC_GOTO_ON_ERROR(msc_host_get_blockdev(msc_device, &msc_device->bdl));
@@ -723,11 +724,11 @@ esp_err_t msc_host_uninstall_device(msc_host_device_handle_t device)
 esp_err_t msc_host_probe_luns(uint8_t device_address, uint32_t timeout_ms, msc_host_lun_info_t *info)
 {
     MSC_RETURN_ON_INVALID_ARG(info);
-    memset(info, 0, sizeof(*info));
+    msc_host_lun_info_t result = { 0 };
+    *info = result;
     msc_device_t *device;
     MSC_RETURN_ON_ERROR(msc_init_device(device_address, true, &device));
 
-    msc_host_lun_info_t result = { 0 };
     esp_err_t ret = msc_probe_luns(device, timeout_ms, &result);
     esp_err_t cleanup_err = msc_deinit_device(device, true);
     if (ret == ESP_OK) {

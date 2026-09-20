@@ -48,19 +48,23 @@ Each installation or probe starts with a Bulk-Only Mass Storage Reset and clears
 
 Use the probe result only when the call returns `ESP_OK`. `msc_host_lun_info_t` contains:
 
-| Field             | Meaning                                                                                                                                 |
-| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| `max_lun`         | Highest advertised LUN, not the number of inserted cards.                                                                               |
-| `ready_lun_mask`  | Bit n is set when LUN n passes TEST UNIT READY and READ CAPACITY with a power-of-two sector size from 512 through 4096 bytes.           |
-| `failed_lun_mask` | Bit n is set when LUN n fails INQUIRY or READ CAPACITY, reports a non-retryable readiness error, or reports an unsupported sector size. |
+| Field             | Meaning                                                                                                                                             |
+| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `max_lun`         | Highest advertised LUN, not the number of inserted cards.                                                                                           |
+| `ready_lun_mask`  | Bit n is set when LUN n passes TEST UNIT READY and READ CAPACITY with a power-of-two sector size from 512 through 4096 bytes.                       |
+| `failed_lun_mask` | Bit n is set when LUN n fails INQUIRY or READ CAPACITY, reports a non-retryable readiness error, or reports an unsupported capacity or sector size. |
 
 An advertised LUN with neither bit set remained unready, including an empty slot. A complete probe with no ready LUNs still returns `ESP_OK`. A failed probe clears the output, so it cannot be used as a partial list of candidates. Ready means a usable block-device candidate; the probe does not check filesystems or write permissions, and does not format any media.
+
+A LUN requiring READ CAPACITY(16) is marked in `failed_lun_mask` because its capacity is unsupported. Probing continues for the other advertised LUNs; explicit installation of that LUN returns `ESP_ERR_NOT_SUPPORTED`.
 
 A zero `timeout_ms` scans every advertised LUN once. LUNs reporting NOT READY / MEDIUM NOT PRESENT (`02/3A/xx`) are skipped without retrying, with neither result bit set. A nonzero timeout gives other retryable readiness failures one shared retry budget; finding a ready LUN does not end the scan. The probe returns as soon as all LUNs are resolved, so an empty slot does not delay a ready candidate until the budget expires. Each USB transfer retains its own timeout, so this budget is not a strict end-to-end deadline. Installation and reset recovery retain their existing readiness retry behavior.
 
 Insert the cards before probing or installing, and keep the reader connected and the cards unchanged through selection and installation. Probe results describe observations during the call, not persistent media identities. Explicit installation revalidates the selected LUN. Only one LUN of the selected MSC interface can be installed at a time. Its binding stays fixed for I/O and reset recovery until uninstall. To choose a different LUN or change cards, first unmount the filesystem and uninstall the device, then install again. A filesystem mount failure does not switch LUNs automatically.
 
 Probe only before installation; probing a device that is already installed returns `ESP_ERR_INVALID_STATE`. Serialize probing, installation, and uninstallation in the application, and stop I/O before uninstalling. These calls block and must not run in the MSC event callback; another task must continue processing USB events. Temporary probe handles are not delivered in MSC events.
+
+The temporary probe session resets the BOT interface shared by all LUNs. To check whether LUN 1 is ready after installing LUN 0, first stop I/O, unmount the filesystem and uninstall LUN 0, then probe and install the chosen LUN. Probing while another LUN remains installed is not supported.
 
 ### Application selection examples
 

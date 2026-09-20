@@ -101,13 +101,13 @@ typedef struct {
  * Bit n in either mask describes LUN n. A ready LUN passed TEST UNIT READY
  * and READ CAPACITY with a supported sector size. A failed LUN failed INQUIRY
  * or READ CAPACITY, reported a non-retryable readiness error, or returned an
- * unsupported sector size. LUNs in
- * 0..max_lun with neither bit set remained unready (including empty slots).
+ * unsupported capacity or sector size. LUNs in 0..max_lun with neither bit
+ * set remained unready (including empty slots).
  * USB transport errors fail the probe instead of producing a partial result.
  */
 typedef struct {
     uint16_t ready_lun_mask;  /*!< Ready block devices; no filesystem or write-access check is performed. */
-    uint16_t failed_lun_mask; /*!< LUNs rejected by SCSI initialization or sector-size validation. */
+    uint16_t failed_lun_mask; /*!< LUNs rejected by SCSI initialization, capacity or sector-size validation. */
     uint8_t max_lun;         /*!< Highest LUN reported by GET_MAX_LUN, not a count of inserted media. */
 } msc_host_lun_info_t;
 
@@ -176,6 +176,7 @@ esp_err_t msc_host_install_device(uint8_t device_address, msc_host_device_handle
  *      - ESP_OK on success
  *      - ESP_ERR_INVALID_ARG if device is NULL or lun exceeds 15
  *      - ESP_ERR_NOT_FOUND if lun exceeds the reported maximum
+ *      - ESP_ERR_NOT_SUPPORTED if the selected LUN requires READ CAPACITY(16)
  *      - ESP_ERR_INVALID_STATE if the driver is unavailable or the device is already open
  *      - Other errors from device initialization or the USB Host library
  */
@@ -199,10 +200,12 @@ esp_err_t msc_host_install_device_lun(uint8_t device_address, uint8_t lun, msc_h
  * @note Results describe observations during this call, not persistent media
  *       identity. The reader must remain connected through selection and
  *       installation. Do not change cards during these operations.
- * @note Call only before installation. This function is blocking and must not
- *       run in the MSC event callback. USB events must be processed in another
- *       task. Serialize probing, installation and uninstallation in the
- *       application. Temporary handles are not delivered in MSC events.
+ * @note Call only before installation: the temporary session resets the BOT
+ *       interface shared by all LUNs. Uninstall an installed LUN before probing.
+ *       This function is blocking and must not run in the MSC event callback.
+ *       USB events must be processed in another task. Serialize probing,
+ *       installation and uninstallation in the application. Temporary handles
+ *       are not delivered in MSC events.
  *
  * @param[in] device_address Address obtained from the MSC connection callback.
  * @param[in] timeout_ms Readiness retry window in milliseconds; 0 scans once.

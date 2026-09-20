@@ -14,6 +14,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Fixed
 
 - Fix READ CAPACITY(10) off-by-one: the last accessible LBA was used as a block count, under-reporting device capacity by one block
+- Treat unsupported READ CAPACITY(16) requirements as a failed LUN and continue discovering other LUNs
 - Skip LUNs reporting MEDIUM NOT PRESENT during discovery without consuming the readiness retry window, while retaining installation and reset recovery retries
 - Reset BOT state and synchronize both bulk endpoints when opening a session, allowing LUN switching and retries after failed probes or installations
 - Wait for USB Host to retire completed bulk transfers before releasing an interface, keeping the session owned until cleanup completes

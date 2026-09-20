@@ -93,6 +93,9 @@ public:
         for (auto &size : sector_sizes) {
             size = 512;
         }
+        for (auto &lba : last_lbas) {
+            lba = 63;
+        }
     }
 
     ~LunFixture()
@@ -112,6 +115,7 @@ public:
     uint16_t ready_luns = 1 << 1;
     uint16_t inquiry_fail_luns = 0, tur_fail_luns = 0, capacity_fail_luns = 0;
     uint32_t sector_sizes[16] = {};
+    uint32_t last_lbas[16] = {};
     uint8_t delayed_lun = 0xff;
     uint16_t pending_luns = 0;
     uint8_t pending_sense_key = 0x02, empty_sense_ascq = 0;
@@ -387,8 +391,8 @@ private:
             case READ_CAPACITY:
                 REQUIRE(f.data_length == 8);
                 CHECK((f.ready_luns & (1 << f.lun)) != 0);
-                data[3] = 63; // Last LBA, big endian
                 for (unsigned i = 0; i < 4; ++i) {
+                    data[i] = f.last_lbas[f.lun] >> (8 * (3 - i));
                     data[4 + i] = f.sector_sizes[f.lun] >> (8 * (3 - i));
                 }
                 break;
@@ -824,6 +828,59 @@ TEST_CASE_METHOD(LunFixture, "MSC probe requires supported sector geometry", "[m
     CHECK(info.ready_lun_mask == 3);
     CHECK(info.failed_lun_mask == 0x3c);
     check_closed();
+}
+
+TEST_CASE_METHOD(LunFixture, "MSC probe continues past unsupported capacities", "[msc][lun]")
+{
+    ready_luns = 3;
+    uint8_t oversized_lun = 0;
+    SECTION("Unsupported capacity before a ready candidate") {}
+    SECTION("Unsupported capacity after a ready candidate") {
+        oversized_lun = 1;
+    }
+    last_lbas[oversized_lun] = UINT32_MAX;
+    const uint16_t failed = 1U << oversized_lun;
+    msc_host_lun_info_t info = {};
+    REQUIRE(ESP_OK == msc_host_probe_luns(1, 0, &info));
+    CHECK(info.max_lun == 1);
+    CHECK(info.ready_lun_mask == (3U & ~failed));
+    CHECK(info.failed_lun_mask == failed);
+    CHECK(capacity_count[0] == 1);
+    CHECK(capacity_count[1] == 1);
+    CHECK(sense_count == 0);
+    check_closed();
+
+    CHECK(ESP_ERR_NOT_SUPPORTED == msc_host_install_device_lun(1, oversized_lun, &device));
+    CHECK(device == nullptr);
+    check_closed();
+    REQUIRE(ESP_OK == msc_host_install_device_lun(1, oversized_lun ^ 1U, &device));
+}
+
+TEST_CASE_METHOD(LunFixture, "MSC probe reports all unsupported capacities without failing", "[msc][lun]")
+{
+    ready_luns = 3;
+    last_lbas[0] = last_lbas[1] = UINT32_MAX;
+    msc_host_lun_info_t info = {};
+    REQUIRE(ESP_OK == msc_host_probe_luns(1, 5000, &info));
+    CHECK(info.max_lun == 1);
+    CHECK(info.ready_lun_mask == 0);
+    CHECK(info.failed_lun_mask == 3);
+    CHECK(capacity_count[0] == 1);
+    CHECK(capacity_count[1] == 1);
+    check_closed();
+}
+
+TEST_CASE_METHOD(LunFixture, "MSC probe accepts capacities below the READ CAPACITY sentinel", "[msc][lun]")
+{
+    max_lun = 0;
+    ready_luns = 1;
+    last_lbas[0] = UINT32_MAX - 1;
+    msc_host_lun_info_t info = {};
+    REQUIRE(ESP_OK == msc_host_probe_luns(1, 0, &info));
+    CHECK(info.ready_lun_mask == 1);
+    CHECK(info.failed_lun_mask == 0);
+    check_closed();
+    REQUIRE(ESP_OK == msc_host_install_device(1, &device));
 }
 
 TEST_CASE_METHOD(LunFixture, "MSC probe discards partial results after transport failure", "[msc][lun]")
