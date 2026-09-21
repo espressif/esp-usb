@@ -1738,7 +1738,7 @@ esp_err_t hcd_port_recover(hcd_port_handle_t port_hdl)
     return ESP_OK;
 }
 
-void *hcd_port_get_context(hcd_port_handle_t port_hdl)
+void *USB_HOST_ISR_ATTR hcd_port_get_context(hcd_port_handle_t port_hdl)
 {
     port_t *port = (port_t *)port_hdl;
     void *ret;

@@ -232,7 +232,7 @@ Test control pipe run-time halt and clear
 Note: Halting a pipe with a transfer in-flight can inherently create race conditions.
 There are two sources of timing uncertainty:
     - USB Core scheduler: The core will start the transfer in next frame/microframe.
-    - ESP instruction cache: Our ISR handler is not in IRAM, so it has unpredictable latency.
+    - ESP instruction cache: If CONFIG_USB_HOST_ISR_IN_IRAM is disabled, the ISR handler is not in IRAM, so it has unpredictable latency.
 
 Purpose:
     - Test that a control pipe can be halted with HCD_PIPE_CMD_HALT whilst there are ongoing URBs
@@ -249,7 +249,7 @@ Procedure:
     - Check that all URBs have completed successfully
     - Dequeue URBs and teardown
 */
-TEST_CASE("Test HCD control pipe runtime halt and clear", "[ctrl][low_speed][full_speed]")
+TEST_CASE("Test HCD control pipe runtime halt and clear", "[ctrl][low_speed][full_speed][high_speed]")
 {
     usb_speed_t port_speed = test_hcd_wait_for_conn(port_hdl);  // Trigger a connection
     vTaskDelay(pdMS_TO_TICKS(100)); // Short delay send of SOF (for FS) or EOPs (for LS)

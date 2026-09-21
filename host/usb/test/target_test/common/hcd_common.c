@@ -171,7 +171,7 @@ static const char *transfer_status_str(usb_transfer_status_t status)
  * @return true ISR should yield after this callback returns
  * @return false No yield required (non-ISR context calls should always return false)
  */
-static bool port_callback(hcd_port_handle_t port_hdl, hcd_port_event_t port_event, void *user_arg, bool in_isr)
+static bool USB_HOST_ISR_ATTR port_callback(hcd_port_handle_t port_hdl, hcd_port_event_t port_event, void *user_arg, bool in_isr)
 {
     // We store the port's queue handle in the port's context variable
     void *port_ctx = hcd_port_get_context(port_hdl);
@@ -198,7 +198,7 @@ static bool port_callback(hcd_port_handle_t port_hdl, hcd_port_event_t port_even
  * @return true ISR should yield after this callback returns
  * @return false No yield required (non-ISR context calls should always return false)
  */
-static bool pipe_callback(hcd_pipe_handle_t pipe_hdl, hcd_pipe_event_t pipe_event, void *user_arg, bool in_isr)
+static bool USB_HOST_ISR_ATTR pipe_callback(hcd_pipe_handle_t pipe_hdl, hcd_pipe_event_t pipe_event, void *user_arg, bool in_isr)
 {
     QueueHandle_t pipe_evt_queue = (QueueHandle_t)user_arg;
     pipe_event_msg_t msg = {
@@ -333,7 +333,7 @@ hcd_port_handle_t test_hcd_setup(void)
         .callback_arg = (void *)port_evt_queue,
         .context = (void *)port_evt_queue,
         .fifo_config = NULL, // Default: use bias strategy from Kconfig
-        .intr_flags = ESP_INTR_FLAG_LOWMED,
+        .intr_flags = ESP_INTR_FLAG_LOWMED | ESP_INTR_FLAG_IRAM,
     };
     hcd_port_handle_t port_hdl;
     TEST_ASSERT_EQUAL(ESP_OK, hcd_port_init(TEST_PORT_NUM, &port_config, &port_hdl));
