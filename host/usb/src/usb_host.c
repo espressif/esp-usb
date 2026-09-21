@@ -198,7 +198,7 @@ static inline bool _check_client_opened_device(client_t *client_obj, uint8_t dev
     return ret;
 }
 
-static bool _unblock_client(client_t *client_obj, bool in_isr)
+static bool USB_HOST_ISR_ATTR _unblock_client(client_t *client_obj, bool in_isr)
 {
     bool yield;
 
@@ -216,7 +216,7 @@ static bool _unblock_client(client_t *client_obj, bool in_isr)
     return yield;
 }
 
-static bool _unblock_lib(bool in_isr)
+static bool USB_HOST_ISR_ATTR _unblock_lib(bool in_isr)
 {
     bool yield;
 
@@ -335,7 +335,7 @@ static void send_removed_event_msg_to_clients(uint8_t dev_addr)
 
 // ------------------- Library Related ---------------------
 
-static bool proc_req_callback(usb_proc_req_source_t source, bool in_isr, void *arg)
+static bool USB_HOST_ISR_ATTR proc_req_callback(usb_proc_req_source_t source, bool in_isr, void *arg)
 {
     HOST_ENTER_CRITICAL_SAFE();
     // Store the processing request source
@@ -503,7 +503,7 @@ static void enum_event_callback(enum_event_data_t *event_data, void *arg)
 
 // ------------------- Client Related ----------------------
 
-static bool endpoint_callback(usbh_ep_handle_t ep_hdl, usbh_ep_event_t ep_event, void *user_arg, bool in_isr)
+static bool USB_HOST_ISR_ATTR endpoint_callback(usbh_ep_handle_t ep_hdl, usbh_ep_event_t ep_event, void *user_arg, bool in_isr)
 {
     ep_wrapper_t *ep_wrap = (ep_wrapper_t *)user_arg;
     client_t *client_obj = (client_t *)ep_wrap->constant.intf_obj->constant.client_obj;
