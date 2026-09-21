@@ -66,6 +66,7 @@ typedef struct {
     void *event_cb_arg;                             /**< Hub event callback argument */
     int intr_flags;                                 /**< Interrupt flags for HCD interrupt */
     const hcd_fifo_settings_t *fifo_config;         /**< Optional pointer to custom FIFO config. If NULL, default configuration is used. */
+    bool fsls_only;                                 /**< Operate High-Speed root ports as Full/Low-Speed only. */
 } hub_config_t;
 
 // ---------------------------------------------- Hub Driver Functions -------------------------------------------------
@@ -87,6 +88,7 @@ typedef struct {
  *    - ESP_ERR_INVALID_STATE: Hub driver is not in correct state to be installed
  *    - ESP_ERR_NO_MEM: Insufficient memory
  *    - ESP_ERR_INVALID_ARG: Arguments are invalid
+ *    - ESP_ERR_NOT_SUPPORTED: `fsls_only` was requested but the ESP-IDF USB DWC HAL does not support it
  */
 esp_err_t hub_install(hub_config_t *hub_config, void **client_ret);
 

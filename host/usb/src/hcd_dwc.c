@@ -1532,7 +1532,19 @@ esp_err_t hcd_port_init(int port_number, const hcd_port_config_t *port_config, h
 
     // USB-HAL's size is dependent on its configuration, namely on number of channels in the configuration
     // We must first initialize the HAL, to get the number of channels and then allocate memory for the channels
+#ifdef USB_DWC_HAL_INIT_HAS_CONFIG
+    const usb_dwc_hal_config_t hal_config = {
+        .flags = port_config->fsls_only ? USB_DWC_HAL_CONFIG_FLAG_FSLS_ONLY : 0,
+    };
+    usb_dwc_hal_init_with_config(port_obj->hal, port_number, &hal_config);
+#else
+    if (port_config->fsls_only) {
+        ESP_LOGE(HCD_DWC_TAG, "FS/LS-only host requires ESP-IDF with USB DWC HAL configuration support");
+        err_ret = ESP_ERR_NOT_SUPPORTED;
+        goto clean_up;
+    }
     usb_dwc_hal_init(port_obj->hal, port_number);
+#endif
     hal_inited = true;
     port_obj->hal->channels.hdls = calloc(port_obj->hal->constant_config.chan_num_total, sizeof(usb_dwc_hal_chan_t *));
     if (port_obj->hal->channels.hdls == NULL) {

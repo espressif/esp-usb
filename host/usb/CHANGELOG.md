@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- Added `usb_host_config_t.fsls_only` so High-Speed USB-OTG peripherals can operate as Full/Low-Speed only hosts. Set this field when calling `usb_host_install()`.
+
 ### Fixed
 
 - Fixed a race that could trigger an assertion when closing a device immediately after its control transfer completion callback.
