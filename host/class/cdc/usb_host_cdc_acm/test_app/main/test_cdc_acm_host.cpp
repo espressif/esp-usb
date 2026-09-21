@@ -1831,6 +1831,9 @@ TEST_CASE("light_sleep_dconn_no_dev", "[light_sleep][host_suspend_dconn_no_dev]"
 
 #endif // CONFIG_ESP_SLEEP_EVENT_CALLBACKS && CDC_HOST_SUSPEND_RESUME_API_SUPPORTED
 
+// Deep sleep test is unstable on esp32p4 ECO4, disabling the test
+#if !CONFIG_ESP32P4_SELECTS_REV_LESS_V3
+
 #define TIMER_DEEP_SLEEP_WAKEUP_TIME_US  (3 * 1000 * 1000) // 3 seconds
 
 static void cdc_acm_deep_sleep_common(void)
@@ -1903,6 +1906,8 @@ static void cdc_acm_host_deep_sleep_3(void)
  * #. cleanup
  */
 TEST_CASE_MULTIPLE_STAGES("deep_sleep", "[cdc_acm][deep_sleep]", cdc_acm_host_deep_sleep_1, cdc_acm_host_deep_sleep_2, cdc_acm_host_deep_sleep_3);
+
+#endif // CONFIG_ESP32P4_SELECTS_REV_LESS_V3
 
 #endif // SOC_LIGHT_SLEEP_SUPPORTED && SOC_DEEP_SLEEP_SUPPORTED
 
