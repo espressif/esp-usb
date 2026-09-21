@@ -52,6 +52,8 @@ typedef struct msc_host_device {
     usb_device_handle_t handle;
     usb_transfer_t *xfer;
     msc_config_t config;
+    uint8_t lun; // Selected during install; unchanged until device uninstall.
+    bool probe_only; // Temporary discovery session; never exposed in public events.
     usb_disk_t disk;
 #ifdef MSC_HOST_BDL_API_SUPPORTED
     esp_blockdev_handle_t bdl;
