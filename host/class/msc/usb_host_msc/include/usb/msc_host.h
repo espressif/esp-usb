@@ -88,6 +88,7 @@ typedef struct {
 typedef struct {
     uint32_t sector_count;                     /*!< Number of addressable sectors on the device. */
     uint32_t sector_size;                      /*!< Sector size in bytes. */
+    uint8_t lun;                               /*!< Installed logical unit number. Value range: 0 to 15. */
     uint16_t idProduct;                        /*!< USB product ID. */
     uint16_t idVendor;                         /*!< USB vendor ID. */
     wchar_t iManufacturer[MSC_STR_DESC_SIZE];  /*!< Manufacturer string. */
@@ -299,6 +300,9 @@ esp_err_t msc_host_handle_events(TickType_t timeout);
 
 /**
  * @brief Get MSC device information.
+ *
+ * Reports USB identity, geometry of the installed logical unit, and the LUN
+ * selected at installation.
  *
  * @param[in] device Device handle.
  * @param[out] info Structure to populate with device information.

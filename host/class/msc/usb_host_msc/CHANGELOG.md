@@ -10,6 +10,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - Added `msc_host_install_device_lun` to install an application-selected LUN without falling back to another slot, while preserving LUN 0 behavior in `msc_host_install_device`
 - Added `msc_host_probe_luns` and `msc_host_lun_info_t` to report ready and failed LUNs through a temporary discovery session, leaving candidate selection to the application
+- Added `lun` to `msc_host_device_info_t` so `msc_host_get_device_info` reports the installed logical unit
 
 ### Fixed
 
