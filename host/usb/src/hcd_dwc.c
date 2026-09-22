@@ -302,7 +302,18 @@ static inline void cache_sync_xfer_descriptor_list(dma_buffer_block_t *buffer, b
  * This function must be called before a URB is enqueued or dequeued.
  * Based on transfer direction (IN/OUT), this function will msync the data buffer associated with this URB.
  *
- * @note Here we also accept UNALIGNED data, for cases where the class drivers force overwrite the allocated data buffers
+ * The operation depends on the transfer direction and on whether the buffer is about to be processed
+ * (enqueue) or was just processed (dequeue):
+ * - Enqueue (all directions): writeback (C2M). For OUT/CTRL this pushes the data the host is about to
+ *   send. For IN it cleans any dirty lines left by prior CPU writes (e.g. a memset of the buffer): on a
+ *   write-back cache that the DMA does not snoop, a dirty line evicted after the DMA has written its
+ *   memory would be written back over the received data, corrupting it. Cleaning at enqueue removes that
+ *   hazard. This is only observable for transfers larger than the D-cache, where a full buffer write
+ *   cannot stay resident until the dequeue-time invalidate.
+ * - Dequeue (IN/CTRL): invalidate (M2C) so the CPU reads the DMA-received data rather than stale cached
+ *   copies.
+ *
+ * @note Here we also accept UNALIGNED data, for cases where the class drivers force overwrite the allocated data slots
  *
  * @param[in] pipe Pipe belonging to this data buffer
  * @param[in] urb  URB belonging to this data buffer
@@ -312,8 +323,11 @@ static inline void cache_sync_data_buffer(pipe_t *pipe, urb_t *urb, bool done)
 {
     const bool is_in = pipe->ep_char.bEndpointAddress & USB_B_ENDPOINT_ADDRESS_EP_DIR_MASK;
     const bool is_ctrl = (pipe->ep_char.type == USB_DWC_XFER_TYPE_CTRL);
-    if ((is_in == done) || is_ctrl) {
-        uint32_t flags = (done) ? ESP_CACHE_MSYNC_FLAG_DIR_M2C : ESP_CACHE_MSYNC_FLAG_UNALIGNED;
+    // Writeback at enqueue for every direction (!done); invalidate at dequeue for IN/CTRL (is_in || is_ctrl)
+    if (!done || is_in || is_ctrl) {
+        // Enqueue: writeback (C2M). Dequeue: invalidate (M2C). UNALIGNED permits non-cache-line-aligned buffers.
+        uint32_t flags = (done) ? ESP_CACHE_MSYNC_FLAG_DIR_M2C
+                         : (ESP_CACHE_MSYNC_FLAG_DIR_C2M | ESP_CACHE_MSYNC_FLAG_UNALIGNED);
         esp_err_t ret = esp_cache_msync(urb->transfer.data_buffer, urb->transfer.data_buffer_size, flags);
         assert(ret == ESP_OK);
         (void)ret;
