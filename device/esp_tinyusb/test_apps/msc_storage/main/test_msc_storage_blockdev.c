@@ -297,5 +297,162 @@ TEST_CASE("MSC: Verify filesystem access APP and USB (blockdev)", "[storage][blo
     TEST_ASSERT_EQUAL(ESP_OK, partition_bdl->ops->release(partition_bdl));
 }
 
+#if (SOC_SDMMC_HOST_SUPPORTED)
+/**
+ * @brief Mixed-backend counterpart of "MSC: dual storage SPIFLASH + SDMMC" in
+ * test_msc_storage.c: LUN0 stays on the existing direct SPI flash path
+ * (tinyusb_msc_new_storage_spiflash), LUN1 is backed by a blockdev handle
+ * over the SD/MMC card (tinyusb_msc_new_storage_blockdev). This sidesteps
+ * the blockdev singleton guard (only one blockdev-backed LUN at a time) by
+ * keeping the SPI flash LUN on its own, independent direct backend.
+ */
+TEST_CASE("MSC: dual storage SPIFLASH (direct) + SD/MMC (blockdev)", "[storage][blockdev][spiflash][sdmmc][dual]")
+{
+    wl_handle_t wl_handle = WL_INVALID_HANDLE;
+    storage_init_spiflash(&wl_handle);
+    TEST_ASSERT_NOT_EQUAL_MESSAGE(WL_INVALID_HANDLE, wl_handle, "Wear leveling handle is invalid, check the partition configuration");
+
+    sdmmc_card_t *card = NULL;
+    storage_init_sdmmc(&card);
+    TEST_ASSERT_NOT_NULL_MESSAGE(card, "SDMMC card handle is NULL, check the SDMMC configuration");
+
+    esp_blockdev_handle_t card_bdl = ESP_BLOCKDEV_HANDLE_INVALID;
+    storage_get_blockdev_sdmmc(card, &card_bdl);
+
+    tinyusb_msc_driver_config_t driver_cfg = {
+        .callback = test_storage_event_cb,                  // Register the callback for mount changed events
+        .callback_arg = NULL,                               // No additional argument for the callback
+    };
+    TEST_ASSERT_EQUAL_MESSAGE(ESP_OK, tinyusb_msc_install_driver(&driver_cfg), "Failed to install TinyUSB MSC driver");
+
+    // LUN0: SPI flash, direct (non-BDL) backend
+    tinyusb_msc_storage_config_t config = {
+        .medium.wl_handle = wl_handle,
+        .mount_point = TINYUSB_MSC_STORAGE_MOUNT_APP,       // Initial mount point to APP
+        .fat_fs = {
+            .base_path = "/custom1",
+            .config.max_files = 5,
+            .format_flags = 0,
+        },
+    };
+    tinyusb_msc_storage_handle_t storage1_hdl = NULL;
+    TEST_ASSERT_EQUAL_MESSAGE(ESP_OK, tinyusb_msc_new_storage_spiflash(&config, &storage1_hdl), "Failed to initialize LUN0 (SPI flash, direct)");
+    test_storage_event_wait_callback(TINYUSB_MSC_EVENT_MOUNT_START);
+    test_storage_event_wait_callback(TINYUSB_MSC_EVENT_MOUNT_COMPLETE);
+
+    // LUN1: SD/MMC, blockdev-backed
+    tinyusb_msc_storage_config_t config_bdl = {
+        .medium.blockdev = card_bdl,
+        .mount_point = TINYUSB_MSC_STORAGE_MOUNT_APP,
+        .fat_fs = {
+            .base_path = "/custom2",
+            .config.max_files = 5,
+            .format_flags = 0,
+        },
+    };
+    tinyusb_msc_storage_handle_t storage2_hdl = NULL;
+    TEST_ASSERT_EQUAL_MESSAGE(ESP_OK, tinyusb_msc_new_storage_blockdev(&config_bdl, &storage2_hdl), "Failed to initialize LUN1 (SD/MMC, blockdev)");
+    test_storage_event_wait_callback(TINYUSB_MSC_EVENT_MOUNT_START);
+    test_storage_event_wait_callback(TINYUSB_MSC_EVENT_MOUNT_COMPLETE);
+
+    // Install TinyUSB driver: host should now enumerate 2 LUNs
+    tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG(test_device_event_handler);
+    TEST_ASSERT_EQUAL(ESP_OK, tinyusb_driver_install(&tusb_cfg));
+
+    test_device_wait();
+
+    test_storage_event_wait_callback(TINYUSB_MSC_EVENT_MOUNT_START);
+    test_storage_event_wait_callback(TINYUSB_MSC_EVENT_MOUNT_COMPLETE);
+    test_storage_event_wait_callback(TINYUSB_MSC_EVENT_MOUNT_START);
+    test_storage_event_wait_callback(TINYUSB_MSC_EVENT_MOUNT_COMPLETE);
+
+    vTaskDelay(pdMS_TO_TICKS(TEST_DEVICE_PRESENCE_TIMEOUT_MS)); // Allow some time for the device to be recognized
+    TEST_ASSERT_EQUAL(ESP_OK, tinyusb_driver_uninstall());
+
+    TEST_ASSERT_EQUAL_MESSAGE(ESP_OK, tinyusb_msc_delete_storage(storage2_hdl), "Failed to delete LUN1 (SD/MMC, blockdev)");
+    TEST_ASSERT_EQUAL_MESSAGE(ESP_OK, tinyusb_msc_delete_storage(storage1_hdl), "Failed to delete LUN0 (SPI flash, direct)");
+    TEST_ASSERT_EQUAL_MESSAGE(ESP_OK, tinyusb_msc_uninstall_driver(), "Failed to uninstall TinyUSB MSC driver");
+
+    TEST_ASSERT_EQUAL(ESP_OK, card_bdl->ops->release(card_bdl));
+    storage_deinit_spiflash(wl_handle);
+    storage_deinit_sdmmc(card);
+}
+
+/**
+ * @brief Mirror of the above with the backends swapped: LUN0 stays on the
+ * direct SD/MMC path (tinyusb_msc_new_storage_sdmmc), LUN1 is backed by a
+ * blockdev handle over the WL-mounted SPI flash partition
+ * (tinyusb_msc_new_storage_blockdev). Confirms the blockdev singleton guard
+ * is per-blockdev-instance, not tied to a specific medium type.
+ */
+TEST_CASE("MSC: dual storage SD/MMC (direct) + SPIFLASH (blockdev)", "[storage][blockdev][spiflash][sdmmc][dual]")
+{
+    sdmmc_card_t *card = NULL;
+    storage_init_sdmmc(&card);
+    TEST_ASSERT_NOT_NULL_MESSAGE(card, "SDMMC card handle is NULL, check the SDMMC configuration");
+
+    esp_blockdev_handle_t partition_bdl, wl_bdl;
+    storage_init_blockdev_spiflash(&partition_bdl, &wl_bdl);
+
+    tinyusb_msc_driver_config_t driver_cfg = {
+        .callback = test_storage_event_cb,                  // Register the callback for mount changed events
+        .callback_arg = NULL,                               // No additional argument for the callback
+    };
+    TEST_ASSERT_EQUAL_MESSAGE(ESP_OK, tinyusb_msc_install_driver(&driver_cfg), "Failed to install TinyUSB MSC driver");
+
+    // LUN0: SD/MMC, direct (non-BDL) backend
+    tinyusb_msc_storage_config_t config = {
+        .medium.card = card,
+        .mount_point = TINYUSB_MSC_STORAGE_MOUNT_APP,       // Initial mount point to APP
+        .fat_fs = {
+            .base_path = "/custom1",
+            .config.max_files = 5,
+            .format_flags = 0,
+        },
+    };
+    tinyusb_msc_storage_handle_t storage1_hdl = NULL;
+    TEST_ASSERT_EQUAL_MESSAGE(ESP_OK, tinyusb_msc_new_storage_sdmmc(&config, &storage1_hdl), "Failed to initialize LUN0 (SD/MMC, direct)");
+    test_storage_event_wait_callback(TINYUSB_MSC_EVENT_MOUNT_START);
+    test_storage_event_wait_callback(TINYUSB_MSC_EVENT_MOUNT_COMPLETE);
+
+    // LUN1: SPI flash, blockdev-backed
+    tinyusb_msc_storage_config_t config_bdl = {
+        .medium.blockdev = wl_bdl,
+        .mount_point = TINYUSB_MSC_STORAGE_MOUNT_APP,
+        .fat_fs = {
+            .base_path = "/custom2",
+            .config.max_files = 5,
+            .format_flags = 0,
+        },
+    };
+    tinyusb_msc_storage_handle_t storage2_hdl = NULL;
+    TEST_ASSERT_EQUAL_MESSAGE(ESP_OK, tinyusb_msc_new_storage_blockdev(&config_bdl, &storage2_hdl), "Failed to initialize LUN1 (SPI flash, blockdev)");
+    test_storage_event_wait_callback(TINYUSB_MSC_EVENT_MOUNT_START);
+    test_storage_event_wait_callback(TINYUSB_MSC_EVENT_MOUNT_COMPLETE);
+
+    // Install TinyUSB driver: host should now enumerate 2 LUNs
+    tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG(test_device_event_handler);
+    TEST_ASSERT_EQUAL(ESP_OK, tinyusb_driver_install(&tusb_cfg));
+
+    test_device_wait();
+
+    test_storage_event_wait_callback(TINYUSB_MSC_EVENT_MOUNT_START);
+    test_storage_event_wait_callback(TINYUSB_MSC_EVENT_MOUNT_COMPLETE);
+    test_storage_event_wait_callback(TINYUSB_MSC_EVENT_MOUNT_START);
+    test_storage_event_wait_callback(TINYUSB_MSC_EVENT_MOUNT_COMPLETE);
+
+    vTaskDelay(pdMS_TO_TICKS(TEST_DEVICE_PRESENCE_TIMEOUT_MS)); // Allow some time for the device to be recognized
+    TEST_ASSERT_EQUAL(ESP_OK, tinyusb_driver_uninstall());
+
+    TEST_ASSERT_EQUAL_MESSAGE(ESP_OK, tinyusb_msc_delete_storage(storage2_hdl), "Failed to delete LUN1 (SPI flash, blockdev)");
+    TEST_ASSERT_EQUAL_MESSAGE(ESP_OK, tinyusb_msc_delete_storage(storage1_hdl), "Failed to delete LUN0 (SD/MMC, direct)");
+    TEST_ASSERT_EQUAL_MESSAGE(ESP_OK, tinyusb_msc_uninstall_driver(), "Failed to uninstall TinyUSB MSC driver");
+
+    TEST_ASSERT_EQUAL(ESP_OK, wl_bdl->ops->release(wl_bdl));
+    TEST_ASSERT_EQUAL(ESP_OK, partition_bdl->ops->release(partition_bdl));
+    storage_deinit_sdmmc(card);
+}
+#endif // SOC_SDMMC_HOST_SUPPORTED
+
 #endif // TINYUSB_MSC_BDL_SUPPORTED
 #endif // SOC_USB_OTG_SUPPORTED
