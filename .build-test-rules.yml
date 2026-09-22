@@ -36,6 +36,9 @@ host/class/msc:
     - 'device/esp_tinyusb/**' # For MSC mock device
   enable:
     - if: SOC_USB_OTG_SUPPORTED == 1
+  disable:
+    - if: CONFIG_NAME == "buffer_dma" and IDF_VERSION < "6.2.0"
+      reason: Buffer DMA requires the USB DWC HAL support added in IDF v6.2
 
 type_c:
   depends_filepatterns:

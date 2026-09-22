@@ -38,6 +38,14 @@
 
 #define ALIGN_UP(num, align)    ((align) == 0 ? (num) : (((num) + ((align) - 1)) & ~((align) - 1)))
 
+/**
+ * @brief Round a transfer length up to a multiple of an endpoint's MPS.
+ *
+ * DWC2 Buffer DMA rule for programmed IN transfer sizes:
+ * (databook §5.4.41 HCTSIZi.XferSize; programming guide §3.4 step 5): the transfer size must be a multiple of the endpoint's MPS.
+ */
+#define ROUND_UP_TO_MPS(len, mps)   ((((len) + (mps) - 1) / (mps)) * (mps))
+
 // --------------------- Constants -------------------------
 
 #define INIT_DELAY_MS                           30  // A delay of at least 25ms to enter Host mode. Make it 30ms to be safe
@@ -168,6 +176,18 @@ typedef enum {
     CTRL_XFER_STAGE_STATUS = 2,  /**< Status stage */
 } ctrl_xfer_stage_t;
 
+/**
+ * @brief Bulk transfer stage index
+ *
+ * @note Only relevant for buffer DMA mode, where an OUT transfer that requires a zero length packet is executed
+ *       as two separate channel activations (data stage followed by ZLP stage). In descriptor DMA mode the whole
+ *       transfer runs to completion in a single channel activation.
+ */
+typedef enum {
+    BULK_XFER_STAGE_DATA = 0,    /**< Main data stage */
+    BULK_XFER_STAGE_ZLP = 1,     /**< Zero length packet stage */
+} bulk_xfer_stage_t;
+
 #if DWC_DMA_MODE_DESC
 /**
  * @brief Object representing a single slot of a pipe's multi slot implementation for descriptor DMA mode
@@ -227,7 +247,13 @@ typedef struct {
             ctrl_xfer_stage_t cur_stg: 2;   // Current control transfer stage
             uint32_t data_stg_actual_bytes: 16; // IN data stage actual length
             uint32_t reserved12: 12;
-        } ctrl;
+        } ctrl;                             // Control transfer related
+        struct {
+            uint32_t zero_len_packet: 1;    // A ZLP must be sent after the main data transfer (OUT, MPS multiple)
+            bulk_xfer_stage_t cur_stg: 1;   // Current bulk transfer stage
+            uint32_t actual_bytes: 20;      // Actual bytes transferred (IN: from HAL; OUT: = num_bytes)
+            uint32_t reserved10: 10;
+        } bulk;                             // Bulk transfer related
         uint32_t val;
     } flags;
     union {
@@ -497,28 +523,12 @@ static void _slot_exec(pipe_t *pipe);
  *
  * This should only be called after receiving a USB_DWC_HAL_CHAN_EVENT_CPLT event to check if a slot is actually
  * done.
- * @note The logic is identical for both DMA modes.
  *
  * @param pipe Pipe object
  * @return true Slot complete
  * @return false Slot not complete
  */
-static inline bool _slot_check_done(pipe_t *pipe)
-{
-    // Only control transfers need to be continued
-    if (pipe->ep_char.type != USB_DWC_XFER_TYPE_CTRL) {
-        return true;
-    }
-    // The HW can't handle two transactions with preamble in one frame.
-    // TODO: IDF-12986
-    if (pipe->ep_char.ls_via_fs_hub) {
-        esp_rom_delay_us(1000);
-    }
-
-    urb_slot_t *urb_slot_inflight = pipe->urb_slots[pipe->urb_slot_ring.rd_idx];
-    // cur_stg is set to status when the status stage is started
-    return (urb_slot_inflight->flags.ctrl.cur_stg == CTRL_XFER_STAGE_STATUS);
-}
+static inline bool _slot_check_done(pipe_t *pipe);
 
 /**
  * @brief Continue execution of an in-flight slot
@@ -527,7 +537,8 @@ static inline bool _slot_check_done(pipe_t *pipe)
  *
  * @note Only some transfers are executed as multiple separate channel activations per URB:
  *       - CTRL transfers (both DMA modes): setup, data and status stages.
- *
+ *       - BULK transfers (buffer DMA mode only): main data stage followed by a zero length packet.
+ *       All other transfer types run to completion in a single channel activation.
  * @param pipe Pipe object
  */
 static void _slot_exec_cont(pipe_t *pipe);
@@ -536,10 +547,11 @@ static void _slot_exec_cont(pipe_t *pipe);
 /**
  * @brief Capture DMA-mode specific state of a completed URB slot in descriptor DMA mode
  *
+ * @param pipe Pipe object
  * @param urb_slot Slot that has completed
  * @param chan_obj HAL channel object, or NULL if no channel context is available
  */
-static inline void _slot_done_finalize(urb_slot_t *urb_slot, usb_dwc_hal_chan_t *chan_obj)
+static inline void _slot_capture_chan_state(pipe_t *pipe, urb_slot_t *urb_slot, usb_dwc_hal_chan_t *chan_obj)
 {
     // Get descriptor index when the slot stopped execution, only for Descriptor DMA
     // If no channel object available, stop index is 0
@@ -549,10 +561,44 @@ static inline void _slot_done_finalize(urb_slot_t *urb_slot, usb_dwc_hal_chan_t 
 /**
  * @brief Capture DMA-mode specific state of a completed URB slot in buffer DMA mode
  *
+ * @param pipe Pipe object
  * @param urb_slot Slot that has completed
  * @param chan_obj HAL channel object, or NULL if no channel context is available
  */
-static inline void _slot_done_finalize(urb_slot_t *urb_slot, usb_dwc_hal_chan_t *chan_obj) {}
+static inline void _slot_capture_chan_state(pipe_t *pipe, urb_slot_t *urb_slot, usb_dwc_hal_chan_t *chan_obj)
+{
+    const bool canceled = urb_slot->status_flags.was_canceled;
+    const hcd_pipe_event_t pipe_event = urb_slot->status_flags.pipe_event;
+
+    switch (pipe->ep_char.type) {
+    case USB_DWC_XFER_TYPE_CTRL:
+        // Channel state for CTRL transfers was already captured during _slot_exec_cont() step, because of its multi-stage flow
+        // Nothing to do here
+        break;
+    case USB_DWC_XFER_TYPE_BULK:
+        // Get channel state for BULK transfers. BULK OUT with ZLP has already been captured by _slot_exec_cont() step, because its multi-stge flow
+
+        // Only a successfully completed transfer has a meaningful result to capture
+        if (pipe_event == HCD_PIPE_EVENT_URB_DONE && !canceled && chan_obj != NULL) {
+            const bool is_in = pipe->ep_char.bEndpointAddress & USB_B_ENDPOINT_ADDRESS_EP_DIR_MASK;
+            if (is_in) {
+                int actual;
+                // Saves the actual bytes for successful BULK completions before the channel can be re-activated
+                // (re-activation overwrites HCTSIZ, making it unreadable in _buffer_parse_bulk()).
+                usb_dwc_hal_chan_get_buffer_result(chan_obj, &actual);
+                urb_slot->flags.bulk.actual_bytes = actual;
+            } else {
+                // OUT: all programmed bytes were sent on XferCompl; actual_bytes may be set already by exec_cont (ZLP path)
+                urb_slot->flags.bulk.actual_bytes = urb_slot->urb->transfer.num_bytes;
+            }
+        }
+        break;
+    case USB_DWC_XFER_TYPE_INTR:
+    case USB_DWC_XFER_TYPE_ISOCHRONOUS:
+    default:
+        break;
+    }
+}
 #endif // DWC_DMA_MODE_DESC
 
 /**
@@ -573,7 +619,7 @@ static inline void _slot_done(pipe_t *pipe, usb_dwc_hal_chan_t *chan_obj, hcd_pi
     urb_slot_done->status_flags.was_canceled = canceled;
     urb_slot_done->status_flags.pipe_event = pipe_event;
     // Capture any DMA-mode specific state before the channel can be re-activated
-    _slot_done_finalize(urb_slot_done, chan_obj);
+    _slot_capture_chan_state(pipe, urb_slot_done, chan_obj);
 
     pipe->urb_slot_ring.rd_idx++;
     pipe->urb_slot_ring.num_to_exec--;
@@ -2117,16 +2163,17 @@ static urb_slot_t *urb_slot_alloc(usb_transfer_type_t type)
  * use a transfer descriptor list, so no descriptor list is allocated.
  *
  * @param[in] type Transfer type the slot is allocated for (unused in Buffer DMA mode)
- * @note Only available for CTRL transfers
+ * @note Only available for CTRL and BULK transfers
  * @return
  *    - Pointer to the allocated transfer slot on success
  *    - NULL if allocation failed
  */
 static urb_slot_t *urb_slot_alloc(usb_transfer_type_t type)
 {
-    if (type == USB_TRANSFER_TYPE_CTRL) {
+    if (type == USB_TRANSFER_TYPE_CTRL || type == USB_TRANSFER_TYPE_BULK) {
         return calloc(1, sizeof(urb_slot_t));
     } else {
+        ESP_LOGE(HCD_DWC_TAG, "Not supported transfer type selected");
         abort();    // Not yet supported
         return NULL;
     }
@@ -2797,7 +2844,17 @@ static inline void _slot_fill_ctrl(urb_slot_t *urb_slot, usb_transfer_t *transfe
  * @param is_in Whether the endpoint direction is IN
  * @param mps Endpoint maximum packet size
  */
-static inline void _slot_fill_bulk(urb_slot_t *urb_slot, usb_transfer_t *transfer, bool is_in, int mps) {}
+static inline void _slot_fill_bulk(urb_slot_t *urb_slot, usb_transfer_t *transfer, bool is_in, int mps)
+{
+    // A ZLP is only appended for OUT transfers where the flag is set and the transfer size is a non-zero MPS multiple
+    const bool zero_len_packet = !is_in
+                                 && (transfer->flags & USB_TRANSFER_FLAG_ZERO_PACK)
+                                 && transfer->num_bytes > 0
+                                 && (transfer->num_bytes % mps == 0);
+    urb_slot->flags.bulk.zero_len_packet = zero_len_packet;
+    urb_slot->flags.bulk.cur_stg = BULK_XFER_STAGE_DATA;
+    urb_slot->flags.bulk.actual_bytes = 0;
+}
 
 /**
  * @brief Fill an interrupt transfer slot with transfer descriptors for buffer DMA mode
@@ -2970,6 +3027,7 @@ static inline void _slot_exec_intr(pipe_t *pipe, urb_slot_t *urb_slot)
 /**
  * @brief Activate a control transfer stage in buffer DMA mode
  *
+ * @note (databook §5.4.41 HCTSIZi.XferSize; programming guide §3.4 step 5):
  * @note For data stage IN: DWC2 Buffer DMA requirement The programmed transfer size must be a multiple of the endpoint's MPS.
  *       Rounding up is safe here: A short packet terminates the data stage early and the HAL reports the true number of
  *       received bytes. The buffer headroom for the rounded length is checked on URB enqueue (see check_xfer_size()).
@@ -2997,8 +3055,7 @@ static inline void _slot_exec_ctrl_stage(pipe_t *pipe, urb_slot_t *urb_slot, ctr
         xfer.pid = USB_DWC_HAL_PID_DATA1;
         is_in = urb_slot->flags.ctrl.data_stg_in;
         if (is_in) {
-            const int mps = pipe->ep_char.mps;
-            xfer.len = ((xfer.len + mps - 1) / mps) * mps;
+            xfer.len = ROUND_UP_TO_MPS(xfer.len, pipe->ep_char.mps);
         }
         break;
     case CTRL_XFER_STAGE_STATUS:
@@ -3047,10 +3104,42 @@ static inline void _slot_exec_isoc(pipe_t *pipe, urb_slot_t *urb_slot) {}
  * Programs the channel with the full data buffer. The hardware handles all MPS-sized packets
  * in a single activation, including PID toggling and NAK/NYET retries.
  *
+ * @note (databook §5.4.41 HCTSIZi.XferSize; programming guide §3.4 step 5):
+ * @note For data stage IN: DWC2 Buffer DMA requirement The programmed transfer size must be a multiple of the endpoint's MPS.
+ *       Rounding up is safe here: A short packet terminates the data stage early and the HAL reports the true number of
+ *       received bytes. The buffer headroom for the rounded length is checked on URB enqueue (see check_xfer_size()).
+ *
  * @param pipe Pipe object
  * @param urb_slot Slot to execute
  */
-static inline void _slot_exec_bulk(pipe_t *pipe, urb_slot_t *urb_slot) {}
+static inline void _slot_exec_bulk(pipe_t *pipe, urb_slot_t *urb_slot)
+{
+    usb_transfer_t *transfer = &urb_slot->urb->transfer;
+    const bool is_in = pipe->ep_char.bEndpointAddress & USB_B_ENDPOINT_ADDRESS_EP_DIR_MASK;
+    int len = transfer->num_bytes;
+    if (is_in) {
+        const int mps = pipe->ep_char.mps;
+        len = ROUND_UP_TO_MPS(len, mps);
+        if (len < mps) {
+            len = mps;   // Zero-length IN: XferSize = MPS, PktCnt = 1 (prog. guide §3.4 step 5 requires n > 0)
+        }
+    }
+
+    /*
+     * Read the current data toggle PID from HCTSIZ before activating (do not hardcode it here). The DWC core
+     * initialises it to DATA0 on channel allocation and advances it after each successfully transferred packet.
+     */
+    const usb_dwc_hal_buffer_xfer_t xfer = {
+        .buf = transfer->data_buffer,
+        .len = len,
+        .pid = (int)usb_dwc_hal_chan_get_pid(pipe->chan_obj),
+    };
+    urb_slot->status_flags.executing = 1;
+    pipe->urb_slot_ring.is_executing = 1;
+    pipe->xact_err_cnt = 0;
+    usb_dwc_hal_chan_set_dir(pipe->chan_obj, is_in);
+    usb_dwc_hal_chan_activate_buffer(pipe->port->hal, pipe->chan_obj, &xfer);
+}
 
 /**
  * @brief Start execution of an interrupt transfer in buffer DMA mode
@@ -3150,6 +3239,7 @@ static inline void _slot_exec_cont_ctrl(pipe_t *pipe, urb_slot_t *urb_slot)
                    (unsigned)urb_slot->flags.ctrl.cur_stg, (unsigned)next_stage);
     urb_slot->flags.ctrl.cur_stg = next_stage;
 }
+
 #else // DWC_DMA_MODE_DESC
 /**
  * @brief Continue a control transfer in buffer DMA mode
@@ -3178,6 +3268,38 @@ static inline void _slot_exec_cont_ctrl(pipe_t *pipe, urb_slot_t *urb_slot)
                    (unsigned)urb_slot->flags.ctrl.cur_stg, (unsigned)next_stage);
     urb_slot->flags.ctrl.cur_stg = next_stage;
 }
+
+/**
+ * @brief Continue a bulk transfer in buffer DMA mode
+ *
+ * The main data stage has completed; activate the trailing zero length packet.
+ * @note This function performs ZLP for BULK OUT
+ *
+ * @param pipe Pipe object
+ * @param urb_slot Slot being executed
+ */
+static inline void _slot_exec_cont_bulk(pipe_t *pipe, urb_slot_t *urb_slot)
+{
+    assert(urb_slot->flags.bulk.zero_len_packet);
+    assert(urb_slot->flags.bulk.cur_stg == BULK_XFER_STAGE_DATA);
+    // Save the actual bytes from the main data transfer before the next activation overwrites HCTSIZ
+    urb_slot->flags.bulk.actual_bytes = urb_slot->urb->transfer.num_bytes;
+    // Advance to the ZLP stage so _slot_check_done() returns true once the ZLP completes
+    urb_slot->flags.bulk.cur_stg = BULK_XFER_STAGE_ZLP;
+    // Activate the ZLP using the PID that follows the completed main transfer
+    usb_dwc_hal_buffer_xfer_t xfer = {
+        .buf = urb_slot->urb->transfer.data_buffer,     // HW requires a valid DMA address even for len=0
+        .len = 0,                                       // OUT transfers are allowed to be 0, HAL will transfer this to one packet
+        .pid = (int)usb_dwc_hal_chan_get_pid(pipe->chan_obj),
+    };
+    pipe->xact_err_cnt = 0;
+    // We don't need to set the channel direction now, as we are continuing with the bulk transfer's
+    // which has already set the direction to OUT
+    usb_dwc_hal_chan_activate_buffer(pipe->port->hal, pipe->chan_obj, &xfer);
+    ESP_EARLY_LOGD(HCD_DWC_TAG, "buf cont (bulk ZLP): ep=0x%02x buf=%p urb=%p",
+                   pipe->ep_char.bEndpointAddress, urb_slot, urb_slot->urb);
+}
+
 #endif // DWC_DMA_MODE_DESC
 
 static void _slot_exec_cont(pipe_t *pipe)
@@ -3190,11 +3312,75 @@ static void _slot_exec_cont(pipe_t *pipe)
         _slot_exec_cont_ctrl(pipe, slot_inflight);
         break;
     }
+#if DWC_DMA_MODE_BUFFER
+    case USB_DWC_XFER_TYPE_BULK: {
+        _slot_exec_cont_bulk(pipe, slot_inflight);
+        break;
+    }
+#endif // DWC_DMA_MODE_BUFFER
     default: {
-        // Only control (both DMA modes) and bulk (buffer DMA mode: Will be added later) transfers are executed as multiple activations
+        // Only control (both DMA modes) and bulk (buffer DMA mode) transfers are executed as multiple activations
         abort();
         break;
     }
+    }
+}
+
+// -------------------------------------------------- Slot check done --------------------------------------------------
+
+/**
+ * @brief Check if a control transfer slot has completed execution
+ * @note The logic is identical for both DMA modes.
+ *
+ * @param pipe Pipe object
+ * @return true Slot complete
+ * @return false Slot not complete
+ */
+static inline bool _slot_check_done_ctrl(pipe_t *pipe)
+{
+    // The HW can't handle two transactions with preamble in one frame.
+    // TODO: IDF-12986
+    if (pipe->ep_char.ls_via_fs_hub) {
+        esp_rom_delay_us(1000);
+    }
+    urb_slot_t *slot_inflight = pipe->urb_slots[pipe->urb_slot_ring.rd_idx];
+    // cur_stg is set to status when the status stage is started
+    return (slot_inflight->flags.ctrl.cur_stg == CTRL_XFER_STAGE_STATUS);
+}
+
+#if DWC_DMA_MODE_BUFFER
+
+/**
+ * @brief Check if a bulk transfer slot has completed execution in buffer DMA mode
+ *
+ * @param pipe Pipe object
+ * @return true Slot complete
+ * @return false Slot not complete
+ */
+static inline bool _slot_check_done_bulk(pipe_t *pipe)
+{
+    urb_slot_t *slot_inflight = pipe->urb_slots[pipe->urb_slot_ring.rd_idx];
+    // A bulk OUT slot that requires a ZLP has an extra stage after the data stage.
+    // The slot is complete once its last required stage has been executed.
+    const bulk_xfer_stage_t last_stg = slot_inflight->flags.bulk.zero_len_packet ? BULK_XFER_STAGE_ZLP : BULK_XFER_STAGE_DATA;
+    return (slot_inflight->flags.bulk.cur_stg == last_stg);
+}
+#endif // DWC_DMA_MODE_BUFFER
+
+static inline bool _slot_check_done(pipe_t *pipe)
+{
+    switch (pipe->ep_char.type) {
+    case USB_DWC_XFER_TYPE_CTRL:
+        return _slot_check_done_ctrl(pipe);
+#if DWC_DMA_MODE_BUFFER
+    // In SG DMA the whole transfer (including any ZLP) runs to completion in a single channel activation
+    // We are checking whether the slot has finalized only for Buffer DMA
+    case USB_DWC_XFER_TYPE_BULK:
+        return _slot_check_done_bulk(pipe);
+#endif // DWC_DMA_MODE_BUFFER
+    default:
+        // Interrupt and isochronous transfers run to completion in a single channel activation
+        return true;
     }
 }
 
@@ -3381,7 +3567,12 @@ static inline void _slot_parse_ctrl(urb_slot_t *urb_slot)
  *
  * @param urb_slot Slot to parse
  */
-static inline void _slot_parse_bulk(urb_slot_t *urb_slot) {}
+static inline void _slot_parse_bulk(urb_slot_t *urb_slot)
+{
+    usb_transfer_t *transfer = &urb_slot->urb->transfer;
+    transfer->actual_num_bytes = (int)urb_slot->flags.bulk.actual_bytes;
+    transfer->status = USB_TRANSFER_STATUS_COMPLETED;
+}
 
 /**
  * @brief Parse a completed interrupt transfer in buffer DMA mode
@@ -3536,6 +3727,52 @@ static inline bool _check_port_pipe_state(pipe_t *pipe, bool *submit_urb)
 }
 
 /**
+ * @brief Check that a Buffer DMA IN transfer's MPS-rounded programmed length fits the data buffer
+ *
+ * @note In Buffer DMA mode, the programmed IN transfer size must be a non-zero multiple of the endpoint's MPS
+ * (DWC2 rule: databook §5.4.41 HCTSIZi.XferSize; programming guide §3.4 step 5).
+
+ * The core may write up to that many bytes into the data buffer (e.g. a non-compliant device can return more data
+ * than requested), so the rounded length must fit the data buffer.
+ *
+ * A zero-length IN is programmed as XferSize = MPS (§3.4 step 5 requires n > 0), so it needs MPS bytes of
+ * buffer room too.
+ * For control transfers only the data stage is checked: the setup packet at the start of the data buffer
+ * is excluded from both the rounded length and the buffer room.
+ *
+ * @note Always passes in Scatter-Gather DMA mode, where no IN rounding requirement exists
+ *
+ * @param pipe Pipe the URB is enqueued to
+ * @param urb URB to check
+ * @param is_in checked transfer (or control data stage) is IN
+ * @return true if the rounded IN length fits the data buffer (or the transfer is not IN), false otherwise
+ */
+static bool check_in_buffer_headroom(pipe_t *pipe, urb_t *urb, bool is_in)
+{
+#if DWC_DMA_MODE_BUFFER
+    if (!is_in) {
+        return true;    // OUT transfers are programmed with their exact length and never write to the buffer
+    }
+    const int mps = pipe->ep_char.mps;
+    int in_len = urb->transfer.num_bytes;
+    int buf_room = (int)urb->transfer.data_buffer_size;
+    if (pipe->ep_char.type == USB_DWC_XFER_TYPE_CTRL) {
+        // The setup packet at the start of the data buffer is not part of the IN data stage
+        in_len -= (int)sizeof(usb_setup_packet_t);
+        buf_room -= (int)sizeof(usb_setup_packet_t);
+    }
+    // Round up to a multiple of the endpoint's MPS; a zero-length IN is programmed as XferSize = MPS
+    int rounded_len = ROUND_UP_TO_MPS(in_len, mps);
+    if (rounded_len < mps) {
+        rounded_len = mps;
+    }
+    return rounded_len <= buf_room;
+#else
+    return true;    // Scatter-Gather DMA has no IN rounding requirement
+#endif // DWC_DMA_MODE_BUFFER
+}
+
+/**
  * @brief Check that a URB's transfer size fits the pipe's maximum transfer size
  *
  * The maximum transfer size depends on the transfer type:
@@ -3548,9 +3785,8 @@ static inline bool _check_port_pipe_state(pipe_t *pipe, bool *submit_urb)
  * - Isochronous: one qTD per packet, spaced by the pipe's interval in the isochronous descriptor list
  *   (XFER_LIST_ISOC_MARGIN slots are reserved for scheduling timing margin, see _buffer_fill_isoc()).
  *
- * @note: Buffer DMA for IN transfers: length rounded up to a multiple of the endpoint's MPS (DWC2 rule)
- *        The core may write up to that many bytes into the data buffer (e.g. a non-compliant device can return more
-          data than requested). The rounded length must therefore fit the data buffer past the setup packet.
+ * @note Buffer DMA mode: the programmed IN length is rounded up to a multiple of the endpoint's MPS and
+ *       must fit the data buffer, see check_in_buffer_headroom().
  * Periodic transfers must be rejected here (and not only at descriptor list fill time) because the descriptor list
  * is filled synchronously on enqueue, where an overflow could otherwise only assert.
  *
@@ -3562,29 +3798,33 @@ static bool check_xfer_size(pipe_t *pipe, urb_t *urb)
 {
     bool fits = true;
     switch (pipe->ep_char.type) {
-    case USB_DWC_XFER_TYPE_CTRL:
+    case USB_DWC_XFER_TYPE_CTRL: {
         // For control transfers only the data stage is bounded by the limit, so exclude the setup packet.
-        int data_stg_len = urb->transfer.num_bytes - (int)sizeof(usb_setup_packet_t);
-#if DWC_DMA_MODE_BUFFER
-        const usb_setup_packet_t *setup_pkt = (usb_setup_packet_t *)urb->transfer.data_buffer;
-        const bool data_stg_in = (setup_pkt->bmRequestType & USB_BM_REQUEST_TYPE_DIR_IN) && (setup_pkt->wLength > 0);
-        if (data_stg_in) {
-            const int mps = pipe->ep_char.mps;
-            data_stg_len = ((data_stg_len + mps - 1) / mps) * mps;
-            if (data_stg_len > (int)urb->transfer.data_buffer_size - (int)sizeof(usb_setup_packet_t)) {
-                fits = false;
-            }
-        }
-#endif // DWC_DMA_MODE_BUFFER
+        const int data_stg_len = urb->transfer.num_bytes - (int)sizeof(usb_setup_packet_t);
         if (data_stg_len > hcd_pipe_get_xfer_size_limit((hcd_pipe_handle_t)pipe)) {
             fits = false;
         }
-        break;
-    case USB_DWC_XFER_TYPE_BULK:
-        if (urb->transfer.num_bytes > hcd_pipe_get_xfer_size_limit((hcd_pipe_handle_t)pipe)) {
+        // Get setup packet of the CTRL transfer to get the data stage's direction
+        const usb_setup_packet_t *setup_pkt = (usb_setup_packet_t *)urb->transfer.data_buffer;
+        // Buffer headroom applies to CTRL transfer's data stage IN with non 0 lengths
+        const bool data_stg_in = (setup_pkt->bmRequestType & USB_BM_REQUEST_TYPE_DIR_IN) && (setup_pkt->wLength > 0);
+        if (!check_in_buffer_headroom(pipe, urb, data_stg_in)) {
             fits = false;
         }
         break;
+    }
+    case USB_DWC_XFER_TYPE_BULK: {
+        // For bulk transfers, there is no setup packet, thus the whole length of the buffer is bounded by the limit.
+        if (urb->transfer.num_bytes > hcd_pipe_get_xfer_size_limit((hcd_pipe_handle_t)pipe)) {
+            fits = false;
+        }
+        // Get transfer direction from its EP characteristics
+        const bool is_in = pipe->ep_char.bEndpointAddress & USB_B_ENDPOINT_ADDRESS_EP_DIR_MASK;
+        if (!check_in_buffer_headroom(pipe, urb, is_in)) {
+            fits = false;
+        }
+        break;
+    }
     case USB_DWC_XFER_TYPE_INTR: {
         const int mps = pipe->ep_char.mps;
         int num_qtds = (urb->transfer.num_bytes + mps - 1) / mps;   // One qTD per (short) packet
