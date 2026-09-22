@@ -694,7 +694,6 @@ static void print_device_info(msc_host_device_info_t *info)
     uint64_t capacity = ((uint64_t)info->sector_size * info->sector_count) / megabyte;
 
     printf("Device info:\n");
-    printf("\t LUN: %u\n", info->lun);
     printf("\t Capacity: %llu MB\n", capacity);
     printf("\t Sector size: %"PRIu32"\n", info->sector_size);
     printf("\t Sector count: %"PRIu32"\n", info->sector_count);
@@ -718,7 +717,6 @@ TEST_CASE("device_info", "[usb_msc]")
     esp_err_t err = msc_host_get_device_info(device, &info);
     msc_teardown();
     TEST_ASSERT_EQUAL(ESP_OK, err);
-    TEST_ASSERT_EQUAL(0, info.lun);
     print_device_info(&info);
 }
 
