@@ -188,10 +188,18 @@ menu "TinyUSB Stack"
                 Name of the USB device.
 
         config TINYUSB_DESC_SERIAL_STRING
-            string "Serial string"
+            string "Serial string (leave empty to use chip ID)"
             default "123456"
             help
                 Serial number of the USB device.
+
+                If left empty, the serial number is derived from the chip's
+                eFuse base MAC at runtime. This guarantees a unique serial
+                number per device, which is required by the USB specification
+                and allows host to distinguish multiple identical devices.
+
+                Note: with a fixed string, all devices built with the same
+                firmware report the same serial number.
 
         config TINYUSB_DESC_CDC_STRING
             depends on TINYUSB_CDC_ENABLED
