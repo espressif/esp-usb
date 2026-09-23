@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2025-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -389,11 +389,13 @@ static inline esp_err_t msc_storage_write_sector_deferred(uint8_t lun, uint32_t 
     return ESP_OK;
 }
 
-static esp_err_t vfs_fat_format(BYTE format_flags)
+static esp_err_t vfs_fat_format(const char *drv, BYTE format_flags)
 {
     esp_err_t ret;
     FRESULT fresult;
-    // Drive does not have a filesystem, try to format it
+    // Drive does not have a filesystem, try to format it.
+    // FF_FS_RPATH is 0, so an empty path always selects logical drive 0.
+    // Pass the registered drive ("0:", "1:", ...) so a second LUN is formatted.
     const size_t workbuf_size = 4096;
     void *workbuf = ff_memalloc(workbuf_size);
     if (workbuf == NULL) {
@@ -402,13 +404,13 @@ static esp_err_t vfs_fat_format(BYTE format_flags)
 
     size_t alloc_unit_size = esp_vfs_fat_get_allocation_unit_size(CONFIG_WL_SECTOR_SIZE, workbuf_size);
 
-    ESP_LOGD(TAG, "Format drive, allocation unit size=%d", alloc_unit_size);
+    ESP_LOGD(TAG, "Format drive %s, allocation unit size=%d", drv, alloc_unit_size);
 
     const MKFS_PARM opt = {format_flags, 0, 0, 0, alloc_unit_size};
-    fresult = f_mkfs("", &opt, workbuf, workbuf_size); // Use default volume
+    fresult = f_mkfs(drv, &opt, workbuf, workbuf_size);
     if (fresult != FR_OK) {
         ret = ESP_FAIL;
-        ESP_LOGE(TAG, "Unable to create default volume, (%d)", fresult);
+        ESP_LOGE(TAG, "Unable to create volume %s, (%d)", drv, fresult);
         goto fail;
     }
     ff_memfree(workbuf);
@@ -526,10 +528,11 @@ static esp_err_t msc_storage_mount(msc_storage_obj_t *storage)
             ret = ESP_OK;
             goto exit;
         }
-        ESP_LOGW(TAG, "Mount failed, trying to format the drive");
+        ESP_LOGW(TAG, "Mount failed, trying to format drive %s", drv);
         BYTE format_flags = storage->fat_fs.format_flags;
-        ESP_GOTO_ON_ERROR(vfs_fat_format(format_flags), fail, TAG, "Failed to format the drive");
-        ESP_GOTO_ON_ERROR(vfs_fat_mount(drv, fs, false), fail, TAG, "Failed to mount FAT filesystem");
+        ESP_GOTO_ON_ERROR(vfs_fat_format(drv, format_flags), fail, TAG, "Failed to format the drive");
+        // Force the mount so a format that did not produce a readable filesystem is reported here.
+        ESP_GOTO_ON_ERROR(vfs_fat_mount(drv, fs, true), fail, TAG, "Failed to mount FAT filesystem");
         ESP_LOGD(TAG, "Format completed, FAT mounted successfully");
     } else if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to mount drive, %s", esp_err_to_name(ret));
@@ -1269,8 +1272,8 @@ esp_err_t tinyusb_msc_format_storage(tinyusb_msc_storage_handle_t handle)
     // Mount the FAT FS
     ret = vfs_fat_mount(drv, fs, true);
     ESP_RETURN_ON_FALSE(ret == ESP_ERR_NOT_FOUND, ESP_ERR_NOT_FOUND, TAG, "Unexpected filesystem found on the drive");
-    ESP_RETURN_ON_ERROR(vfs_fat_format(storage->fat_fs.format_flags), TAG, "Failed to format the drive");
-    ESP_RETURN_ON_ERROR(vfs_fat_mount(drv, fs, false), TAG, "Failed to mount FAT filesystem");
+    ESP_RETURN_ON_ERROR(vfs_fat_format(drv, storage->fat_fs.format_flags), TAG, "Failed to format the drive");
+    ESP_RETURN_ON_ERROR(vfs_fat_mount(drv, fs, true), TAG, "Failed to mount FAT filesystem");
 
     ESP_LOGD(TAG, "Storage formatted successfully");
     return ESP_OK;
