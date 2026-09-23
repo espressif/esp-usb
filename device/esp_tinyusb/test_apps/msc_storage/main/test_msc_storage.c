@@ -349,9 +349,19 @@ TEST_CASE("MSC: dual storage SPIFLASH + SDMMC", "[storage][spiflash][sdmmc]")
 
     vTaskDelay(pdMS_TO_TICKS(TEST_DEVICE_PRESENCE_TIMEOUT_MS)); // Allow some time for the device to be recognized
     TEST_ASSERT_EQUAL(ESP_OK, tinyusb_driver_uninstall());
+    // tinyusb_driver_uninstall() implicitly remounts both LUNs back to APP (tud_umount_cb);
+    // drain those events so the storage event queue doesn't overflow below.
+    test_storage_event_wait_callback(TINYUSB_MSC_EVENT_MOUNT_START);
+    test_storage_event_wait_callback(TINYUSB_MSC_EVENT_MOUNT_COMPLETE);
+    test_storage_event_wait_callback(TINYUSB_MSC_EVENT_MOUNT_START);
+    test_storage_event_wait_callback(TINYUSB_MSC_EVENT_MOUNT_COMPLETE);
 
     TEST_ASSERT_EQUAL_MESSAGE(ESP_OK, tinyusb_msc_delete_storage(storage2_hdl), "Failed to delete TinyUSB MSC storage2");
+    test_storage_event_wait_callback(TINYUSB_MSC_EVENT_MOUNT_START);
+    test_storage_event_wait_callback(TINYUSB_MSC_EVENT_MOUNT_COMPLETE);
     TEST_ASSERT_EQUAL_MESSAGE(ESP_OK, tinyusb_msc_delete_storage(storage1_hdl), "Failed to delete TinyUSB MSC storage1");
+    test_storage_event_wait_callback(TINYUSB_MSC_EVENT_MOUNT_START);
+    test_storage_event_wait_callback(TINYUSB_MSC_EVENT_MOUNT_COMPLETE);
     TEST_ASSERT_EQUAL_MESSAGE(ESP_OK, tinyusb_msc_uninstall_driver(), "Failed to uninstall TinyUSB MSC driver");
     storage_deinit_spiflash(wl_handle);
     storage_deinit_sdmmc(card);
