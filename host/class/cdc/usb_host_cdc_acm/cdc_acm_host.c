@@ -839,7 +839,7 @@ static void in_xfer_cb(usb_transfer_t *transfer)
         // In this case, the next received data must be appended to the existing buffer.
         // Since the data_buffer in usb_transfer_t is a constant pointer, we must cast away to const qualifier.
         if (!data_processed) {
-#if !SOC_CACHE_INTERNAL_MEM_VIA_L1CACHE
+#if !SOC_CACHE_INTERNAL_MEM_VIA_L1CACHE && !CONFIG_IDF_TARGET_ESP32S31
             // In case the received data was not processed, the next RX data must be appended to current buffer
             uint8_t **ptr = (uint8_t **)(&(transfer->data_buffer));
             *ptr += transfer->actual_num_bytes;
@@ -865,10 +865,10 @@ static void in_xfer_cb(usb_transfer_t *transfer)
                 cdc_dev->serial_state.bOverRun = false;
             }
 #else
-            // For targets that must sync internal memory through L1CACHE, we cannot change the data_buffer
-            // because it would lead to unaligned cache sync, which is not allowed
+            // For targets that must sync internal memory through L1CACHE, and for esp32s31, we cannot change
+            // the data_buffer because it would lead to unaligned cache sync, which is not allowed
             ESP_LOGW(TAG, "RX buffer append is not supported on this target!");
-#endif
+#endif // !SOC_CACHE_INTERNAL_MEM_VIA_L1CACHE && !CONFIG_IDF_TARGET_ESP32S31
         } else {
             cdc_acm_reset_in_transfer(cdc_dev);
         }

@@ -12,8 +12,8 @@ set(priv_includes)
 # Thus, always add the (private) requirements, regardless of Kconfig
 set(priv_requires esp_mm)
 
-# Explicitly add psram component for esp32p4, as the USB-DWC internal DMA can access PSRAM on esp32p4
-if(${target} STREQUAL "esp32p4")
+# Explicitly add psram component for esp32p4 and esp32s31, as the USB-DWC internal DMA can access PSRAM on these targets
+if(${target} STREQUAL "esp32p4" OR ${target} STREQUAL "esp32s31")
     list(APPEND priv_requires esp_psram)
 endif()
 
