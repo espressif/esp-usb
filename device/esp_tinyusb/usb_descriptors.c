@@ -27,7 +27,7 @@ const tusb_desc_device_t descriptor_dev_default = {
     .bDescriptorType = TUSB_DESC_DEVICE,
     .bcdUSB = 0x0200,
 
-#if CFG_TUD_CDC
+#if (CFG_TUD_CDC || CFG_TUD_NCM || CFG_TUD_ECM_RNDIS)
     // Use Interface Association Descriptor (IAD) for CDC
     // As required by USB Specs IAD's subclass must be common class (2) and protocol must be IAD (1)
     .bDeviceClass = TUSB_CLASS_MISC,
@@ -37,7 +37,7 @@ const tusb_desc_device_t descriptor_dev_default = {
     .bDeviceClass = 0x00,
     .bDeviceSubClass = 0x00,
     .bDeviceProtocol = 0x00,
-#endif
+#endif // (CFG_TUD_CDC || CFG_TUD_NCM || CFG_TUD_ECM_RNDIS)
 
     .bMaxPacketSize0 = CFG_TUD_ENDPOINT0_SIZE,
 
@@ -68,7 +68,7 @@ const tusb_desc_device_qualifier_t descriptor_qualifier_default = {
     .bDescriptorType = TUSB_DESC_DEVICE_QUALIFIER,
     .bcdUSB = 0x0200,
 
-#if CFG_TUD_CDC
+#if (CFG_TUD_CDC || CFG_TUD_NCM || CFG_TUD_ECM_RNDIS)
     // Use Interface Association Descriptor (IAD) for CDC
     // As required by USB Specs IAD's subclass must be common class (2) and protocol must be IAD (1)
     .bDeviceClass = TUSB_CLASS_MISC,
@@ -78,7 +78,7 @@ const tusb_desc_device_qualifier_t descriptor_qualifier_default = {
     .bDeviceClass = 0x00,
     .bDeviceSubClass = 0x00,
     .bDeviceProtocol = 0x00,
-#endif
+#endif // (CFG_TUD_CDC || CFG_TUD_NCM || CFG_TUD_ECM_RNDIS)
 
     .bMaxPacketSize0 = CFG_TUD_ENDPOINT0_SIZE,
     .bNumConfigurations = 0x01,
