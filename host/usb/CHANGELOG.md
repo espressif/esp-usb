@@ -9,9 +9,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Added
 
 - Added `usb_host_config_t.fsls_only` so High-Speed USB-OTG peripherals can operate as Full/Low-Speed only hosts. Set this field when calling `usb_host_install()`.
+- Added check for maximum transfer size, per transfer type, when enqueuing an URB
 
 ### Fixed
 
+- Fixed cache sync for IN data buffer for transfer lengths nearing to the transfer limits
 - Fixed a race that could trigger an assertion when closing a device immediately after its control transfer completion callback.
 
 ## [1.5.0] - 2026-06-16
