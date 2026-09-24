@@ -245,13 +245,19 @@ menu "USB-OTG"
 
     config USB_HOST_DWC_DMA_CAP_MEMORY_IN_PSRAM
         depends on (IDF_TARGET_ESP32P4 || IDF_TARGET_ESP32S31) && SPIRAM
-        bool "Allocate USB_DWC DMA capable memory in PSRAM"
+        bool "Allocate USB-DWC DMA capable memory in PSRAM"
         default n
         help
-            In the ESP32P4 and ESP32S31, the USB-DWC internal DMA can access external RAM. Enabling this
-            configuration can save internal RAM by allocating the memory buffers used by the USB-DWC peripheral's
+            On ESP32-P4 and ESP32-S31, the USB-DWC internal DMA can access external RAM. Enabling this option
+            saves internal RAM by allocating the memory buffers used by the USB-DWC peripheral's
             DMA to external RAM. However, it introduces minor performance degradation due to the overhead of
             accessing external RAM.
+
+            In Descriptor DMA mode (Scatter-Gather DMA), URB data buffers and the Queue Transfer Descriptor (QTD)
+            lists are placed in external RAM.
+
+            In Buffer DMA mode, only URB data buffers are placed in external RAM, as there are no QTDs
+            in the Buffer DMA.
         # Todo: IDF-11368 (aligned memory alloc size)
 
     # Hidden or compatibility options
