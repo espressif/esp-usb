@@ -5,10 +5,11 @@ on:
   # i.e. validate that the component passes all checks for being uploaded.
   pull_request:
 
-  # For pushes to master: actually upload the components to the registry.
+  # For pushes to master and esp_tinyusb version branches: actually upload the components to the registry.
   push:
     branches:
       - master
+      - "esp_tinyusb/v*"
 
 jobs:
   upload_components:
@@ -18,7 +19,7 @@ jobs:
         with:
           submodules: 'recursive'
       - run: |
-          echo "${{ ( github.ref_name != 'master' || github.repository_owner != 'espressif' ) && 'Checking' || 'Uploading' }} components"
+          echo "${{ ( (github.ref_name != 'master' && !startsWith(github.ref_name, 'esp_tinyusb/v')) || github.repository_owner != 'espressif' ) && 'Checking' || 'Uploading' }} components"
       - name: Upload components to component service
         uses: espressif/upload-components-ci-action@v2
         with:
@@ -46,7 +47,5 @@ jobs:
             host/usb
             type_c/usb_tcpm
           namespace: "espressif"
-          # API token will only be available in the master branch in the main repository.
-          # However, dry-run doesn't require a valid token.
           api_token: ${{ secrets.IDF_COMPONENT_API_TOKEN }}
-          dry_run: ${{ github.ref_name != 'master' || github.repository_owner != 'espressif' }}
+          dry_run: ${{ (github.ref_name != 'master' && !startsWith(github.ref_name, 'esp_tinyusb/v')) || github.repository_owner != 'espressif' }}
