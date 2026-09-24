@@ -158,30 +158,36 @@ def test_usb_device_mtp_manual_pc_access(mtp_host_uri: str, tmp_path: Path, conf
 
         assert _gio('cat', probe).stdout == b'This file is pre-created by the MTP manual PC access test.\n'
         assert _gio('cat', nested).stdout == b'This nested file verifies folder traversal from the PC.\n'
-        _gio('mkdir', workspace, subdir, archive)
-        _gio('copy', source.as_uri(), uploaded)
-        _gio('rename', uploaded, 'ci_renamed.bin')
-        _gio('move', renamed, archive)
-        _gio('save', moved, input_data=edited)
-        _gio('copy', source.as_uri(), child)
-        _gio('move', subdir, moved_dir)
-        assert _gio('cat', moved_child).stdout == payload
-        _gio('copy', empty_source.as_uri(), empty)
-        assert _gio('cat', empty).stdout == b''
-        _gio('remove', deleted)
+        try:
+            _gio('mkdir', workspace, subdir, archive)
+            _gio('copy', source.as_uri(), uploaded)
+            _gio('rename', uploaded, 'ci_renamed.bin')
+            _gio('move', renamed, archive)
+            _gio('save', moved, input_data=edited)
+            _gio('copy', source.as_uri(), child)
+            _gio('move', subdir, moved_dir)
+            assert _gio('cat', moved_child).stdout == payload
+            _gio('copy', empty_source.as_uri(), empty)
+            assert _gio('cat', empty).stdout == b''
+            _gio('remove', deleted)
 
-        downloaded = tmp_path / f'{storage}.bin'
-        _gio('copy', moved, downloaded.as_uri())
-        assert downloaded.read_bytes() == edited
-        assert _gio('info', deleted, check=False).returncode != 0
-        _gio('remove', moved)
-        _gio('remove', moved_child)
-        _gio('remove', empty)
-        _gio('remove', moved_dir)
-        _gio('remove', workspace)
-        archive_entries = _gio('list', archive).stdout
-        assert archive_entries == b'', archive_entries.decode(errors='replace')
-        _gio('remove', archive)
+            downloaded = tmp_path / f'{storage}.bin'
+            _gio('copy', moved, downloaded.as_uri())
+            assert downloaded.read_bytes() == edited
+            assert _gio('info', deleted, check=False).returncode != 0
+            _gio('remove', moved)
+            _gio('remove', moved_child)
+            _gio('remove', empty)
+            _gio('remove', moved_dir)
+            _gio('remove', workspace)
+            archive_entries = _gio('list', archive).stdout
+            assert archive_entries == b'', archive_entries.decode(errors='replace')
+            _gio('remove', archive)
+        finally:
+            # Remove leftovers even on failure; stranded ci_host_* trees fill the
+            # device object cache (CONFIG_TINYUSB_MTP_MAX_OBJECTS) on later runs.
+            for leftover in (moved_child, moved, moved_dir, empty, child, renamed, uploaded, subdir, workspace, archive):
+                _remove_if_present(leftover)
 
 
 @pytest.mark.usb_device
