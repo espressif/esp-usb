@@ -16,6 +16,7 @@ from pytest_embedded_idf.dut import IdfDut
         pytest.param('esp32p4_psram', 'esp32p4', marks=[pytest.mark.eco_default]),
         pytest.param('esp32p4_eco4', 'esp32p4', marks=[pytest.mark.esp32p4_eco4]),
         pytest.param('default', 'esp32s31'),
+        pytest.param('esp32s31_psram', 'esp32s31'),
     ],
     indirect=['target'],
 )

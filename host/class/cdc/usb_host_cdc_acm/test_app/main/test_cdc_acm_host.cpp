@@ -733,11 +733,12 @@ TEST_CASE("rx_buffer", "[cdc_acm]")
     TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_data_tx_blocking(cdc_dev, tx_data, sizeof(tx_data), 1000));
     vTaskDelay(5);
 
-#if SOC_CACHE_INTERNAL_MEM_VIA_L1CACHE
+#if SOC_CACHE_INTERNAL_MEM_VIA_L1CACHE || CONFIG_IDF_TARGET_ESP32S31
+    // RX buffer append is disabled on this target: no overflow expected
     TEST_ASSERT_FALSE_MESSAGE(rx_overflow, "RX overflow");
 #else
     TEST_ASSERT_TRUE_MESSAGE(rx_overflow, "RX did not overflow");
-#endif
+#endif // SOC_CACHE_INTERNAL_MEM_VIA_L1CACHE || CONFIG_IDF_TARGET_ESP32S31
     rx_overflow = false;
 
     // 4. Send more data to the EP: Expect no error

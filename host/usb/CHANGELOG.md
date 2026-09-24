@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- Added DWC2 internal DMA access to the external RAM for esp32s31. The option already exists for the esp32p4, extending it for the esp32s31. The option is configurable via Kconfig.
 - Added `usb_host_config_t.fsls_only` so High-Speed USB-OTG peripherals can operate as Full/Low-Speed only hosts. Set this field when calling `usb_host_install()`.
 - Added check for maximum transfer size, per transfer type, when enqueuing an URB
 

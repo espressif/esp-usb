@@ -16,6 +16,7 @@
 #include "esp_intr_alloc.h"
 #include "esp_err.h"
 #include "esp_log.h"
+#include "esp_memory_utils.h"
 
 #include "hal/usb_dwc_hal.h"
 #include "hcd.h"
@@ -52,7 +53,7 @@
 
 // ----------------------- Configs -------------------------
 
-#ifdef CONFIG_USB_HOST_DWC_DMA_CAP_MEMORY_IN_PSRAM      // In esp32p4, the USB-DWC internal DMA can access external RAM
+#ifdef CONFIG_USB_HOST_DWC_DMA_CAP_MEMORY_IN_PSRAM      // In esp32p4 and esp32s31, the USB-DWC internal DMA can access external RAM
 #define XFER_DESC_LIST_CAPS                     (MALLOC_CAP_DMA | MALLOC_CAP_CACHE_ALIGNED | MALLOC_CAP_SPIRAM)
 #else
 #define XFER_DESC_LIST_CAPS                     (MALLOC_CAP_DMA | MALLOC_CAP_CACHE_ALIGNED | MALLOC_CAP_INTERNAL)
@@ -109,22 +110,38 @@ DEFINE_CRIT_SECTION_LOCK_STATIC(hcd_lock);
 /**
  * @brief Cache sync macros
  *
- * This macros are relevant only for SOCs that have L1 cache for internal memory
- * For other SOCs this is no-operation
+ * Cache sync is required when DMA capable memory can reside in cached memory:
+ * either internal RAM is cached (SOC_CACHE_INTERNAL_MEM_VIA_L1CACHE, e.g. esp32p4),
+ * or DMA capable memory is allocated in PSRAM (CONFIG_USB_HOST_DWC_DMA_CAP_MEMORY_IN_PSRAM).
+ * For SOCs where all DMA capable memory is in non-cacheable memory this is no-operation
+ *
+ * esp32p4:     Both the internal and external RAM is cached, thus we must awlays compile the CACHED_MEMORY_SYNC
+ *              regardless the CONFIG_USB_HOST_DWC_DMA_CAP_MEMORY_IN_PSRAM is enabled or not, to cache sync both RAM types
+ * esp32s31:    Only the external RAM is cached, thus we must compile the CACHED_MEMORY_SYNC only when the
+ *              CONFIG_USB_HOST_DWC_DMA_CAP_MEMORY_IN_PSRAM is enabled to cache-sync only the external RAM.
+ * other SOCs:  Either the DMA Capable memory reside in non-cached memory
+ *              Or the DWC2 internal DMA can't access the external RAM
+ *              Both, the CACHED_MEMORY_SYNC and CONFIG_USB_HOST_DWC_DMA_CAP_MEMORY_IN_PSRAM are coplied out
  */
-#if SOC_CACHE_INTERNAL_MEM_VIA_L1CACHE
+#if SOC_CACHE_INTERNAL_MEM_VIA_L1CACHE || CONFIG_USB_HOST_DWC_DMA_CAP_MEMORY_IN_PSRAM
+#define CACHED_MEMORY_SYNC                          1
+#else
+#define CACHED_MEMORY_SYNC                          0
+#endif // SOC_CACHE_INTERNAL_MEM_VIA_L1CACHE || CONFIG_USB_HOST_DWC_DMA_CAP_MEMORY_IN_PSRAM
+
+#if CACHED_MEMORY_SYNC
 #define CACHE_SYNC_FRAME_LIST(frame_list)           cache_sync_frame_list(frame_list)
 #define CACHE_SYNC_XFER_DESCRIPTOR_LIST_M2C(buffer) cache_sync_xfer_descriptor_list(buffer, true)
 #define CACHE_SYNC_XFER_DESCRIPTOR_LIST_C2M(buffer) cache_sync_xfer_descriptor_list(buffer, false)
 #define CACHE_SYNC_DATA_BUFFER_M2C(pipe, urb)       cache_sync_data_buffer(pipe, urb, true)
 #define CACHE_SYNC_DATA_BUFFER_C2M(pipe, urb)       cache_sync_data_buffer(pipe, urb, false)
-#else // SOC_CACHE_INTERNAL_MEM_VIA_L1CACHE
+#else // CACHED_MEMORY_SYNC
 #define CACHE_SYNC_FRAME_LIST(frame_list)
 #define CACHE_SYNC_XFER_DESCRIPTOR_LIST_M2C(buffer)
 #define CACHE_SYNC_XFER_DESCRIPTOR_LIST_C2M(buffer)
 #define CACHE_SYNC_DATA_BUFFER_M2C(pipe, urb)
 #define CACHE_SYNC_DATA_BUFFER_C2M(pipe, urb)
-#endif // SOC_CACHE_INTERNAL_MEM_VIA_L1CACHE
+#endif // CACHED_MEMORY_SYNC
 
 // ------------------------------------------------------ Types --------------------------------------------------------
 
@@ -272,12 +289,32 @@ static bool s_port_inited[HCD_NUM_PORTS] = {0};
 
 // --------------------- Cache sync ------------------------
 
+#if CACHED_MEMORY_SYNC
+/**
+ * @brief Check if the Frame List resides in cacheable memory and thus requires cache sync
+ *
+ * The Frame List is always allocated in internal RAM. On SOCs where internal memory is accessed
+ * via L1 cache (e.g. esp32p4) it is cacheable. On other SOCs (e.g. esp32s31) internal RAM is not
+ * cached, so no sync is needed.
+ */
+static inline bool frame_list_sync_needed(const void *frame_list)
+{
 #if SOC_CACHE_INTERNAL_MEM_VIA_L1CACHE
+    (void)frame_list;
+    return true;
+#else
+    return esp_ptr_external_ram(frame_list);
+#endif // SOC_CACHE_INTERNAL_MEM_VIA_L1CACHE
+}
+
 /**
  * @brief Sync Frame List from cache to memory
  */
 static inline void cache_sync_frame_list(void *frame_list)
 {
+    if (!frame_list_sync_needed(frame_list)) {
+        return;
+    }
     esp_err_t ret = esp_cache_msync(frame_list, FRAME_LIST_LEN * sizeof(uint32_t), 0);
     assert(ret == ESP_OK);
     (void)ret;
@@ -285,6 +322,9 @@ static inline void cache_sync_frame_list(void *frame_list)
 
 /**
  * @brief Sync Transfer Descriptor List
+ *
+ * @note The descriptor list is always in cacheable memory when this function is compiled in:
+ *       either internal RAM is cached (SOC_CACHE_INTERNAL_MEM_VIA_L1CACHE), or it is allocated in PSRAM
  *
  * @param[in] buffer       Buffer that holds the Transfer Descriptor List
  * @param[in] mem_to_cache Direction of cache sync
@@ -314,6 +354,8 @@ static inline void cache_sync_xfer_descriptor_list(dma_buffer_block_t *buffer, b
  *   copies.
  *
  * @note Here we also accept UNALIGNED data, for cases where the class drivers force overwrite the allocated data slots
+ * @note The data buffer is always in cacheable memory when this function is compiled in:
+ *       either internal RAM is cached (SOC_CACHE_INTERNAL_MEM_VIA_L1CACHE), or it is allocated in PSRAM
  *
  * @param[in] pipe Pipe belonging to this data buffer
  * @param[in] urb  URB belonging to this data buffer
@@ -333,7 +375,7 @@ static inline void cache_sync_data_buffer(pipe_t *pipe, urb_t *urb, bool done)
         (void)ret;
     }
 }
-#endif // SOC_CACHE_INTERNAL_MEM_VIA_L1CACHE
+#endif // CACHED_MEMORY_SYNC
 
 // ------------------- Buffer Control ----------------------
 
