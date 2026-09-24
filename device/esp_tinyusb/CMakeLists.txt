@@ -41,7 +41,11 @@ if(${target} STREQUAL "esp32p4")
                 esp_mm # required by dcd_dwc2.c: #include "esp_cache.h"
         )
 endif()
-set(req fatfs vfs)
+
+set(req fatfs vfs freertos)
+if(IDF_VERSION VERSION_GREATER_EQUAL "6.0.4")
+    list(APPEND req esp_blockdev)
+endif() # IDF_VERSION >= 6.0.4
 
 # USB-PHY driver
 # For IDF 6.x and later, usb_phy driver is moved from usb to esp_hw_support
@@ -81,11 +85,6 @@ if(CONFIG_TINYUSB_MSC_ENABLED)
         list(APPEND srcs
             "storage_blockdev.c"
             )
-        # esp_blockdev must be a PUBLIC requirement (not priv_req): the public
-        # header include/tinyusb_msc.h includes esp_blockdev.h and exposes
-        # esp_blockdev_handle_t in tinyusb_msc_storage_config_t, so consumers
-        # of this component need esp_blockdev's include paths propagated too.
-        list(APPEND req esp_blockdev)
     endif() # IDF_VERSION >= 6.0.4
 endif() # CONFIG_TINYUSB_MSC_ENABLED
 
@@ -175,7 +174,7 @@ idf_component_register(SRCS ${srcs}
                        INCLUDE_DIRS "include" "tinyusb/src"
                        PRIV_INCLUDE_DIRS ${priv_includes}
                        PRIV_REQUIRES ${priv_req}
-                       REQUIRES fatfs vfs freertos
+                       REQUIRES ${req}
                        )
 
 string(TOUPPER "OPT_MCU_${target}" tusb_mcu)
