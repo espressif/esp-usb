@@ -421,6 +421,8 @@ static void ext_port_event_callback(ext_port_hdl_t port_hdl, ext_port_event_t ev
         }
         break;
 new_ds_dev_err:
+        // From within this event: that is how the External Port Driver knows no device was
+        // added, and so that no recycle will come (port_disable())
         ext_hub_port_disable(ext_hub_hdl, port_num);
         break;
     case EXT_PORT_RESET_COMPLETED:
