@@ -520,7 +520,24 @@ reset_err:
             // driver. In that case there is nothing more to report, so treat
             // ESP_ERR_NOT_FOUND as benign.
             const esp_err_t ret = dev_tree_node_dev_gone(NULL, root_hub_port->constant.index);
-            if (ret != ESP_OK && ret != ESP_ERR_NOT_FOUND) {
+            if (ret == ESP_ERR_NOT_FOUND) {
+                // No node, so no recycle is coming to recover the port: its device was never
+                // added (new_dev_err, then a power-off), or was freed before this event.
+                // Recover it here, as for a port that had no device. root_port_req() ignores
+                // a request the recycle has already served.
+                HUB_DRIVER_ENTER_CRITICAL();
+                root_hub_port->dynamic.reqs |= PORT_REQ_RECOVER;
+                if (root_hub_port->constant.index == 0) {
+                    p_hub_driver_obj->dynamic.flags.actions |= HUB_DRIVER_ACTION_ROOT0_REQ;
+                } else {
+#if HCD_NUM_PORTS > 1
+                    p_hub_driver_obj->dynamic.flags.actions |= HUB_DRIVER_ACTION_ROOT1_REQ;
+#else
+                    abort();    // Should never occur
+#endif // HCD_NUM_PORTS > 1
+                }
+                HUB_DRIVER_EXIT_CRITICAL();
+            } else if (ret != ESP_OK) {
                 ESP_ERROR_CHECK(ret);
             }
         }
@@ -553,7 +570,9 @@ static void root_port_req(root_hub_port_t *root_hub_port)
         // We allow this to fail in case a disconnect/port error happens while disabling.
         hcd_port_command(root_port_hdl, HCD_PORT_CMD_DISABLE);
     }
-    if (port_reqs & PORT_REQ_RECOVER) {
+    // A disconnect that finds no device node and the recycle of a device freed before it can
+    // both ask for recovery: only the first request finds the port still in recovery.
+    if ((port_reqs & PORT_REQ_RECOVER) && hcd_port_get_state(root_port_hdl) == HCD_PORT_STATE_RECOVERY) {
         ESP_LOGD(HUB_DRIVER_TAG, "Recovering root port %d",  root_hub_port->constant.index);
         ESP_ERROR_CHECK(hcd_port_recover(root_port_hdl));
 
