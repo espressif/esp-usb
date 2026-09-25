@@ -253,6 +253,8 @@ esp_err_t tinyusb_descriptors_set(tinyusb_port_t port, const tinyusb_desc_config
     // Select String Descriptors and count them
     if (config->string == NULL) {
         ESP_LOGW(TAG, "No String descriptors provided, using default.");
+        // Generate the default serial number string from chip ID
+        tinyusb_desc_serial_number_init();
         pstr_desc = descriptor_str_default;
         while (descriptor_str_default[++s_desc_cfg.str_count] != NULL);
     } else {

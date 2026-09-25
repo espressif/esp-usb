@@ -4,6 +4,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <stdio.h>
+#include <string.h>
+#include "esp_mac.h"
 #include "usb_descriptors.h"
 #include "sdkconfig.h"
 #include "tinyusb.h"
@@ -86,13 +89,44 @@ const tusb_desc_device_qualifier_t descriptor_qualifier_default = {
 };
 #endif // TUD_OPT_HIGH_SPEED
 
+//------------- Serial Number String -------------//
+// Chip ID based serial number: eFuse base MAC (6 bytes) as 12 uppercase hex chars + NUL
+#define TINYUSB_SERIAL_STR_CHIP_ID_LEN    13
+
+// Serial number string buffer, sized at compile time to fit the larger of:
+// - CONFIG_TINYUSB_DESC_SERIAL_STRING: fixed string from Kconfig
+// - Chip ID based serial number
+// Filled by tinyusb_desc_serial_number_init(), must be called before the string descriptor table below is used.
+static char s_serial_str[sizeof(CONFIG_TINYUSB_DESC_SERIAL_STRING) > TINYUSB_SERIAL_STR_CHIP_ID_LEN
+                                                                   ? sizeof(CONFIG_TINYUSB_DESC_SERIAL_STRING)
+                                                                   : TINYUSB_SERIAL_STR_CHIP_ID_LEN];
+
+void tinyusb_desc_serial_number_init(void)
+{
+    if (sizeof(CONFIG_TINYUSB_DESC_SERIAL_STRING) > 1) {
+        // Fixed serial number string from Kconfig
+        memcpy(s_serial_str, CONFIG_TINYUSB_DESC_SERIAL_STRING, sizeof(CONFIG_TINYUSB_DESC_SERIAL_STRING));
+        return;
+    }
+    // No serial string configured by Kconfig: derive it from the chip's eFuse base MAC
+    uint8_t mac[6];
+    if (esp_read_mac(mac, ESP_MAC_BASE) != ESP_OK) {
+        // Should never happen: the base MAC is always present in eFuse
+        s_serial_str[0] = '\0';
+        return;
+    }
+
+    snprintf(s_serial_str, sizeof(s_serial_str), "%02X%02X%02X%02X%02X%02X",
+             mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+}
+
 //------------- Array of String Descriptors -------------//
 const char *descriptor_str_default[] = {
     // array of pointer to string descriptors
     (char[]){0x09, 0x04},                // 0: is supported language is English (0x0409)
     CONFIG_TINYUSB_DESC_MANUFACTURER_STRING, // 1: Manufacturer
     CONFIG_TINYUSB_DESC_PRODUCT_STRING,      // 2: Product
-    CONFIG_TINYUSB_DESC_SERIAL_STRING,       // 3: Serials, should use chip ID
+    s_serial_str,                            // 3: Serial, fixed string from Kconfig (empty = use chip ID)
 
 #if CONFIG_TINYUSB_CDC_ENABLED
     CONFIG_TINYUSB_DESC_CDC_STRING,          // 4: CDC Interface
