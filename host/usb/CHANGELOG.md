@@ -16,6 +16,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - Fixed cache sync for IN data buffer for transfer lengths nearing to the transfer limits
 - Fixed a race that could trigger an assertion when closing a device immediately after its control transfer completion callback.
+- Fixed an assertion in `device_release()` when an external Hub is disconnected while one of its control transfers is in flight
 
 ## [1.5.0] - 2026-06-16
 

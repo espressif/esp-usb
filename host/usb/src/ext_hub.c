@@ -509,7 +509,14 @@ static void device_release(ext_hub_dev_t *ext_hub_dev)
     ESP_LOGD(EXT_HUB_TAG, "[%d] Device release", ext_hub_dev->constant.dev_addr);
 
     EXT_HUB_ENTER_CRITICAL();
-    assert(ext_hub_dev->dynamic.flags.waiting_release); // Sanity check
+    if (!ext_hub_dev->dynamic.flags.waiting_release) {
+        // Released already. A Hub that is gone while a control stage is in flight gets its
+        // release queued twice: by ext_hub_gone(), and again when the stage ends, since
+        // waiting_release is still set then. The first release left nothing to do.
+        EXT_HUB_EXIT_CRITICAL();
+        ESP_LOGD(EXT_HUB_TAG, "[%d] Released already", ext_hub_dev->constant.dev_addr);
+        return;
+    }
     ext_hub_dev->dynamic.flags.waiting_release = 0;
     ext_hub_dev->dynamic.flags.waiting_free = 1;
     EXT_HUB_EXIT_CRITICAL();
