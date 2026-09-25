@@ -143,6 +143,7 @@ TEST_CASE("tinyusb_teardown", "[esp_tinyusb][teardown]")
     TEST_ASSERT_EQUAL(ESP_OK, tinyusb_driver_uninstall());
     // Remove primitives
     vSemaphoreDelete(wait_mount);
+    vTaskDelay(20);
 }
 
 #endif
