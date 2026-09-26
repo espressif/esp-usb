@@ -304,7 +304,7 @@ static esp_err_t dev_tree_node_dev_gone(ext_hub_handle_t parent, uint8_t port_nu
     }
 
     if (dev_tree_node == NULL) {
-        ESP_LOGW(HUB_DRIVER_TAG, "Device tree node (port %d): not found", port_num);
+        ESP_LOGD(HUB_DRIVER_TAG, "Device tree node (port %d): not found on device gone", port_num);
         return ESP_ERR_NOT_FOUND;
     }
 

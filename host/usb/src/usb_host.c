@@ -493,7 +493,19 @@ static void enum_event_callback(enum_event_data_t *event_data, void *arg)
         ESP_ERROR_CHECK(usbh_devs_new_dev_event(event_data->dev_hdl));
         break;
     case ENUM_EVENT_CANCELED:
-        hub_node_disable(event_data->node_uid);
+        // Filter rejected devices are not visible to users, so remove their device object after disabling the port.
+        if (event_data->cancel_reason == ENUM_CANCEL_REASON_FILTER_REJECTED) {
+            esp_err_t ret = hub_node_disable(event_data->node_uid);
+            if (ret != ESP_OK && ret != ESP_ERR_NOT_FOUND) {
+                ESP_LOGE(USB_HOST_TAG, "Hub node disable after enum filter reject failed: %s", esp_err_to_name(ret));
+            }
+            ret = usbh_devs_remove(event_data->node_uid);
+            if (ret != ESP_OK && ret != ESP_ERR_NOT_FOUND) {
+                ESP_LOGE(USB_HOST_TAG, "USBH device remove after enum filter reject failed: %s", esp_err_to_name(ret));
+            }
+        } else {
+            hub_node_disable(event_data->node_uid);
+        }
         break;
     default:
         abort();    // Should never occur
