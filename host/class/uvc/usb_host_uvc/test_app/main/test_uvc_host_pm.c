@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2025-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -24,7 +24,7 @@
 
 #ifdef UVC_HOST_SUSPEND_RESUME_API_SUPPORTED
 
-#define TEST_EVENT_WAIT_MS          500     // Time to expect driver or device event
+#define TEST_EVENT_WAIT_MS          1500     // Time to expect driver or device event
 #define TEST_SUPEND_RESUME_HOLD_MS  1000    // Time to keep the device suspended or resumed
 #define START_BIT (1 << 0)
 
@@ -45,10 +45,9 @@ enum test_uvc_host_evt_type {
  */
 typedef struct {
     enum test_uvc_host_evt_type event_type;
-    union {
-        enum uvc_host_driver_event driver_event;
-        enum uvc_host_dev_event device_event;
-    };
+    enum uvc_host_driver_event driver_event;
+    enum uvc_host_dev_event device_event;
+    uvc_host_driver_event_data_t driver_event_data;
 } test_uvc_event_t;
 
 /**
@@ -62,6 +61,10 @@ static void driver_callback(const uvc_host_driver_event_data_t *event, void *use
     case UVC_HOST_DRIVER_EVENT_DEVICE_CONNECTED:
         ESP_LOGI(TAG, "Device addr %d connected", event->device_connected.dev_addr);
         break;
+    case UVC_HOST_DRIVER_EVENT_DEVICE_DISCONNECTED:
+        ESP_LOGI(TAG, "Device addr %d disconnected, stream index %d",
+                 event->device_disconnected.dev_addr, event->device_disconnected.uvc_stream_index);
+        break;
     default:
         TEST_FAIL_MESSAGE("Unrecognized driver event");
         break;
@@ -71,6 +74,7 @@ static void driver_callback(const uvc_host_driver_event_data_t *event, void *use
         const test_uvc_event_t test_uvc_event = {
             .event_type = UVC_HOST_DRIVER_EVENT,
             .driver_event = event->type,
+            .driver_event_data = *event,
         };
         TEST_ASSERT_EQUAL(pdTRUE, xQueueSend(event_queue, &test_uvc_event, 0));
     }
@@ -172,12 +176,42 @@ static void expect_client_event(test_uvc_event_t *expected_event_data, TickType_
         TEST_ASSERT_EQUAL_MESSAGE(expected_event_data->event_type, event_data.event_type, "Unexpected event type");
         if (event_data.event_type == UVC_HOST_DRIVER_EVENT) {
             TEST_ASSERT_EQUAL_MESSAGE(expected_event_data->driver_event, event_data.driver_event, "Unexpected driver event");
-        } else {
+            if (expected_event_data->driver_event == UVC_HOST_DRIVER_EVENT_DEVICE_DISCONNECTED) {
+                if (expected_event_data->driver_event_data.device_disconnected.dev_addr != UVC_HOST_ANY_DEV_ADDR) {
+                    TEST_ASSERT_EQUAL_UINT8_MESSAGE(
+                        expected_event_data->driver_event_data.device_disconnected.dev_addr,
+                        event_data.driver_event_data.device_disconnected.dev_addr, "Unexpected disconnect device address");
+                } else {
+                    TEST_ASSERT_NOT_EQUAL_MESSAGE(
+                        UVC_HOST_ANY_DEV_ADDR, event_data.driver_event_data.device_disconnected.dev_addr, "Unexpected empty disconnect device address");
+                }
+                TEST_ASSERT_EQUAL_UINT8_MESSAGE(
+                    expected_event_data->driver_event_data.device_disconnected.uvc_stream_index,
+                    event_data.driver_event_data.device_disconnected.uvc_stream_index, "Unexpected disconnect stream index");
+            }
+        } else if (event_data.event_type == UVC_HOST_DEVICE_EVENT) {
             TEST_ASSERT_EQUAL_MESSAGE(expected_event_data->device_event, event_data.device_event, "Unexpected device event");
+        } else {
+            TEST_FAIL_MESSAGE("Unexpected app event type");
         }
     } else {
         TEST_FAIL_MESSAGE("App event not generated on time");
     }
+}
+
+static test_uvc_event_t test_make_driver_disconnect_event(void)
+{
+    // Use UVC_HOST_ANY_DEV_ADDR as a wildcard because the device address is assigned by USB enumeration.
+    return (test_uvc_event_t) {
+        .event_type = UVC_HOST_DRIVER_EVENT,
+        .driver_event = UVC_HOST_DRIVER_EVENT_DEVICE_DISCONNECTED,
+        .driver_event_data = {
+            .device_disconnected = {
+                .dev_addr = UVC_HOST_ANY_DEV_ADDR,
+                .uvc_stream_index = 0,
+            },
+        },
+    };
 }
 
 static bool frame_callback(const uvc_host_frame_t *frame, void *user_ctx)
@@ -326,8 +360,8 @@ TEST_CASE("Basic suspend/resume", "[uvc]")
  *
  * -# Wait for device connection and opend the device
  * -# Suspend the root port and check that the suspend event is delivered
- * -# Disconnect the device and check that the disconnection event is delivered
- * -# Close the device, test cleanup
+ * -# Disconnect the device and check that stream and driver disconnection events are delivered
+ * -# Test cleanup
  */
 TEST_CASE("Suspend sudden disconnect", "[uvc]")
 {
@@ -342,16 +376,81 @@ TEST_CASE("Suspend sudden disconnect", "[uvc]")
     test_uvc_event_t expected_event = {.event_type = UVC_HOST_DEVICE_EVENT, .device_event = UVC_HOST_DEVICE_SUSPENDED};
     expect_client_event(&expected_event, pdMS_TO_TICKS(TEST_EVENT_WAIT_MS));
 
-    // Disconnect the device and wait for the disconnection event
+    // Disconnect the device and wait for stream and driver disconnection events
     TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_set_root_port_power(false));
-    expected_event.device_event = UVC_HOST_DEVICE_DISCONNECTED;
+    expected_event = (test_uvc_event_t) {
+        .event_type = UVC_HOST_DEVICE_EVENT, .device_event = UVC_HOST_DEVICE_DISCONNECTED
+    };
+    expect_client_event(&expected_event, pdMS_TO_TICKS(TEST_EVENT_WAIT_MS));
+    stream = NULL;
+    expected_event = test_make_driver_disconnect_event();
     expect_client_event(&expected_event, pdMS_TO_TICKS(TEST_EVENT_WAIT_MS));
 
     // Try to resume the root port after the sudden disconnect
     TEST_ASSERT_EQUAL(ESP_ERR_NOT_FOUND, usb_host_lib_root_port_resume());
 
-    // Close the device
-    TEST_ASSERT_EQUAL(ESP_OK, uvc_host_stream_close(stream));
+    test_teardown();
+}
+
+#ifdef USB_HOST_DEV_REMOVED_SUPPORTED
+
+/**
+ * @brief Sudden disconnect before stream open
+ *
+ * -# Wait for device connection and connection event
+ * -# Disconnect the device before opening a stream
+ * -# Check that the driver disconnection event is delivered
+ * -# Test cleanup
+ */
+TEST_CASE("Device removed before stream open", "[uvc]")
+{
+    test_install_uvc_driver_pm();
+
+    // Expect device connect event
+    test_uvc_event_t expected_event = {.event_type = UVC_HOST_DRIVER_EVENT, .driver_event = UVC_HOST_DRIVER_EVENT_DEVICE_CONNECTED};
+    expect_client_event(&expected_event, pdMS_TO_TICKS(TEST_EVENT_WAIT_MS));
+
+    // Disconnect unopened device and wait for the driver disconnection event
+    TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_set_root_port_power(false));
+    expected_event = test_make_driver_disconnect_event();
+    expect_client_event(&expected_event, pdMS_TO_TICKS(TEST_EVENT_WAIT_MS));
+
+    test_teardown();
+}
+
+#endif // USB_HOST_DEV_REMOVED_SUPPORTED
+
+/**
+ * @brief Sudden disconnect after stream open
+ *
+ * -# Wait for device connection and open the stream
+ * -# Disconnect the device after opening a stream
+ * -# Check that stream and driver disconnection events are delivered
+ * -# Test cleanup
+ */
+TEST_CASE("Device removed after stream open", "[uvc]")
+{
+    test_install_uvc_driver_pm();
+
+    uvc_host_stream_hdl_t stream = NULL;
+    test_device_connect_open(&stream);
+    TEST_ASSERT_NOT_NULL(stream);
+
+    // Get format, check if it matches the requested format
+    uvc_host_stream_format_t format_set;
+    TEST_ASSERT_EQUAL(ESP_OK, uvc_host_stream_format_get(stream, &format_set));
+    printf("\tformat: %dx%d@%2.0f, %d\n", format_set.h_res, format_set.v_res, format_set.fps, format_set.format);
+    TEST_ASSERT_EQUAL(640,                format_set.h_res);
+    TEST_ASSERT_EQUAL(480,                format_set.v_res);
+
+    // Disconnect opened device and wait for stream and driver disconnection events
+    TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_set_root_port_power(false));
+    test_uvc_event_t expected_event = {.event_type = UVC_HOST_DEVICE_EVENT, .device_event = UVC_HOST_DEVICE_DISCONNECTED};
+    expect_client_event(&expected_event, pdMS_TO_TICKS(TEST_EVENT_WAIT_MS));
+    stream = NULL;
+    expected_event = test_make_driver_disconnect_event();
+    expect_client_event(&expected_event, pdMS_TO_TICKS(TEST_EVENT_WAIT_MS));
+
     test_teardown();
 }
 
@@ -423,8 +522,8 @@ static void test_fame_handling_task(void *args)
  * -# Suspend the root port while receiving frames and check that the suspend event is delivered
  * -# Resume the root port and check that the resume event is delivered
  * -# Repeat the 3 above steps
- * -# Disconnect the device and check that the disconnection event is delivered
- * -# Close the device, test cleanup
+ * -# Stop and close the stream in the frame handling task
+ * -# Test cleanup
  */
 TEST_CASE("Suspend/Resume while streaming", "[uvc]")
 {
@@ -486,8 +585,8 @@ TEST_CASE("Suspend/Resume while streaming", "[uvc]")
  * -# Suspend the root port while receiving frames and check that the suspend event is delivered
  * -# Start the stream, which automatically resumes the root port, check that the resume event is delivered
  * -# Repeat the 3 above steps
- * -# Disconnect the device and check that the disconnection event is delivered
- * -# Close the device, test cleanup
+ * -# Stop and close the stream in the frame handling task
+ * -# Test cleanup
  */
 TEST_CASE("Resume by transfer submit", "[uvc]")
 {
@@ -682,8 +781,8 @@ static void disconnect_task(void *arg)
  * -# Create suspend task, which suspends the root port
  * -# Create disconnect task, which disconnects the device
  * -# Start the tasks simultaneously
- * -# Expect only disconnection event
- * -# Close device, test cleanup
+ * -# Expect stream and driver disconnection events
+ * -# Test cleanup
  */
 TEST_CASE("Multiple tasks access suspend/disconnect", "[uvc]")
 {
@@ -708,12 +807,14 @@ TEST_CASE("Multiple tasks access suspend/disconnect", "[uvc]")
     // Start both tasks
     xEventGroupSetBits(start_event, START_BIT);
 
-    // Only device disconnection event shall be delivered
+    // Stream and driver disconnection events shall be delivered
     test_uvc_event_t expected_event = {.event_type = UVC_HOST_DEVICE_EVENT, .device_event = UVC_HOST_DEVICE_DISCONNECTED};
+    expect_client_event(&expected_event, pdMS_TO_TICKS(TEST_EVENT_WAIT_MS));
+    stream = NULL;
+    expected_event = test_make_driver_disconnect_event();
     expect_client_event(&expected_event, pdMS_TO_TICKS(TEST_EVENT_WAIT_MS));
     expect_client_event(NULL, pdMS_TO_TICKS(TEST_EVENT_WAIT_MS));
 
-    TEST_ASSERT_EQUAL(ESP_OK, uvc_host_stream_close(stream));
     vEventGroupDelete(start_event);
     test_teardown();
 }

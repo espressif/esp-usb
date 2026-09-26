@@ -34,6 +34,7 @@ typedef struct uvc_host_stream_s *uvc_host_stream_hdl_t; /*!< UVC stream handle.
  */
 enum uvc_host_driver_event {
     UVC_HOST_DRIVER_EVENT_DEVICE_CONNECTED = 0x0, /*!< A compatible UVC device has been connected. */
+    UVC_HOST_DRIVER_EVENT_DEVICE_DISCONNECTED,    /*!< A compatible UVC device has been disconnected. */
 };
 
 /**
@@ -78,6 +79,10 @@ typedef struct {
             uint8_t uvc_stream_index;     /*!< Index of UVC function for this uvc stream. */
             size_t frame_info_num;        /*!< Number of entries available from uvc_host_get_frame_list(). */
         } device_connected;               /*!< Data for UVC_HOST_DRIVER_EVENT_DEVICE_CONNECTED. */
+        struct {
+            uint8_t dev_addr;             /*!< USB device address. */
+            uint8_t uvc_stream_index;     /*!< Index of UVC function that was disconnected. */
+        } device_disconnected;            /*!< Data for UVC_HOST_DRIVER_EVENT_DEVICE_DISCONNECTED. */
     };
 } uvc_host_driver_event_data_t;
 
@@ -107,7 +112,7 @@ typedef struct {
  */
 enum uvc_host_dev_event {
     UVC_HOST_TRANSFER_ERROR,         /*!< USB transfer error */
-    UVC_HOST_DEVICE_DISCONNECTED,    /*!< Device was suddenly disconnected. The stream is stopped. */
+    UVC_HOST_DEVICE_DISCONNECTED,    /*!< Open stream was disconnected and must be closed by the user. */
     UVC_HOST_FRAME_BUFFER_OVERFLOW,  /*!< Frame discarded because it exceeded buffer space. */
     UVC_HOST_FRAME_BUFFER_UNDERFLOW, /*!< Frame discarded because no free buffer was available. */
 #ifdef UVC_HOST_SUSPEND_RESUME_API_SUPPORTED
@@ -146,7 +151,7 @@ typedef struct {
 typedef struct {
     unsigned h_res;                     /*!< Horizontal resolution in pixels. */
     unsigned v_res;                     /*!< Vertical resolution in pixels. */
-    float fps;                          /*!< Frames per second. Set to 0 to request the device default. */
+    float fps;                          /*!< Frames per second. Set to 0 to request the selected frame descriptor default. */
     enum uvc_host_stream_format format; /*!< Frame coding format. */
 } uvc_host_stream_format_t;
 

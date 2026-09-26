@@ -5,7 +5,7 @@ url: https://github.com/espressif/esp-usb/tree/master/host/class/uvc/usb_host_uv
 dependencies:
   idf: ">=5.0"
   usb:
-    version: "^1.0.0"
+    version: "^1.5.0"
     public: true
     override_path: "../../../usb"
     rules:
