@@ -31,7 +31,7 @@ jobs:
           github.event_name == 'schedule' && 'New Pull Requests' ||
           github.event_name == 'issues' && 'New Issue' ||
           github.event_name == 'workflow_dispatch' && 'Manual Sync' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     if: ${{ github.repository_owner == 'espressif' }}
     permissions:
       contents: read

@@ -7,7 +7,7 @@ on:
 jobs:
   docs_bot:
     name: Generate automated response by docs bot
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     permissions:
       contents: read
       issues: write

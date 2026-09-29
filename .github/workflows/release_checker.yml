@@ -22,7 +22,7 @@ concurrency:
 
 jobs:
   release-check:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - name: Checkout repo
         uses: actions/checkout@v5
@@ -50,7 +50,7 @@ jobs:
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     needs: release-check
     steps:
       - name: Deploy to GitHub Pages

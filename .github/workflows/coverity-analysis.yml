@@ -8,7 +8,7 @@ on:
 
 jobs:
   check_date:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     name: Check date of latest commit
     outputs:
       run_analysis: ${{ steps.run_analysis.outputs.run_analysis }}
@@ -30,7 +30,7 @@ jobs:
     name: Coverity analysis
     needs: check_date
     if: ${{ needs.check_date.outputs.run_analysis != 'false' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     container: espressif/idf:latest
     steps:
 

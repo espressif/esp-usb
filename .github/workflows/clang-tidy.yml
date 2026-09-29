@@ -9,7 +9,7 @@ on:
 jobs:
   build:
     name: Run clang-tidy
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     container: espressif/idf:latest
     permissions:
       contents: read

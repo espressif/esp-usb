@@ -17,7 +17,7 @@ concurrency:
 
 jobs:
   check-label:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     permissions:
       pull-requests: read
     outputs:
@@ -34,7 +34,7 @@ jobs:
 
   get-changed-files:
     needs: check-label
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     outputs:
       all_changed_files: ${{ steps.set-output.outputs.all_changed_files }}
     steps:
