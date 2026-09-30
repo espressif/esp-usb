@@ -1,0 +1,29 @@
+# Configure TinyUSB. runtime_config descriptors include a second CDC
+# interface when CFG_TUD_CDC > 1 (test_device.c). teardown_device installs
+# its own 0-interface descriptors, so the device that test enumerates does
+# not follow this count. dconn_detection uses the default descriptors and
+# only watches VBUS. Kconfig default is 1; 2 is required by runtime_config.
+CONFIG_TINYUSB_CDC_ENABLED=y
+CONFIG_TINYUSB_CDC_COUNT=2
+
+# dconn_detection handles TINYUSB_EVENT_SUSPENDED and TINYUSB_EVENT_RESUMED.
+# Those identifiers exist only when esp_tinyusb registers the callbacks.
+# TINYUSB_PM stays off: it also depends on PM_ENABLE and tickless idle.
+CONFIG_TINYUSB_SUSPEND_CALLBACK=y
+CONFIG_TINYUSB_RESUME_CALLBACK=y
+
+# Disable watchdogs, they'd get triggered during unity interactive menu
+# CONFIG_ESP_TASK_WDT_INIT is not set
+
+# For CPU load measurement
+CONFIG_FREERTOS_USE_TRACE_FACILITY=y
+CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS=y
+
+# Run-time checks of Heap and Stack
+CONFIG_HEAP_POISONING_COMPREHENSIVE=y
+CONFIG_COMPILER_STACK_CHECK_MODE_STRONG=y
+CONFIG_COMPILER_STACK_CHECK=y
+
+CONFIG_UNITY_ENABLE_BACKTRACE_ON_FAIL=y
+
+CONFIG_COMPILER_CXX_EXCEPTIONS=y
