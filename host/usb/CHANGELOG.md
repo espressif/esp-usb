@@ -16,6 +16,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - Fixed cache sync for IN data buffer for transfer lengths nearing to the transfer limits
 - Fixed a race that could trigger an assertion when closing a device immediately after its control transfer completion callback.
+- Global suspend/resume and the automatic suspend before light sleep now cover all the root ports. In dual host configuration on ESP32-P4 only the first root port used to be suspended, leaving the second USB-OTG controller sending SOFs. All the root ports are now kept in the same power management state: a device attach, a remote wakeup, or a transfer submission on one root port resumes the other one as well.
 
 ## [1.5.0] - 2026-06-16
 
