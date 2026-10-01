@@ -137,6 +137,7 @@ typedef struct {
         usb_device_handle_t dev_hdl;                /**< Handle of device being enumerated */
         // Parameters, updated during enumeration
         enum_stage_t stage;                         /**< Current enumeration stage */
+        enum_cancel_reason_t cancel_reason;         /**< Reason for the current cancellation */
         enum_device_params_t dev_params;            /**< Parameters of device under enumeration */
         int expect_num_bytes;                       /**< Expected number of bytes for IN transfers stages. Set to 0 for OUT transfer */
         uint8_t next_dev_addr;                      /**< Device address for device under enumeration */
@@ -283,6 +284,7 @@ static esp_err_t select_active_configuration(void)
                  dev_desc->idProduct,
                  dev_desc->idVendor,
                  bConfigurationValue);
+        p_enum_driver->single_thread.cancel_reason = ENUM_CANCEL_REASON_FILTER_REJECTED;
         enum_cancel(p_enum_driver->single_thread.node_uid);
         return ESP_OK;
     }
@@ -893,8 +895,10 @@ static esp_err_t stage_cancel(void)
     enum_event_data_t event_data = {
         .event = ENUM_EVENT_CANCELED,
         .node_uid = node_uid,
+        .cancel_reason = p_enum_driver->single_thread.cancel_reason,
     };
     p_enum_driver->constant.enum_event_cb(&event_data, p_enum_driver->constant.enum_event_cb_arg);
+    p_enum_driver->single_thread.cancel_reason = ENUM_CANCEL_REASON_NONE;
     return ESP_OK;
 }
 
@@ -924,6 +928,7 @@ static esp_err_t stage_complete(void)
     // Flush device params
     memset(&p_enum_driver->single_thread.dev_params, 0, sizeof(enum_device_params_t));
     p_enum_driver->single_thread.expect_num_bytes = 0;
+    p_enum_driver->single_thread.cancel_reason = ENUM_CANCEL_REASON_NONE;
 
     // Increase device address to use new value during the next enumeration process
     get_next_dev_addr();
@@ -1228,6 +1233,7 @@ esp_err_t enum_start(unsigned int uid)
     ESP_LOGD(ENUM_TAG, "Start processing device with uid %d", uid);
 
     p_enum_driver->single_thread.stage = ENUM_STAGE_GET_SHORT_DEV_DESC;
+    p_enum_driver->single_thread.cancel_reason = ENUM_CANCEL_REASON_NONE;
     p_enum_driver->single_thread.node_uid = uid;
     p_enum_driver->single_thread.dev_hdl = dev_hdl;
     // Save device handle to the URB transfer context
@@ -1270,10 +1276,17 @@ esp_err_t enum_cancel(unsigned int uid)
     }
 
     p_enum_driver->single_thread.stage = ENUM_STAGE_CANCEL;
+    if (p_enum_driver->single_thread.cancel_reason == ENUM_CANCEL_REASON_NONE) {
+        p_enum_driver->single_thread.cancel_reason = ENUM_CANCEL_REASON_GENERIC;
+    }
 
     ESP_LOGV(ENUM_TAG, "Cancel at %s", enum_stage_strings[old_stage]);
 
     if (stage_need_process(old_stage)) {
+        if (p_enum_driver->single_thread.cancel_reason == ENUM_CANCEL_REASON_FILTER_REJECTED) {
+            ESP_ERROR_CHECK(stage_cancel());
+            return ESP_OK;
+        }
         // These stages are required to trigger processing in the enum_process()
         // This means, that there is no ongoing transfer and we can release the
         // device from enumeration immediately

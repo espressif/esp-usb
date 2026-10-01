@@ -43,10 +43,17 @@ typedef enum {
     ENUM_EVENT_CANCELED,            /**< Enumeration of a device was canceled */
 } enum_event_t;
 
+typedef enum {
+    ENUM_CANCEL_REASON_NONE,             /**< Enumeration was not canceled */
+    ENUM_CANCEL_REASON_GENERIC,          /**< Enumeration was canceled by a generic request */
+    ENUM_CANCEL_REASON_FILTER_REJECTED,  /**< Enumeration was canceled by the user filter callback */
+} enum_cancel_reason_t;
+
 typedef struct {
     enum_event_t event;             /**< Enumerator driver event */
     unsigned int node_uid;          /**< Unique node ID */
     usb_device_handle_t dev_hdl;    /**< Handle of the enumerating device */
+    enum_cancel_reason_t cancel_reason;  /**< Reason for ENUM_EVENT_CANCELED */
 } enum_event_data_t;
 
 // ---------------------------- Callbacks --------------------------------------
