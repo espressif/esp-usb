@@ -316,6 +316,199 @@ esp_err_t uvc_host_stream_format_select(uvc_host_stream_hdl_t stream_hdl, uvc_ho
  */
 esp_err_t uvc_host_stream_format_get(uvc_host_stream_hdl_t stream_hdl, uvc_host_stream_format_t *format);
 
+
+/**
+ * @brief UVC class-specific request codes.
+ *
+ * @see USB UVC specification ver 1.5, table A.8
+ */
+typedef enum {
+    UVC_HOST_REQ_SET_CUR  = 0x01, /*!< Set the current value of a control. */
+    UVC_HOST_REQ_GET_CUR  = 0x81, /*!< Get the current value of a control. */
+    UVC_HOST_REQ_GET_MIN  = 0x82, /*!< Get the minimum value of a control. */
+    UVC_HOST_REQ_GET_MAX  = 0x83, /*!< Get the maximum value of a control. */
+    UVC_HOST_REQ_GET_RES  = 0x84, /*!< Get the resolution (step size) of a control. */
+    UVC_HOST_REQ_GET_LEN  = 0x85, /*!< Get the byte length of a control. */
+    UVC_HOST_REQ_GET_INFO = 0x86, /*!< Get the capabilities of a control. */
+    UVC_HOST_REQ_GET_DEF  = 0x87, /*!< Get the default value of a control. */
+} uvc_host_req_code_t;
+
+/**
+ * @brief Send a custom control request to the camera.
+ *
+ * Sends a control transfer as described in chapter 9 of the USB specification. Intended for
+ * vendor-specific requests that this driver does not implement itself. For a VideoControl
+ * unit or terminal, prefer uvc_host_stream_unit_ctrl(): it composes wValue and wIndex for
+ * you, which is the part that is easy to get wrong.
+ *
+ * @param[in]    stream_hdl    UVC handle obtained from uvc_host_stream_open().
+ * @param[in]    bmRequestType Field of the USB control request.
+ * @param[in]    bRequest      Field of the USB control request.
+ * @param[in]    wValue        Field of the USB control request.
+ * @param[in]    wIndex        Field of the USB control request.
+ * @param[in]    wLength       Field of the USB control request.
+ * @param[inout] data          Payload buffer, at least wLength bytes.
+ *
+ * @return
+ *      - ESP_OK on success
+ *      - ESP_ERR_INVALID_ARG if stream_hdl is NULL, or data is NULL with a non-zero wLength
+ *      - ESP_ERR_INVALID_SIZE if the transfer is larger than the driver's control buffer
+ *      - ESP_ERR_TIMEOUT if the camera did not answer
+ *      - ESP_ERR_NOT_SUPPORTED if the camera stalled the request, meaning it does not
+ *        implement this control. A permanent answer: do not keep asking.
+ *      - ESP_ERR_INVALID_RESPONSE if the transfer failed on the bus or replied short. A
+ *        transient answer, already retried a few times, and worth trying again later.
+ */
+esp_err_t uvc_host_stream_send_custom_request(uvc_host_stream_hdl_t stream_hdl, uint8_t bmRequestType,
+                                              uint8_t bRequest, uint16_t wValue, uint16_t wIndex, uint16_t wLength, uint8_t *data);
+
+/**
+ * @brief Find an Extension Unit by its GUID.
+ *
+ * Unit IDs are assigned per camera and a camera may expose several extension units, so the
+ * GUID is the only portable way to address one.
+ *
+ * @param[in]  stream_hdl UVC handle obtained from uvc_host_stream_open().
+ * @param[in]  guid       16-byte GUID, little-endian as it appears in the descriptor.
+ * @param[out] unit_id    Unit ID to pass to uvc_host_stream_unit_ctrl().
+ *
+ * @return
+ *      - ESP_OK on success
+ *      - ESP_ERR_INVALID_ARG if an argument is NULL
+ *      - ESP_ERR_NOT_FOUND if this camera has no extension unit with that GUID
+ */
+esp_err_t uvc_host_stream_find_extension_unit(uvc_host_stream_hdl_t stream_hdl, const uint8_t guid[16],
+                                              uint8_t *unit_id);
+
+/**
+ * @brief Standard UVC terminal types.
+ *
+ * Values for the wTerminalType field, for use with uvc_host_stream_find_terminal(). The
+ * standard set is listed here; vendor-specific terminals use values outside it, so that
+ * function takes a plain uint16_t rather than this enum.
+ *
+ * @see USB UVC Terminal Types specification ver 1.5, tables 2-1 to 2-3
+ */
+enum uvc_host_terminal_type {
+    UVC_HOST_TT_VENDOR_SPECIFIC          = 0x0100, /*!< USB vendor-specific terminal. */
+    UVC_HOST_TT_STREAMING                = 0x0101, /*!< USB streaming terminal. */
+    UVC_HOST_ITT_VENDOR_SPECIFIC         = 0x0200, /*!< Vendor-specific input terminal. */
+    UVC_HOST_ITT_CAMERA                  = 0x0201, /*!< Camera sensor input terminal. */
+    UVC_HOST_ITT_MEDIA_TRANSPORT_INPUT   = 0x0202, /*!< Media transport input terminal. */
+    UVC_HOST_OTT_VENDOR_SPECIFIC         = 0x0300, /*!< Vendor-specific output terminal. */
+    UVC_HOST_OTT_DISPLAY                 = 0x0301, /*!< Display output terminal. */
+    UVC_HOST_OTT_MEDIA_TRANSPORT_OUTPUT  = 0x0302, /*!< Media transport output terminal. */
+};
+
+/**
+ * @brief Find a terminal by its type.
+ *
+ * Input and output terminals are both searched; the standard type values do not overlap, so
+ * the type alone identifies which is wanted. Pass UVC_HOST_ITT_CAMERA for the terminal that
+ * carries the sensor-side controls: exposure, focus, zoom and Auto-Exposure Priority.
+ *
+ * @param[in]  stream_hdl    UVC handle obtained from uvc_host_stream_open().
+ * @param[in]  terminal_type wTerminalType to look for, e.g. UVC_HOST_ITT_CAMERA.
+ * @param[out] terminal_id   Terminal ID to pass to uvc_host_stream_unit_ctrl().
+ *
+ * @return
+ *      - ESP_OK on success
+ *      - ESP_ERR_INVALID_ARG if an argument is NULL
+ *      - ESP_ERR_NOT_FOUND if this camera has no terminal of that type
+ */
+esp_err_t uvc_host_stream_find_terminal(uvc_host_stream_hdl_t stream_hdl, uint16_t terminal_type,
+                                        uint8_t *terminal_id);
+
+/**
+ * @brief Ask whether a unit or terminal implements a control.
+ *
+ * Worth calling before every optional control. A camera that does not implement one answers
+ * with a STALL, and the USB host library logs that at ERROR, so an unconditional write puts an
+ * error in the log of every boot on cameras that simply lack the control.
+ *
+ * @param[in]  stream_hdl  UVC handle obtained from uvc_host_stream_open().
+ * @param[in]  unit_id     Unit or terminal ID.
+ * @param[in]  control_bit Bit position in bmControls, counted from D0 across all bytes. For
+ *                         example D2 of the Camera Terminal is Auto-Exposure Priority.
+ * @param[out] supported   Whether the camera claims this control.
+ *
+ * @return
+ *      - ESP_OK on success
+ *      - ESP_ERR_INVALID_ARG if an argument is NULL
+ *      - ESP_ERR_NOT_FOUND if there is no such unit, or it declares no bmControls
+ */
+esp_err_t uvc_host_stream_unit_supports_control(uvc_host_stream_hdl_t stream_hdl, uint8_t unit_id,
+                                                uint8_t control_bit, bool *supported);
+
+/**
+ * @brief Issue a control request to a VideoControl unit or terminal.
+ *
+ * Addresses the VideoControl interface and composes wValue and wIndex from the selector and
+ * unit ID. Use it for Camera Terminal, Processing Unit and Extension Unit controls.
+ *
+ * @param[in]    stream_hdl UVC handle obtained from uvc_host_stream_open().
+ * @param[in]    unit_id    Unit or terminal ID, from uvc_host_stream_find_extension_unit() or
+ *                          uvc_host_stream_find_terminal().
+ * @param[in]    selector   Control selector, defined by the unit.
+ * @param[in]    req        Request code. UVC_HOST_REQ_SET_CUR writes, the rest read.
+ * @param[inout] data       Payload buffer, at least len bytes.
+ * @param[in]    len        Payload length in bytes.
+ *
+ * @return
+ *      - ESP_OK on success
+ *      - ESP_ERR_INVALID_ARG if stream_hdl or data is NULL
+ *      - ESP_ERR_NOT_SUPPORTED if the camera stalled it, i.e. this unit does not implement
+ *        this control. Prefer uvc_host_stream_unit_supports_control() to find that out
+ *        without provoking a STALL that the USB host library logs at ERROR.
+ *      - ESP_ERR_INVALID_RESPONSE if the transfer failed on the bus
+ *      - Other error codes from the USB Host library
+ */
+esp_err_t uvc_host_stream_unit_ctrl(uvc_host_stream_hdl_t stream_hdl, uint8_t unit_id, uint8_t selector,
+                                    uvc_host_req_code_t req, void *data, uint16_t len);
+
+/**
+ * @brief Issue a raw control request to the VideoStreaming interface.
+ *
+ * Use this for a vendor-specific VideoStreaming selector, or for a spec control this driver
+ * has not implemented yet. If you find yourself reaching for the second case, the control
+ * probably wants implementing here instead. Nothing is gated for you: a camera that does not
+ * implement the selector answers with a STALL, which the USB host library logs at ERROR.
+ *
+ * @param[in]    stream_hdl UVC handle obtained from uvc_host_stream_open().
+ * @param[in]    selector   VideoStreaming control selector.
+ * @param[in]    req        Request code. UVC_HOST_REQ_SET_CUR writes, the rest read.
+ * @param[inout] data       Payload buffer, at least len bytes.
+ * @param[in]    len        Payload length in bytes.
+ *
+ * @return
+ *      - ESP_OK on success
+ *      - ESP_ERR_INVALID_ARG if stream_hdl or data is NULL
+ *      - ESP_ERR_NOT_SUPPORTED if the camera stalled it, i.e. it does not implement this
+ *        control
+ *      - ESP_ERR_INVALID_RESPONSE if the transfer failed on the bus
+ *      - Other error codes from the USB Host library
+ */
+esp_err_t uvc_host_stream_vs_ctrl(uvc_host_stream_hdl_t stream_hdl, uint8_t selector,
+                                  uvc_host_req_code_t req, void *data, uint16_t len);
+
+/**
+ * @brief Ask the camera to emit a key frame now.
+ *
+ * Issues the VideoStreaming Generate Key Frame control. Useful when a viewer joins mid-GOP or
+ * after packet loss: without it, recovery is bounded by the camera's own key-frame interval,
+ * which is often several seconds.
+ *
+ * @param[in] stream_hdl UVC handle obtained from uvc_host_stream_open().
+ *
+ * @return
+ *      - ESP_OK if the key frame was requested
+ *      - ESP_ERR_INVALID_ARG if stream_hdl is NULL
+ *      - ESP_ERR_NOT_SUPPORTED if the camera does not implement the control, either by not
+ *        claiming it in its descriptor or by stalling the request. Permanent: stop asking.
+ *      - ESP_ERR_INVALID_RESPONSE if the transfer failed on the bus. Transient: try later.
+ */
+esp_err_t uvc_host_stream_request_key_frame(uvc_host_stream_hdl_t stream_hdl);
+
 /**
  * @brief Stop a UVC stream.
  *

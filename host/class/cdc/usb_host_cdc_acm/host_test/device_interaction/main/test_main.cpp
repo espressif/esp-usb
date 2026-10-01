@@ -18,7 +18,12 @@ struct MainTaskArgs {
 static void main_task(void *args)
 {
     MainTaskArgs *task_args = (MainTaskArgs *)args;
-    auto result = Catch::Session().run(task_args->argc, task_args->argv);
+    Catch::Session session;
+    // Catch2 >= 3.9.0 runs tests in random order by default. These tests rely on
+    // declaration order, so restore the old default. Can still be overridden
+    // from the command line with --order rand|lex|decl.
+    session.configData().runOrder = Catch::TestRunOrder::Declared;
+    auto result = session.run(task_args->argc, task_args->argv);
 
     fflush(stdout);
     delete task_args;

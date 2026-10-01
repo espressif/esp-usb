@@ -153,7 +153,7 @@ static void test_mtp_clean_storage(test_mtp_storage_t *storage)
         struct dirent *entry;
         while ((entry = readdir(dir)) != NULL) {
             if (strncmp(entry->d_name, "ci_perf_", 8) == 0 || strncmp(entry->d_name, "ci_concurrent_", 14) == 0 || strncmp(entry->d_name, "ci_many_", 8) == 0 ||
-                    strncmp(entry->d_name, "ci_cache_", 9) == 0) {
+                    strncmp(entry->d_name, "ci_cache_", 9) == 0 || strncmp(entry->d_name, "ci_host_", 8) == 0) {
                 int len = snprintf(stale_name, sizeof(stale_name), "%s", entry->d_name);
                 TEST_ASSERT_TRUE_MESSAGE(len > 0 && len < (int)sizeof(stale_name), "MTP stale workspace name was truncated");
                 break;

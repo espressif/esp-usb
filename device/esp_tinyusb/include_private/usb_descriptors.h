@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2020-2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2020-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -37,6 +37,17 @@ extern const tusb_desc_device_qualifier_t descriptor_qualifier_default;
  * The user can provide their own descriptor via tinyusb_driver_install() call
  */
 extern const char *descriptor_str_default[];
+
+/**
+ * @brief Initialize the default serial number string
+ *
+ * Fills the serial number string buffer referenced by descriptor_str_default:
+ * with CONFIG_TINYUSB_DESC_SERIAL_STRING, or, if it is empty, with a serial
+ * number derived from the chip's eFuse base MAC.
+ *
+ * Must be called before descriptor_str_default is used.
+ */
+void tinyusb_desc_serial_number_init(void);
 
 /**
  * @brief FullSpeed configuration descriptor generated from Kconfig

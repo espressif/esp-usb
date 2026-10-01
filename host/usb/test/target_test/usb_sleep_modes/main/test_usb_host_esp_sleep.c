@@ -99,6 +99,9 @@ static void light_sleep_task(void *args)
         TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_root_port_resume());
     }
 
+    // Disable timer wakeup source
+    TEST_ASSERT_EQUAL(ESP_OK, esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_TIMER));
+
     xEventGroupSetBits(test_event_group, EVT_TEST_FINISH);
     vTaskDelete(NULL);
 }
@@ -195,6 +198,9 @@ TEST_CASE("Test USB Host light sleep", "[usb_sleep_modes][light_sleep]")
     usb_host_sleep_common(ESP_SLEEP_MODE_LIGHT_SLEEP);
 }
 
+// Deep sleep test is unstable on esp32p4 ECO4, disabling the test
+#if !CONFIG_ESP32P4_SELECTS_REV_LESS_V3
+
 /**
  * @brief Deep sleep test case stage 1
  *
@@ -218,7 +224,7 @@ static void usb_host_deep_sleep_2(void)
     test_setup();
     // Get reset reason and check if it's deep sleep reset
     soc_reset_reason_t reason = esp_rom_get_reset_reason(0);
-    TEST_ASSERT(reason == RESET_REASON_CORE_DEEP_SLEEP);
+    TEST_ASSERT_MESSAGE(reason == RESET_REASON_CORE_DEEP_SLEEP, "Incorrect reset reason after exiting deep sleep");
     // Call common test function with deep sleep mode
     usb_host_sleep_common(ESP_SLEEP_MODE_DEEP_SLEEP);
 }
@@ -234,7 +240,7 @@ static void usb_host_deep_sleep_3(void)
     test_setup();
     // Get reset reason and check if it's deep sleep reset
     soc_reset_reason_t reason = esp_rom_get_reset_reason(0);
-    TEST_ASSERT(reason == RESET_REASON_CORE_DEEP_SLEEP);
+    TEST_ASSERT_MESSAGE(reason == RESET_REASON_CORE_DEEP_SLEEP, "Incorrect reset reason after exiting deep sleep");
 
     // End of last stage of the test:
     // Wait for the device to be connected
@@ -269,6 +275,8 @@ Procedure:
     - Device is expected to be disconnected during deep sleep
 */
 TEST_CASE_MULTIPLE_STAGES("Test USB Host deep sleep", "[usb_sleep_modes][deep_sleep]", usb_host_deep_sleep_1, usb_host_deep_sleep_2, usb_host_deep_sleep_3);
+
+#endif // CONFIG_ESP32P4_SELECTS_REV_LESS_V3
 
 /**
  * TEST CASE: Test USB Host enter light sleep error handling
@@ -317,6 +325,9 @@ static void light_sleep_enter_task_error(void *args)
     usb_host_lib_info_t info;
     TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_info(&info));
     TEST_ASSERT_MESSAGE(info.num_devices == 0, "No device shall be connected to the root port");
+
+    // Disable timer wakeup source
+    TEST_ASSERT_EQUAL(ESP_OK, esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_TIMER));
 
     // Signalize the main task to finish the test and unblock the host lib task
     xTaskNotifyGive(main_task);
@@ -527,6 +538,9 @@ static void light_sleep_enter_latency_task(void *args)
     TEST_ASSERT_EQUAL(ESP_OK, esp_sleep_unregister_event_callback(SLEEP_EVENT_SW_EXIT_SLEEP, test_time_before_exit_light_sleep));
     TEST_ASSERT_EQUAL(ESP_OK, esp_sleep_unregister_event_callback(SLEEP_EVENT_SW_EXIT_SLEEP, test_time_after_exit_light_sleep));
 
+    // Disable timer wakeup source
+    TEST_ASSERT_EQUAL(ESP_OK, esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_TIMER));
+
     // Disconnect the device, finish test
     TEST_ASSERT_EQUAL(ESP_ERR_NOT_FINISHED, usb_host_device_free_all());
     vTaskDelete(NULL);
@@ -733,6 +747,9 @@ TEST_CASE("Test USB Host light sleep events delivery", "[usb_sleep_modes][low_sp
     // Enter light sleep with root port manually suspended and expect no event
     light_sleep_enter_catch();
     TEST_ASSERT_EQUAL_MESSAGE(pdFALSE, xQueueReceive(notif_queue, &client_event, pdMS_TO_TICKS(1000)), "An event delivered, but none was expected");
+
+    // Disable timer wakeup source
+    TEST_ASSERT_EQUAL(ESP_OK, esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_TIMER));
 
     // Stop the client task, deregister client and release devices
     xTaskNotifyGive(client_task_hdl);

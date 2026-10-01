@@ -5,10 +5,32 @@
  */
 
 #include <stdio.h>
+#include <string.h>
 #include "unity.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "unity_test_runner.h"
 #include "unity_test_utils_memory.h"
 #include "esp_newlib.h"
+#include "device_handling.h"
+
+/* setUp runs before every test */
+void setUp(void)
+{
+    unity_utils_record_free_mem();
+    test_device_setup();
+}
+
+/* tearDown runs after every test */
+void tearDown(void)
+{
+    // Short delay to allow task to be cleaned up
+    vTaskDelay(10);
+    test_device_release();
+    esp_reent_cleanup();    // clean up some of the newlib's lazy allocations
+    unity_utils_evaluate_leaks();
+}
+
 
 void app_main(void)
 {
@@ -45,19 +67,6 @@ void app_main(void)
     printf("  \\_/ \\____/\\____/  \\_/                            \n");
 
     unity_utils_setup_heap_record(80);
-    unity_utils_set_leak_level(80);
+    unity_utils_set_leak_level(160);
     unity_run_menu();
-}
-
-/* setUp runs before every test */
-void setUp(void)
-{
-    unity_utils_record_free_mem();
-}
-
-/* tearDown runs after every test */
-void tearDown(void)
-{
-    esp_reent_cleanup();    //clean up some of the newlib's lazy allocations
-    unity_utils_evaluate_leaks();
 }

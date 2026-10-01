@@ -772,6 +772,7 @@ esp_err_t hub_install(hub_config_t *hub_config, void **client_ret)
                 .context = root_hub_port,
                 .intr_flags = hub_config->intr_flags,
                 .fifo_config = hub_config->fifo_config,
+                .fsls_only = hub_config->fsls_only,
             };
             ret = hcd_port_init(i, &port_config, &root_hub_port->constant.hdl);
             if (ret != ESP_OK) {

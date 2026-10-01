@@ -153,7 +153,7 @@ typedef struct __attribute__((packed))
 
 typedef struct __attribute__((packed))
 {
-    uint32_t block_count;
+    uint32_t last_lba;      // last accessible LBA (NOT a block count, per SCSI spec)
     uint32_t block_size;
 } cbw_read_capacity_response_t;
 
@@ -386,7 +386,16 @@ esp_err_t scsi_cmd_read_capacity(msc_host_device_handle_t dev, uint32_t *block_s
         MSC_RETURN_ON_ERROR( scsi_cmd_sense(device, NULL));
     }
 
-    *block_count = __builtin_bswap32(response.block_count);
+    uint32_t last_lba = __builtin_bswap32(response.last_lba);
+
+    if (unlikely(last_lba == UINT32_MAX)) {
+        // Sentinel: capacity needs READ CAPACITY(16), which is unsupported
+        ESP_LOGE(TAG, "Device capacity exceeds READ CAPACITY(10) range");
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+
+    // last_lba is the LAST block's LBA, not a count -> +1 (safe: UINT32_MAX rejected above)
+    *block_count = last_lba + 1;
     *block_size = __builtin_bswap32(response.block_size);
 
     return ret;

@@ -1,5 +1,12 @@
 ## Unreleased
 
+- esp_tinyusb: Fixed missing IAD declaration (bDeviceClass/bDeviceSubClass/bDeviceProtocol) in the default device and qualifier descriptors for NCM and ECM/RNDIS
+- esp_tinyusb: `CONFIG_TINYUSB_DESC_SERIAL_STRING` can now be left empty to derive the USB serial number string from the chip's eFuse base MAC at runtime, guaranteeing a unique serial number per device
+- MSC: Added generic block device storage support (IDF >= 6.0.4). This is an additive feature; `tinyusb_msc_new_storage_spiflash` and `tinyusb_msc_new_storage_sdmmc` remain unchanged.
+
+## 2.3.0
+
+- MSC: Use `esp_vfs_fat_register` instead of the deprecated `esp_vfs_fat_register_cfg` for ESP-IDF v6.0 and higher
 - esp_tinyusb: Added support for exposing already-mounted VFS/FATFS paths through Media Transfer Protocol
 - esp_tinyusb: Added power management lock to control automatic light sleep entry based on Device events
 - esp_tinyusb: Added USB Peripheral light sleep wake-up source integration to the esp_tinyusb (only available for USB HS ports)

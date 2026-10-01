@@ -27,8 +27,8 @@ extern "C" {
 #define DEVICE_EVENT_WAIT_MS                    5000    /** Maximum time to wait for a device event, in milliseconds. */
 #define DATA_RECEPTION_WAIT_MS                  7000    /** Maximum time to wait for CDC RX data, in milliseconds. */
 #define SUSPEND_RESUME_TEST_ITERATIONS          5       /** Number of host-driven suspend/resume iterations in PM loop tests. */
-#define PM_LIGHT_SLEEP_TIMER_US                 (2 * 1000 * 1000ULL) /** Light sleep timer wakeup period for PM-only tests, in microseconds. */
-#define PM_LIGHT_SLEEP_WAKE_WAIT_MS             10000   /** Maximum time to wait for a timer light sleep wakeup, in milliseconds. */
+#define PM_LIGHT_SLEEP_WAKE_WAIT_MS             10000   /** Maximum time to wait for a light sleep wakeup, in milliseconds. */
+#define PM_UART_WAKEUP_EDGE_THRESHOLD           6       /**< The active-threshold minimum is 3 on most targets but 6 on the ESP32-P4 HP UART */
 #define TINYUSB_CDC_RX_BUFSIZE                  CONFIG_TINYUSB_CDC_RX_BUFSIZE
 
 #define EVENT_BITS_ATTACHED                     BIT0    /**< Device attached event */
@@ -65,6 +65,19 @@ typedef struct {
  */
 void expect_device_event_impl(uint32_t expected_event, TickType_t ticks, const char *file, int line);
 #define expect_device_event(expected_event, ticks) expect_device_event_impl((expected_event), (ticks), __FILE__, __LINE__)
+
+/**
+ * @brief Wait for any one of an expected device event bit mask
+ *
+ * Like `expect_device_event`, but succeeds as soon as *any* of the bits in `expected_events` is delivered
+ *
+ * @param[in] expected_events Event bit mask from `EVENT_BITS_*` (any one of them matches)
+ * @param[in] ticks           FreeRTOS timeout in ticks
+ * @param[in] file            File from which the function was called
+ * @param[in] line            Line from which the function was called
+ */
+void expect_any_device_event_impl(uint32_t expected_events, TickType_t ticks, const char *file, int line);
+#define expect_any_device_event(expected_events, ticks) expect_any_device_event_impl((expected_events), (ticks), __FILE__, __LINE__)
 
 /**
  * @brief Get the RX synchronization semaphore used by PM tests

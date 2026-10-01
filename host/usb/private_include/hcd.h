@@ -177,6 +177,10 @@ typedef struct {
     void *context;                          /**< Context variable used to associate the port with upper layer object */
     const hcd_fifo_settings_t *fifo_config; /**< Optional pointer to custom FIFO config. If NULL, default configuration is used. */
     int intr_flags;                         /**< Interrupt flags for HCD interrupt */
+    bool fsls_only;                         /**< If set, High-Speed capable USB-OTG peripherals operate as
+                                                 Full/Low-Speed only hosts. The host will not respond to a connected
+                                                 device's High-Speed chirp. Has no effect on Full-Speed only
+                                                 peripherals. */
 } hcd_port_config_t;
 
 /**
@@ -210,6 +214,7 @@ typedef struct {
  *    - ESP_ERR_INVALID_STATE: The port is already enabled
  *    - ESP_ERR_NOT_FOUND: Port number not found
  *    - ESP_ERR_INVALID_ARG: Arguments are invalid
+ *    - ESP_ERR_NOT_SUPPORTED: `fsls_only` was requested but the ESP-IDF USB DWC HAL does not support it
  */
 esp_err_t hcd_port_init(int port_number, const hcd_port_config_t *port_config, hcd_port_handle_t *port_hdl);
 
@@ -364,6 +369,18 @@ esp_err_t hcd_pipe_alloc(hcd_port_handle_t port_hdl, const hcd_pipe_config_t *pi
  *    - HCD pipe mps
  */
 int hcd_pipe_get_mps(hcd_pipe_handle_t pipe_hdl);
+
+/**
+ * @brief Get the maximum transfer size (in bytes) the controller can move in a single bulk/control transfer
+ *
+ * The limit is floored to a whole number of maximum-sized packets.
+ * Periodic (INTR/ISOC) transfers are instead bounded by their descriptor list length and are not covered by this value.
+ *
+ * @param[in] pipe_hdl Pipe handle
+ *
+ * @return Maximum transfer size in bytes for a bulk/control transfer on this pipe
+ */
+int hcd_pipe_get_xfer_size_limit(hcd_pipe_handle_t pipe_hdl);
 
 /**
  * @brief Free a pipe

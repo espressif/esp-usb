@@ -8,7 +8,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- Fix READ CAPACITY(10) off-by-one: the last accessible LBA was used as a block count, under-reporting device capacity by one block
+
+## [1.3.0] - 2026-09-14
+
+### Added
+
+- On ESP-IDF 6.0+, MSC wraps SCSI as an `esp_blockdev` handle via `msc_host_get_blockdev()` (release with `msc_host_release_blockdev()`). FatFS mounts it with `esp_vfs_fat_bdl_mount()` / `diskio_bdl.c`; this component no longer registers USB-specific diskio callbacks.
+- Pre-6.0 still uses `diskio_usb.c` (`ff_diskio_register_msc`) to hang SCSI read/write on a FatFS drive number.
+
+### Fixed
+
 - Validate SCSI READ CAPACITY `block_size` (power-of-two in [512, 4096]) and refuse FatFS `GET_SECTOR_SIZE` truncation that can overflow `fs->win` (BBP 574)
+- Use `esp_vfs_fat_register` instead of the deprecated `esp_vfs_fat_register_cfg` for ESP-IDF v6.0 and higher
 
 ## [1.2.0] - 2026-04-08
 

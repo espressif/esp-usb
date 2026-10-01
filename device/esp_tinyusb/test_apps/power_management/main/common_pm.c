@@ -168,6 +168,18 @@ void expect_device_event_impl(const uint32_t expected_event, TickType_t ticks, c
     TEST_FAIL_MESSAGE(err_msg_buf);
 }
 
+void expect_any_device_event_impl(const uint32_t expected_events, TickType_t ticks, const char *file, int line)
+{
+    // Wait for ANY of the expected event bits (unlike expect_device_event_impl, which requires all).
+    const EventBits_t bits = xEventGroupWaitBits(device_event_group, expected_events, pdTRUE, pdFALSE, ticks);
+    if ((bits & expected_events) != 0) {
+        return;
+    }
+
+    snprintf(err_msg_buf, sizeof(err_msg_buf), "None of events 0x%lx at %s:%d\n was delivered on time", (uint32_t)expected_events, file, line);
+    TEST_FAIL_MESSAGE(err_msg_buf);
+}
+
 SemaphoreHandle_t test_pm_get_rx_sem(void)
 {
     return rx_data_sem;

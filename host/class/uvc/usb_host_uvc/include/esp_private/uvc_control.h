@@ -31,7 +31,8 @@ extern "C" {
  *     - ESP_ERR_TIMEOUT: The transfer could not be completed in time
  *     - ESP_ERR_INVALID_SIZE: The transfer is too big
  *     - ESP_ERR_INVALID_ARG: stream_hdl is NULL, or data is not NULL and wValue is greater than zero
- *     - ESP_ERR_INVALID_RESPONSE: Reply corrupted or too short
+ *     - ESP_ERR_NOT_SUPPORTED: The device stalled the request; it does not implement it
+ *     - ESP_ERR_INVALID_RESPONSE: Transfer failed on the bus, or reply corrupted or too short
  */
 esp_err_t uvc_host_usb_ctrl(uvc_host_stream_hdl_t stream_hdl, uint8_t bmRequestType, uint8_t bRequest, uint16_t wValue, uint16_t wIndex, uint16_t wLength, uint8_t *data);
 

@@ -478,6 +478,29 @@ If :ref:`CONFIG_TINYUSB_MSC_ENABLED` is enabled in menuconfig, the ESP chip can 
     };
     ESP_ERROR_CHECK(tinyusb_msc_new_storage_sdmmc(&config_sdmmc, &storage_hdl));
 
+- Generic Block Device (IDF >= 6.0.4)
+
+On ESP-IDF 6.0.4 and later, any storage medium exposed as an ``esp_blockdev_handle_t`` can back an MSC LUN directly: SPI flash (via ``esp_partition_get_blockdev()`` + ``wl_get_blockdev()``), SD/MMC (via ``sdmmc_get_blockdev()``), or any future medium IDF ships a blockdev for (eMMC, external NAND, etc.) with no changes to this component.
+
+.. code-block:: c
+
+    esp_blockdev_handle_t partition_bdl, wl_bdl;
+    ESP_ERROR_CHECK(esp_partition_get_blockdev(ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_FAT, "storage", &partition_bdl));
+    ESP_ERROR_CHECK(wl_get_blockdev(partition_bdl, &wl_bdl));
+
+    tinyusb_msc_storage_handle_t storage_hdl;
+    const tinyusb_msc_storage_config_t config_blockdev = {
+        .medium.blockdev = wl_bdl,
+    };
+    ESP_ERROR_CHECK(tinyusb_msc_new_storage_blockdev(&config_blockdev, &storage_hdl));
+
+    // The block device handle is borrowed by esp_tinyusb; release it only
+    // after tinyusb_msc_delete_storage() has been called:
+    //   wl_bdl->ops->release(wl_bdl);
+    //   partition_bdl->ops->release(partition_bdl);
+
+``tinyusb_msc_new_storage_spiflash()`` and ``tinyusb_msc_new_storage_sdmmc()`` remain available and unchanged — migration is optional. Prefer the block device API for forward-compatibility with future ``esp_blockdev``-backed media (eMMC, external NAND, etc.); otherwise the per-medium APIs are simplest.
+
 MSC Performance Optimization
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 

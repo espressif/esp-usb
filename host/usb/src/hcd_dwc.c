@@ -16,6 +16,7 @@
 #include "esp_intr_alloc.h"
 #include "esp_err.h"
 #include "esp_log.h"
+#include "esp_memory_utils.h"
 
 #include "hal/usb_dwc_hal.h"
 #include "hcd.h"
@@ -52,7 +53,7 @@
 
 // ----------------------- Configs -------------------------
 
-#ifdef CONFIG_USB_HOST_DWC_DMA_CAP_MEMORY_IN_PSRAM      // In esp32p4, the USB-DWC internal DMA can access external RAM
+#ifdef CONFIG_USB_HOST_DWC_DMA_CAP_MEMORY_IN_PSRAM      // In esp32p4 and esp32s31, the USB-DWC internal DMA can access external RAM
 #define XFER_DESC_LIST_CAPS                     (MALLOC_CAP_DMA | MALLOC_CAP_CACHE_ALIGNED | MALLOC_CAP_SPIRAM)
 #else
 #define XFER_DESC_LIST_CAPS                     (MALLOC_CAP_DMA | MALLOC_CAP_CACHE_ALIGNED | MALLOC_CAP_INTERNAL)
@@ -109,22 +110,38 @@ DEFINE_CRIT_SECTION_LOCK_STATIC(hcd_lock);
 /**
  * @brief Cache sync macros
  *
- * This macros are relevant only for SOCs that have L1 cache for internal memory
- * For other SOCs this is no-operation
+ * Cache sync is required when DMA capable memory can reside in cached memory:
+ * either internal RAM is cached (SOC_CACHE_INTERNAL_MEM_VIA_L1CACHE, e.g. esp32p4),
+ * or DMA capable memory is allocated in PSRAM (CONFIG_USB_HOST_DWC_DMA_CAP_MEMORY_IN_PSRAM).
+ * For SOCs where all DMA capable memory is in non-cacheable memory this is no-operation
+ *
+ * esp32p4:     Both the internal and external RAM is cached, thus we must awlays compile the CACHED_MEMORY_SYNC
+ *              regardless the CONFIG_USB_HOST_DWC_DMA_CAP_MEMORY_IN_PSRAM is enabled or not, to cache sync both RAM types
+ * esp32s31:    Only the external RAM is cached, thus we must compile the CACHED_MEMORY_SYNC only when the
+ *              CONFIG_USB_HOST_DWC_DMA_CAP_MEMORY_IN_PSRAM is enabled to cache-sync only the external RAM.
+ * other SOCs:  Either the DMA Capable memory reside in non-cached memory
+ *              Or the DWC2 internal DMA can't access the external RAM
+ *              Both, the CACHED_MEMORY_SYNC and CONFIG_USB_HOST_DWC_DMA_CAP_MEMORY_IN_PSRAM are coplied out
  */
-#if SOC_CACHE_INTERNAL_MEM_VIA_L1CACHE
+#if SOC_CACHE_INTERNAL_MEM_VIA_L1CACHE || CONFIG_USB_HOST_DWC_DMA_CAP_MEMORY_IN_PSRAM
+#define CACHED_MEMORY_SYNC                          1
+#else
+#define CACHED_MEMORY_SYNC                          0
+#endif // SOC_CACHE_INTERNAL_MEM_VIA_L1CACHE || CONFIG_USB_HOST_DWC_DMA_CAP_MEMORY_IN_PSRAM
+
+#if CACHED_MEMORY_SYNC
 #define CACHE_SYNC_FRAME_LIST(frame_list)           cache_sync_frame_list(frame_list)
 #define CACHE_SYNC_XFER_DESCRIPTOR_LIST_M2C(buffer) cache_sync_xfer_descriptor_list(buffer, true)
 #define CACHE_SYNC_XFER_DESCRIPTOR_LIST_C2M(buffer) cache_sync_xfer_descriptor_list(buffer, false)
 #define CACHE_SYNC_DATA_BUFFER_M2C(pipe, urb)       cache_sync_data_buffer(pipe, urb, true)
 #define CACHE_SYNC_DATA_BUFFER_C2M(pipe, urb)       cache_sync_data_buffer(pipe, urb, false)
-#else // SOC_CACHE_INTERNAL_MEM_VIA_L1CACHE
+#else // CACHED_MEMORY_SYNC
 #define CACHE_SYNC_FRAME_LIST(frame_list)
 #define CACHE_SYNC_XFER_DESCRIPTOR_LIST_M2C(buffer)
 #define CACHE_SYNC_XFER_DESCRIPTOR_LIST_C2M(buffer)
 #define CACHE_SYNC_DATA_BUFFER_M2C(pipe, urb)
 #define CACHE_SYNC_DATA_BUFFER_C2M(pipe, urb)
-#endif // SOC_CACHE_INTERNAL_MEM_VIA_L1CACHE
+#endif // CACHED_MEMORY_SYNC
 
 // ------------------------------------------------------ Types --------------------------------------------------------
 
@@ -272,12 +289,32 @@ static bool s_port_inited[HCD_NUM_PORTS] = {0};
 
 // --------------------- Cache sync ------------------------
 
+#if CACHED_MEMORY_SYNC
+/**
+ * @brief Check if the Frame List resides in cacheable memory and thus requires cache sync
+ *
+ * The Frame List is always allocated in internal RAM. On SOCs where internal memory is accessed
+ * via L1 cache (e.g. esp32p4) it is cacheable. On other SOCs (e.g. esp32s31) internal RAM is not
+ * cached, so no sync is needed.
+ */
+static inline bool frame_list_sync_needed(const void *frame_list)
+{
 #if SOC_CACHE_INTERNAL_MEM_VIA_L1CACHE
+    (void)frame_list;
+    return true;
+#else
+    return esp_ptr_external_ram(frame_list);
+#endif // SOC_CACHE_INTERNAL_MEM_VIA_L1CACHE
+}
+
 /**
  * @brief Sync Frame List from cache to memory
  */
 static inline void cache_sync_frame_list(void *frame_list)
 {
+    if (!frame_list_sync_needed(frame_list)) {
+        return;
+    }
     esp_err_t ret = esp_cache_msync(frame_list, FRAME_LIST_LEN * sizeof(uint32_t), 0);
     assert(ret == ESP_OK);
     (void)ret;
@@ -285,6 +322,9 @@ static inline void cache_sync_frame_list(void *frame_list)
 
 /**
  * @brief Sync Transfer Descriptor List
+ *
+ * @note The descriptor list is always in cacheable memory when this function is compiled in:
+ *       either internal RAM is cached (SOC_CACHE_INTERNAL_MEM_VIA_L1CACHE), or it is allocated in PSRAM
  *
  * @param[in] buffer       Buffer that holds the Transfer Descriptor List
  * @param[in] mem_to_cache Direction of cache sync
@@ -302,7 +342,20 @@ static inline void cache_sync_xfer_descriptor_list(dma_buffer_block_t *buffer, b
  * This function must be called before a URB is enqueued or dequeued.
  * Based on transfer direction (IN/OUT), this function will msync the data buffer associated with this URB.
  *
- * @note Here we also accept UNALIGNED data, for cases where the class drivers force overwrite the allocated data buffers
+ * The operation depends on the transfer direction and on whether the buffer is about to be processed
+ * (enqueue) or was just processed (dequeue):
+ * - Enqueue (all directions): writeback (C2M). For OUT/CTRL this pushes the data the host is about to
+ *   send. For IN it cleans any dirty lines left by prior CPU writes (e.g. a memset of the buffer): on a
+ *   write-back cache that the DMA does not snoop, a dirty line evicted after the DMA has written its
+ *   memory would be written back over the received data, corrupting it. Cleaning at enqueue removes that
+ *   hazard. This is only observable for transfers larger than the D-cache, where a full buffer write
+ *   cannot stay resident until the dequeue-time invalidate.
+ * - Dequeue (IN/CTRL): invalidate (M2C) so the CPU reads the DMA-received data rather than stale cached
+ *   copies.
+ *
+ * @note Here we also accept UNALIGNED data, for cases where the class drivers force overwrite the allocated data slots
+ * @note The data buffer is always in cacheable memory when this function is compiled in:
+ *       either internal RAM is cached (SOC_CACHE_INTERNAL_MEM_VIA_L1CACHE), or it is allocated in PSRAM
  *
  * @param[in] pipe Pipe belonging to this data buffer
  * @param[in] urb  URB belonging to this data buffer
@@ -312,14 +365,17 @@ static inline void cache_sync_data_buffer(pipe_t *pipe, urb_t *urb, bool done)
 {
     const bool is_in = pipe->ep_char.bEndpointAddress & USB_B_ENDPOINT_ADDRESS_EP_DIR_MASK;
     const bool is_ctrl = (pipe->ep_char.type == USB_DWC_XFER_TYPE_CTRL);
-    if ((is_in == done) || is_ctrl) {
-        uint32_t flags = (done) ? ESP_CACHE_MSYNC_FLAG_DIR_M2C : ESP_CACHE_MSYNC_FLAG_UNALIGNED;
+    // Writeback at enqueue for every direction (!done); invalidate at dequeue for IN/CTRL (is_in || is_ctrl)
+    if (!done || is_in || is_ctrl) {
+        // Enqueue: writeback (C2M). Dequeue: invalidate (M2C). UNALIGNED permits non-cache-line-aligned buffers.
+        uint32_t flags = (done) ? ESP_CACHE_MSYNC_FLAG_DIR_M2C
+                         : (ESP_CACHE_MSYNC_FLAG_DIR_C2M | ESP_CACHE_MSYNC_FLAG_UNALIGNED);
         esp_err_t ret = esp_cache_msync(urb->transfer.data_buffer, urb->transfer.data_buffer_size, flags);
         assert(ret == ESP_OK);
         (void)ret;
     }
 }
-#endif // SOC_CACHE_INTERNAL_MEM_VIA_L1CACHE
+#endif // CACHED_MEMORY_SYNC
 
 // ------------------- Buffer Control ----------------------
 
@@ -1085,7 +1141,7 @@ static void  _calculate_fifo_from_bias(port_t *port, const usb_dwc_hal_context_t
 static port_t *port_obj_alloc(void)
 {
     port_t *port = calloc(1, sizeof(port_t));
-    usb_dwc_hal_context_t *hal = malloc(sizeof(usb_dwc_hal_context_t));
+    usb_dwc_hal_context_t *hal = calloc(1, sizeof(*hal));
     void *frame_list = heap_caps_aligned_calloc(USB_DWC_FRAME_LIST_MEM_ALIGN, FRAME_LIST_LEN, sizeof(uint32_t), MALLOC_CAP_DMA | MALLOC_CAP_CACHE_ALIGNED | MALLOC_CAP_INTERNAL);
     SemaphoreHandle_t port_mux = xSemaphoreCreateMutex();
     if (port == NULL || hal == NULL || frame_list == NULL || port_mux == NULL) {
@@ -1532,7 +1588,19 @@ esp_err_t hcd_port_init(int port_number, const hcd_port_config_t *port_config, h
 
     // USB-HAL's size is dependent on its configuration, namely on number of channels in the configuration
     // We must first initialize the HAL, to get the number of channels and then allocate memory for the channels
+#ifdef USB_DWC_HAL_INIT_HAS_CONFIG
+    const usb_dwc_hal_config_t hal_config = {
+        .flags = port_config->fsls_only ? USB_DWC_HAL_CONFIG_FLAG_FSLS_ONLY : 0,
+    };
+    usb_dwc_hal_init_with_config(port_obj->hal, port_number, &hal_config);
+#else
+    if (port_config->fsls_only) {
+        ESP_LOGE(HCD_DWC_TAG, "FS/LS-only host requires ESP-IDF with USB DWC HAL configuration support");
+        err_ret = ESP_ERR_NOT_SUPPORTED;
+        goto clean_up;
+    }
     usb_dwc_hal_init(port_obj->hal, port_number);
+#endif
     hal_inited = true;
     port_obj->hal->channels.hdls = calloc(port_obj->hal->constant_config.chan_num_total, sizeof(usb_dwc_hal_chan_t *));
     if (port_obj->hal->channels.hdls == NULL) {
@@ -1559,7 +1627,7 @@ esp_err_t hcd_port_init(int port_number, const hcd_port_config_t *port_config, h
 
 clean_up:
     if (port_obj != NULL) {
-        if (port_obj->hal != NULL && port_obj->hal->channels.hdls != NULL) {
+        if (hal_inited && port_obj->hal != NULL && port_obj->hal->channels.hdls != NULL) {
             free(port_obj->hal->channels.hdls);
             port_obj->hal->channels.hdls = NULL;
         }
@@ -2150,6 +2218,24 @@ int hcd_pipe_get_mps(hcd_pipe_handle_t pipe_hdl)
     return mps;
 }
 
+int hcd_pipe_get_xfer_size_limit(hcd_pipe_handle_t pipe_hdl)
+{
+    pipe_t *pipe = (pipe_t *)pipe_hdl;
+    int limit;
+    // the HAL returns the per-transfer byte limit floored to a whole number of maximum-sized packets
+#ifndef USB_DWC_LL_QTD_NON_ISO_MAX_XFER_SIZE
+    // for the IDF versions, where the usb_dwc_hal_get_xfer_size_limit() API does not yet exist
+    const int usb_dwc_qtd_non_iso_max_xfer_size = ((1U << 17) - 1);
+    limit = usb_dwc_qtd_non_iso_max_xfer_size;
+    limit -= (limit % pipe->ep_char.mps);
+#else
+    HCD_ENTER_CRITICAL();
+    limit = (int)usb_dwc_hal_get_xfer_size_limit(pipe->port->hal, pipe->ep_char.mps);
+    HCD_EXIT_CRITICAL();
+#endif
+    return limit;
+}
+
 esp_err_t hcd_pipe_free(hcd_pipe_handle_t pipe_hdl)
 {
     pipe_t *pipe = (pipe_t *)pipe_hdl;
@@ -2336,7 +2422,7 @@ static inline void _buffer_fill_intr(dma_buffer_block_t *buffer, usb_transfer_t 
             num_qtds++; // Add a short packet for the remainder
         }
     }
-    assert((zero_len_packet) ? num_qtds + 1 : num_qtds <= XFER_LIST_LEN_INTR); // Check that the number of QTDs doesn't exceed the QTD list's length
+    assert(((zero_len_packet) ? num_qtds + 1 : num_qtds) <= XFER_LIST_LEN_INTR); // Check that the number of QTDs doesn't exceed the QTD list's length
 
     uint32_t xfer_desc_flags = (is_in) ? USB_DWC_HAL_XFER_DESC_FLAG_IN : 0;
     int bytes_filled = 0;
@@ -2807,6 +2893,67 @@ static inline bool _check_port_pipe_state(pipe_t *pipe, bool *submit_urb)
     }
 }
 
+/**
+ * @brief Check that a URB's transfer size fits the pipe's maximum transfer size
+ *
+ * The maximum transfer size depends on the transfer type:
+ * - Control/bulk: bounded by the per-transfer byte limit (in Scatter/Gather DMA, the 17-bit non-isochronous qTD
+ *   "Total bytes to transfer" field), see hcd_pipe_get_xfer_size_limit(). Otherwise the transfer size would silently
+ *   truncate upon the qTD XferSize field. For control transfers only the data stage is bounded, the 8-byte setup
+ *   packet is excluded.
+ * - Interrupt: one qTD per packet (plus one extra qTD for the optional zero-length packet), bounded by the
+ *   interrupt descriptor list length.
+ * - Isochronous: one qTD per packet, spaced by the pipe's interval in the isochronous descriptor list
+ *   (XFER_LIST_ISOC_MARGIN slots are reserved for scheduling timing margin, see _buffer_fill_isoc()).
+ *
+ * Periodic transfers must be rejected here (and not only at descriptor list fill time) because the descriptor list
+ * is filled synchronously on enqueue, where an overflow could otherwise only assert.
+ *
+ * @param pipe Pipe the URB is enqueued to
+ * @param urb URB to check
+ * @return true if the transfer size fits, false otherwise
+ */
+static bool check_xfer_size(pipe_t *pipe, urb_t *urb)
+{
+    bool fits = true;
+    switch (pipe->ep_char.type) {
+    case USB_DWC_XFER_TYPE_CTRL:
+        // For control transfers only the data stage is bounded by the limit, so exclude the setup packet.
+        if (urb->transfer.num_bytes - (int)sizeof(usb_setup_packet_t) > hcd_pipe_get_xfer_size_limit((hcd_pipe_handle_t)pipe)) {
+            fits = false;
+        }
+        break;
+    case USB_DWC_XFER_TYPE_BULK:
+        if (urb->transfer.num_bytes > hcd_pipe_get_xfer_size_limit((hcd_pipe_handle_t)pipe)) {
+            fits = false;
+        }
+        break;
+    case USB_DWC_XFER_TYPE_INTR: {
+        const int mps = pipe->ep_char.mps;
+        int num_qtds = (urb->transfer.num_bytes + mps - 1) / mps;   // One qTD per (short) packet
+        const bool is_in = pipe->ep_char.bEndpointAddress & USB_B_ENDPOINT_ADDRESS_EP_DIR_MASK;
+        if (!is_in && (urb->transfer.flags & USB_TRANSFER_FLAG_ZERO_PACK) && (urb->transfer.num_bytes % mps) == 0) {
+            num_qtds++;     // Extra qTD for the terminating zero-length packet
+        }
+        if (num_qtds > XFER_LIST_LEN_INTR) {
+            fits = false;
+        }
+        break;
+    }
+    case USB_DWC_XFER_TYPE_ISOCHRONOUS:
+        // In case the pipe's interval is too long and there are too many ISOC packets, they might not fit into the
+        // transfer descriptor list
+        if (urb->transfer.num_isoc_packets * pipe->ep_char.periodic.interval > XFER_LIST_LEN_ISOC - XFER_LIST_ISOC_MARGIN) {
+            fits = false;
+        }
+        break;
+    default:
+        fits = false;
+        break;
+    }
+    return fits;
+}
+
 // ----------------------- Public --------------------------
 
 esp_err_t hcd_urb_enqueue(hcd_pipe_handle_t pipe_hdl, urb_t *urb)
@@ -2814,12 +2961,8 @@ esp_err_t hcd_urb_enqueue(hcd_pipe_handle_t pipe_hdl, urb_t *urb)
     // Check that URB has not already been enqueued
     HCD_CHECK(urb->hcd_ptr == NULL && urb->hcd_var == URB_HCD_STATE_IDLE, ESP_ERR_INVALID_STATE);
     pipe_t *pipe = (pipe_t *)pipe_hdl;
-    // Check if the ISOC pipe can handle all packets:
-    // In case the pipe's interval is too long and there are too many ISOC packets, they might not fit into the transfer descriptor list
-    HCD_CHECK(
-        !((pipe->ep_char.type == USB_DWC_XFER_TYPE_ISOCHRONOUS) && (urb->transfer.num_isoc_packets * pipe->ep_char.periodic.interval > XFER_LIST_LEN_ISOC)),
-        ESP_ERR_INVALID_SIZE
-    );
+    // Check that the transfer size fits the pipe's maximum transfer size
+    HCD_CHECK(check_xfer_size(pipe, urb), ESP_ERR_INVALID_SIZE);
 
     // Sync user's data from cache to memory. For OUT and CTRL transfers
     CACHE_SYNC_DATA_BUFFER_C2M(pipe, urb);

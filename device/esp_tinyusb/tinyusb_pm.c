@@ -256,6 +256,20 @@ static esp_err_t tinyusb_pm_on_light_sleep_usb_wakeup(void)
     }
     return tinyusb_pm_lock_acquire();
 }
+
+/**
+ * @brief Restore the UTMI OTG suspend state
+ *
+ * The light-sleep exit callback only restores the OTG state when the wakeup was caused by USB.
+ * When the bus is instead resumed by a device-initiated remote wakeup (after e.g. a UART, or GPIO wake), the OTG state
+ * stays armed with a stale wakeup latch.
+ */
+static void tinyusb_pm_phy_notify(void)
+{
+    tinyusb_usb_wakeup_notify_bus_resumed();
+}
+#else // CONFIG_TINYUSB_USB_OTG_WAKEUP
+static void tinyusb_pm_phy_notify(void) {}
 #endif // CONFIG_TINYUSB_USB_OTG_WAKEUP
 
 // --------------------------------------------------- Public API ------------------------------------------------------
@@ -361,6 +375,7 @@ void tinyusb_pm_on_event(tinyusb_event_t *event)
         PM_BREAK_ON_ERROR(tinyusb_pm_enter_suspend(), "Failed to enter USB suspend PM state");
         break;
     case TINYUSB_EVENT_RESUMED:
+        tinyusb_pm_phy_notify();
         PM_BREAK_ON_ERROR(tinyusb_pm_leave_suspend(), "Failed to leave USB suspend PM state");
         break;
     default:

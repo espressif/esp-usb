@@ -65,6 +65,7 @@ SCENARIO("USB Host install")
         .enum_filter_cb = nullptr,
         .fifo_settings_custom = {},
         .peripheral_map = BIT0,
+        .fsls_only = false,
     };
 
     // USB host config is valid, USB Host driver is not installed from previous test case
@@ -187,6 +188,7 @@ SCENARIO("USB Dual Host install - valid config")
         .enum_filter_cb = nullptr,
         .fifo_settings_custom = {},
         .peripheral_map = BIT0 | BIT1,
+        .fsls_only = false,
     };
 
     usbh_install_ExpectAnyArgsAndReturn(ESP_OK);
@@ -250,6 +252,7 @@ SCENARIO("USB Host install - valid config")
         .enum_filter_cb = nullptr,
         .fifo_settings_custom = {},
         .peripheral_map = BIT0,
+        .fsls_only = false,
     };
 
     GIVEN("Default config with PHY") {
@@ -279,6 +282,16 @@ SCENARIO("USB Host install - valid config")
 
             // Call the DUT function, expect ESP_OK
             REQUIRE(ESP_OK == usb_host_install(&config_unpowered));
+        }
+
+        SECTION("Install with fsls_only") {
+            usb_host_config_t config_fsls = usb_host_config;
+            config_fsls.fsls_only = true;
+
+            hub_root_start_ExpectAndReturn(ESP_OK);
+
+            // Call the DUT function, expect ESP_OK
+            REQUIRE(ESP_OK == usb_host_install(&config_fsls));
         }
 
         // peripheral_map 0 is treated as BIT0 for backward compatibility

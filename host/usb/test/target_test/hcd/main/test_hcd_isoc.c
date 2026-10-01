@@ -149,7 +149,9 @@ TEST_CASE("Test HCD isochronous pipe URBs all", "[isoc][full_speed][high_speed]"
             memcpy(&isoc_out_ep, out_ep_desc, sizeof(usb_ep_desc_t));
             isoc_out_ep.bInterval = interval;
             isoc_out_ep.bEndpointAddress = interval; // So you can see the bInterval value in trace
-            hcd_pipe_handle_t isoc_out_pipe = test_hcd_pipe_alloc(port_hdl, &isoc_out_ep, channel + 1, port_speed); // Channel number represented in dev_num, so you can see it in trace
+            // dev_addr + 1 + channel: never target the real device (dev_addr) - isoc OUT garbage on its bulk
+            // endpoint can wedge it (invalid CBW). Channel number represented in dev_num, so you can see it in trace
+            hcd_pipe_handle_t isoc_out_pipe = test_hcd_pipe_alloc(port_hdl, &isoc_out_ep, dev_addr + 1 + channel, port_speed);
 
             // Initialize URBs
             for (int urb_idx = 0; urb_idx < NUM_URBS; urb_idx++) {

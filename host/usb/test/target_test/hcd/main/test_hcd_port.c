@@ -11,6 +11,7 @@
 #include "esp_rom_sys.h"
 #include "esp_log.h"
 #include "hcd_common.h"
+#include "hal/usb_dwc_hal.h"
 
 static const char *TAG = "PORT";
 
@@ -42,6 +43,40 @@ TEST_CASE("Test HCD port disconnect event, port enabled", "[port][low_speed][ful
     vTaskDelay(pdMS_TO_TICKS(100)); // Short delay send of SOF (for FS, HS) or EOPs (for LS)
     test_hcd_wait_for_disconn(port_hdl, true);
 }
+
+#ifdef USB_DWC_HAL_INIT_HAS_CONFIG
+/*
+Test Full/Low-Speed only operation on a High-Speed capable HCD port
+
+Purpose:
+    - Verify that a High-Speed USB-OTG peripheral enumerates a High-Speed device at Full Speed
+      when the port is initialized with fsls_only
+
+Procedure:
+    - Teardown the default HS port from setUp
+    - Initialize the same port with fsls_only
+    - Trigger a connection and check that the port speed is Full Speed
+    - Teardown and restore the default port for subsequent tests
+*/
+TEST_CASE("Test HCD port FS/LS only on HS peripheral", "[port][high_speed]")
+{
+#if TEST_P4_OTG11
+    TEST_IGNORE_MESSAGE("FS/LS-only applies to High-Speed USB-OTG peripherals");
+#endif
+    // setUp initialized the port in default (HS) mode. Re-init as FS/LS only.
+    test_hcd_teardown(port_hdl);
+    port_hdl = NULL;
+
+    port_hdl = test_hcd_setup_fsls_only();
+    usb_speed_t port_speed = test_hcd_wait_for_conn(port_hdl);
+    TEST_ASSERT_EQUAL_MESSAGE(USB_SPEED_FULL, port_speed, "FS/LS-only host enumerated a High-Speed device");
+    vTaskDelay(pdMS_TO_TICKS(100));
+    test_hcd_wait_for_disconn(port_hdl, true);
+
+    test_hcd_teardown(port_hdl);
+    port_hdl = test_hcd_setup();
+}
+#endif // USB_DWC_HAL_INIT_HAS_CONFIG
 
 /*
 Test a port sudden disconnect and port recovery

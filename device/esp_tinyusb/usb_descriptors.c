@@ -4,6 +4,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <stdio.h>
+#include <string.h>
+#include "esp_mac.h"
 #include "usb_descriptors.h"
 #include "sdkconfig.h"
 #include "tinyusb.h"
@@ -27,7 +30,7 @@ const tusb_desc_device_t descriptor_dev_default = {
     .bDescriptorType = TUSB_DESC_DEVICE,
     .bcdUSB = 0x0200,
 
-#if CFG_TUD_CDC
+#if (CFG_TUD_CDC || CFG_TUD_NCM || CFG_TUD_ECM_RNDIS)
     // Use Interface Association Descriptor (IAD) for CDC
     // As required by USB Specs IAD's subclass must be common class (2) and protocol must be IAD (1)
     .bDeviceClass = TUSB_CLASS_MISC,
@@ -37,7 +40,7 @@ const tusb_desc_device_t descriptor_dev_default = {
     .bDeviceClass = 0x00,
     .bDeviceSubClass = 0x00,
     .bDeviceProtocol = 0x00,
-#endif
+#endif // (CFG_TUD_CDC || CFG_TUD_NCM || CFG_TUD_ECM_RNDIS)
 
     .bMaxPacketSize0 = CFG_TUD_ENDPOINT0_SIZE,
 
@@ -68,7 +71,7 @@ const tusb_desc_device_qualifier_t descriptor_qualifier_default = {
     .bDescriptorType = TUSB_DESC_DEVICE_QUALIFIER,
     .bcdUSB = 0x0200,
 
-#if CFG_TUD_CDC
+#if (CFG_TUD_CDC || CFG_TUD_NCM || CFG_TUD_ECM_RNDIS)
     // Use Interface Association Descriptor (IAD) for CDC
     // As required by USB Specs IAD's subclass must be common class (2) and protocol must be IAD (1)
     .bDeviceClass = TUSB_CLASS_MISC,
@@ -78,7 +81,7 @@ const tusb_desc_device_qualifier_t descriptor_qualifier_default = {
     .bDeviceClass = 0x00,
     .bDeviceSubClass = 0x00,
     .bDeviceProtocol = 0x00,
-#endif
+#endif // (CFG_TUD_CDC || CFG_TUD_NCM || CFG_TUD_ECM_RNDIS)
 
     .bMaxPacketSize0 = CFG_TUD_ENDPOINT0_SIZE,
     .bNumConfigurations = 0x01,
@@ -86,13 +89,44 @@ const tusb_desc_device_qualifier_t descriptor_qualifier_default = {
 };
 #endif // TUD_OPT_HIGH_SPEED
 
+//------------- Serial Number String -------------//
+// Chip ID based serial number: eFuse base MAC (6 bytes) as 12 uppercase hex chars + NUL
+#define TINYUSB_SERIAL_STR_CHIP_ID_LEN    13
+
+// Serial number string buffer, sized at compile time to fit the larger of:
+// - CONFIG_TINYUSB_DESC_SERIAL_STRING: fixed string from Kconfig
+// - Chip ID based serial number
+// Filled by tinyusb_desc_serial_number_init(), must be called before the string descriptor table below is used.
+static char s_serial_str[sizeof(CONFIG_TINYUSB_DESC_SERIAL_STRING) > TINYUSB_SERIAL_STR_CHIP_ID_LEN
+                                                                   ? sizeof(CONFIG_TINYUSB_DESC_SERIAL_STRING)
+                                                                   : TINYUSB_SERIAL_STR_CHIP_ID_LEN];
+
+void tinyusb_desc_serial_number_init(void)
+{
+    if (sizeof(CONFIG_TINYUSB_DESC_SERIAL_STRING) > 1) {
+        // Fixed serial number string from Kconfig
+        memcpy(s_serial_str, CONFIG_TINYUSB_DESC_SERIAL_STRING, sizeof(CONFIG_TINYUSB_DESC_SERIAL_STRING));
+        return;
+    }
+    // No serial string configured by Kconfig: derive it from the chip's eFuse base MAC
+    uint8_t mac[6];
+    if (esp_read_mac(mac, ESP_MAC_BASE) != ESP_OK) {
+        // Should never happen: the base MAC is always present in eFuse
+        s_serial_str[0] = '\0';
+        return;
+    }
+
+    snprintf(s_serial_str, sizeof(s_serial_str), "%02X%02X%02X%02X%02X%02X",
+             mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+}
+
 //------------- Array of String Descriptors -------------//
 const char *descriptor_str_default[] = {
     // array of pointer to string descriptors
     (char[]){0x09, 0x04},                // 0: is supported language is English (0x0409)
     CONFIG_TINYUSB_DESC_MANUFACTURER_STRING, // 1: Manufacturer
     CONFIG_TINYUSB_DESC_PRODUCT_STRING,      // 2: Product
-    CONFIG_TINYUSB_DESC_SERIAL_STRING,       // 3: Serials, should use chip ID
+    s_serial_str,                            // 3: Serial, fixed string from Kconfig (empty = use chip ID)
 
 #if CONFIG_TINYUSB_CDC_ENABLED
     CONFIG_TINYUSB_DESC_CDC_STRING,          // 4: CDC Interface

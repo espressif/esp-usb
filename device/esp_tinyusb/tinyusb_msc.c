@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2025-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -8,6 +8,7 @@
 #include "esp_log.h"
 #include "esp_err.h"
 #include "esp_check.h"
+#include "esp_idf_version.h"
 #include "esp_vfs_fat.h"
 #include "esp_partition.h"
 #include "esp_memory_utils.h"
@@ -26,6 +27,10 @@
 #include "storage_sdmmc.h"
 #include "diskio_sdmmc.h"
 #endif // SOC_SDMMC_HOST_SUPPORTED
+
+#if (TINYUSB_MSC_BDL_SUPPORTED)
+#include "storage_blockdev.h"
+#endif // TINYUSB_MSC_BDL_SUPPORTED
 
 static const char *TAG = "tinyusb_msc_storage";
 
@@ -384,11 +389,13 @@ static inline esp_err_t msc_storage_write_sector_deferred(uint8_t lun, uint32_t 
     return ESP_OK;
 }
 
-static esp_err_t vfs_fat_format(BYTE format_flags)
+static esp_err_t vfs_fat_format(const char *drv, BYTE format_flags)
 {
     esp_err_t ret;
     FRESULT fresult;
-    // Drive does not have a filesystem, try to format it
+    // Drive does not have a filesystem, try to format it.
+    // FF_FS_RPATH is 0, so an empty path always selects logical drive 0.
+    // Pass the registered drive ("0:", "1:", ...) so a second LUN is formatted.
     const size_t workbuf_size = 4096;
     void *workbuf = ff_memalloc(workbuf_size);
     if (workbuf == NULL) {
@@ -397,13 +404,13 @@ static esp_err_t vfs_fat_format(BYTE format_flags)
 
     size_t alloc_unit_size = esp_vfs_fat_get_allocation_unit_size(CONFIG_WL_SECTOR_SIZE, workbuf_size);
 
-    ESP_LOGD(TAG, "Format drive, allocation unit size=%d", alloc_unit_size);
+    ESP_LOGD(TAG, "Format drive %s, allocation unit size=%d", drv, alloc_unit_size);
 
     const MKFS_PARM opt = {format_flags, 0, 0, 0, alloc_unit_size};
-    fresult = f_mkfs("", &opt, workbuf, workbuf_size); // Use default volume
+    fresult = f_mkfs(drv, &opt, workbuf, workbuf_size);
     if (fresult != FR_OK) {
         ret = ESP_FAIL;
-        ESP_LOGE(TAG, "Unable to create default volume, (%d)", fresult);
+        ESP_LOGE(TAG, "Unable to create volume %s, (%d)", drv, fresult);
         goto fail;
     }
     ff_memfree(workbuf);
@@ -485,15 +492,19 @@ static esp_err_t msc_storage_mount(msc_storage_obj_t *storage)
     char drv[3] = {(char)('0' + pdrv), ':', 0};
 
 #if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 3, 0)
-    esp_vfs_fat_conf_t conf = {
+    const esp_vfs_fat_conf_t conf = {
         .base_path = base_path,
         .fat_drive = drv,
         .max_files = max_files,
     };
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(6, 0, 0)
+    ret = esp_vfs_fat_register(&conf, &fs);
+#else
     ret = esp_vfs_fat_register_cfg(&conf, &fs);
+#endif // ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(6, 0, 0)
 #else
     ret = esp_vfs_fat_register(base_path, drv, max_files, &fs);
-#endif
+#endif // ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 3, 0)
     if (ret == ESP_ERR_INVALID_STATE) {
         ESP_LOGD(TAG, "VFS FAT already registered");
     } else if (ret != ESP_OK) {
@@ -517,10 +528,11 @@ static esp_err_t msc_storage_mount(msc_storage_obj_t *storage)
             ret = ESP_OK;
             goto exit;
         }
-        ESP_LOGW(TAG, "Mount failed, trying to format the drive");
+        ESP_LOGW(TAG, "Mount failed, trying to format drive %s", drv);
         BYTE format_flags = storage->fat_fs.format_flags;
-        ESP_GOTO_ON_ERROR(vfs_fat_format(format_flags), fail, TAG, "Failed to format the drive");
-        ESP_GOTO_ON_ERROR(vfs_fat_mount(drv, fs, false), fail, TAG, "Failed to mount FAT filesystem");
+        ESP_GOTO_ON_ERROR(vfs_fat_format(drv, format_flags), fail, TAG, "Failed to format the drive");
+        // Force the mount so a format that did not produce a readable filesystem is reported here.
+        ESP_GOTO_ON_ERROR(vfs_fat_mount(drv, fs, true), fail, TAG, "Failed to mount FAT filesystem");
         ESP_LOGD(TAG, "Format completed, FAT mounted successfully");
     } else if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to mount drive, %s", esp_err_to_name(ret));
@@ -886,6 +898,12 @@ esp_err_t tinyusb_msc_new_storage_spiflash(const tinyusb_msc_storage_config_t *c
     return ESP_OK;
 
 map_err:
+    // Covers both failure origins: map_to_lun failing (nothing to unmap, no-op)
+    // and msc_storage_mount failing after a successful map (must unmap here,
+    // else the freed storage stays referenced in dynamic.storage[]/lun_count).
+    MSC_ENTER_CRITICAL();
+    _msc_storage_unmap_from_lun(storage);
+    MSC_EXIT_CRITICAL();
     msc_storage_delete(storage);
 storage_err:
     medium->close();
@@ -966,6 +984,12 @@ esp_err_t tinyusb_msc_new_storage_sdmmc(const tinyusb_msc_storage_config_t *conf
     return ESP_OK;
 
 map_err:
+    // Covers both failure origins: map_to_lun failing (nothing to unmap, no-op)
+    // and msc_storage_mount failing after a successful map (must unmap here,
+    // else the freed storage stays referenced in dynamic.storage[]/lun_count).
+    MSC_ENTER_CRITICAL();
+    _msc_storage_unmap_from_lun(storage);
+    MSC_EXIT_CRITICAL();
     msc_storage_delete(storage);
 storage_err:
     medium->close();
@@ -977,6 +1001,104 @@ driver_err:
     return ret;
 }
 #endif // SOC_SDMMC_HOST_SUPPORTED
+
+#if (TINYUSB_MSC_BDL_SUPPORTED)
+esp_err_t tinyusb_msc_new_storage_blockdev(const tinyusb_msc_storage_config_t *config,
+                                           tinyusb_msc_storage_handle_t *handle)
+{
+    ESP_RETURN_ON_FALSE(config != NULL, ESP_ERR_INVALID_ARG, TAG, "Config can't be NULL");
+    ESP_RETURN_ON_FALSE(config->medium.blockdev != ESP_BLOCKDEV_HANDLE_INVALID, ESP_ERR_INVALID_ARG, TAG, "Block device handle should be valid");
+
+    bool need_to_install_driver = false;
+    const storage_medium_t *medium = NULL;
+    msc_storage_obj_t *storage = NULL;
+    esp_err_t ret;
+
+    MSC_ENTER_CRITICAL();
+    if (p_msc_driver == NULL) {
+        need_to_install_driver = true;
+    }
+    MSC_EXIT_CRITICAL();
+
+    if (need_to_install_driver) {
+        tinyusb_msc_driver_config_t default_cfg = {
+            .callback = msc_storage_event_default_cb,
+        };
+        ret = msc_driver_install(&default_cfg, true);
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to install MSC driver");
+            goto driver_err;
+        }
+    }
+
+    ret = storage_blockdev_open_medium(config->medium.blockdev, &medium);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to open block device medium");
+        goto medium_err;
+    }
+
+    // MSC FIFO must be an exact multiple of the sector size: TinyUSB caps each
+    // READ10/WRITE10 chunk at the raw FIFO size without sector-rounding, so a
+    // non-multiple misaligns every chunk after the first.
+    storage_info_t info;
+    ret = medium->get_info(&info);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to get block device storage info");
+        goto storage_err;
+    }
+    if (CONFIG_TINYUSB_MSC_BUFSIZE < info.sector_size ||
+            (CONFIG_TINYUSB_MSC_BUFSIZE % info.sector_size) != 0) {
+        ESP_LOGE(TAG, "TinyUSB buffer size (%d) must be a multiple of the block device sector size (%" PRIu32 "), please reconfigure the project.",
+                 (int)(CONFIG_TINYUSB_MSC_BUFSIZE), info.sector_size);
+        ret = ESP_ERR_NOT_SUPPORTED;
+        goto storage_err;
+    }
+
+    ret = msc_storage_new(config, medium, &storage);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to create MSC storage object");
+        goto storage_err;
+    }
+    MSC_ENTER_CRITICAL();
+    if (!_msc_storage_map_to_lun(storage)) {
+        MSC_EXIT_CRITICAL();
+        ESP_LOGE(TAG, "Failed to map storage to LUN");
+        ret = ESP_FAIL;
+        goto map_err;
+    }
+    MSC_EXIT_CRITICAL();
+
+    if (config->mount_point == TINYUSB_MSC_STORAGE_MOUNT_APP) {
+        ret = msc_storage_mount(storage);
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to mount storage to application");
+            goto map_err;
+        }
+    }
+
+    if (handle != NULL) {
+        *handle = (tinyusb_msc_storage_handle_t)storage;
+    }
+    return ESP_OK;
+
+map_err:
+    // Covers both failure origins: map_to_lun failing (nothing to unmap, no-op)
+    // and msc_storage_mount failing after a successful map (must unmap here,
+    // else the freed storage stays referenced in dynamic.storage[]/lun_count).
+    MSC_ENTER_CRITICAL();
+    _msc_storage_unmap_from_lun(storage);
+    MSC_EXIT_CRITICAL();
+    msc_storage_delete(storage);
+storage_err:
+    medium->close();
+medium_err:
+    if (need_to_install_driver) {
+        tinyusb_msc_uninstall_driver();
+    }
+driver_err:
+    return ret;
+}
+#endif // TINYUSB_MSC_BDL_SUPPORTED
 
 esp_err_t tinyusb_msc_delete_storage(tinyusb_msc_storage_handle_t handle)
 {
@@ -1133,21 +1255,25 @@ esp_err_t tinyusb_msc_format_storage(tinyusb_msc_storage_handle_t handle)
     // Register FAT FS with VFS component
     char drv[3] = {(char)('0' + pdrv), ':', 0}; // FATFS drive specificator; if only one drive is used, can be an empty string
 #if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 3, 0)
-    esp_vfs_fat_conf_t conf = {
+    const esp_vfs_fat_conf_t conf = {
         .base_path = base_path,
         .fat_drive = drv,
         .max_files = max_files,
     };
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(6, 0, 0)
+    ESP_RETURN_ON_ERROR(esp_vfs_fat_register(&conf, &fs), TAG, "VFS FAT register failed");
+#else
     ESP_RETURN_ON_ERROR(esp_vfs_fat_register_cfg(&conf, &fs), TAG, "VFS FAT register failed");
+#endif // ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(6, 0, 0)
 #else
     ESP_RETURN_ON_ERROR(esp_vfs_fat_register(base_path, drv, max_files, &fs), TAG, "VFS FAT register failed");
-#endif
+#endif // ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 3, 0)
     // to make format, we need to mount the fs
     // Mount the FAT FS
     ret = vfs_fat_mount(drv, fs, true);
     ESP_RETURN_ON_FALSE(ret == ESP_ERR_NOT_FOUND, ESP_ERR_NOT_FOUND, TAG, "Unexpected filesystem found on the drive");
-    ESP_RETURN_ON_ERROR(vfs_fat_format(storage->fat_fs.format_flags), TAG, "Failed to format the drive");
-    ESP_RETURN_ON_ERROR(vfs_fat_mount(drv, fs, false), TAG, "Failed to mount FAT filesystem");
+    ESP_RETURN_ON_ERROR(vfs_fat_format(drv, storage->fat_fs.format_flags), TAG, "Failed to format the drive");
+    ESP_RETURN_ON_ERROR(vfs_fat_mount(drv, fs, true), TAG, "Failed to mount FAT filesystem");
 
     ESP_LOGD(TAG, "Storage formatted successfully");
     return ESP_OK;
