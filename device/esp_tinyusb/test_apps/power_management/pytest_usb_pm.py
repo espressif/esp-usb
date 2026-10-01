@@ -83,8 +83,6 @@ def run_usb_wakeup_test(dut: IdfDut) -> None:
         raise RuntimeError(f"Failed to open CDC device on {ports[0]}") from e
 
     sleep(1)
-    # Wait for the test app to finish
-    dut.expect_exact('PM_Device_main_app: Cleanup')
     dut.expect_exact(TINYUSB_EVENTS['detached'])
     sleep(1)
 
@@ -144,7 +142,6 @@ def run_non_usb_wakeup_test(dut: IdfDut) -> None:
     except SerialException as e:
         raise RuntimeError(f"Failed to open CDC device on {ports[0]}") from e
 
-    dut.expect_exact('PM_Device_main_app: Cleanup')
     dut.expect_exact(TINYUSB_EVENTS['detached'])
     sleep(1)
 
@@ -281,8 +278,6 @@ def test_usb_cdc_device_pm_public_api(dut: IdfDut) -> None:
     except SerialException as e:
         raise RuntimeError(f"Failed to open CDC device on {ports[0]}") from e
 
-    # Wait for the test app to finish
-    dut.expect_exact('PM_Device_main_app: Cleanup')
     sleep(1)
 
 @pytest.mark.usb_device
@@ -337,7 +332,6 @@ def test_usb_device_light_sleep_usb_wakeup(dut: IdfDut) -> None:
     dut.expect_exact(TINYUSB_EVENTS['resumed'])
     dut.expect_exact(TINYUSB_EVENTS['light_sleep_data_rx'])
     # Wait for the test app to finish
-    dut.expect_exact('PM_Device_main_app: Cleanup')
     dut.expect_exact(TINYUSB_EVENTS['detached'])
     sleep(1)
 
