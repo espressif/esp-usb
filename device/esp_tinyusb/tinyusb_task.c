@@ -116,6 +116,7 @@ static void tinyusb_device_task(void *arg)
 desc_free:
     tinyusb_descriptors_free();
 del:
+    ESP_LOGI(TAG, "DELETING!!!!!!!");
     TINYUSB_TASK_ENTER_CRITICAL();
     s_task_state = TINYUSB_TASK_STOPPED;
     TINYUSB_TASK_EXIT_CRITICAL();

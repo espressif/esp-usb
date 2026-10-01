@@ -13,7 +13,6 @@
 
 #include "tinyusb.h"
 #include "tinyusb_cdc_acm.h"
-const static char *TAG = "PM_Device_main_app";
 
 void app_main(void)
 {
@@ -63,10 +62,6 @@ void setUp(void)
 /* tearDown runs after every test */
 void tearDown(void)
 {
-    ESP_LOGI(TAG, "Cleanup");
-    tinyusb_cdcacm_deinit(TINYUSB_CDC_ACM_0);
-    tinyusb_driver_uninstall();
     esp_reent_cleanup();    //clean up some of the newlib's lazy allocations
-    vTaskDelay(20);
     unity_utils_evaluate_leaks();
 }

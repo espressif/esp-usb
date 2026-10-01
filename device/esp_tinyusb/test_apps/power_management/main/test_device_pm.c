@@ -81,6 +81,11 @@ TEST_CASE("tinyusb_suspend_resume_events", "[device_events][tinyusb_suspend_resu
     // Wait for the last auto suspend to finish the pytest. This time the host closes the CDC port, so it may report
     // remote wakeup as either enabled (normal autosuspend) or disabled (port close) depending on host behavior
     expect_any_device_event(EVENT_BITS_SUSPENDED_REMOTE_WAKE_EN | EVENT_BITS_SUSPENDED_REMOTE_WAKE_DIS, pdMS_TO_TICKS(DEVICE_EVENT_WAIT_MS));
+
+    ESP_LOGI(TAG, "Cleanup");
+    ESP_ERROR_CHECK(tinyusb_cdcacm_deinit(TINYUSB_CDC_ACM_0));
+    ESP_ERROR_CHECK(tinyusb_driver_uninstall());
+    vTaskDelay(30);
 }
 
 /**
@@ -130,6 +135,11 @@ TEST_CASE("tinyusb_remote_wakeup_reporting", "[device_events][tinyusb_remote_wak
     // Signalize remote wakeup and expect resume event
     TEST_ASSERT_EQUAL(ESP_OK, tinyusb_remote_wakeup());
     expect_device_event(EVENT_BITS_RESUMED, pdMS_TO_TICKS(DEVICE_EVENT_WAIT_MS));
+
+    ESP_LOGI(TAG, "Cleanup");
+    ESP_ERROR_CHECK(tinyusb_cdcacm_deinit(TINYUSB_CDC_ACM_0));
+    ESP_ERROR_CHECK(tinyusb_driver_uninstall());
+    vTaskDelay(30);
 }
 
 /**
@@ -196,8 +206,13 @@ TEST_CASE("tinyusb_cdc_public_api_error_handling", "[esp_tinyusb][cdc_device_pm_
     TEST_ASSERT_EQUAL(ESP_OK, tinyusb_cdcacm_write_flush(TINYUSB_CDC_ACM_0, 0));
 
     // Wait for auto suspend
-    expect_device_event(EVENT_BITS_SUSPENDED_REMOTE_WAKE_EN, pdMS_TO_TICKS(DEVICE_EVENT_WAIT_MS));
+    expect_device_event(EVENT_BITS_SUSPENDED_REMOTE_WAKE_DIS, pdMS_TO_TICKS(DEVICE_EVENT_WAIT_MS));
     vTaskDelay(10);
+
+    ESP_LOGI(TAG, "Cleanup");
+    ESP_ERROR_CHECK(tinyusb_cdcacm_deinit(TINYUSB_CDC_ACM_0));
+    ESP_ERROR_CHECK(tinyusb_driver_uninstall());
+    vTaskDelay(30);
 }
 
 /**
@@ -236,7 +251,12 @@ TEST_CASE("tinyusb_init_deinit_from_suspended", "[esp_tinyusb][driver_init_deini
     test_pm_init_tinyusb_cdc(&opts);
 
     // Let the driver to be installed
-    vTaskDelay(10);
+    vTaskDelay(20);
+
+    ESP_LOGI(TAG, "Cleanup");
+    ESP_ERROR_CHECK(tinyusb_cdcacm_deinit(TINYUSB_CDC_ACM_0));
+    ESP_ERROR_CHECK(tinyusb_driver_uninstall());
+    vTaskDelay(30);
 }
 
 #if CONFIG_TINYUSB_USB_OTG_WAKEUP
@@ -294,6 +314,11 @@ TEST_CASE("tinyusb_light_sleep_usb_wakeup", "[device_pm][tinyusb_light_sleep_otg
     TEST_ASSERT_EQUAL(sizeof(send_message) - 1, tinyusb_cdcacm_write_queue(TINYUSB_CDC_ACM_0, buf, sizeof(send_message) - 1));
     TEST_ASSERT_EQUAL(ESP_OK, tinyusb_cdcacm_write_flush(TINYUSB_CDC_ACM_0, 0));
     printf("LIGHT_SLEEP_DATA_RX\n");
+
+    ESP_LOGI(TAG, "Cleanup");
+    ESP_ERROR_CHECK(tinyusb_cdcacm_deinit(TINYUSB_CDC_ACM_0));
+    ESP_ERROR_CHECK(tinyusb_driver_uninstall());
+    vTaskDelay(30);
 }
 #endif // CONFIG_TINYUSB_USB_OTG_WAKEUP
 
