@@ -1,4 +1,4 @@
-# Espressif's Additions to TinyUSB - Runtime Configuration Test Application
+# Espressif's Additions to TinyUSB - General Test Application
 
 This directory contains Unity tests that validate Espressif-specific integration of TinyUSB.
 
@@ -7,8 +7,11 @@ The tests focus on:
 - TinyUSB configuration helpers (default macros, per-port config).
 - USB Device descriptors (FS/HS, string descriptors, edge cases).
 - USB peripheral / PHY configuration for full-speed and high-speed.
-- TinyUSB task configuration (CPU pinning, invalid parameters).
+- TinyUSB task configuration (CPU pinning, invalid parameters) and CPU load measurement.
 - Multitask access to the TinyUSB driver (concurrent installs).
+- Power-management install with the PM lock disabled and enabled in the config struct.
+- USB device disconnect detection via VBUS monitoring (`TINYUSB_EVENT_DETACHED`).
+- Repeated install/uninstall cycles of the TinyUSB device driver without any USB class.
 
 The test prints a numbered menu, for example:
 
@@ -29,6 +32,9 @@ Each test is tagged with categories and modes:
 - [runtime_config] – Tests focusing on `tinyusb_config_t` and runtime configuration.
 - [periph] – Tests that directly exercise the USB peripheral (USB OTG 1.1 or USB OTG 2.0).
 - [task] – Tests related to the dedicated TinyUSB task configuration.
+- [cpu_load] – TinyUSB task run-time measurement.
+- [dconn] – Disconnect detection via a simulated VBUS signal on GPIO.
+- [teardown] – Repeated install/uninstall. The host checks VID `0x303A`, PID `0x4002`.
 
 ### Speed / Mode
 
