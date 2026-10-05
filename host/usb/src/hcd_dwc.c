@@ -71,14 +71,6 @@
 #define XFER_LIST_LEN_ISOC                      64  // Implement longer ISOC transfer list to give us enough space for additional timing margin
 #define XFER_LIST_ISOC_MARGIN                   3   // The 1st ISOC transfer is scheduled 3 (micro)frames later so we have enough timing margin
 
-// HFNUM.FrNum is a hardware counter that increments on every SOF/micro-SOF and wraps back to 0 after reaching 0x3FFF
-// (USB-DWC databook §5.4.31). pipe_t.next_due_frame (Buffer DMA periodic scheduling, see
-// _port_sof_intr_buffer_dma()) must be masked to the same range after every update, so that comparing it
-// against usb_dwc_hal_port_get_cur_frame_num() with wraparound-safe signed subtraction remains valid
-// indefinitely (otherwise next_due_frame would keep growing past 0x3FFF while the hardware counter wraps,
-// permanently desyncing the comparison).
-#define FRAME_NUM_MASK                          0x3FFF
-
 // ------------------------ Internal --------------------------
 
 /**
@@ -308,11 +300,9 @@ struct pipe_obj {
     // Pipe status/state/events related
     hcd_pipe_state_t state;
     hcd_pipe_event_t last_event;
-    unsigned int xact_err_cnt;                      // Number of consecutive XactErr retries of the in-flight transfer (Buffer DMA mode)
-    uint32_t next_due_frame;                        // Next (micro)frame number (HFNUM units) at which this pipe's channel should be
-    // (re-)armed. Only meaningful for periodic (INTR) pipes in Buffer DMA mode, where
-    // there is no hardware frame-list scheduler and the HCD must arm each (micro)frame's
-    // transaction itself, driven by the SOF interrupt. See _port_sof_intr_buffer_dma().
+    unsigned int xact_err_cnt;              // Number of consecutive XactErr retries of the in-flight transfer (Buffer DMA mode)
+    uint32_t next_due_frame: 14;            // Next (micro)frame number (HFNUM units) at which this pipe's channel should be (re=)armed, Periodic (INTR) pipes in Buffer DMA, (no HW frame-list scheduler).
+    // Must be 14 bits wide so it wraps at 0x3FFF exactly like the HFNUM.FrNum hardware counter
     volatile TaskHandle_t task_waiting_pipe_notif;  // Task handle used for internal pipe events. Set by waiter, cleared by notifier
     union {
         struct {
@@ -570,6 +560,31 @@ static inline void _slot_done_finalize(pipe_t *pipe, urb_slot_t *urb_slot, usb_d
     urb_slot->status_flags.stop_idx = (chan_obj != NULL) ? usb_dwc_hal_chan_get_qtd_idx(chan_obj) : 0;
 }
 #else // CONFIG_USB_HOST_DMA_MODE_DESC
+
+/**
+ * @brief Account for an INTR pipe (Buffer DMA mode) gaining or losing an in-flight transfer
+ *
+ * Buffer DMA periodic channels have no hardware frame-list scheduler, so the HCD arms each (micro)frame's
+ * transaction itself, driven by the SOF interrupt (see _sw_frame_list_scheduler()). The SOF interrupt is
+ * only kept enabled while at least one INTR pipe actually has an in-flight transfer, since it would
+ * otherwise fire needlessly on every (micro)frame.
+ *
+ * @param port Port object
+ * @param acquire true: the pipe just gained an in-flight transfer, false: it just lost one
+ */
+static inline void _port_intr_pipe_record(port_t *port, bool acquire)
+{
+    if (acquire) {
+        if (port->num_pipes_intr_active++ == 0) {
+            usb_dwc_hal_port_sof_intr_enable(port->hal);
+        }
+    } else {
+        assert(port->num_pipes_intr_active > 0);
+        if (--port->num_pipes_intr_active == 0) {
+            usb_dwc_hal_port_sof_intr_disable(port->hal);
+        }
+    }
+}
 /**
  * @brief Capture DMA-mode specific state of a completed URB slot in buffer DMA mode
  *
@@ -594,6 +609,9 @@ static inline void _slot_done_finalize(pipe_t *pipe, urb_slot_t *urb_slot, usb_d
             // OUT: all programmed bytes were sent on XferCompl; actual_bytes may be set already by exec_cont (ZLP path)
             urb_slot->flags.bulk.actual_bytes = urb_slot->urb->transfer.num_bytes;
         }
+    } else if (pipe->ep_char.type == USB_DWC_XFER_TYPE_INTR && urb_slot->status_flags.executing) {
+        // Only decrement if this slot was the one that actually incremented the count (see _slot_exec_intr())
+        _port_intr_pipe_record(pipe->port, false);
     }
 }
 #endif // CONFIG_USB_HOST_DMA_MODE_DESC
@@ -608,48 +626,16 @@ static inline void _slot_done_finalize(pipe_t *pipe, urb_slot_t *urb_slot, usb_d
  * @param pipe_event Pipe event that caused the slot to be complete. Use HCD_PIPE_EVENT_NONE for halt request of disconnections
  * @param canceled Whether the slot was done due to a canceled (i.e., halt request). Must set pipe_event to HCD_PIPE_EVENT_NONE
  */
-#if CONFIG_USB_HOST_DMA_MODE_BUFFER
-/**
- * @brief Account for an INTR pipe (Buffer DMA mode) gaining or losing an in-flight transfer
- *
- * Buffer DMA periodic channels have no hardware frame-list scheduler, so the HCD arms each (micro)frame's
- * transaction itself, driven by the SOF interrupt (see _port_sof_intr_buffer_dma()). The SOF interrupt is
- * only kept enabled while at least one INTR pipe actually has an in-flight transfer, since it would
- * otherwise fire needlessly on every (micro)frame.
- *
- * @param port Port object
- * @param acquire true: the pipe just gained an in-flight transfer, false: it just lost one
- */
-static inline void _port_intr_pipe_record(port_t *port, bool acquire)
-{
-    if (acquire) {
-        if (port->num_pipes_intr_active++ == 0) {
-            usb_dwc_hal_port_sof_intr_enable(port->hal);
-        }
-    } else {
-        assert(port->num_pipes_intr_active > 0);
-        if (--port->num_pipes_intr_active == 0) {
-            usb_dwc_hal_port_sof_intr_disable(port->hal);
-        }
-    }
-}
-#endif // CONFIG_USB_HOST_DMA_MODE_BUFFER
-
 static inline void _slot_done(pipe_t *pipe, usb_dwc_hal_chan_t *chan_obj, hcd_pipe_event_t pipe_event, bool canceled)
 {
     // Store the stop_idx and pipe_event for later parsing
     urb_slot_t *urb_slot_done = pipe->urb_slots[pipe->urb_slot_ring.rd_idx];
-#if CONFIG_USB_HOST_DMA_MODE_BUFFER
-    if (pipe->ep_char.type == USB_DWC_XFER_TYPE_INTR && urb_slot_done->status_flags.executing) {
-        // Only decrement if this slot was the one that actually incremented the count (see _slot_exec_intr())
-        _port_intr_pipe_record(pipe->port, false);
-    }
-#endif // CONFIG_USB_HOST_DMA_MODE_BUFFER
-    urb_slot_done->status_flags.executing = 0;
     urb_slot_done->status_flags.was_canceled = canceled;
     urb_slot_done->status_flags.pipe_event = pipe_event;
     // Capture any DMA-mode specific state before the channel can be re-activated
     _slot_done_finalize(pipe, urb_slot_done, chan_obj, pipe_event, canceled);
+    // Mark as not executing after slot finalize
+    urb_slot_done->status_flags.executing = 0;
 
     pipe->urb_slot_ring.rd_idx++;
     pipe->urb_slot_ring.num_to_exec--;
@@ -1157,21 +1143,21 @@ static inline hcd_pipe_event_t _channel_error(pipe_t *pipe, usb_dwc_hal_chan_t *
          * In all three cases, "retry" means re-arming the SAME packet (nothing was consumed on
          * failure) at the endpoint's next scheduled (micro)frame rather than immediately - periodic
          * transactions cannot be retried within the same (micro)frame. The actual re-arm is performed
-         * by _port_sof_intr_buffer_dma() once due; here we only defer it.
+         * by _sw_frame_list_scheduler() once due; here we only defer it.
          */
         switch (chan_error) {
         case USB_DWC_HAL_CHAN_ERROR_NAK:
         case USB_DWC_HAL_CHAN_ERROR_DATA_TGL:
             pipe->xact_err_cnt = 0;
-            pipe->next_due_frame = (pipe->next_due_frame + pipe->ep_char.periodic.interval) & FRAME_NUM_MASK;
+            pipe->next_due_frame += pipe->ep_char.periodic.interval;  // 14-bit field wraps like HFNUM.FrNum
             return HCD_PIPE_EVENT_NONE;
         case USB_DWC_HAL_CHAN_ERROR_FRM_OVERRUN:
-            pipe->next_due_frame = (pipe->next_due_frame + pipe->ep_char.periodic.interval) & FRAME_NUM_MASK;
+            pipe->next_due_frame += pipe->ep_char.periodic.interval;
             return HCD_PIPE_EVENT_NONE;
         case USB_DWC_HAL_CHAN_ERROR_XACT_ERR:
             if (pipe->xact_err_cnt < XACT_ERR_RETRY_LIMIT) {
                 pipe->xact_err_cnt++;
-                pipe->next_due_frame = (pipe->next_due_frame + pipe->ep_char.periodic.interval) & FRAME_NUM_MASK;
+                pipe->next_due_frame += pipe->ep_char.periodic.interval;
                 return HCD_PIPE_EVENT_NONE;
             }
             break;  // Retry limit exceeded: fall through to the generic failure path below
@@ -1291,17 +1277,6 @@ static hcd_pipe_event_t _intr_hdlr_chan(pipe_t *pipe, usb_dwc_hal_chan_t *chan_o
     return event;
 }
 
-/**
- * @brief Main interrupt handler
- *
- * - Handle all HPRT (Host Port) related interrupts first as they may change the
- *   state of the driver (e.g., a disconnect event)
- * - If any channels (pipes) have pending interrupts, handle them one by one
- * - The HCD has not blocking functions, so the user's ISR callback is run to
- *   allow the users to send whatever OS primitives they need.
- *
- * @param arg Interrupt handler argument
- */
 #if CONFIG_USB_HOST_DMA_MODE_BUFFER
 /**
  * @brief Arm a periodic (INTR) pipe's channel for its next (micro)frame transaction, in buffer DMA mode
@@ -1310,7 +1285,7 @@ static hcd_pipe_event_t _intr_hdlr_chan(pipe_t *pipe, usb_dwc_hal_chan_t *chan_o
  * on a successfully completed packet - see _slot_check_done_intr()), sets the (micro)frame parity so the
  * core waits for the correct (micro)frame boundary before actually transacting (programming guide §5.2,
  * HCCHARn.OddFrm), and activates the channel. This is called once per scheduled (micro)frame by
- * _port_sof_intr_buffer_dma(), both for the first packet of a transfer and for every subsequent packet
+ * _sw_frame_list_scheduler(), both for the first packet of a transfer and for every subsequent packet
  * or retry (a retry simply recomputes the same packet, since flags.intr.actual_bytes did not advance).
  *
  * @param pipe Pipe object (must be an INTR pipe, Buffer DMA mode, with an in-flight, not-yet-done slot)
@@ -1320,10 +1295,11 @@ static inline void _slot_exec_sof_intr(pipe_t *pipe, urb_slot_t *urb_slot)
 {
     usb_transfer_t *transfer = &urb_slot->urb->transfer;
     const int mps = pipe->ep_char.mps;
+    // remaining is never negative: flags.intr.actual_bytes only advances on completed packets, never past
+    // num_bytes. remaining == 0 only happens when a trailing OUT zero-length packet is still due (see
+    // _slot_check_done_intr()); _sw_frame_list_scheduler() never arms a slot whose flags.intr.done is set.
     const int remaining = transfer->num_bytes - (int)urb_slot->flags.intr.actual_bytes;
-    // remaining == 0 only happens when a trailing OUT zero-length packet is still due (see _slot_check_done_intr());
-    // _port_sof_intr_buffer_dma() never arms a slot whose flags.intr.done is already set.
-    const int pkt_len = (remaining > 0) ? ((remaining < mps) ? remaining : mps) : 0;
+    const int pkt_len = (remaining < mps) ? remaining : mps;    // Short packet, ZLP, or full MPS packet
     urb_slot->flags.intr.cur_pkt_len = pkt_len;
 
     const usb_dwc_hal_buffer_xfer_t xfer = {
@@ -1340,15 +1316,15 @@ static inline void _slot_exec_sof_intr(pipe_t *pipe, urb_slot_t *urb_slot)
 
 /**
  * @brief Service the periodic (INTR) Buffer DMA schedule on a Start Of Frame (SOF) interrupt
+ * @note This is the software equivalent of the hardware frame-list scheduler used in Scatter/Gather DMA mode,
+ * which Buffer DMA does not have (DWC_otg programming guide §5.2 vs §6.5).
  *
- * Scans the port's active pipes for INTR pipes (Buffer DMA mode) that have an in-flight transfer
- * waiting for its next scheduled (micro)frame, and arms those that are now due. This is the software
- * equivalent of the hardware frame-list scheduler used in Scatter/Gather DMA mode, which Buffer DMA does
- * not have (DWC_otg programming guide §5.2 vs §6.5).
+ * Scans the port's active pipes for INTR pipes that have an in-flight transfer waiting for its next scheduled
+ * (micro)frame, and arms those that are now due.
  *
  * @param port Port object
  */
-static void _port_sof_intr_buffer_dma(port_t *port)
+static void _sw_frame_list_scheduler(port_t *port)
 {
     if (port->num_pipes_intr_active == 0) {
         return;  // No pipe needs servicing; SOF should already be disabled in this case
@@ -1370,6 +1346,17 @@ static void _port_sof_intr_buffer_dma(port_t *port)
 }
 #endif // CONFIG_USB_HOST_DMA_MODE_BUFFER
 
+/**
+ * @brief Main interrupt handler
+ *
+ * - Handle all HPRT (Host Port) related interrupts first as they may change the
+ *   state of the driver (e.g., a disconnect event)
+ * - If any channels (pipes) have pending interrupts, handle them one by one
+ * - The HCD has not blocking functions, so the user's ISR callback is run to
+ *   allow the users to send whatever OS primitives they need.
+ *
+ * @param arg Interrupt handler argument
+ */
 static void intr_hdlr_main(void *arg)
 {
     port_t *port = (port_t *) arg;
@@ -1379,11 +1366,10 @@ static void intr_hdlr_main(void *arg)
 #if CONFIG_USB_HOST_DMA_MODE_BUFFER
     /*
      * Check and service the periodic (INTR) schedule first. usb_dwc_hal_decode_intr() reads-and-clears
-     * the entire GINTSTS register, so SOF must be checked (and cleared) independently here, otherwise a
-     * SOF that coincides with another core/port event in the same hardware interrupt would be lost.
+     * the entire GINTSTS register, so SOF must be checked (and cleared) independently here
      */
     if (usb_dwc_hal_port_check_sof(port->hal)) {
-        _port_sof_intr_buffer_dma(port);
+        _sw_frame_list_scheduler(port);
     }
 #endif // CONFIG_USB_HOST_DMA_MODE_BUFFER
     usb_dwc_hal_port_event_t hal_port_evt = usb_dwc_hal_decode_intr(port->hal);
@@ -3026,7 +3012,7 @@ static inline void _slot_fill_bulk(urb_slot_t *urb_slot, usb_transfer_t *transfe
  * executed by hardware with no further intervention), Buffer DMA periodic channels only get one
  * transaction attempt per (micro)frame (DWC_otg programming guide §5.2, §3.5). A multi-packet interrupt
  * transfer is therefore driven one MPS-sized packet at a time, across multiple (micro)frame activations,
- * each scheduled by the SOF interrupt (see _port_sof_intr_buffer_dma()). This function only computes the
+ * each scheduled by the SOF interrupt (see _sw_frame_list_scheduler()). This function only computes the
  * slot's static flags (whether a trailing zero-length packet is required); the actual packet-by-packet
  * state (flags.intr.cur_pkt_len/actual_bytes/done) is driven at execution time.
  *
@@ -3308,7 +3294,7 @@ static inline void _slot_exec_bulk(pipe_t *pipe, urb_slot_t *urb_slot)
  *
  * Unlike bulk/control, this does not touch the hardware channel directly: Buffer DMA periodic channels
  * have no frame-list scheduler, so the first (and every subsequent) (micro)frame activation is performed
- * by the SOF-driven scheduler (_port_sof_intr_buffer_dma()) once due. This function only establishes the
+ * by the SOF-driven scheduler (_sw_frame_list_scheduler()) once due. This function only establishes the
  * schedule (the next due (micro)frame, with at least one (micro)frame of margin) and marks the slot as
  * executing, enabling the SOF interrupt if this is the pipe's first in-flight transfer.
  *
@@ -3320,10 +3306,10 @@ static inline void _slot_exec_intr(pipe_t *pipe, urb_slot_t *urb_slot)
     urb_slot->status_flags.executing = 1;
     pipe->urb_slot_ring.is_executing = 1;
     pipe->xact_err_cnt = 0;
-    pipe->next_due_frame = (usb_dwc_hal_port_get_cur_frame_num(pipe->port->hal) + 1) & FRAME_NUM_MASK;
+    pipe->next_due_frame = usb_dwc_hal_port_get_cur_frame_num(pipe->port->hal) + 1;  // 14-bit field wraps like HFNUM.FrNum
     _port_intr_pipe_record(pipe->port, true);
     ESP_EARLY_LOGD(HCD_DWC_TAG, "buf exec (intr): ep=0x%02x urb=%p next_due=%" PRIu32,
-                   pipe->ep_char.bEndpointAddress, urb_slot->urb, pipe->next_due_frame);
+                   pipe->ep_char.bEndpointAddress, urb_slot->urb, (uint32_t)pipe->next_due_frame);
 }
 
 #endif // CONFIG_USB_HOST_DMA_MODE_DESC
@@ -3494,7 +3480,7 @@ static inline void _slot_exec_cont_bulk(pipe_t *pipe, urb_slot_t *urb_slot)
  * _slot_check_done_intr(), which has already merged its result into flags.intr.actual_bytes before this
  * is called). Unlike bulk/control, the next (micro)frame activation is not started here: periodic
  * channels only get one transaction attempt per (micro)frame, so the next packet must wait for the
- * endpoint's next scheduled (micro)frame. This just advances the schedule; _port_sof_intr_buffer_dma()
+ * endpoint's next scheduled (micro)frame. This just advances the schedule; _sw_frame_list_scheduler()
  * performs the actual activation once due.
  *
  * @param pipe Pipe object
@@ -3504,9 +3490,9 @@ static inline void _slot_exec_cont_intr(pipe_t *pipe, urb_slot_t *urb_slot)
 {
     assert(!urb_slot->flags.intr.done);
     pipe->xact_err_cnt = 0;    // A successful packet resets the error streak
-    pipe->next_due_frame = (pipe->next_due_frame + pipe->ep_char.periodic.interval) & FRAME_NUM_MASK;
+    pipe->next_due_frame += pipe->ep_char.periodic.interval;  // 14-bit field wraps like HFNUM.FrNum
     ESP_EARLY_LOGD(HCD_DWC_TAG, "buf cont (intr): ep=0x%02x urb=%p actual=%u next_due=%" PRIu32,
-                   pipe->ep_char.bEndpointAddress, urb_slot->urb, (unsigned)urb_slot->flags.intr.actual_bytes, pipe->next_due_frame);
+                   pipe->ep_char.bEndpointAddress, urb_slot->urb, (unsigned)urb_slot->flags.intr.actual_bytes, (uint32_t)pipe->next_due_frame);
 }
 
 #endif // CONFIG_USB_HOST_DMA_MODE_DESC
