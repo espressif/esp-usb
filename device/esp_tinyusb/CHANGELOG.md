@@ -1,4 +1,4 @@
-## Unreleased
+## 2.4.0
 
 - esp_tinyusb: Fixed missing IAD declaration (bDeviceClass/bDeviceSubClass/bDeviceProtocol) in the default device and qualifier descriptors for NCM and ECM/RNDIS
 - esp_tinyusb: `CONFIG_TINYUSB_DESC_SERIAL_STRING` can now be left empty to derive the USB serial number string from the chip's eFuse base MAC at runtime, guaranteeing a unique serial number per device
