@@ -92,7 +92,7 @@ const char *test_string_descriptor[USB_STRING_DESCRIPTOR_ARRAY_SIZE + 1] = {
     (char[]){0x09, 0x04},  // 0: is supported language is English (0x0409)
     "TinyUSB",             // 1: Manufacturer
     "TinyUSB Device",      // 2: Product
-    "123456",              // 3: Serials, should use chip ID
+    "123456",              // 3: Serial number
     "TinyUSB CDC",         // 4: CDC String descriptor
     "String 5",            // 5: Test string #6
     "String 6",            // 6: Test string #7

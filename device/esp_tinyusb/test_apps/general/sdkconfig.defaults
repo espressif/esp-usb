@@ -6,12 +6,6 @@
 CONFIG_TINYUSB_CDC_ENABLED=y
 CONFIG_TINYUSB_CDC_COUNT=2
 
-# dconn_detection handles TINYUSB_EVENT_SUSPENDED and TINYUSB_EVENT_RESUMED.
-# Those identifiers exist only when esp_tinyusb registers the callbacks.
-# TINYUSB_PM stays off: it also depends on PM_ENABLE and tickless idle.
-CONFIG_TINYUSB_SUSPEND_CALLBACK=y
-CONFIG_TINYUSB_RESUME_CALLBACK=y
-
 # Disable watchdogs, they'd get triggered during unity interactive menu
 # CONFIG_ESP_TASK_WDT_INIT is not set
 

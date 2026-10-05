@@ -48,7 +48,6 @@ typedef struct {
     uint8_t *other_speed;               /*!< Pointer for other speed configuration descriptor. */
 #endif // TUD_OPT_HIGH_SPEED
     const char *str[USB_STRING_DESCRIPTOR_ARRAY_SIZE];  /*!< Pointer to array of UTF-8 strings. */
-    int str_count;                      /*!< Number of descriptors in str array. */
 } tinyusb_descriptors_map_t;
 
 static tinyusb_descriptors_map_t s_desc_cfg;
@@ -190,6 +189,7 @@ esp_err_t tinyusb_descriptors_set(tinyusb_port_t port, const tinyusb_desc_config
 {
     esp_err_t ret;
     const char **pstr_desc;
+    int str_count = 0;
     // Flush descriptors control struct
     memset(&s_desc_cfg, 0x00, sizeof(tinyusb_descriptors_map_t));
 
@@ -250,22 +250,26 @@ esp_err_t tinyusb_descriptors_set(tinyusb_port_t port, const tinyusb_desc_config
     }
 #endif // TUD_OPT_HIGH_SPEED
 
-    // Select String Descriptors and count them
+    // Select String Descriptors
     if (config->string == NULL) {
         ESP_LOGW(TAG, "No String descriptors provided, using default.");
-        // Generate the default serial number string from chip ID
-        tinyusb_desc_serial_number_init();
         pstr_desc = descriptor_str_default;
-        while (descriptor_str_default[++s_desc_cfg.str_count] != NULL);
+        str_count = descriptor_str_default_count;
     } else {
         pstr_desc = config->string;
-        s_desc_cfg.str_count = config->string_count;
+        str_count = config->string_count;
     }
 
-    ESP_GOTO_ON_FALSE(s_desc_cfg.str_count <= USB_STRING_DESCRIPTOR_ARRAY_SIZE, ESP_ERR_NOT_SUPPORTED, fail, TAG, "String descriptors exceed limit");
-    memcpy(s_desc_cfg.str, pstr_desc, s_desc_cfg.str_count * sizeof(pstr_desc[0]));
+    ESP_GOTO_ON_FALSE(str_count <= USB_STRING_DESCRIPTOR_ARRAY_SIZE, ESP_ERR_NOT_SUPPORTED, fail, TAG, "String descriptors exceed limit");
+    memcpy(s_desc_cfg.str, pstr_desc, str_count * sizeof(pstr_desc[0]));
 
-    ESP_LOGI(TAG, "\n"
+    // Use the eFuse MAC serial number when the application did not provide one.
+    const uint8_t serial_idx = s_desc_cfg.dev->iSerialNumber;
+    if (serial_idx > 0 && serial_idx < USB_STRING_DESCRIPTOR_ARRAY_SIZE && s_desc_cfg.str[serial_idx] == NULL) {
+        s_desc_cfg.str[serial_idx] = tinyusb_desc_serial_number_get();
+    }
+
+    ESP_LOGD(TAG, "\n"
              "┌─────────────────────────────────┐\n"
              "│  USB Device Descriptor Summary  │\n"
              "├───────────────────┬─────────────┤\n"
