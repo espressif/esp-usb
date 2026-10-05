@@ -12,11 +12,14 @@ v3.0.0 requires ESP-IDF v5.3 or later. Compatibility code for older ESP-IDF vers
 
 v3.0.0 always registers TinyUSB suspend and resume callbacks. esp_tinyusb dispatches `TINYUSB_EVENT_SUSPENDED` and `TINYUSB_EVENT_RESUMED` through the USB Device Event callback. Applications must not define `tud_suspend_cb()` or `tud_resume_cb()`.
 
+v3.0.0 removes the Kconfig serial number string. When the application does not provide a serial number string at runtime, esp_tinyusb generates it from the chip eFuse base MAC.
+
 ## Changes Required After Migration
 
 - Use ESP-IDF v5.3 or later
 - Do not set `CONFIG_TINYUSB_MODE_SLAVE` or `CONFIG_TINYUSB_MODE_DMA` as they do not have any effect anymore
 - Remove `CONFIG_TINYUSB_SUSPEND_CALLBACK` and `CONFIG_TINYUSB_RESUME_CALLBACK` from `sdkconfig` or `sdkconfig.defaults`.
+- Remove `CONFIG_TINYUSB_DESC_SERIAL_STRING` from `sdkconfig` or `sdkconfig.defaults`. To keep a fixed serial number, pass it in `tinyusb_config_t.descriptor.string` at the index selected by the device descriptor `iSerialNumber` field. A missing or NULL serial string uses the eFuse base MAC.
 - Remove `tud_suspend_cb()` and `tud_resume_cb()` from application code. Handle suspend and resume in `tinyusb_config_t::event_cb`.
 - Remove any explicit `tinyusb` (or `espressif/tinyusb`) dependency from your project's `idf_component.yml`. The standalone component is unused when `esp_tinyusb` is present. Keeping it compiles a second copy of TinyUSB and can confuse version selection.
 
@@ -33,6 +36,7 @@ v3.0.0 always registers TinyUSB suspend and resume callbacks. esp_tinyusb dispat
 - Kconfig menu `TinyUSB callbacks`:
   - `TINYUSB_SUSPEND_CALLBACK`,
   - `TINYUSB_RESUME_CALLBACK`.
+- Kconfig option `TINYUSB_DESC_SERIAL_STRING`. The default serial number is generated from the chip eFuse base MAC.
 - Deprecated compatibility headers and the APIs they exposed:
   - `tusb_cdc_acm.h`: `tusb_cdc_acm_init()`, `tusb_cdc_acm_deinit()`, `tusb_cdc_acm_initialized()`
   - `tusb_console.h`: `esp_tusb_init_console()`, `esp_tusb_deinit_console()`
@@ -43,3 +47,4 @@ v3.0.0 always registers TinyUSB suspend and resume callbacks. esp_tinyusb dispat
 
 - Buffer DMA is always enabled. `CFG_TUD_DWC2_DMA_ENABLE` is set to `1` unconditionally. Previously it was set only when `CONFIG_TINYUSB_MODE_DMA` was selected.
 - `tud_suspend_cb()` and `tud_resume_cb()` are always implemented by esp_tinyusb. `TINYUSB_EVENT_SUSPENDED` and `TINYUSB_EVENT_RESUMED` are always available.
+- The default USB serial number string is the chip eFuse base MAC, formatted as 12 uppercase hexadecimal characters. Provide a string descriptor array at runtime to use a different USB serial number.

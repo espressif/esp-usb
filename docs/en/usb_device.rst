@@ -191,7 +191,7 @@ Full-speed devices should initialize the following field to provide their config
 
 - :cpp:member:`tinyusb_desc_config_t::full_speed_config`
 
-.. only:: esp32p4
+.. only:: esp32p4 or esp32s31
 
     High-speed devices should initialize the following fields to provide configuration descriptors at each speed:
 
@@ -205,7 +205,7 @@ Full-speed devices should initialize the following field to provide their config
 
 The Device Stack will instantiate a USB device based on the descriptors provided in the fields described above when :cpp:func:`tinyusb_driver_install` is called.
 
-The Device Stack also provides default descriptors when the corresponding fields in :cpp:type:`tinyusb_desc_config_t` are set to ``NULL``. Their values come from menuconfig options such as ``CONFIG_TINYUSB_DESC_*``. Default descriptors include:
+The Device Stack also provides default descriptors when the corresponding fields in :cpp:type:`tinyusb_desc_config_t` are set to ``NULL``. Manufacturer, product, and interface strings come from menuconfig options such as ``CONFIG_TINYUSB_DESC_*``. The serial number string is generated at runtime from the chip eFuse base MAC. Default descriptors include:
 
 - Default device descriptor: set :cpp:member:`tinyusb_desc_config_t::device` to ``NULL``.
 - Default string descriptor: set :cpp:member:`tinyusb_desc_config_t::string` to ``NULL``.
@@ -214,6 +214,13 @@ The Device Stack also provides default descriptors when the corresponding fields
 
     - :cpp:member:`tinyusb_desc_config_t::full_speed_config`: full-speed descriptor
     - :cpp:member:`tinyusb_desc_config_t::high_speed_config`: high-speed descriptor on high-speed-capable devices
+
+Serial Number
+"""""""""""""
+
+esp_tinyusb generates the default USB serial number from the chip eFuse base MAC. The string contains 12 uppercase hexadecimal characters, for example ``A1B2C3D4E5F6``. Each chip reports a unique serial number, so a host can distinguish identical devices built from the same firmware.
+
+To report a different serial number, set :cpp:member:`tinyusb_desc_config_t::string` to a string descriptor array and place the serial number at the index selected by ``iSerialNumber`` in the device descriptor. If that entry is ``NULL``, esp_tinyusb uses the eFuse MAC serial number. An empty string is sent to the host as is.
 
 Installation
 ------------

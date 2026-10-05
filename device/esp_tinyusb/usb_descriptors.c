@@ -5,7 +5,6 @@
  */
 
 #include <stdio.h>
-#include <string.h>
 #include "esp_mac.h"
 #include "usb_descriptors.h"
 #include "sdkconfig.h"
@@ -90,50 +89,39 @@ const tusb_desc_device_qualifier_t descriptor_qualifier_default = {
 #endif // TUD_OPT_HIGH_SPEED
 
 //------------- Serial Number String -------------//
-// Chip ID based serial number: eFuse base MAC (6 bytes) as 12 uppercase hex chars + NUL
+// eFuse base MAC (6 bytes) as 12 uppercase hex characters + NULL.
+// Filled by tinyusb_desc_serial_number_get().
 #define TINYUSB_SERIAL_STR_CHIP_ID_LEN    13
 
-// Serial number string buffer, sized at compile time to fit the larger of:
-// - CONFIG_TINYUSB_DESC_SERIAL_STRING: fixed string from Kconfig
-// - Chip ID based serial number
-// Filled by tinyusb_desc_serial_number_init(), must be called before the string descriptor table below is used.
-static char s_serial_str[sizeof(CONFIG_TINYUSB_DESC_SERIAL_STRING) > TINYUSB_SERIAL_STR_CHIP_ID_LEN
-                                                                   ? sizeof(CONFIG_TINYUSB_DESC_SERIAL_STRING)
-                                                                   : TINYUSB_SERIAL_STR_CHIP_ID_LEN];
+static char s_serial_str[TINYUSB_SERIAL_STR_CHIP_ID_LEN];
 
-void tinyusb_desc_serial_number_init(void)
+const char *tinyusb_desc_serial_number_get(void)
 {
-    if (sizeof(CONFIG_TINYUSB_DESC_SERIAL_STRING) > 1) {
-        // Fixed serial number string from Kconfig
-        memcpy(s_serial_str, CONFIG_TINYUSB_DESC_SERIAL_STRING, sizeof(CONFIG_TINYUSB_DESC_SERIAL_STRING));
-        return;
+    if (s_serial_str[0] == '\0') {
+        uint8_t mac[6];
+        // The base MAC is always present in eFuse. Leave the string empty if the read fails.
+        if (esp_read_mac(mac, ESP_MAC_BASE) == ESP_OK) {
+            snprintf(s_serial_str, sizeof(s_serial_str), "%02X%02X%02X%02X%02X%02X",
+                     mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+        }
     }
-    // No serial string configured by Kconfig: derive it from the chip's eFuse base MAC
-    uint8_t mac[6];
-    if (esp_read_mac(mac, ESP_MAC_BASE) != ESP_OK) {
-        // Should never happen: the base MAC is always present in eFuse
-        s_serial_str[0] = '\0';
-        return;
-    }
-
-    snprintf(s_serial_str, sizeof(s_serial_str), "%02X%02X%02X%02X%02X%02X",
-             mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    return s_serial_str;
 }
 
 //------------- Array of String Descriptors -------------//
 const char *descriptor_str_default[] = {
     // array of pointer to string descriptors
-    (char[]){0x09, 0x04},                // 0: is supported language is English (0x0409)
+    (char[]){0x09, 0x04},                    // 0: is supported language is English (0x0409)
     CONFIG_TINYUSB_DESC_MANUFACTURER_STRING, // 1: Manufacturer
     CONFIG_TINYUSB_DESC_PRODUCT_STRING,      // 2: Product
-    s_serial_str,                            // 3: Serial, fixed string from Kconfig (empty = use chip ID)
+    NULL,                                    // 3: Serial number. Set at runtime
 
 #if CONFIG_TINYUSB_CDC_ENABLED
-    CONFIG_TINYUSB_DESC_CDC_STRING,          // 4: CDC Interface
+    CONFIG_TINYUSB_DESC_CDC_STRING,          // CDC Interface
 #endif
 
 #if CONFIG_TINYUSB_MSC_ENABLED
-    CONFIG_TINYUSB_DESC_MSC_STRING,          // 5: MSC Interface
+    CONFIG_TINYUSB_DESC_MSC_STRING,          // MSC Interface
 #endif
 
 #if CONFIG_TINYUSB_MTP_ENABLED
@@ -141,15 +129,16 @@ const char *descriptor_str_default[] = {
 #endif
 
 #if CONFIG_TINYUSB_NET_MODE_ECM_RNDIS || CONFIG_TINYUSB_NET_MODE_NCM
-    "USB net",                               // 6. NET Interface
-    "",                                      // 7. MAC
+    "USB net",                               // NET Interface
+    "",                                      // MAC
 #endif
 
 #if CFG_TUD_VENDOR
-    "Vendor specific",                       // 8. Vendor specific
+    "Vendor specific",                       // Vendor specific
 #endif
-    NULL                                     // NULL: Must be last. Indicates end of array
 };
+
+const int descriptor_str_default_count = sizeof(descriptor_str_default) / sizeof(descriptor_str_default[0]);
 
 //------------- Interfaces enumeration -------------//
 enum {
