@@ -544,6 +544,22 @@ void main(void)
 
 **Note:** Internal SPI flash is for demonstration only; use SD cards or external flash for higher performance.
 
+### Asynchronous storage IO
+
+By default, MSC storage reads and writes run in the TinyUSB task. All USB classes are serviced by that task, so while a slow medium (SD card, external flash) is being accessed, CDC, HID and other classes on the same device are not serviced.
+
+`CONFIG_TINYUSB_MSC_ASYNC_IO` moves storage reads and writes to a dedicated worker task. The TinyUSB task keeps servicing the other classes during storage access, and a failed storage write is reported to the USB host. Without async IO, write errors are only logged. Requires TinyUSB 0.19.0 or newer.
+
+A write chunk is accepted into the storage's write buffer before it is written to the medium, so the host can send the next chunk in the meantime, as in the default path. This is the same per-storage buffer of `CONFIG_TINYUSB_MSC_BUFSIZE` bytes that the default path uses. A failed buffered write is reported as MEDIUM ERROR / WRITE ERROR on the next READ10, WRITE10, TEST UNIT READY or SYNCHRONIZE CACHE command to the LUN.
+
+Heap used compared to the default configuration:
+
+| Configuration                   | Heap difference                      | Contents                                                                                                                                                                                                     |
+| ------------------------------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `CONFIG_TINYUSB_MSC_ASYNC_IO=y` | +~4.5 KB, +~100 B per additional LUN | Worker task stack (`CONFIG_TINYUSB_MSC_ASYNC_IO_TASK_STACK_SIZE`, default 4096 B), task control block, request queue, one semaphore per LUN. The write buffer is the one the default path already allocates. |
+
+Worker task stack size, priority and core affinity are configured in menuconfig next to the async IO option.
+
 ## Examples
 
 You can find examples in [ESP-IDF on GitHub](https://github.com/espressif/esp-idf/tree/master/examples/peripherals/usb/device).
