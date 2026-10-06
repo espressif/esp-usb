@@ -35,9 +35,12 @@ menu "USB-OTG"
             - OUT periodic (Periodic TX FIFO) = D/8
 
             Bias Periodic OUT:
-            - IN (RX FIFO) = D/8 + 2 (2 extra lines for status information)
+            - IN (RX FIFO) = D/8 + 3 (status quadlets: packet status + transfer complete + channel halted.
+              Even though the Programming Guide ch. 2.1.2.1 specifies only +2, testing showed that 2 lines
+              are not enough: with D/8 + 2 (130 lines), a device with a 512-byte interrupt-IN EP was accepted
+              but its IN transfers never completed. No per-channel lines needed in Scatter-Gather DMA mode)
             - OUT non-periodic (Non-periodic TX FIFO) = D/16
-            - OUT periodic (Periodic TX FIFO) = Total - D/16 - (D/8 + 2)
+            - OUT periodic (Periodic TX FIFO) = Total - D/16 - (D/8 + 3)
 
             Note:
             - Each line = 4 bytes. To convert FIFO size: bytes = lines × 4

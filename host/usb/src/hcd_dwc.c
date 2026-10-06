@@ -1124,7 +1124,17 @@ static void  _calculate_fifo_from_bias(port_t *port, const usb_dwc_hal_context_t
 
 #elif CONFIG_USB_HOST_HW_BUFFER_BIAS_PERIODIC_OUT
     // Prioritize periodic TX FIFO (useful for high throughput periodic endpoints)
-    port->fifo_config.rx_fifo_lines = otg_dfifo_depth / 8 + 2; // 2 extra lines are allocated for status information. See USB-OTG Programming Guide, chapter 2.1.2.1
+
+    // RX FIFO must fit (MPS/4) + 3 status quadlets (packet status + transfer complete + channel halted, GRXSTSP).
+    // Even though the DWC2 Programming Guide ch. 2.1.2.1 specifies only +2, testing showed that 2 lines are not enough.
+    // With D/8 + 2 (130 lines), a device with a 512-byte interrupt-IN EP was accepted but its IN transfers never completed.
+    // No per-channel lines needed in Scatter-Gather DMA mode.
+#ifndef USB_DWC_HAL_RX_FIFO_STATUS_LINES
+    const int rx_fifo_status_lines = 3;
+#else
+    const int rx_fifo_status_lines = USB_DWC_HAL_RX_FIFO_STATUS_LINES;
+#endif
+    port->fifo_config.rx_fifo_lines = otg_dfifo_depth / 8 + rx_fifo_status_lines;
     port->fifo_config.nptx_fifo_lines = otg_dfifo_depth / 16;
     port->fifo_config.ptx_fifo_lines = fifo_size_lines - port->fifo_config.nptx_fifo_lines - port->fifo_config.rx_fifo_lines;
 
