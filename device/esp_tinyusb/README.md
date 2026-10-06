@@ -568,6 +568,8 @@ The default stack of 4096 B is sized to be safe for any storage medium and is us
   tinyusb_msc_install_driver(&driver_cfg);
 ```
 
+Without async IO, the latency of the other classes grows with the storage access time. With async IO it stays close to the idle value. The [MSC async IO test app](test_apps/msc_async_io) checks this with a RAM disk that adds a delay to every storage access, and a host script for macOS and Linux. It is run manually, not in CI.
+
 ## Examples
 
 You can find examples in [ESP-IDF on GitHub](https://github.com/espressif/esp-idf/tree/master/examples/peripherals/usb/device).
