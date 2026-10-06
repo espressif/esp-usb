@@ -1,0 +1,69 @@
+menu "MSC async IO example"
+
+    choice EXAMPLE_STORAGE
+        prompt "Storage exposed over USB"
+        default EXAMPLE_STORAGE_SDCARD if IDF_TARGET_ESP32P4
+        default EXAMPLE_STORAGE_FLASH
+
+        config EXAMPLE_STORAGE_SDCARD
+            bool "SD card"
+            depends on SOC_SDMMC_HOST_SUPPORTED
+            help
+                microSD card on a 4-bit SDMMC slot. The device never mounts or
+                formats the card, the host sees it as it is. Use a scratch card.
+                Default pins match the ESP32-P4-Function-EV-Board.
+
+        config EXAMPLE_STORAGE_FLASH
+            bool "Internal flash"
+            help
+                The "storage" flash partition (2 MB, FAT, wear levelled).
+                Flash writes and erases disable the cache on all cores, which
+                stalls all tasks briefly, even with async IO.
+    endchoice
+
+    menu "SD card slot"
+        depends on EXAMPLE_STORAGE_SDCARD
+
+        config EXAMPLE_SD_PIN_CLK
+            int "CLK GPIO"
+            default 43
+        config EXAMPLE_SD_PIN_CMD
+            int "CMD GPIO"
+            default 44
+        config EXAMPLE_SD_PIN_D0
+            int "D0 GPIO"
+            default 39
+        config EXAMPLE_SD_PIN_D1
+            int "D1 GPIO"
+            default 40
+        config EXAMPLE_SD_PIN_D2
+            int "D2 GPIO"
+            default 41
+        config EXAMPLE_SD_PIN_D3
+            int "D3 GPIO"
+            default 42
+        config EXAMPLE_SD_LDO_CHAN
+            int "On-chip LDO channel powering the SD card IO (-1: none)"
+            default 4 if IDF_TARGET_ESP32P4
+            default -1
+            range -1 4
+    endmenu
+
+    config EXAMPLE_PRINT_STALLS_ONLY
+        bool "Print only stalled heartbeat lines"
+        default n
+        help
+            The latency is still measured every 100 ms, but a line is printed
+            only when it exceeds 10 ms. Progress and summary lines are printed
+            as usual. Makes the output of long copies shorter.
+
+    config EXAMPLE_MEDIUM_DELAY_MS
+        int "Simulated slow medium delay per storage access (ms)"
+        default 0
+        range 0 1000
+        help
+            Every storage read and write sleeps this long before accessing the
+            medium, to make a fast medium behave like a slow one. Reads and
+            writes become proportionally slower.
+
+endmenu
