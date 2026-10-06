@@ -13,6 +13,13 @@ device/esp_tinyusb/test_apps/power_management:
   enable:
     - if: SOC_USB_OTG_SUPPORTED == 1
 
+device/esp_tinyusb/test_apps/msc_async_bench:
+  depends_filepatterns:
+    - 'device/esp_tinyusb/**'
+  enable:
+    - if: SOC_USB_OTG_SUPPORTED == 1 and IDF_VERSION >= "6.0.4"
+      reason: RAM disk is exposed through esp_blockdev, supported by esp_tinyusb MSC since IDF 6.0.4
+
 host/class/cdc:
   depends_filepatterns:
     - 'host/class/cdc/**'

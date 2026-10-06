@@ -1,0 +1,10 @@
+# CDC + MSC composite device
+CONFIG_TINYUSB_MSC_ENABLED=y
+CONFIG_TINYUSB_CDC_ENABLED=y
+CONFIG_TINYUSB_CDC_COUNT=1
+
+# 1 ms tick, so the simulated storage delay has 1 ms resolution
+CONFIG_FREERTOS_HZ=1000
+
+# Benchmark firmware: no watchdog resets during long transfers
+CONFIG_ESP_TASK_WDT_INIT=n
