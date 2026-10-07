@@ -20,6 +20,13 @@ device/esp_tinyusb/examples/msc_async_io:
     - if: SOC_USB_OTG_SUPPORTED == 1 and IDF_VERSION >= "6.0.4"
       reason: Flash partition is exposed through esp_blockdev, supported by esp_tinyusb MSC since IDF 6.0.4
 
+device/esp_tinyusb/examples/msc_ncm_async_io:
+  depends_filepatterns:
+    - 'device/esp_tinyusb/**'
+  enable:
+    - if: SOC_USB_OTG_SUPPORTED == 1 and IDF_VERSION >= "6.0.4"
+      reason: Flash partition is exposed through esp_blockdev, supported by esp_tinyusb MSC since IDF 6.0.4
+
 device/esp_tinyusb/test_apps/msc_async_bench:
   depends_filepatterns:
     - 'device/esp_tinyusb/**'
