@@ -195,7 +195,7 @@ Configure USB descriptors using the `tinyusb_config_t` structure:
 - `descriptor.high_speed_config`
 - `descriptor.qualifier`
 
-If any descriptor field is set to `NULL`, default descriptor will be assigned during installation. Values of default descriptors could be configured via `menuconfig`.
+If any descriptor field is set to `NULL`, the default descriptor is assigned during installation. Manufacturer, product, and interface default strings are configured in `menuconfig`. The default serial number string is taken from the chip's MAC address that is saved in the chip's eFuse and is unique to each chip.
 
 ```c
   #include "tinyusb_default_config.h"

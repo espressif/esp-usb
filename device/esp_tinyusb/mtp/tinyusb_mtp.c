@@ -7,6 +7,7 @@
 #include "mtp/tinyusb_mtp_context.h"
 #include "mtp/tinyusb_mtp_object_store.h"
 #include "mtp/tinyusb_mtp_transfer.h"
+#include "usb_descriptors.h"
 
 #if CONFIG_TINYUSB_MTP_ENABLED
 
@@ -173,7 +174,7 @@ esp_err_t tinyusb_mtp_install_driver(const tinyusb_mtp_driver_config_t *config)
     s_mtp_context.constant.manufacturer = mtp_strdup_or_default(config ? config->manufacturer : NULL, MTP_DEFAULT_MANUFACTURER);
     s_mtp_context.constant.model = mtp_strdup_or_default(config ? config->model : NULL, MTP_DEFAULT_MODEL);
     s_mtp_context.constant.version = mtp_strdup_or_default(config ? config->version : NULL, MTP_DEFAULT_VERSION);
-    s_mtp_context.constant.serial = mtp_strdup_or_default(config ? config->serial : NULL, MTP_DEFAULT_SERIAL);
+    s_mtp_context.constant.serial = mtp_strdup_or_default(config ? config->serial : NULL, tinyusb_desc_serial_number_get());
     s_mtp_context.constant.friendly_name = mtp_strdup_or_default(config ? config->friendly_name : NULL, MTP_DEFAULT_FRIENDLY_NAME);
     if (!s_mtp_context.constant.manufacturer || !s_mtp_context.constant.model || !s_mtp_context.constant.version || !s_mtp_context.constant.serial || !s_mtp_context.constant.friendly_name) {
         mtp_free_driver_strings();
