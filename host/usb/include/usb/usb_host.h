@@ -673,6 +673,10 @@ esp_err_t usb_host_endpoint_clear(usb_device_handle_t dev_hdl, uint8_t bEndpoint
  * - The resulting data_buffer_size can be bigger that the requested size. This is to ensure that the data buffer is cache aligned
  * - A transfer object can be re-used indefinitely
  * - A transfer can be submitted using usb_host_transfer_submit() or usb_host_transfer_submit_control()
+ * - For IN transfers in Buffer DMA mode, the transfer length is rounded up to a multiple of the endpoint's
+ *   MPS when programmed to the USB-DWC core, and the core may write up to that many bytes into the
+ *   data buffer. Size the data buffer with this headroom (e.g. using usb_round_up_to_mps()), otherwise the
+ *   transfer is rejected with ESP_ERR_INVALID_SIZE on submission.
  *
  * @note Maximum transfer size depends on hardware configuration and endpoint bMaxPacketSize, thus it is not checked on allocation.
  *       Maximum transfer size is determined as follows:

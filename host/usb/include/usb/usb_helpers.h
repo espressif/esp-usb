@@ -159,6 +159,9 @@ void usb_print_string_descriptor(const usb_str_desc_t *str_desc);
  * - If MPS <= 0, this function will return 0
  * - If num_bytes <= 0, this function will return 0
  *
+ * @note In Buffer DMA mode, IN transfer lengths are rounded up to a multiple of the endpoint's MPS when
+ *       programmed to the USB-DWC core. Size IN transfer buffers with this headroom.
+ *
  * @param[in] num_bytes Number of bytes
  * @param[in] mps MPS
  * @return int Round up integer multiple of MPS
