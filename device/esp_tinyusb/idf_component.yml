@@ -17,3 +17,10 @@ dependencies:
 files:
   exclude:
     - "test_apps"
+    - "tinyusb/docs/**/*"
+    - "tinyusb/tools/**/*"
+    - "tinyusb/test/**/*"
+    - "tinyusb/examples/**/*"
+    - "tinyusb/hw/**/*"
+    - "tinyusb/lib/embedded-cli/**/*"
+    - "tinyusb/lib/SEGGER_RTT/**/*"
