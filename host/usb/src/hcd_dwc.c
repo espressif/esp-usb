@@ -48,9 +48,6 @@
 #define RESUME_RECOVERY_MS                      CONFIG_USB_HOST_RESUME_RECOVERY_MS
 #define SUSPEND_ENTRY_MS                        CONFIG_USB_HOST_SUSPEND_ENTRY_MS
 
-#define CTRL_EP_MAX_MPS_LS                      8   // Largest Maximum Packet Size for Low Speed control endpoints
-#define CTRL_EP_MAX_MPS_HSFS                    64  // Largest Maximum Packet Size for High & Full Speed control endpoints
-
 // ----------------------- Configs -------------------------
 
 #ifdef CONFIG_USB_HOST_DWC_DMA_CAP_MEMORY_IN_PSRAM      // In esp32p4 and esp32s31, the USB-DWC internal DMA can access external RAM
@@ -2468,43 +2465,21 @@ int hcd_pipe_get_xfer_size_limit(hcd_pipe_handle_t pipe_hdl)
 {
     pipe_t *pipe = (pipe_t *)pipe_hdl;
     int limit;
-    // The below guard is used to differentiate the usb_dwc_hal_get_xfer_size_limit() API availability in HAL for both
-    // DMA modes despite the QTD keyword in it
-#ifndef USB_DWC_LL_QTD_NON_ISO_MAX_XFER_SIZE
-#if CONFIG_USB_HOST_DMA_MODE_DESC
+    // The below guard is used to differentiate the usb_dwc_hal_get_xfer_size_limit() API availability in HAL.
+    // In Buffer DMA mode the API is always available; the fallback is only needed for Scatter/Gather DMA.
+#if !defined(USB_DWC_LL_QTD_NON_ISO_MAX_XFER_SIZE) && CONFIG_USB_HOST_DMA_MODE_DESC
     // Scatter/Gather DMA: the limit is the constant 17-bit non-isochronous qTD "Total bytes to transfer"
     // field, floored to a whole number of maximum-sized packets
     const int usb_dwc_qtd_non_iso_max_xfer_size = ((1U << 17) - 1);
     limit = usb_dwc_qtd_non_iso_max_xfer_size;
     limit -= (limit % pipe->ep_char.mps);
-#else // CONFIG_USB_HOST_DMA_MODE_BUFFER
-    /*
-     * Buffer DMA: the transfer is bounded by the HCTSIZ XferSize (bytes) and PktCnt (packets) fields,
-     * whose widths are DWC_OTG core revision specific:
-     * - Core 4.30a (ESP32-S31, ESP32-P4 ECO5 and newer): XferSize = 2^19 - 1 bytes, PktCnt = 2^10 - 1 packets
-     * - Core 4.00a (all USB FS targets, ESP32-P4 ECO4 and older): XferSize = 2^16 - 1 bytes, PktCnt = 2^7 - 1 packets
-     * The limit is whichever of the two fields saturates first, floored to a whole number of
-     * maximum-sized packets.
-     */
-#if CONFIG_IDF_TARGET_ESP32S31 || (CONFIG_IDF_TARGET_ESP32P4 && !CONFIG_ESP32P4_SELECTS_REV_LESS_V3)
-    const int usb_dwc_hctsiz_max_xfer_size = ((1U << 19) - 1);  // HCTSIZ.XferSize, core 4.30a
-    const int usb_dwc_hctsiz_max_pkt_count = ((1U << 10) - 1);  // HCTSIZ.PktCnt, core 4.30a
-#else
-    const int usb_dwc_hctsiz_max_xfer_size = ((1U << 16) - 1);  // HCTSIZ.XferSize, core 4.00a
-    const int usb_dwc_hctsiz_max_pkt_count = ((1U << 7) - 1);   // HCTSIZ.PktCnt, core 4.00a
-#endif // CONFIG_IDF_TARGET_ESP32S31 || (CONFIG_IDF_TARGET_ESP32P4 && !CONFIG_ESP32P4_SELECTS_REV_LESS_V3)
-
-    const int packet_limit = usb_dwc_hctsiz_max_pkt_count * pipe->ep_char.mps;
-    limit = (packet_limit < usb_dwc_hctsiz_max_xfer_size) ? packet_limit : usb_dwc_hctsiz_max_xfer_size;
-    limit -= (limit % pipe->ep_char.mps);
-#endif // CONFIG_USB_HOST_DMA_MODE_DESC
 #else
     // The HAL returns the per-transfer byte limit floored to a whole number of maximum-sized packets.
     // It is DMA mode aware and replicates the above rules, but in HAL layer
     HCD_ENTER_CRITICAL();
     limit = (int)usb_dwc_hal_get_xfer_size_limit(pipe->port->hal, pipe->ep_char.mps);
     HCD_EXIT_CRITICAL();
-#endif // USB_DWC_LL_QTD_NON_ISO_MAX_XFER_SIZE
+#endif // !defined(USB_DWC_LL_QTD_NON_ISO_MAX_XFER_SIZE) && CONFIG_USB_HOST_DMA_MODE_DESC
     return limit;
 }
 
@@ -2986,6 +2961,10 @@ static inline void _slot_exec_intr(pipe_t *pipe, urb_slot_t *urb_slot)
 /**
  * @brief Activate a control transfer stage in buffer DMA mode
  *
+ * @note For data stage IN: DWC2 Buffer DMA requirement The programmed transfer size must be a multiple of the endpoint's MPS.
+ *       Rounding up is safe here: A short packet terminates the data stage early and the HAL reports the true number of
+ *       received bytes. The buffer headroom for the rounded length is checked on URB enqueue (see check_xfer_size()).
+ *
  * @param pipe Pipe object
  * @param urb_slot URB Slot being executed
  * @param stage Control transfer stage
@@ -3008,12 +2987,19 @@ static inline void _slot_exec_ctrl_stage(pipe_t *pipe, urb_slot_t *urb_slot, ctr
         xfer.len = transfer->num_bytes - (int)sizeof(usb_setup_packet_t);
         xfer.pid = USB_DWC_HAL_PID_DATA1;
         is_in = urb_slot->flags.ctrl.data_stg_in;
+        if (is_in) {
+            const int mps = pipe->ep_char.mps;
+            xfer.len = ((xfer.len + mps - 1) / mps) * mps;
+        }
         break;
     case CTRL_XFER_STAGE_STATUS:
         xfer.buf = transfer->data_buffer;   // dummy data buffer address (A valid DMA address is always required to be programmed); even if no data is transferred in this stage
-        xfer.len = 0;
         xfer.pid = USB_DWC_HAL_PID_DATA1;
         is_in = urb_slot->flags.ctrl.data_stg_skip ? true : !urb_slot->flags.ctrl.data_stg_in;
+        // A zero-length IN transfer is programmed as XferSize = MPS, PktCnt = 1 (DWC_otg programming
+        // guide section 3.4, step 5 requires n > 0). Safe with the dummy buffer: the core only writes
+        // received data, and a compliant device terminates the status stage with a zero-length packet.
+        xfer.len = is_in ? pipe->ep_char.mps : 0;
         break;
     default:
         assert(false);
@@ -3553,6 +3539,9 @@ static inline bool _check_port_pipe_state(pipe_t *pipe, bool *submit_urb)
  * - Isochronous: one qTD per packet, spaced by the pipe's interval in the isochronous descriptor list
  *   (XFER_LIST_ISOC_MARGIN slots are reserved for scheduling timing margin, see _buffer_fill_isoc()).
  *
+ * @note: Buffer DMA for IN transfers: length rounded up to a multiple of the endpoint's MPS (DWC2 rule)
+ *        The core may write up to that many bytes into the data buffer (e.g. a non-compliant device can return more
+          data than requested). The rounded length must therefore fit the data buffer past the setup packet.
  * Periodic transfers must be rejected here (and not only at descriptor list fill time) because the descriptor list
  * is filled synchronously on enqueue, where an overflow could otherwise only assert.
  *
@@ -3566,7 +3555,19 @@ static bool check_xfer_size(pipe_t *pipe, urb_t *urb)
     switch (pipe->ep_char.type) {
     case USB_DWC_XFER_TYPE_CTRL:
         // For control transfers only the data stage is bounded by the limit, so exclude the setup packet.
-        if (urb->transfer.num_bytes - (int)sizeof(usb_setup_packet_t) > hcd_pipe_get_xfer_size_limit((hcd_pipe_handle_t)pipe)) {
+        int data_stg_len = urb->transfer.num_bytes - (int)sizeof(usb_setup_packet_t);
+#if !CONFIG_USB_HOST_DMA_MODE_DESC
+        const usb_setup_packet_t *setup_pkt = (usb_setup_packet_t *)urb->transfer.data_buffer;
+        const bool data_stg_in = (setup_pkt->bmRequestType & USB_BM_REQUEST_TYPE_DIR_IN) && (setup_pkt->wLength > 0);
+        if (data_stg_in) {
+            const int mps = pipe->ep_char.mps;
+            data_stg_len = ((data_stg_len + mps - 1) / mps) * mps;
+            if (data_stg_len > (int)urb->transfer.data_buffer_size - (int)sizeof(usb_setup_packet_t)) {
+                fits = false;
+            }
+        }
+#endif // !CONFIG_USB_HOST_DMA_MODE_DESC
+        if (data_stg_len > hcd_pipe_get_xfer_size_limit((hcd_pipe_handle_t)pipe)) {
             fits = false;
         }
         break;

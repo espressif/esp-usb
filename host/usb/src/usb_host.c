@@ -1537,8 +1537,9 @@ esp_err_t usb_host_get_config_desc(usb_host_client_handle_t client_hdl, usb_devi
     HOST_CHECK(bConfigurationValue <= dev_desc->bNumConfigurations, ESP_ERR_NOT_SUPPORTED);
 
     // Initialize transfer
+    // Round the data stage length up to the largest EP0 MPS
     usb_transfer_t *ctrl_transfer;
-    if (usb_host_transfer_alloc(sizeof(usb_setup_packet_t) + CTRL_TRANSFER_MAX_DATA_LEN, 0, &ctrl_transfer)) {
+    if (usb_host_transfer_alloc(sizeof(usb_setup_packet_t) + usb_round_up_to_mps(CTRL_TRANSFER_MAX_DATA_LEN, CTRL_EP_MAX_MPS_HSFS), 0, &ctrl_transfer)) {
         return ESP_ERR_NO_MEM;
     }
 

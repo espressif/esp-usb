@@ -1146,7 +1146,8 @@ esp_err_t enum_install(enum_config_t *config, void **client_ret)
     ENUM_CHECK(enum_drv, ESP_ERR_NO_MEM);
 
     // Initialize ENUM objects
-    urb_t *urb = urb_alloc(sizeof(usb_setup_packet_t) + ENUM_CTRL_TRANSFER_MAX_DATA_LEN, 0);
+    // Round the data stage length up to the largest EP0 MPS
+    urb_t *urb = urb_alloc(sizeof(usb_setup_packet_t) + usb_round_up_to_mps(ENUM_CTRL_TRANSFER_MAX_DATA_LEN, CTRL_EP_MAX_MPS_HSFS), 0);
     if (urb == NULL) {
         ret = ESP_ERR_NO_MEM;
         goto alloc_err;
