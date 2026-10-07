@@ -2,6 +2,7 @@
 
 - esp_tinyusb: Fixed missing IAD declaration (bDeviceClass/bDeviceSubClass/bDeviceProtocol) in the default device and qualifier descriptors for NCM and ECM/RNDIS
 - esp_tinyusb: `CONFIG_TINYUSB_DESC_SERIAL_STRING` can now be left empty to derive the USB serial number string from the chip's eFuse base MAC at runtime, guaranteeing a unique serial number per device
+- esp_tinyusb: Fixed potentional deadlock during esp_tinyusb uninstall
 - MSC: Added generic block device storage support (IDF >= 6.0.4). This is an additive feature; `tinyusb_msc_new_storage_spiflash` and `tinyusb_msc_new_storage_sdmmc` remain unchanged.
 
 ## 2.3.0
