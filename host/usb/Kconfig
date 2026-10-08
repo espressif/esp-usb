@@ -8,6 +8,7 @@ menu "USB-OTG"
             Each USB device attached is allocated a dedicated buffer for its OUT/IN transfers to/from the device's
             control endpoint. The maximum size of that buffer is determined by this option. The limited size of the
             transfer buffer have the following implications:
+
             - The maximum length of control transfers is limited
             - Device's with configuration descriptors larger than this limit cannot be supported
 
@@ -25,27 +26,31 @@ menu "USB-OTG"
             The FIFO allocation formulas (where D = otg_dfifo_depth, Total = Total available FIFO size in lines):
 
             Balanced:
-            - IN (RX FIFO) = Total - D/4 - D/8
-            - OUT non-periodic (Non-periodic TX FIFO) = D/4
-            - OUT periodic (Periodic TX FIFO) = D/8
+              - IN (RX FIFO) = Total - D/4 - D/8
+              - OUT non-periodic (Non-periodic TX FIFO) = D/4
+              - OUT periodic (Periodic TX FIFO) = D/8
 
             Bias IN:
-            - IN (RX FIFO) = Total - D/16 - D/8
-            - OUT non-periodic (Non-periodic TX FIFO) = D/16
-            - OUT periodic (Periodic TX FIFO) = D/8
+              - IN (RX FIFO) = Total - D/16 - D/8
+              - OUT non-periodic (Non-periodic TX FIFO) = D/16
+              - OUT periodic (Periodic TX FIFO) = D/8
 
             Bias Periodic OUT:
-            - IN (RX FIFO) = D/8 + 3 (status quadlets: packet status + transfer complete + channel halted.
-              Even though the Programming Guide ch. 2.1.2.1 specifies only +2, testing showed that 2 lines
-              are not enough: with D/8 + 2 (130 lines), a device with a 512-byte interrupt-IN EP was accepted
-              but its IN transfers never completed. No per-channel lines needed in Scatter-Gather DMA mode)
-            - OUT non-periodic (Non-periodic TX FIFO) = D/16
-            - OUT periodic (Periodic TX FIFO) = Total - D/16 - (D/8 + 3)
+              - IN (RX FIFO) = D/8 + 3 (status quadlets: packet status + transfer complete + channel halted).
+
+                - Even though the Programming Guide ch. 2.1.2.1 specifies only +2, testing showed that 2 lines
+                  are not enough: with D/8 + 2 (130 lines), a device with a 512-byte interrupt-IN EP was accepted
+                  but its IN transfers never completed.
+
+                - No per-channel lines needed in Scatter-Gather DMA mode.
+
+              - OUT non-periodic (Non-periodic TX FIFO) = D/16
+              - OUT periodic (Periodic TX FIFO) = Total - D/16 - (D/8 + 3)
 
             Note:
-            - Each line = 4 bytes. To convert FIFO size: bytes = lines × 4
-            - D (otg_dfifo_depth) is typically 256 for FS PHY, 1024 for HS PHY (chip-dependent)
-            - Total is slightly less than D due to controller overhead
+              - Each line = 4 bytes. To convert FIFO size: bytes = lines × 4
+              - D (otg_dfifo_depth) is typically 256 for FS PHY, 1024 for HS PHY (chip-dependent)
+              - Total is slightly less than D due to controller overhead
 
         config USB_HOST_HW_BUFFER_BIAS_BALANCED
             bool "Balanced"
