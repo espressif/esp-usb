@@ -141,6 +141,12 @@ def generate_reference(app, _config):
         'usb_device_kconfig.inc',
         _DEVICE_KCONFIG_SOURCES,
         require_soc_caps=True,
+        extra_symbols={
+            # Kconfig
+            'ESP_SLEEP_EVENT_CALLBACKS': True,
+            'FREERTOS_USE_TICKLESS_IDLE': True,
+            'PM_ENABLE': True,
+        },
     )
 
     _generate_kconfig_include(
@@ -149,8 +155,10 @@ def generate_reference(app, _config):
         target,
         'usb_host_kconfig.inc',
         _HOST_KCONFIG_SOURCES,
+        require_soc_caps=True,
         extra_symbols={
-            'SOC_USB_OTG_SUPPORTED': True,
+            # Kconfig
+            'ESP_SLEEP_EVENT_CALLBACKS': True,
             'IDF_EXPERIMENTAL_FEATURES': False,
             'SPIRAM': target in ('esp32p4', 'esp32s31'),
         },
