@@ -1,0 +1,4 @@
+# Use the SD card instead of the RAM disk. Not built in CI.
+# Combine with a variant file, e.g.
+#   -DSDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.ci.async;sdkconfig.bench_sd"
+CONFIG_BENCH_STORAGE_SDCARD=y

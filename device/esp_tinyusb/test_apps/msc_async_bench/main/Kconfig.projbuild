@@ -1,0 +1,58 @@
+menu "MSC async IO benchmark"
+
+    choice BENCH_STORAGE
+        prompt "Storage exposed over MSC"
+        default BENCH_STORAGE_RAMDISK
+
+        config BENCH_STORAGE_RAMDISK
+            bool "RAM disk"
+            help
+                RAM-backed block device. Combine with the storage delay to emulate
+                slow media with predictable timing.
+
+        config BENCH_STORAGE_SDCARD
+            bool "SD card (ESP32-P4-Function-EV-Board)"
+            depends on IDF_TARGET_ESP32P4
+            help
+                microSD card in the ESP32-P4-Function-EV-Board slot, 4-bit SDMMC,
+                exposed through sdmmc_get_blockdev(). The device never mounts or
+                formats the card. Use a scratch card formatted FAT32 on the host.
+    endchoice
+
+    config BENCH_RAMDISK_SIZE_KB
+        int "RAM disk size (KiB)"
+        depends on BENCH_STORAGE_RAMDISK
+        default 4096 if SPIRAM
+        default 192
+        help
+            Size of the RAM-backed block device exposed over MSC. Allocated from
+            PSRAM when available, otherwise from internal RAM.
+
+    choice BENCH_SD_SPEED
+        prompt "SD card bus speed"
+        depends on BENCH_STORAGE_SDCARD
+        default BENCH_SD_HIGHSPEED
+
+        config BENCH_SD_HIGHSPEED
+            bool "High Speed (40 MHz)"
+        config BENCH_SD_DEFAULT_SPEED
+            bool "Default Speed (20 MHz)"
+    endchoice
+
+    config BENCH_SD_LDO_CHAN
+        int "On-chip LDO channel powering the SD card IO"
+        depends on BENCH_STORAGE_SDCARD
+        default 4
+
+    config BENCH_IO_DELAY_MS
+        int "Initial added storage delay per IO (ms)"
+        default 0
+        range 0 1000
+        help
+            Every read and write of the storage sleeps this long before
+            completing, to emulate slow media. The host can change it at runtime
+            (see README).
+            With the SD card, the delay is added on top of the card's own access
+            time. Use 0 to measure the card alone.
+
+endmenu

@@ -181,6 +181,62 @@ menu "TinyUSB Stack"
             default "/data"
             help
                 MSC Mount Path of storage.
+
+        config TINYUSB_MSC_ASYNC_IO
+            depends on TINYUSB_MSC_ENABLED
+            bool "Asynchronous storage IO"
+            default n
+            help
+                Run storage IO in a worker task, so other classes keep working while
+                the medium is busy, and report write errors to the USB host.
+                Requires TinyUSB 0.19.0 or newer.
+
+                READ10/WRITE10 are handled by a dedicated worker task instead of the
+                TinyUSB task. Without this option, storage access blocks the TinyUSB
+                task, so CDC, HID, NCM and other classes stall until it finishes, and
+                write errors are only logged.
+
+                A write chunk is accepted into the storage's write buffer before it
+                reaches the medium, so the host sends the next chunk in the meantime,
+                as in the non-async path. A failed buffered write is reported as
+                MEDIUM ERROR / WRITE ERROR on the next READ10, WRITE10, TEST UNIT
+                READY or SYNCHRONIZE CACHE command to the LUN.
+
+                Uses about 4.5 KB of extra heap: the worker task stack
+                (TINYUSB_MSC_ASYNC_IO_TASK_STACK_SIZE, default 4096 bytes) plus the
+                task control block, a request queue and one semaphore per LUN.
+
+        config TINYUSB_MSC_ASYNC_IO_TASK_STACK_SIZE
+            depends on TINYUSB_MSC_ASYNC_IO
+            int "Async IO task stack size (bytes)"
+            default 4096
+
+        config TINYUSB_MSC_ASYNC_IO_TASK_PRIORITY
+            depends on TINYUSB_MSC_ASYNC_IO
+            int "Async IO task priority"
+            default 5
+            range 1 24
+
+        choice TINYUSB_MSC_ASYNC_IO_TASK_AFFINITY
+            depends on TINYUSB_MSC_ASYNC_IO
+            prompt "Async IO task affinity"
+            default TINYUSB_MSC_ASYNC_IO_TASK_AFFINITY_NO_AFFINITY
+
+            config TINYUSB_MSC_ASYNC_IO_TASK_AFFINITY_NO_AFFINITY
+                bool "No affinity"
+            config TINYUSB_MSC_ASYNC_IO_TASK_AFFINITY_CPU0
+                bool "CPU0"
+            config TINYUSB_MSC_ASYNC_IO_TASK_AFFINITY_CPU1
+                bool "CPU1"
+                depends on !FREERTOS_UNICORE
+        endchoice
+
+        config TINYUSB_MSC_ASYNC_IO_TASK_AFFINITY
+            depends on TINYUSB_MSC_ASYNC_IO
+            hex
+            default 0x7FFFFFFF if TINYUSB_MSC_ASYNC_IO_TASK_AFFINITY_NO_AFFINITY
+            default 0x0 if TINYUSB_MSC_ASYNC_IO_TASK_AFFINITY_CPU0
+            default 0x1 if TINYUSB_MSC_ASYNC_IO_TASK_AFFINITY_CPU1
     endmenu # "Mass Storage Class"
 
     menu "Media Transfer Protocol (MTP)"

@@ -1,0 +1,17 @@
+# CDC + MSC composite device
+CONFIG_TINYUSB_MSC_ENABLED=y
+CONFIG_TINYUSB_CDC_ENABLED=y
+CONFIG_TINYUSB_CDC_COUNT=1
+
+# USB drive on the "storage" flash partition
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
+CONFIG_WL_SECTOR_SIZE_512=y
+CONFIG_WL_SECTOR_MODE_PERF=y
+
+# 1 ms tick for the simulated medium delay
+CONFIG_FREERTOS_HZ=1000
+
+# Without async IO, long storage operations block the TinyUSB task
+CONFIG_ESP_TASK_WDT_INIT=n
