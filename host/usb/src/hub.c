@@ -421,6 +421,8 @@ static void ext_port_event_callback(ext_port_hdl_t port_hdl, ext_port_event_t ev
         }
         break;
 new_ds_dev_err:
+        // From within this event: that is how the External Port Driver knows no device was
+        // added, and so that no recycle will come (port_disable())
         ext_hub_port_disable(ext_hub_hdl, port_num);
         break;
     case EXT_PORT_RESET_COMPLETED:
@@ -518,7 +520,24 @@ reset_err:
             // driver. In that case there is nothing more to report, so treat
             // ESP_ERR_NOT_FOUND as benign.
             const esp_err_t ret = dev_tree_node_dev_gone(NULL, root_hub_port->constant.index);
-            if (ret != ESP_OK && ret != ESP_ERR_NOT_FOUND) {
+            if (ret == ESP_ERR_NOT_FOUND) {
+                // No node, so no recycle is coming to recover the port: its device was never
+                // added (new_dev_err, then a power-off), or was freed before this event.
+                // Recover it here, as for a port that had no device. root_port_req() ignores
+                // a request the recycle has already served.
+                HUB_DRIVER_ENTER_CRITICAL();
+                root_hub_port->dynamic.reqs |= PORT_REQ_RECOVER;
+                if (root_hub_port->constant.index == 0) {
+                    p_hub_driver_obj->dynamic.flags.actions |= HUB_DRIVER_ACTION_ROOT0_REQ;
+                } else {
+#if HCD_NUM_PORTS > 1
+                    p_hub_driver_obj->dynamic.flags.actions |= HUB_DRIVER_ACTION_ROOT1_REQ;
+#else
+                    abort();    // Should never occur
+#endif // HCD_NUM_PORTS > 1
+                }
+                HUB_DRIVER_EXIT_CRITICAL();
+            } else if (ret != ESP_OK) {
                 ESP_ERROR_CHECK(ret);
             }
         }
@@ -551,7 +570,9 @@ static void root_port_req(root_hub_port_t *root_hub_port)
         // We allow this to fail in case a disconnect/port error happens while disabling.
         hcd_port_command(root_port_hdl, HCD_PORT_CMD_DISABLE);
     }
-    if (port_reqs & PORT_REQ_RECOVER) {
+    // A disconnect that finds no device node and the recycle of a device freed before it can
+    // both ask for recovery: only the first request finds the port still in recovery.
+    if ((port_reqs & PORT_REQ_RECOVER) && hcd_port_get_state(root_port_hdl) == HCD_PORT_STATE_RECOVERY) {
         ESP_LOGD(HUB_DRIVER_TAG, "Recovering root port %d",  root_hub_port->constant.index);
         ESP_ERROR_CHECK(hcd_port_recover(root_port_hdl));
 
@@ -887,6 +908,7 @@ fail:
 esp_err_t hub_root_stop(void)
 {
     bool needs_power_off[HCD_NUM_PORTS] = {0};
+    root_port_state_t prev_state[HCD_NUM_PORTS] = {0};
     HUB_DRIVER_ENTER_CRITICAL();
     HUB_DRIVER_CHECK_FROM_CRIT(p_hub_driver_obj != NULL, ESP_ERR_INVALID_STATE);
     bool all_stopped = true;
@@ -897,6 +919,7 @@ esp_err_t hub_root_stop(void)
         if (p_hub_driver_obj->root_hub_ports[i].dynamic.state != ROOT_PORT_STATE_NOT_POWERED) {
             all_stopped = false;
             needs_power_off[i] = true;
+            prev_state[i] = p_hub_driver_obj->root_hub_ports[i].dynamic.state;
             p_hub_driver_obj->root_hub_ports[i].dynamic.state = ROOT_PORT_STATE_NOT_POWERED;
         }
     }
@@ -907,15 +930,33 @@ esp_err_t hub_root_stop(void)
     }
     HUB_DRIVER_EXIT_CRITICAL();
 
-    // HCD_PORT_CMD_POWER_OFF will only fail if the port is already powered_off or if HW fails to enable clock for the port (if stopping suspended port).
-    // This should never happen, so we assert ret == ESP_OK
     for (int i = 0; i < HCD_NUM_PORTS; i++) {
         hcd_port_handle_t root_port_hdl = p_hub_driver_obj->root_hub_ports[i].constant.hdl;
         if (root_port_hdl == NULL || !needs_power_off[i]) {
             continue;
         }
+        // A port in recovery has lost its device already. Its recovery comes once the
+        // device is freed, from the recycle, or at once from the disconnect's handling if
+        // there is no device node, and leaves it not powered, as its state now says.
+        // Powering it off here would take it out of recovery before then, and a recycle
+        // would find it in a state root_port_recycle() aborts on.
+        if (hcd_port_get_state(root_port_hdl) == HCD_PORT_STATE_RECOVERY) {
+            continue;
+        }
+        // The HCD refuses commands while a port event waits to be handled, such as a
+        // device connecting just now. Leave this port, and those not reached yet, as they
+        // were, for the caller to retry.
         const esp_err_t ret = hcd_port_command(root_port_hdl, HCD_PORT_CMD_POWER_OFF);
-        assert(ret == ESP_OK);
+        if (ret != ESP_OK) {
+            HUB_DRIVER_ENTER_CRITICAL();
+            for (int j = i; j < HCD_NUM_PORTS; j++) {
+                if (needs_power_off[j]) {
+                    p_hub_driver_obj->root_hub_ports[j].dynamic.state = prev_state[j];
+                }
+            }
+            HUB_DRIVER_EXIT_CRITICAL();
+            return ret;
+        }
     }
     return ESP_OK;
 }
