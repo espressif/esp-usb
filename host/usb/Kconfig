@@ -226,17 +226,16 @@ menu "USB-OTG"
             Buffer DMA mode uses a single linear buffer per channel without a descriptor list. It has a
             smaller memory footprint, but requires more frequent CPU intervention to service transfers.
 
-            Buffer DMA mode is only available if the ESP-IDF USB DWC HAL supports it. On ESP-IDF versions without
-            the buffer DMA HAL changes, only Descriptor DMA mode can be selected.
+            Buffer DMA mode requires buffer DMA support in the ESP-IDF USB DWC HAL (ESP-IDF v6.2+).
+            Selecting Buffer DMA mode on an ESP-IDF version without the buffer DMA HAL changes
+            results in a compile-time error.
 
         config USB_HOST_DMA_MODE_DESC
             bool "Descriptor DMA mode (Scatter-Gather DMA)"
+            # Descriptor DMA is the default DMA mode, present in all esp-idf versions
         config USB_HOST_DMA_MODE_BUFFER
             bool "Buffer DMA mode"
-            depends on USB_DWC_HAL_HAS_BUFFER_DMA
-            # USB_DWC_HAL_HAS_BUFFER_DMA is defined by the esp-idf esp_hal_usb component.
-            # On ESP-IDF versions without the buffer DMA HAL changes the symbol is undefined,
-            # this dependency evaluates to n and the choice falls back to the default (Descriptor DMA).
+            # Buffer DMA mode requires buffer DMA support in the esp-idf HAL (USB_DWC_HAL_HAS_BUFFER_DMA).
     endchoice
 
     config USB_HOST_ENABLE_ENUM_FILTER_CALLBACK

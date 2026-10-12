@@ -26,6 +26,18 @@ extern "C" {
 #define AUTO_PM_LIGHT_SLEEP
 #endif // CONFIG_USB_HOST_AUTO_PM_LIGHT_SLEEP
 
+/*
+ * DMA mode resolved from Kconfig and the esp-idf HAL support. Buffer DMA is compiled in only
+ * when the mode is both selected in Kconfig and supported by the esp-idf HAL.
+ */
+#if defined(CONFIG_USB_HOST_DMA_MODE_BUFFER) && defined(USB_DWC_HAL_HAS_BUFFER_DMA)
+#define DWC_DMA_MODE_BUFFER     1
+#define DWC_DMA_MODE_DESC       0
+#else
+#define DWC_DMA_MODE_BUFFER     0
+#define DWC_DMA_MODE_DESC       1
+#endif
+
 // ----------------------- Configs -------------------------
 
 #define HCD_NUM_PORTS                           SOC_USB_OTG_PERIPH_NUM   // Each peripheral is a root port
