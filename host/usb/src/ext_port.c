@@ -824,7 +824,7 @@ static void handle_disable(ext_port_t *ext_port)
 
     if (ext_port->state == USB_PORT_STATE_ENABLED) {
         if (port_has_connection(ext_port)) {
-            ESP_LOGE(EXT_PORT_TAG, "Port%d disabled, reset attempts=%d",
+            ESP_LOGW(EXT_PORT_TAG, "Port%d disabled while connected, reset attempts=%d",
                      ext_port->constant.port_num,
                      ext_port->dev_reset_attempts);
 
