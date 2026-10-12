@@ -156,9 +156,11 @@ esp_err_t tinyusb_driver_install(const tinyusb_config_t *config);
  * descriptors, and deletes the USB PHY when it was created by
  * tinyusb_driver_install().
  *
+ * @note Do not call this function from the TinyUSB task or from a callback that runs in that task.
+ *
  * @return
  *      - ESP_OK on success
- *      - ESP_ERR_INVALID_STATE if the TinyUSB driver is not installed
+ *      - ESP_ERR_INVALID_STATE if the TinyUSB driver is not installed, or this function is called from the TinyUSB task
  *      - Other error codes from TinyUSB task shutdown or USB PHY teardown
  */
 esp_err_t tinyusb_driver_uninstall(void);
