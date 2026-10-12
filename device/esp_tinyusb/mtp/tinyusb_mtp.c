@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include "esp_private/critical_section.h"
 #include "mtp/tinyusb_mtp_internal.h"
 #include "mtp/tinyusb_mtp_context.h"
 #include "mtp/tinyusb_mtp_object_store.h"
@@ -14,7 +15,11 @@ static const char *TAG = "tinyusb_mtp";
 
 static tinyusb_mtp_ctx_t s_mtp_context;
 static SemaphoreHandle_t s_mtp_lifecycle_lock;
-static portMUX_TYPE s_mtp_lifecycle_init_lock = portMUX_INITIALIZER_UNLOCKED;
+
+// MTP spinlock
+DEFINE_CRIT_SECTION_LOCK_STATIC(s_mtp_lifecycle_init_lock);
+#define MTP_ENTER_CRITICAL()    esp_os_enter_critical(&s_mtp_lifecycle_init_lock)
+#define MTP_EXIT_CRITICAL()     esp_os_exit_critical(&s_mtp_lifecycle_init_lock)
 
 tinyusb_mtp_ctx_t *mtp_context_get(void)
 {
@@ -23,9 +28,9 @@ tinyusb_mtp_ctx_t *mtp_context_get(void)
 
 static SemaphoreHandle_t mtp_lifecycle_lock_get(void)
 {
-    portENTER_CRITICAL(&s_mtp_lifecycle_init_lock);
+    MTP_ENTER_CRITICAL();
     SemaphoreHandle_t lock = s_mtp_lifecycle_lock;
-    portEXIT_CRITICAL(&s_mtp_lifecycle_init_lock);
+    MTP_EXIT_CRITICAL();
     return lock;
 }
 
@@ -37,12 +42,12 @@ static esp_err_t mtp_lifecycle_init(void)
 
     SemaphoreHandle_t candidate = xSemaphoreCreateMutex();
     ESP_RETURN_ON_FALSE(candidate != NULL, ESP_ERR_NO_MEM, TAG, "failed to create MTP lifecycle lock");
-    portENTER_CRITICAL(&s_mtp_lifecycle_init_lock);
+    MTP_ENTER_CRITICAL();
     if (s_mtp_lifecycle_lock == NULL) {
         s_mtp_lifecycle_lock = candidate;
         candidate = NULL;
     }
-    portEXIT_CRITICAL(&s_mtp_lifecycle_init_lock);
+    MTP_EXIT_CRITICAL();
     if (candidate != NULL) {
         vSemaphoreDelete(candidate);
     }

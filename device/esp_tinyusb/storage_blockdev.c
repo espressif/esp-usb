@@ -7,6 +7,7 @@
 #include <string.h>
 #include <stdbool.h>
 #include "freertos/FreeRTOS.h"
+#include "esp_private/critical_section.h"
 #include "esp_log.h"
 #include "esp_err.h"
 #include "esp_check.h"
@@ -15,7 +16,11 @@
 
 static const char *TAG = "storage_blockdev";
 
-static portMUX_TYPE _bdl_lock = portMUX_INITIALIZER_UNLOCKED;
+// Blockdev spinlock
+DEFINE_CRIT_SECTION_LOCK_STATIC(_bdl_lock);
+#define BLOCKDEV_ENTER_CRITICAL()       esp_os_enter_critical(&_bdl_lock)
+#define BLOCKDEV_EXIT_CRITICAL()        esp_os_exit_critical(&_bdl_lock)
+
 static esp_blockdev_handle_t _bdl_handle = ESP_BLOCKDEV_HANDLE_INVALID; // borrowed
 static size_t _bdl_block_size = 0;
 
@@ -123,10 +128,10 @@ static esp_err_t storage_blockdev_get_info(storage_info_t *info)
 
 static void storage_blockdev_close(void)
 {
-    portENTER_CRITICAL(&_bdl_lock);
+    BLOCKDEV_ENTER_CRITICAL();
     _bdl_handle = ESP_BLOCKDEV_HANDLE_INVALID;
     _bdl_block_size = 0;
-    portEXIT_CRITICAL(&_bdl_lock);
+    BLOCKDEV_EXIT_CRITICAL();
 }
 
 static esp_err_t storage_blockdev_sector_read(uint32_t lba, uint32_t offset, size_t size, void *dest)
@@ -194,14 +199,14 @@ esp_err_t storage_blockdev_open_medium(esp_blockdev_handle_t bdl_handle, const s
     ESP_RETURN_ON_FALSE(bdl_handle->geometry.disk_size > 0 && bdl_handle->geometry.read_size > 0,
                         ESP_ERR_INVALID_ARG, TAG, "zero disk_size/read_size");
 
-    portENTER_CRITICAL(&_bdl_lock);
+    BLOCKDEV_ENTER_CRITICAL();
     if (_bdl_handle != ESP_BLOCKDEV_HANDLE_INVALID) {
-        portEXIT_CRITICAL(&_bdl_lock);
+        BLOCKDEV_EXIT_CRITICAL();
         ESP_LOGE(TAG, "blockdev MSC storage already open");
         return ESP_ERR_INVALID_STATE;
     }
     _bdl_handle = bdl_handle;
-    portEXIT_CRITICAL(&_bdl_lock);
+    BLOCKDEV_EXIT_CRITICAL();
 
     bool needs_erase = bdl_handle->device_flags.erase_before_write || bdl_handle->device_flags.and_type_write;
     if (needs_erase && (bdl_handle->ops->erase == NULL || bdl_handle->geometry.erase_size <= 1)) {
