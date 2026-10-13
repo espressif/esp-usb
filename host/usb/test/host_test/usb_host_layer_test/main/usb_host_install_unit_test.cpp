@@ -7,6 +7,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <catch2/catch_test_macros.hpp>
+#include "usb_host_layer_test_fixture.hpp"
 
 #include "esp_bit_defs.h"
 #include "usb_host.h"   // Real implementation of usb_host.h
@@ -19,16 +20,6 @@ extern "C" {
 #include "Mockenum.h"
 #include "Mockhub.h"
 }
-
-namespace {
-
-/** Non-null opaque handle for mocked usb_phy (ReturnThruPtr). Use distinct \a id for multiple handles (e.g. dual port). id is mapped to id+1 so that 0 never becomes nullptr. */
-inline usb_phy_handle_t mock_phy_handle(unsigned id = 0)
-{
-    return reinterpret_cast<usb_phy_handle_t>(reinterpret_cast<void *>(static_cast<uintptr_t>(id + 1)));
-}
-
-} // namespace
 
 SCENARIO("USB Host pre-uninstall")
 {
@@ -58,15 +49,7 @@ SCENARIO("USB Host install")
     }
 
     // USB Host config struct
-    usb_host_config_t usb_host_config = {
-        .skip_phy_setup = false,
-        .root_port_unpowered = false,
-        .intr_flags = 1,
-        .enum_filter_cb = nullptr,
-        .fifo_settings_custom = {},
-        .peripheral_map = BIT0,
-        .fsls_only = false,
-    };
+    usb_host_config_t usb_host_config = usb_host_layer::default_host_config();
 
     // USB host config is valid, USB Host driver is not installed from previous test case
     GIVEN("USB Host config, USB Host driver not installed") {
@@ -95,15 +78,15 @@ SCENARIO("USB Host install")
             usb_host_config_t config_dual = usb_host_config;
             config_dual.peripheral_map = BIT0 | BIT1;
             // Make 1st PHY install to pass
-            usb_phy_handle_t phy_handle_0 = mock_phy_handle(0);
+            usb_phy_handle_t phy_handle = usb_host_layer::mock_phy_handle();
             usb_new_phy_ExpectAnyArgsAndReturn(ESP_OK);
-            usb_new_phy_ReturnThruPtr_handle_ret(&phy_handle_0);
+            usb_new_phy_ReturnThruPtr_handle_ret(&phy_handle);
 
             // Make 2nd PHY install to fail
             usb_new_phy_ExpectAnyArgsAndReturn(ESP_ERR_INVALID_STATE);
 
             // goto phy_err: We must uninstall 1st PHY
-            usb_del_phy_ExpectAndReturn(phy_handle_0, ESP_OK);
+            usb_del_phy_ExpectAndReturn(phy_handle, ESP_OK);
 
             // Call the DUT function, expect ESP_ERR_INVALID_STATE
             REQUIRE(ESP_ERR_INVALID_STATE == usb_host_install(&config_dual));
@@ -113,7 +96,7 @@ SCENARIO("USB Host install")
         SECTION("Fail to install USB Host - USBH install error") {
 
             // Make the PHY install to pass
-            usb_phy_handle_t phy_handle = mock_phy_handle();
+            usb_phy_handle_t phy_handle = usb_host_layer::mock_phy_handle();
             usb_new_phy_ExpectAnyArgsAndReturn(ESP_OK);
             usb_new_phy_ReturnThruPtr_handle_ret(&phy_handle);
 
@@ -131,7 +114,7 @@ SCENARIO("USB Host install")
         SECTION("Fail to install USB Host - Enum driver install error") {
 
             // Make the PHY install to pass
-            usb_phy_handle_t phy_handle = mock_phy_handle();
+            usb_phy_handle_t phy_handle = usb_host_layer::mock_phy_handle();
             usb_new_phy_ExpectAnyArgsAndReturn(ESP_OK);
             usb_new_phy_ReturnThruPtr_handle_ret(&phy_handle);
 
@@ -153,7 +136,7 @@ SCENARIO("USB Host install")
         SECTION("Fail to install USB Host - Hub driver install error") {
 
             // Make the PHY install to pass
-            usb_phy_handle_t phy_handle = mock_phy_handle();
+            usb_phy_handle_t phy_handle = usb_host_layer::mock_phy_handle();
             usb_new_phy_ExpectAnyArgsAndReturn(ESP_OK);
             usb_new_phy_ReturnThruPtr_handle_ret(&phy_handle);
 
@@ -179,17 +162,10 @@ SCENARIO("USB Host install")
 
 SCENARIO("USB Dual Host install - valid config")
 {
-    usb_phy_handle_t phy_handle_0 = mock_phy_handle(0);
-    usb_phy_handle_t phy_handle_1 = mock_phy_handle(1);
-    usb_host_config_t usb_host_config = {
-        .skip_phy_setup = false,
-        .root_port_unpowered = false,
-        .intr_flags = 1,
-        .enum_filter_cb = nullptr,
-        .fifo_settings_custom = {},
-        .peripheral_map = BIT0 | BIT1,
-        .fsls_only = false,
-    };
+    usb_phy_handle_t phy_handle_0 = usb_host_layer::mock_phy_handle(0);
+    usb_phy_handle_t phy_handle_1 = usb_host_layer::mock_phy_handle(1);
+    usb_host_config_t usb_host_config = usb_host_layer::default_host_config();
+    usb_host_config.peripheral_map = BIT0 | BIT1;
 
     usbh_install_ExpectAnyArgsAndReturn(ESP_OK);
     enum_install_ExpectAnyArgsAndReturn(ESP_OK);
@@ -244,16 +220,8 @@ SCENARIO("USB Dual Host install - valid config")
 
 SCENARIO("USB Host install - valid config")
 {
-    usb_phy_handle_t phy_handle = mock_phy_handle();
-    usb_host_config_t usb_host_config = {
-        .skip_phy_setup = false,
-        .root_port_unpowered = false,
-        .intr_flags = 1,
-        .enum_filter_cb = nullptr,
-        .fifo_settings_custom = {},
-        .peripheral_map = BIT0,
-        .fsls_only = false,
-    };
+    usb_phy_handle_t phy_handle = usb_host_layer::mock_phy_handle();
+    usb_host_config_t usb_host_config = usb_host_layer::default_host_config();
 
     GIVEN("Default config with PHY") {
         // Expect for usb_host_install() to pass
