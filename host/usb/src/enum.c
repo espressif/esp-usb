@@ -22,8 +22,6 @@
 #define ENUM_INIT_VALUE_DEV_ADDR                    1       // Init value for device address
 #define ENUM_DEFAULT_CONFIGURATION_VALUE            1       // Default configuration value for SetConfiguration() request
 #define ENUM_SHORT_DESC_REQ_LEN                     8       // Number of bytes to request when getting a short descriptor (just enough to get bMaxPacketSize0 or wTotalLength)
-#define ENUM_WORST_CASE_MPS_LS                      8       // The worst case MPS of EP0 for a LS device
-#define ENUM_WORST_CASE_MPS_FS_HS                   64      // The worst case MPS of EP0 for a FS/HS device
 #define ENUM_LANGID                                 0x409   // Current enumeration only supports English (United States) string descriptors
 #define ENUM_MAX_ADDRESS                            (127)   // Maximal device address value
 #define ENUM_PENDING_QUEUE_LEN                      (5)
@@ -1236,8 +1234,8 @@ esp_err_t enum_start(unsigned int uid)
     // Device params
     memset(&p_enum_driver->single_thread.dev_params, 0, sizeof(enum_device_params_t));
     p_enum_driver->single_thread.dev_params.bMaxPacketSize0 = (dev_info.speed == USB_SPEED_LOW)
-                                                              ? ENUM_WORST_CASE_MPS_LS
-                                                              : ENUM_WORST_CASE_MPS_FS_HS;
+                                                              ? CTRL_EP_MAX_MPS_LS
+                                                              : CTRL_EP_MAX_MPS_HSFS;
 
     // Notify USB Host about starting enumeration process
     enum_event_data_t event_data = {
