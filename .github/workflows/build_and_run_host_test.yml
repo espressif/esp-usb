@@ -1,4 +1,4 @@
-# This workflow builds and runs all Linux target host tests:
+# This is a reusable workflow which builds and runs all Linux target host tests:
 #
 #   - usb host class drivers linux host tests with fully mocked USB Component
 #   - usb component linux host tests with selectively mocked USB Component
@@ -7,8 +7,12 @@
 name: Build and Run USB Host test
 
 on:
-  pull_request:
-    types: [opened, reopened, synchronize]
+  workflow_call:
+    inputs:
+      changed_files:
+        description: 'Changed files separated by semicolon'
+        required: false
+        type: string
 
 jobs:
   build:
@@ -27,15 +31,23 @@ jobs:
         shell: bash
         run: |
           . ${IDF_PATH}/export.sh
-          pip install pytest pytest-embedded pytest-embedded-serial-esp pytest-embedded-idf pyusb idf-ci idf-build-apps==3.0.1 --upgrade
+          pip install pytest pytest-embedded pytest-embedded-serial-esp pytest-embedded-idf pyusb idf-ci idf-build-apps==3.0.1 pytest-ignore-test-results --upgrade
       - name: Build
         shell: bash
         run: |
           . ${IDF_PATH}/export.sh
-          idf-build-apps find --target linux
-          idf-build-apps build --target linux
+
+          MODIFIED_FILES_FLAG=""
+          CHANGED_FILES="${{ inputs.changed_files }}"
+          if [ -n "$CHANGED_FILES" ]; then
+            echo "CHANGED_FILES: $CHANGED_FILES"
+            MODIFIED_FILES_FLAG="--modified-files=$CHANGED_FILES"
+          fi
+
+          idf-build-apps find --target linux $MODIFIED_FILES_FLAG
+          idf-build-apps build --target linux $MODIFIED_FILES_FLAG --collect-app-info="app_info_${{ github.run_id }}.txt"
       - name: Run
         shell: bash
         run: |
           . ${IDF_PATH}/export.sh
-          pytest --target=linux -m host_test --build-dir=build_linux_default
+          pytest --target=linux -m host_test --build-dir=build_linux_default --ignore-no-tests-collected-error
