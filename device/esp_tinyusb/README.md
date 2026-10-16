@@ -544,6 +544,32 @@ void main(void)
 
 **Note:** Internal SPI flash is for demonstration only; use SD cards or external flash for higher performance.
 
+### Asynchronous storage IO
+
+By default, MSC storage reads and writes run in the TinyUSB task. All USB classes are serviced by that task, so while a slow medium (SD card, external flash) is being accessed, CDC, HID and other classes on the same device are not serviced.
+
+`CONFIG_TINYUSB_MSC_ASYNC_IO` moves storage reads and writes to a dedicated worker task. The TinyUSB task keeps servicing the other classes during storage access, and a failed storage write is reported to the USB host. Without async IO, write errors are only logged.
+
+A write chunk is accepted into the storage's write buffer before it is written to the medium, so the host can send the next chunk in the meantime, as in the default path. This is the same per-storage buffer of `CONFIG_TINYUSB_MSC_BUFSIZE` bytes that the default path uses. A failed buffered write fails the next READ10, WRITE10, TEST UNIT READY or SYNCHRONIZE CACHE command to the LUN.
+
+Heap used compared to the default configuration:
+
+| Configuration                   | Heap difference                                                    | Contents                                                                                                                                                      |
+| ------------------------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `CONFIG_TINYUSB_MSC_ASYNC_IO=y` | +~4.5 KB with the default worker stack, +~100 B per additional LUN | Worker task stack (default 4096 B), task control block, request queue, one semaphore per LUN. The write buffer is the one the default path already allocates. |
+
+Worker task stack size, priority and core affinity are set at runtime in `tinyusb_msc_driver_config_t::async_io_task`. Leave it zeroed for the defaults.
+
+The default stack of 4096 B is sized to be safe for any storage medium and is usually more than needed. The worker task runs the storage driver's read and write calls, so the stack it needs depends on the medium and its driver. To save RAM, measure the peak stack use of the `msc_async_io` task with your storage, for example with `uxTaskGetStackHighWaterMark()` after copying files to the drive and after a failed write, and set a smaller stack that keeps some headroom:
+
+```c
+  tinyusb_msc_driver_config_t driver_cfg = { 0 };
+  driver_cfg.async_io_task = TINYUSB_TASK_CUSTOM(2048 /* size */, 5 /* priority */, tskNO_AFFINITY /* affinity */);
+  tinyusb_msc_install_driver(&driver_cfg);
+```
+
+Without async IO, the latency of the other classes grows with the storage access time. With async IO it stays close to the idle value. The [MSC async IO test app](test_apps/msc_async_io) checks this with a RAM disk that adds a delay to every storage access, and a host script for macOS and Linux. It is run manually, not in CI.
+
 ## Examples
 
 You can find examples in [ESP-IDF on GitHub](https://github.com/espressif/esp-idf/tree/master/examples/peripherals/usb/device).
