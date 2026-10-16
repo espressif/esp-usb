@@ -1,0 +1,50 @@
+# Migration guide to Espressif's TinyUSB addition
+
+This migration guide is intended for users upgrading from Espressif's TinyUSB addition v2.x.x to v3.0.0 of the component.
+
+v3.0.0 integrates the TinyUSB stack into the `esp_tinyusb` component as a git submodule. `esp_tinyusb` no longer depends on a separate `tinyusb` component from the ESP Component Registry.
+
+v3.0.0 removes DCD Slave/IRQ mode. The TinyUSB DWC2 Device Controller Driver uses Buffer DMA mode only.
+
+If your project used the default DCD mode (Buffer DMA), you do not need to change application code. If your project selected Slave/IRQ mode, you must switch to Buffer DMA. Slave/IRQ mode is no longer available.
+
+v3.0.0 requires ESP-IDF v5.3 or later. Compatibility code for older ESP-IDF versions has been removed.
+
+v3.0.0 always registers TinyUSB suspend and resume callbacks. esp_tinyusb dispatches `TINYUSB_EVENT_SUSPENDED` and `TINYUSB_EVENT_RESUMED` through the USB Device Event callback. Applications must not define `tud_suspend_cb()` or `tud_resume_cb()`.
+
+v3.0.0 removes the Kconfig serial number string. When the application does not provide a serial number string at runtime, esp_tinyusb generates it from the chip eFuse base MAC.
+
+## Changes Required After Migration
+
+- Use ESP-IDF v5.3 or later
+- Do not set `CONFIG_TINYUSB_MODE_SLAVE` or `CONFIG_TINYUSB_MODE_DMA` as they do not have any effect anymore
+- Remove `CONFIG_TINYUSB_SUSPEND_CALLBACK` and `CONFIG_TINYUSB_RESUME_CALLBACK` from `sdkconfig` or `sdkconfig.defaults`.
+- Remove `CONFIG_TINYUSB_DESC_SERIAL_STRING` from `sdkconfig` or `sdkconfig.defaults`. To keep a fixed serial number, pass it in `tinyusb_config_t.descriptor.string` at the index selected by the device descriptor `iSerialNumber` field. A missing or NULL serial string uses the eFuse base MAC.
+- Remove `tud_suspend_cb()` and `tud_resume_cb()` from application code. Handle suspend and resume in `tinyusb_config_t::event_cb`.
+- Remove any explicit `tinyusb` (or `espressif/tinyusb`) dependency from your project's `idf_component.yml`. The standalone component is unused when `esp_tinyusb` is present. Keeping it compiles a second copy of TinyUSB and can confuse version selection.
+
+## List of changes
+
+### Removed
+
+- Support for ESP-IDF versions older than v5.3.
+- Kconfig menu `TinyUSB DCD` and choice `TINYUSB_MODE`:
+  - `TINYUSB_MODE_SLAVE`,
+  - `TINYUSB_MODE_DMA`.
+- Compile-time enable of DCD Slave/IRQ mode in `tusb_config.h`:
+  - `CFG_TUD_DWC2_SLAVE_ENABLE`.
+- Kconfig menu `TinyUSB callbacks`:
+  - `TINYUSB_SUSPEND_CALLBACK`,
+  - `TINYUSB_RESUME_CALLBACK`.
+- Kconfig option `TINYUSB_DESC_SERIAL_STRING`. The default serial number is generated from the chip eFuse base MAC.
+- Deprecated compatibility headers and the APIs they exposed:
+  - `tusb_cdc_acm.h`: `tusb_cdc_acm_init()`, `tusb_cdc_acm_deinit()`, `tusb_cdc_acm_initialized()`
+  - `tusb_console.h`: `esp_tusb_init_console()`, `esp_tusb_deinit_console()`
+  - `tusb_msc_storage.h`: `tinyusb_msc_storage_init_spiflash()`, `tinyusb_msc_storage_init_sdmmc()`, `tinyusb_msc_storage_deinit()`, and related helpers
+- Deprecated MSC event field `tinyusb_msc_event_t::mount_changed_data`
+
+### Changed
+
+- Buffer DMA is always enabled. `CFG_TUD_DWC2_DMA_ENABLE` is set to `1` unconditionally. Previously it was set only when `CONFIG_TINYUSB_MODE_DMA` was selected.
+- `tud_suspend_cb()` and `tud_resume_cb()` are always implemented by esp_tinyusb. `TINYUSB_EVENT_SUSPENDED` and `TINYUSB_EVENT_RESUMED` are always available.
+- The default USB serial number string is the chip eFuse base MAC, formatted as 12 uppercase hexadecimal characters. Provide a string descriptor array at runtime to use a different USB serial number.

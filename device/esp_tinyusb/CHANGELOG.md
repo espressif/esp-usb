@@ -1,3 +1,19 @@
+## 3.0.0
+
+### Breaking changes
+
+- esp_tinyusb: Removed DCD Slave/IRQ mode. Only Buffer DMA mode is supported.
+- esp_tinyusb: Dropped support for ESP-IDF versions older than v5.3. ESP-IDF v5.3 or later is now required
+- esp_tinyusb: Suspend and resume TinyUSB callbacks (`tud_suspend_cb`, `tud_resume_cb`) are now always registered inside esp_tinyusb. Kconfig options `CONFIG_TINYUSB_SUSPEND_CALLBACK` and `CONFIG_TINYUSB_RESUME_CALLBACK` were removed. Applications must handle `TINYUSB_EVENT_SUSPENDED` and `TINYUSB_EVENT_RESUMED` via the device event callback and must not define `tud_suspend_cb()` or `tud_resume_cb()`.
+- esp_tinyusb: Removed `CONFIG_TINYUSB_DESC_SERIAL_STRING`. The default USB serial number is now generated at runtime from the chip eFuse base MAC as 12 uppercase hexadecimal characters. Provide a custom serial number in the string descriptor array passed to `tinyusb_driver_install()`. A NULL entry at the `iSerialNumber` index uses the MAC serial number.
+- esp_tinyusb: Each release now ships TinyUSB as a git submodule with a fixed version. This release uses TinyUSB 0.21.0~2. Independent TinyUSB version selection is no longer supported.
+- esp_tinyusb: Removed already deprecated header files `tusb_cdc_acm.h`, `tusb_console.h` and `tusb_msc_storage.h`, the compatibility APIs they exposed, and the MSC event field `tinyusb_msc_event_t::mount_changed_data`
+- For more details, refer to the [Espressif's Addition to TinyUSB Migration guide v3](../../docs/device/migration-guides/v3/tinyusb.md)
+
+### Added
+
+- esp_tinyusb: Added Kconfig option `CONFIG_TINYUSB_DWC2_PTI_ENABLE` to enable DWC2 Periodic Transfer Interrupt (PTI) for isochronous endpoints
+
 ## 2.4.0
 
 - esp_tinyusb: Fixed missing IAD declaration (bDeviceClass/bDeviceSubClass/bDeviceProtocol) in the default device and qualifier descriptors for NCM and ECM/RNDIS
@@ -36,7 +52,7 @@
 
 ## 2.0.1
 
-- esp_tinyusb: Added ESP32H4 support
+- esp_tinyusb: Added ESP32-H4 support
 - esp_tinyusb: Fixed an assertion failure on the GetOtherSpeedDescriptor() request for ESP32-P4 when the OTG1.1 port is used
 - MSC: Added dynamic member and storage operation multitask protection
 - MSC: Used `esp_vfs_fat_register_cfg` function prototype for esp-idf v5.3 and higher

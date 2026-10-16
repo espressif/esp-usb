@@ -6,6 +6,8 @@ This component extends TinyUSB with features that simplify integration into ESP-
 
 It provides both default and customizable configurations for TinyUSB, enabling USB device functionality on ESP chips with USB-OTG support.
 
+The current TinyUSB version is [0.21.0~2](https://components.espressif.com/components/espressif/tinyusb/versions/0.21.0~2/readme). The stack is bundled as a git submodule, so you do not need a separate `tinyusb` dependency.
+
 ### Run-time configuration
 
 During configuration, the following parameters can be set when installing the driver:
@@ -45,17 +47,18 @@ This component is distributed via [IDF component manager](https://docs.espressif
 ```yaml
 ## IDF Component Manager Manifest File
 dependencies:
-  esp_tinyusb: "~2.0.0"
+  esp_tinyusb: "~3.0.0"
 ```
 
 Or simply run:
 
 ```
-idf.py add-dependency esp_tinyusb~2.0.0
+idf.py add-dependency esp_tinyusb~3.0.0
 ```
 
 ## Breaking changes migration guides
 
+- [v3.0.0](../../docs/device/migration-guides/v3/)
 - [v2.0.0](../../docs/device/migration-guides/v2/)
 
 ## USB Device Stack: usage, installation & configuration
@@ -150,49 +153,6 @@ User Argument could be passed to the USB Device Event callback as a second argum
   }
 ```
 
-### Suspend / Resume Device Events
-
-Suspend and resume device events are **optional** and are disabled by default.
-Users can choose one of the following approaches:
-
-#### Option 1 — Use esp_tinyusb device events (recommended for integration)
-
-Enable the following Kconfig options:
-
-- `CONFIG_TINYUSB_SUSPEND_CALLBACK` → enables `TINYUSB_EVENT_SUSPENDED`
-- `CONFIG_TINYUSB_RESUME_CALLBACK` → enables `TINYUSB_EVENT_RESUMED`
-
-When enabled:
-
-- esp_tinyusb provides strong implementations of:
-  - `tud_suspend_cb()`
-  - `tud_resume_cb()`
-- esp_tinyusb dispatches suspend/resume events via the device event callback.
-
-⚠️ **Important:**
-When these options are enabled, user applications **MUST NOT** define
-`tud_suspend_cb()` or `tud_resume_cb()` themselves. Doing so will result
-in a linker error due to multiple definitions.
-
-#### Option 2 — Use TinyUSB callbacks directly (default behavior)
-
-If the Kconfig options are **disabled** (default):
-
-- esp_tinyusb does NOT handle suspend/resume events
-- Users may implement TinyUSB callbacks directly in their application:
-
-```c
-void tud_suspend_cb(bool remote_wakeup_en)
-{
-    // User suspend handling
-}
-
-void tud_resume_cb(void)
-{
-    // User resume handling
-}
-```
-
 ### Peripheral port
 
 When several peripheral ports are available by the hardware, the specific port could be configured manually:
@@ -235,7 +195,7 @@ Configure USB descriptors using the `tinyusb_config_t` structure:
 - `descriptor.high_speed_config`
 - `descriptor.qualifier`
 
-If any descriptor field is set to `NULL`, default descriptor will be assigned during installation. Values of default descriptors could be configured via `menuconfig`.
+If any descriptor field is set to `NULL`, the default descriptor is assigned during installation. Manufacturer, product, and interface default strings are configured in `menuconfig`. The default serial number string is taken from the chip's MAC address that is saved in the chip's eFuse and is unique to each chip.
 
 ```c
   #include "tinyusb_default_config.h"
@@ -261,11 +221,6 @@ The feature is **NOT** available on FS/LS only ports due to PHY limitations.
 **USB Device wakeup** source can be enabled in menuconfig by `CONFIG_TINYUSB_USB_OTG_WAKEUP`.
 When enabled, the driver enables the USB wakeup source (`esp_sleep_enable_usb_wakeup()`) automatically
 during `tinyusb_driver_install()`.
-
-This feature depends on the esp_tinyusb suspend and resume callbacks
-(`CONFIG_TINYUSB_SUSPEND_CALLBACK` and `CONFIG_TINYUSB_RESUME_CALLBACK`, see
-[Suspend / Resume Device Events](#suspend--resume-device-events)). They are required so the driver is
-notified about USB suspend/resume and can track the light sleep wakeup state.
 
 Before using light sleep, configure the USB connection power domain on during light sleep:
 
@@ -359,21 +314,20 @@ If you use the external PHY (ESP32-S3 only), you must initialize the PHY explici
 To enable USB Serial Device:
 
 - select the option from `menuconfig`.
-- initialize the USB Serial Device with `tusb_cdc_acm_init` and a `tinyusb_config_cdcacm_t` structure
+- initialize the USB Serial Device with `tinyusb_cdcacm_init()` and a `tinyusb_config_cdcacm_t` structure
 
 ```c
 const tinyusb_config_cdcacm_t acm_cfg = {
   .cdc_port = TINYUSB_CDC_ACM_0,
-  .rx_unread_buf_sz = 64,
   .callback_rx = NULL,
   .callback_rx_wanted_char = NULL,
   .callback_line_state_changed = NULL,
   .callback_line_coding_changed = NULL
 };
-tusb_cdc_acm_init(&acm_cfg);
+tinyusb_cdcacm_init(&acm_cfg);
 ```
 
-Redirect standard I/O streams to USB with `esp_tusb_init_console` and revert with `esp_tusb_deinit_console`.
+Redirect standard I/O streams to USB with `tinyusb_console_init()` and revert with `tinyusb_console_deinit()`.
 
 ### USB Mass Storage Device (MSC)
 

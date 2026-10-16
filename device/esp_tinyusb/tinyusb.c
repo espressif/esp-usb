@@ -99,7 +99,6 @@ void tud_umount_cb(void)
     }
 }
 
-#ifdef CONFIG_TINYUSB_SUSPEND_CALLBACK
 /**
  * @brief Callback function invoked when device is suspended
  *
@@ -127,9 +126,7 @@ void tud_suspend_cb(bool remote_wakeup_en)
         s_ctx.event_cb(&event, s_ctx.event_arg);
     }
 }
-#endif // CONFIG_TINYUSB_SUSPEND_CALLBACK
 
-#ifdef CONFIG_TINYUSB_RESUME_CALLBACK
 /**
  * @brief Callback function invoked when device is resumed
  *
@@ -149,7 +146,6 @@ void tud_resume_cb(void)
         s_ctx.event_cb(&event, s_ctx.event_arg);
     }
 }
-#endif // CONFIG_TINYUSB_RESUME_CALLBACK
 
 // ==================================================================================
 // ============================== Power management ==================================
@@ -372,20 +368,14 @@ esp_err_t tinyusb_remote_wakeup(void)
 {
     ESP_RETURN_ON_FALSE(tud_inited(), ESP_ERR_INVALID_STATE, TAG, "TinyUSB driver is not installed");
     ESP_RETURN_ON_FALSE(tud_suspended(), ESP_ERR_NOT_ALLOWED, TAG, "USB device is not suspended");
-    // Check if the remote wakeup flag was set by the esp_tinyusb's suspend callback
-    // In case of user-defined suspend callback, user manages remote wakeup capability on it's own
-#ifdef CONFIG_TINYUSB_SUSPEND_CALLBACK
     ESP_RETURN_ON_FALSE(s_ctx.remote_wakeup_en, ESP_ERR_INVALID_STATE, TAG, "Remote wakeup is not enabled by the host");
-#endif // CONFIG_TINYUSB_SUSPEND_CALLBACK
 
 #ifdef CONFIG_TINYUSB_PM
     ESP_RETURN_ON_ERROR(tinyusb_pm_remote_wake(), TAG, "Remote wakeup request to tinyusb PM failed");
 #endif // CONFIG_TINYUSB_PM
     ESP_RETURN_ON_FALSE(tud_remote_wakeup(), ESP_FAIL, TAG, "Remote wakeup request failed");
 
-#ifdef CONFIG_TINYUSB_SUSPEND_CALLBACK
     s_ctx.remote_wakeup_en = false; // Remote wakeup can be used only once, disable it until next suspend
-#endif // CONFIG_TINYUSB_SUSPEND_CALLBACK
 
     return ESP_OK;
 }
