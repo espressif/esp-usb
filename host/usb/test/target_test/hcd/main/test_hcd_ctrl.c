@@ -829,3 +829,71 @@ TEST_CASE("Test HCD control pipe mixed back-to-back URBs", "[ctrl][low_speed][fu
     test_hcd_pipe_free(default_pipe);
     test_hcd_wait_for_disconn(port_hdl, false);
 }
+
+#if defined(CONFIG_USB_HOST_DMA_MODE_BUFFER)
+/*
+Test HCD control pipe IN data overrun (Buffer DMA only)
+
+Purpose:
+    - A device that returns more data than the transfer's IN data stage requested must fail the transfer as a data
+      overrun (USB 2.0 §5.5.3: a larger-than-expected data payload aborts the IRP)
+    - In Buffer DMA mode the core completes such a transfer without an error (the surplus fits the MPS-rounded
+      programmed transfer size), so the overrun is detected by software on completion _slot_verify_result().
+    - In Scatter/Gather DMA the same condition leads to a qTD packet babble error instead, thus this test is Buffer DMA only
+
+Procedure:
+    - Setup HCD and wait for connection
+    - Allocate default pipe and enumerate the device
+    - Request the 18-byte device descriptor (wLength), but program only a 1-byte IN data stage
+      (num_bytes): the device returns the whole descriptor, exceeding the requested data stage
+    - Expect HCD_PIPE_EVENT_ERROR_OVERFLOW, pipe halted, URB retired with USB_TRANSFER_STATUS_OVERFLOW
+    - Flush and clear the pipe
+    - Teardown
+*/
+TEST_CASE("Test HCD control pipe IN data overrun", "[ctrl][full_speed][high_speed]")
+{
+    usb_speed_t port_speed = test_hcd_wait_for_conn(port_hdl);  // Trigger a connection
+    vTaskDelay(pdMS_TO_TICKS(100)); // Short delay send of SOF (for FS) or EOPs (for LS)
+
+    // Allocate default pipe and enumerate the device
+    hcd_pipe_handle_t default_pipe = test_hcd_pipe_alloc(port_hdl, NULL, TEST_DEV_ADDR, port_speed);
+    test_hcd_enum_device(default_pipe);
+
+    // Allocate a URB with buffer room for the MPS-rounded IN data stage past the setup packet
+    const int mps = hcd_pipe_get_mps(default_pipe);
+    urb_t *urb = test_hcd_alloc_urb(0, sizeof(usb_setup_packet_t) + mps);
+    urb->transfer.context = URB_CONTEXT_VAL;
+    usb_setup_packet_t *setup_pkt = (usb_setup_packet_t *)urb->transfer.data_buffer;
+
+    // The device answers the request's wLength (the whole 18-byte device descriptor)...
+    USB_SETUP_PACKET_INIT_GET_DEVICE_DESC(setup_pkt);
+    // ...but the transfer's IN data stage is only 1 byte: the surplus data must fail as a data overrun
+
+    /*
+    Here, we would normally have set:
+    urb->transfer.num_bytes = sizeof(usb_setup_packet_t) + sizeof(usb_device_desc_t);
+    But we are deliberately modifying the number of bytes expected from the device to transfer back to the host,
+    to induce the HCD_PIPE_EVENT_ERROR_OVERFLOW error without a need to have malformed device
+    */
+    urb->transfer.num_bytes = sizeof(usb_setup_packet_t) + 1;
+
+    TEST_ASSERT_EQUAL(ESP_OK, hcd_urb_enqueue(default_pipe, urb));
+    TEST_HCD_EXPECT_PIPE_EVENT(default_pipe, HCD_PIPE_EVENT_ERROR_OVERFLOW);
+    TEST_HCD_EXPECT_PIPE_STATE(default_pipe, HCD_PIPE_STATE_HALTED);
+
+    // The failed URB is retired with an overflow status and no byte count
+    TEST_ASSERT_EQUAL_PTR(urb, hcd_urb_dequeue(default_pipe));
+    TEST_HCD_EXPECT_TRANSFER_STATUS(urb, USB_TRANSFER_STATUS_OVERFLOW);
+    TEST_ASSERT_EQUAL(0, urb->transfer.actual_num_bytes);
+
+    // Return the pipe to the active state
+    TEST_ASSERT_EQUAL(ESP_OK, hcd_pipe_command(default_pipe, HCD_PIPE_CMD_FLUSH));
+    TEST_ASSERT_EQUAL(ESP_OK, hcd_pipe_command(default_pipe, HCD_PIPE_CMD_CLEAR));
+    TEST_HCD_EXPECT_PIPE_STATE(default_pipe, HCD_PIPE_STATE_ACTIVE);
+
+    test_hcd_free_urb(urb);
+    test_hcd_pipe_free(default_pipe);
+    // Cleanup
+    test_hcd_wait_for_disconn(port_hdl, false);
+}
+#endif // CONFIG_USB_HOST_DMA_MODE_BUFFER
