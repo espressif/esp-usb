@@ -1,0 +1,20 @@
+menu "MSC async IO test app"
+
+    config TEST_RAMDISK_SIZE_KB
+        int "RAM disk size (KiB)"
+        default 4096 if SPIRAM
+        default 192
+        help
+            Size of the RAM-backed block device exposed over MSC. Allocated from
+            PSRAM when available, otherwise from internal RAM.
+
+    config TEST_IO_DELAY_MS
+        int "Initial added storage delay per IO (ms)"
+        default 0
+        range 0 1000
+        help
+            Every read and write of the RAM disk sleeps this long before
+            completing, to emulate slow media. The host can change it at runtime
+            (see README).
+
+endmenu

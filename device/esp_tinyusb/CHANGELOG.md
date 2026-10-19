@@ -13,6 +13,7 @@
 ### Added
 
 - esp_tinyusb: Added Kconfig option `CONFIG_TINYUSB_DWC2_PTI_ENABLE` to enable DWC2 Periodic Transfer Interrupt (PTI) for isochronous endpoints
+- MSC: Added optional asynchronous storage IO, `CONFIG_TINYUSB_MSC_ASYNC_IO`. Storage reads and writes run in a worker task, so the other USB classes are serviced while the medium is busy, and failed writes are reported to the USB host. The worker task is configured in `tinyusb_msc_driver_config_t::async_io_task`.
 
 ## 2.4.0
 

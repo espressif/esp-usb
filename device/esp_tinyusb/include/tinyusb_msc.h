@@ -13,6 +13,8 @@ extern "C" {
 #include <stddef.h>
 #include "soc/soc_caps.h"
 #include "esp_err.h"
+#include "freertos/FreeRTOS.h"
+#include "tinyusb.h"
 #include "wear_levelling.h"
 #include "esp_vfs_fat.h"
 #if (SOC_SDMMC_HOST_SUPPORTED)
@@ -99,6 +101,10 @@ typedef struct {
     tinyusb_msc_mount_point_t mount_point;  /*!< Requested initial storage owner after creation. */
 } tinyusb_msc_storage_config_t;
 
+#define TINYUSB_MSC_ASYNC_IO_TASK_DEFAULT_SIZE      4096            /*!< Default async IO worker stack size in bytes. Safe for any medium, usually more than needed */
+#define TINYUSB_MSC_ASYNC_IO_TASK_DEFAULT_PRIO      5               /*!< Default async IO worker priority */
+#define TINYUSB_MSC_ASYNC_IO_TASK_DEFAULT_AFFINITY  tskNO_AFFINITY  /*!< Default async IO worker core affinity */
+
 /**
  * @brief TinyUSB MSC driver configuration.
  */
@@ -112,6 +118,8 @@ typedef struct {
     } user_flags;                           /*!< Driver flags. */
     tusb_msc_callback_t callback;           /*!< Optional storage event callback. */
     void *callback_arg;                     /*!< User argument passed to `callback`. */
+    tinyusb_task_config_t async_io_task;    /*!< Async IO worker task. Used only with CONFIG_TINYUSB_MSC_ASYNC_IO.
+                                                 If `size` is 0, all fields use the TINYUSB_MSC_ASYNC_IO_TASK_DEFAULT_* values. */
 } tinyusb_msc_driver_config_t;
 
 // ----------------------------- Driver API ---------------------------------

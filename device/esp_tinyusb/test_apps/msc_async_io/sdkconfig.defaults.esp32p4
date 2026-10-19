@@ -1,0 +1,6 @@
+CONFIG_ESP32P4_SELECTS_REV_LESS_V3=n
+CONFIG_ESP32P4_REV_MIN_301=y
+
+# 4 MB RAM disk in PSRAM. Needs a board with PSRAM: without it, the RAM disk allocation fails at boot
+CONFIG_SPIRAM=y
+CONFIG_SPIRAM_IGNORE_NOTFOUND=y

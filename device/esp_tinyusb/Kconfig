@@ -181,6 +181,36 @@ menu "TinyUSB Stack"
             default "/data"
             help
                 MSC Mount Path of storage.
+
+        config TINYUSB_MSC_ASYNC_IO
+            depends on TINYUSB_MSC_ENABLED
+            bool "Asynchronous storage IO"
+            default n
+            help
+                Run storage IO in a worker task, so other classes keep working while
+                the medium is busy, and report write errors to the USB host.
+
+                READ10/WRITE10 are handled by a dedicated worker task instead of the
+                TinyUSB task. Without this option, storage access blocks the TinyUSB
+                task, so CDC, HID, NCM and other classes stall until it finishes, and
+                write errors are only logged.
+
+                A write chunk is accepted into the storage's write buffer before it
+                reaches the medium, so the host sends the next chunk in the meantime,
+                as in the non-async path. A failed buffered write fails the next
+                READ10, WRITE10, TEST UNIT READY or SYNCHRONIZE CACHE command to
+                the LUN.
+
+                Uses about 4.5 KB of extra heap with the default worker task stack
+                of 4096 bytes, plus the task control block, a request queue and one
+                semaphore per LUN.
+
+                The default stack is sized to be safe for any storage medium. The
+                worker runs the storage driver's read and write, so the stack it
+                needs depends on the medium. Measure the worker's stack use with your
+                storage and reduce it at runtime in
+                tinyusb_msc_driver_config_t::async_io_task.
+
     endmenu # "Mass Storage Class"
 
     menu "Media Transfer Protocol (MTP)"
