@@ -327,3 +327,88 @@ TEST_CASE("Test HCD bulk pipe URBs WRITE", "[bulk][full_speed][high_speed]")
     // Cleanup
     test_hcd_wait_for_disconn(port_hdl, false);
 }
+
+#if defined(CONFIG_USB_HOST_DMA_MODE_BUFFER)
+/*
+Test HCD bulk pipe IN data overrun (Buffer DMA only)
+
+Purpose:
+    - A device that returns more data than the transfer requested must fail the transfer as a data overrun
+      (USB 2.0 §5.8.3: a larger-than-expected data payload aborts the IRP)
+    - In Buffer DMA mode the core completes such a transfer without an error (the surplus fits the MPS-rounded
+      programmed transfer size), so the overrun is detected by software on completion (see _slot_verify_result()
+      in hcd_dwc.c). In Scatter/Gather DMA the same condition surfaces as a qTD packet babble error instead,
+      hence this test is Buffer DMA only
+
+Procedure:
+    - Setup HCD and wait for connection
+    - Allocate default pipe and enumerate the device
+    - Send a READ(10) CBW for one sector on the BULK OUT pipe
+    - Read the sector on the BULK IN pipe, but program only a 1-byte transfer: the device returns a whole
+      packet (one MPS worth of the sector), exceeding the requested length
+    - Expect HCD_PIPE_EVENT_ERROR_OVERFLOW, pipe halted, URB retired with USB_TRANSFER_STATUS_OVERFLOW
+    - Flush and clear the pipe, then reset the MSC device to clear its pending command
+    - Teardown
+*/
+TEST_CASE("Test HCD bulk pipe IN data overrun", "[bulk][full_speed][high_speed]")
+{
+    usb_speed_t port_speed = test_hcd_wait_for_conn(port_hdl);  // Trigger a connection
+    vTaskDelay(pdMS_TO_TICKS(100)); // Short delay send of SOF (for FS) or EOPs (for LS)
+
+    // Enumerate and reset MSC SCSI device
+    hcd_pipe_handle_t default_pipe = test_hcd_pipe_alloc(port_hdl, NULL, 0, port_speed); // Create a default pipe (using a NULL EP descriptor)
+    uint8_t dev_addr = test_hcd_enum_device(default_pipe);
+    const dev_msc_info_t *dev_info = dev_msc_get_info();
+    mock_msc_reset_req(default_pipe, dev_info->bInterfaceNumber);
+
+    // Create BULK IN and BULK OUT pipes for SCSI
+    const usb_ep_desc_t *out_ep_desc = dev_msc_get_out_ep_desc(port_speed);
+    const usb_ep_desc_t *in_ep_desc = dev_msc_get_in_ep_desc(port_speed);
+    const uint16_t mps = USB_EP_DESC_GET_MPS(in_ep_desc);
+    hcd_pipe_handle_t bulk_out_pipe = test_hcd_pipe_alloc(port_hdl, out_ep_desc, dev_addr, port_speed);
+    hcd_pipe_handle_t bulk_in_pipe = test_hcd_pipe_alloc(port_hdl, in_ep_desc, dev_addr, port_speed);
+
+    // Send a READ(10) CBW for a single sector on the BULK OUT pipe
+    urb_t *urb_cbw = test_hcd_alloc_urb(0, sizeof(mock_msc_bulk_cbw_t));
+    urb_cbw->transfer.num_bytes = sizeof(mock_msc_bulk_cbw_t);
+    mock_msc_scsi_init_cbw((mock_msc_bulk_cbw_t *)urb_cbw->transfer.data_buffer,
+                           true, 0, 1, dev_info->scsi_sector_size, 0xAAAAAAAA);
+    TEST_ASSERT_EQUAL(ESP_OK, hcd_urb_enqueue(bulk_out_pipe, urb_cbw));
+    TEST_HCD_EXPECT_PIPE_EVENT(bulk_out_pipe, HCD_PIPE_EVENT_URB_DONE);
+    TEST_ASSERT_EQUAL_PTR(urb_cbw, hcd_urb_dequeue(bulk_out_pipe));
+    TEST_HCD_EXPECT_TRANSFER_STATUS(urb_cbw, USB_TRANSFER_STATUS_COMPLETED);
+
+    /*
+    Read the sector on the BULK IN pipe, but program a 1-byte transfer only: the device returns a whole
+    packet, exceeding the requested length. This must fail as a data overrun. The data buffer must still hold
+    the MPS-rounded programmed transfer size, as the surplus data is written to it before the overrun is
+    detected by software.
+    */
+    urb_t *urb_data = test_hcd_alloc_urb(0, mps);
+    urb_data->transfer.num_bytes = 1;
+    TEST_ASSERT_EQUAL(ESP_OK, hcd_urb_enqueue(bulk_in_pipe, urb_data));
+    TEST_HCD_EXPECT_PIPE_EVENT(bulk_in_pipe, HCD_PIPE_EVENT_ERROR_OVERFLOW);
+    TEST_HCD_EXPECT_PIPE_STATE(bulk_in_pipe, HCD_PIPE_STATE_HALTED);
+
+    // The failed URB is retired with an overflow status and no byte count
+    TEST_ASSERT_EQUAL_PTR(urb_data, hcd_urb_dequeue(bulk_in_pipe));
+    TEST_HCD_EXPECT_TRANSFER_STATUS(urb_data, USB_TRANSFER_STATUS_OVERFLOW);
+    TEST_ASSERT_EQUAL(0, urb_data->transfer.actual_num_bytes);
+
+    // Return the pipe to the active state
+    TEST_ASSERT_EQUAL(ESP_OK, hcd_pipe_command(bulk_in_pipe, HCD_PIPE_CMD_FLUSH));
+    TEST_ASSERT_EQUAL(ESP_OK, hcd_pipe_command(bulk_in_pipe, HCD_PIPE_CMD_CLEAR));
+    TEST_HCD_EXPECT_PIPE_STATE(bulk_in_pipe, HCD_PIPE_STATE_ACTIVE);
+
+    // The device still waits to send the rest of the sector and the CSW: reset its bulk state machine
+    mock_msc_reset_req(default_pipe, dev_info->bInterfaceNumber);
+
+    test_hcd_free_urb(urb_cbw);
+    test_hcd_free_urb(urb_data);
+    test_hcd_pipe_free(bulk_out_pipe);
+    test_hcd_pipe_free(bulk_in_pipe);
+    test_hcd_pipe_free(default_pipe);
+    // Cleanup
+    test_hcd_wait_for_disconn(port_hdl, false);
+}
+#endif // CONFIG_USB_HOST_DMA_MODE_BUFFER
