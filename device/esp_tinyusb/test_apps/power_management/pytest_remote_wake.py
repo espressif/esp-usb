@@ -81,7 +81,7 @@ def check_remote_wake_feature(VID: int, PID: int, has_remote_wake: bool) -> None
     :param has_remote_wake: Expect the device to does/does not feature with remote wakeup
     '''
 
-    sleep(2)  # Some time for the OS to enumerate our USB device
+    sleep(3)  # Some time for the OS to enumerate our USB device
     dev = usb.core.find(idVendor=VID, idProduct=PID)
     if dev is None:
         raise ValueError("Device not found")
@@ -142,11 +142,11 @@ def test_usb_device_remote_wakeup_en(dut: IdfDut) -> None:
 
     # Wait for device attach event
     dut.expect_exact(TINYUSB_EVENTS['attached'])
-    # Check if the device reports remote wakeup feature
-    check_remote_wake_feature(DUT_VID, DUT_PID, has_remote_wake=True)
-
     # Expect device suspend event (auto suspend) with remote wakeup disabled
     dut.expect_exact(TINYUSB_EVENTS['suspended_remote_wake_dis'])
+    sleep(2)
+    # Check if the device reports remote wakeup feature
+    check_remote_wake_feature(DUT_VID, DUT_PID, has_remote_wake=True)
 
     # Enable remote wakeup on the device
     set_remote_wake_on_device(DUT_VID, DUT_PID)

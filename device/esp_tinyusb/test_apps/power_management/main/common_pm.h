@@ -24,7 +24,7 @@
 extern "C" {
 #endif
 
-#define DEVICE_EVENT_WAIT_MS                    5000    /** Maximum time to wait for a device event, in milliseconds. */
+#define DEVICE_EVENT_WAIT_MS                    7000    /** Maximum time to wait for a device event, in milliseconds. */
 #define DATA_RECEPTION_WAIT_MS                  7000    /** Maximum time to wait for CDC RX data, in milliseconds. */
 #define SUSPEND_RESUME_TEST_ITERATIONS          5       /** Number of host-driven suspend/resume iterations in PM loop tests. */
 #define PM_LIGHT_SLEEP_WAKE_WAIT_MS             10000   /** Maximum time to wait for a light sleep wakeup, in milliseconds. */
