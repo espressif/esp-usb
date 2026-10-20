@@ -141,7 +141,7 @@ esp_err_t msc_host_vfs_register(msc_host_device_handle_t device,
     vfs->dev = dev;
     vfs->base_path = strdup(base_path);
     if (vfs->base_path == NULL) {
-        esp_vfs_fat_bdl_unmount(base_path, dev->bdl);
+        esp_vfs_fat_bdl_unmount_path(base_path);
         dealloc_msc_vfs(vfs);
         return ESP_ERR_NO_MEM;
     }
@@ -156,7 +156,7 @@ esp_err_t msc_host_vfs_unregister(msc_host_vfs_handle_t vfs_handle)
     MSC_RETURN_ON_INVALID_ARG(vfs_handle);
     msc_host_vfs_t *vfs = (msc_host_vfs_t *)vfs_handle;
 
-    esp_vfs_fat_bdl_unmount(vfs->base_path, vfs->bdl);
+    esp_vfs_fat_bdl_unmount_path(vfs->base_path);
     vfs->dev->bdl_vfs_registered = false;
     dealloc_msc_vfs(vfs);
     return ESP_OK;
