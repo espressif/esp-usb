@@ -30,7 +30,7 @@ typedef struct {
     const char *manufacturer;        /*!< DeviceInfo manufacturer string. NULL uses the default. */
     const char *model;               /*!< DeviceInfo model string. NULL uses the default. */
     const char *version;             /*!< DeviceInfo version string. NULL uses the default. */
-    const char *serial;              /*!< DeviceInfo serial string. NULL uses the default descriptor serial. */
+    const char *serial;              /*!< DeviceInfo serial string. NULL uses the eFuse base MAC. */
     const char *friendly_name;       /*!< Device friendly name property. NULL uses the default. */
 } tinyusb_mtp_driver_config_t;
 

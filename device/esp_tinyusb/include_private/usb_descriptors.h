@@ -39,15 +39,20 @@ extern const tusb_desc_device_qualifier_t descriptor_qualifier_default;
 extern const char *descriptor_str_default[];
 
 /**
- * @brief Initialize the default serial number string
- *
- * Fills the serial number string buffer referenced by descriptor_str_default:
- * with CONFIG_TINYUSB_DESC_SERIAL_STRING, or, if it is empty, with a serial
- * number derived from the chip's eFuse base MAC.
- *
- * Must be called before descriptor_str_default is used.
+ * @brief Number of entries in descriptor_str_default
  */
-void tinyusb_desc_serial_number_init(void);
+extern const int descriptor_str_default_count;
+
+/**
+ * @brief Get the default serial number string.
+ *
+ * Returns the serial number derived from the chip eFuse base MAC. The function
+ * initializes the string on the first call.
+ *
+ * @return Pointer to a 12-character uppercase hexadecimal serial number.
+ *         The pointer remains valid for the lifetime of the component.
+ */
+const char *tinyusb_desc_serial_number_get(void);
 
 /**
  * @brief FullSpeed configuration descriptor generated from Kconfig

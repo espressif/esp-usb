@@ -35,7 +35,6 @@ extern "C" {
 #define MTP_DEFAULT_MANUFACTURER        CONFIG_TINYUSB_DESC_MANUFACTURER_STRING
 #define MTP_DEFAULT_MODEL               CONFIG_TINYUSB_DESC_PRODUCT_STRING
 #define MTP_DEFAULT_VERSION             "1.0"
-#define MTP_DEFAULT_SERIAL              CONFIG_TINYUSB_DESC_SERIAL_STRING
 #define MTP_DEFAULT_FRIENDLY_NAME       "ESP TinyUSB MTP"
 #define MTP_STORAGE_ID(index)           ((((uint32_t)(index) + 1U) << 16) | 1U)
 #define MTP_MAX_DATA_BYTES              (UINT32_MAX - sizeof(mtp_container_header_t))

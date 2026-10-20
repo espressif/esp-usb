@@ -6,6 +6,8 @@ This component extends TinyUSB with features that simplify integration into ESP-
 
 It provides both default and customizable configurations for TinyUSB, enabling USB device functionality on ESP chips with USB-OTG support.
 
+The current TinyUSB version is [0.21.0~2](https://components.espressif.com/components/espressif/tinyusb/versions/0.21.0~2/readme). The stack is bundled as a git submodule, so you do not need a separate `tinyusb` dependency.
+
 ### Run-time configuration
 
 During configuration, the following parameters can be set when installing the driver:
@@ -45,17 +47,18 @@ This component is distributed via [IDF component manager](https://docs.espressif
 ```yaml
 ## IDF Component Manager Manifest File
 dependencies:
-  esp_tinyusb: "~2.0.0"
+  esp_tinyusb: "~3.0.0"
 ```
 
 Or simply run:
 
 ```
-idf.py add-dependency esp_tinyusb~2.0.0
+idf.py add-dependency esp_tinyusb~3.0.0
 ```
 
 ## Breaking changes migration guides
 
+- [v3.0.0](../../docs/device/migration-guides/v3/)
 - [v2.0.0](../../docs/device/migration-guides/v2/)
 
 ## USB Device Stack: usage, installation & configuration
@@ -150,49 +153,6 @@ User Argument could be passed to the USB Device Event callback as a second argum
   }
 ```
 
-### Suspend / Resume Device Events
-
-Suspend and resume device events are **optional** and are disabled by default.
-Users can choose one of the following approaches:
-
-#### Option 1 — Use esp_tinyusb device events (recommended for integration)
-
-Enable the following Kconfig options:
-
-- `CONFIG_TINYUSB_SUSPEND_CALLBACK` → enables `TINYUSB_EVENT_SUSPENDED`
-- `CONFIG_TINYUSB_RESUME_CALLBACK` → enables `TINYUSB_EVENT_RESUMED`
-
-When enabled:
-
-- esp_tinyusb provides strong implementations of:
-  - `tud_suspend_cb()`
-  - `tud_resume_cb()`
-- esp_tinyusb dispatches suspend/resume events via the device event callback.
-
-⚠️ **Important:**
-When these options are enabled, user applications **MUST NOT** define
-`tud_suspend_cb()` or `tud_resume_cb()` themselves. Doing so will result
-in a linker error due to multiple definitions.
-
-#### Option 2 — Use TinyUSB callbacks directly (default behavior)
-
-If the Kconfig options are **disabled** (default):
-
-- esp_tinyusb does NOT handle suspend/resume events
-- Users may implement TinyUSB callbacks directly in their application:
-
-```c
-void tud_suspend_cb(bool remote_wakeup_en)
-{
-    // User suspend handling
-}
-
-void tud_resume_cb(void)
-{
-    // User resume handling
-}
-```
-
 ### Peripheral port
 
 When several peripheral ports are available by the hardware, the specific port could be configured manually:
@@ -235,7 +195,7 @@ Configure USB descriptors using the `tinyusb_config_t` structure:
 - `descriptor.high_speed_config`
 - `descriptor.qualifier`
 
-If any descriptor field is set to `NULL`, default descriptor will be assigned during installation. Values of default descriptors could be configured via `menuconfig`.
+If any descriptor field is set to `NULL`, the default descriptor is assigned during installation. Manufacturer, product, and interface default strings are configured in `menuconfig`. The default serial number string is taken from the chip's MAC address that is saved in the chip's eFuse and is unique to each chip.
 
 ```c
   #include "tinyusb_default_config.h"
@@ -261,11 +221,6 @@ The feature is **NOT** available on FS/LS only ports due to PHY limitations.
 **USB Device wakeup** source can be enabled in menuconfig by `CONFIG_TINYUSB_USB_OTG_WAKEUP`.
 When enabled, the driver enables the USB wakeup source (`esp_sleep_enable_usb_wakeup()`) automatically
 during `tinyusb_driver_install()`.
-
-This feature depends on the esp_tinyusb suspend and resume callbacks
-(`CONFIG_TINYUSB_SUSPEND_CALLBACK` and `CONFIG_TINYUSB_RESUME_CALLBACK`, see
-[Suspend / Resume Device Events](#suspend--resume-device-events)). They are required so the driver is
-notified about USB suspend/resume and can track the light sleep wakeup state.
 
 Before using light sleep, configure the USB connection power domain on during light sleep:
 
@@ -359,21 +314,20 @@ If you use the external PHY (ESP32-S3 only), you must initialize the PHY explici
 To enable USB Serial Device:
 
 - select the option from `menuconfig`.
-- initialize the USB Serial Device with `tusb_cdc_acm_init` and a `tinyusb_config_cdcacm_t` structure
+- initialize the USB Serial Device with `tinyusb_cdcacm_init()` and a `tinyusb_config_cdcacm_t` structure
 
 ```c
 const tinyusb_config_cdcacm_t acm_cfg = {
   .cdc_port = TINYUSB_CDC_ACM_0,
-  .rx_unread_buf_sz = 64,
   .callback_rx = NULL,
   .callback_rx_wanted_char = NULL,
   .callback_line_state_changed = NULL,
   .callback_line_coding_changed = NULL
 };
-tusb_cdc_acm_init(&acm_cfg);
+tinyusb_cdcacm_init(&acm_cfg);
 ```
 
-Redirect standard I/O streams to USB with `esp_tusb_init_console` and revert with `esp_tusb_deinit_console`.
+Redirect standard I/O streams to USB with `tinyusb_console_init()` and revert with `tinyusb_console_deinit()`.
 
 ### USB Mass Storage Device (MSC)
 
@@ -589,6 +543,32 @@ void main(void)
 | 8192 B    | 21.54 KB/s  |
 
 **Note:** Internal SPI flash is for demonstration only; use SD cards or external flash for higher performance.
+
+### Asynchronous storage IO
+
+By default, MSC storage reads and writes run in the TinyUSB task. All USB classes are serviced by that task, so while a slow medium (SD card, external flash) is being accessed, CDC, HID and other classes on the same device are not serviced.
+
+`CONFIG_TINYUSB_MSC_ASYNC_IO` moves storage reads and writes to a dedicated worker task. The TinyUSB task keeps servicing the other classes during storage access, and a failed storage write is reported to the USB host. Without async IO, write errors are only logged.
+
+A write chunk is accepted into the storage's write buffer before it is written to the medium, so the host can send the next chunk in the meantime, as in the default path. This is the same per-storage buffer of `CONFIG_TINYUSB_MSC_BUFSIZE` bytes that the default path uses. A failed buffered write fails the next READ10, WRITE10, TEST UNIT READY or SYNCHRONIZE CACHE command to the LUN.
+
+Heap used compared to the default configuration:
+
+| Configuration                   | Heap difference                                                    | Contents                                                                                                                                                      |
+| ------------------------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `CONFIG_TINYUSB_MSC_ASYNC_IO=y` | +~4.5 KB with the default worker stack, +~100 B per additional LUN | Worker task stack (default 4096 B), task control block, request queue, one semaphore per LUN. The write buffer is the one the default path already allocates. |
+
+Worker task stack size, priority and core affinity are set at runtime in `tinyusb_msc_driver_config_t::async_io_task`. Leave it zeroed for the defaults.
+
+The default stack of 4096 B is sized to be safe for any storage medium and is usually more than needed. The worker task runs the storage driver's read and write calls, so the stack it needs depends on the medium and its driver. To save RAM, measure the peak stack use of the `msc_async_io` task with your storage, for example with `uxTaskGetStackHighWaterMark()` after copying files to the drive and after a failed write, and set a smaller stack that keeps some headroom:
+
+```c
+  tinyusb_msc_driver_config_t driver_cfg = { 0 };
+  driver_cfg.async_io_task = TINYUSB_TASK_CUSTOM(2048 /* size */, 5 /* priority */, tskNO_AFFINITY /* affinity */);
+  tinyusb_msc_install_driver(&driver_cfg);
+```
+
+Without async IO, the latency of the other classes grows with the storage access time. With async IO it stays close to the idle value. The [MSC async IO test app](test_apps/msc_async_io) checks this with a RAM disk that adds a delay to every storage access, and a host script for macOS and Linux. It is run manually, not in CI.
 
 ## Examples
 
