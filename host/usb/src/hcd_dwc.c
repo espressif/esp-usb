@@ -547,6 +547,33 @@ static void _slot_exec(pipe_t *pipe);
 static inline bool _slot_check_done(pipe_t *pipe);
 
 /**
+ * @brief Verify the result of a completed transfer against USB protocol rules
+ *
+ * In Buffer DMA mode the core reports XferCompl without validating the transfer's result against the USB
+ * protocol. Protocol violations the core does not flag reach the software as a successful completion and
+ * must be caught here.
+ * Scatter/Gather DMA mode: the core validates the transfer against its descriptor list and reports protocol errors
+ * via channel interrupts and qTD status, so nothing is verified there.
+ * Buffer DMA mode: transfer must be validated in SW.
+ *
+ * IN data overrun: The programmed IN transfer size is rounded up to a multiple of the endpoint's MPS
+ * (databook §5.4.41 HCTSIZi.XferSize), so a device that returns more data than requested fills that
+ * rounding headroom instead of overrunning the programmed buffer, and the core completes the transfer
+ * without raising BblErr. USB 2.0 §5.8.3 only allows a transfer to end on the requested length, a
+ * short packet or a zero length packet, so the surplus data is a data overrun and must not be reported
+ * as a success.
+ *
+ * This should only be called on a slot that _slot_check_done() has reported as complete, while the channel
+ * still holds the result of the transfer's last activation (i.e. before _slot_done()).
+ *
+ * @note This function is used only in Buffer DMA
+ * @param pipe Pipe object
+ * @return HCD_PIPE_EVENT_NONE if the transfer result is correct (always in Scatter/Gather DMA mode)
+           otherwise the error event
+ */
+static inline hcd_pipe_event_t _slot_verify_result(pipe_t *pipe);
+
+/**
  * @brief Continue execution of an in-flight slot
  *
  * This should only be called after checking if a slot has completed execution using _slot_check_done()
@@ -1114,7 +1141,7 @@ static hcd_port_event_t _intr_hdlr_hprt(port_t *port, usb_dwc_hal_port_event_t h
 }
 
 /**
- * @brief Resolve a channel error event (USB_DWC_HAL_CHAN_EVENT_ERROR)
+ * @brief Resolve a HW channel error event (USB_DWC_HAL_CHAN_EVENT_ERROR) from the DWC core
  *
  * Some errors are recoverable in Buffer DMA mode and are retried by re-initializing the channel (the core
  * does not retry transactions by itself). Unrecoverable errors, or retries that have been exhausted, fail
@@ -1124,7 +1151,7 @@ static hcd_port_event_t _intr_hdlr_hprt(port_t *port, usb_dwc_hal_port_event_t h
  * @param chan_obj HAL channel object that reported the error
  * @return hcd_pipe_event_t The resulting pipe event (HCD_PIPE_EVENT_NONE if the transfer was retried)
  */
-static inline hcd_pipe_event_t _channel_error(pipe_t *pipe, usb_dwc_hal_chan_t *chan_obj)
+static inline hcd_pipe_event_t _channel_hw_error(pipe_t *pipe, usb_dwc_hal_chan_t *chan_obj)
 {
     const usb_dwc_hal_chan_error_t chan_error = usb_dwc_hal_chan_get_error(chan_obj);
 
@@ -1170,6 +1197,30 @@ static inline hcd_pipe_event_t _channel_error(pipe_t *pipe, usb_dwc_hal_chan_t *
 }
 
 /**
+ * @brief Resolve a SW channel error event validated in SW
+ * @brief Fail a transfer that completed successfully in hardware but violated the USB protocol
+ *
+ * Acts like _channel_hw_error(), but for protocol errors the core does not flag (e.g. a data overrun)
+ * This is reported like a packet babble error: the same condition results in Scatter/Gather DMA mode and when
+ * an IN packet exceeds the endpoint's MPS.
+ *
+ * @param pipe Pipe object
+ * @param chan_obj HAL channel object of the completed transfer
+ * @param error_event Pipe event to fail the transfer with
+ * @return hcd_pipe_event_t The resulting pipe event
+ */
+static inline hcd_pipe_event_t _channel_sw_error(pipe_t *pipe, usb_dwc_hal_chan_t *chan_obj, hcd_pipe_event_t error_event)
+{
+    pipe->last_event = error_event;
+    pipe->state = HCD_PIPE_STATE_HALTED;
+    // Mark the slot as done with an error
+    _slot_done(pipe, chan_obj, pipe->last_event, false);
+    // Parse the slot
+    _slot_parse(pipe);
+    return pipe->last_event;
+}
+
+/**
  * @brief Handles a HAL channel interrupt
  *
  * This function should be called on a HAL channel when it has an interrupt. Most HAL channel events will correspond to
@@ -1195,6 +1246,12 @@ static hcd_pipe_event_t _intr_hdlr_chan(pipe_t *pipe, usb_dwc_hal_chan_t *chan_o
             _slot_exec_cont(pipe);
             break;
         }
+        // Transfer be verified before the slot is marked done, while the channel still holds the transfer's result (only Buffer DMA)
+        const hcd_pipe_event_t result_err = _slot_verify_result(pipe);
+        if (result_err != HCD_PIPE_EVENT_NONE) {
+            event = _channel_sw_error(pipe, chan_obj, result_err);
+            break;
+        }
         pipe->last_event = HCD_PIPE_EVENT_URB_DONE;
         event = pipe->last_event;
         // Mark the slot as done
@@ -1214,7 +1271,7 @@ static hcd_pipe_event_t _intr_hdlr_chan(pipe_t *pipe, usb_dwc_hal_chan_t *chan_o
         break;
     }
     case USB_DWC_HAL_CHAN_EVENT_ERROR: {
-        event = _channel_error(pipe, chan_obj);
+        event = _channel_hw_error(pipe, chan_obj);
         break;
     }
     case USB_DWC_HAL_CHAN_EVENT_HALT_REQ: {
@@ -3389,6 +3446,78 @@ static inline bool _slot_check_done(pipe_t *pipe)
     }
 }
 
+// ------------------------------------------------ Slot verify results ------------------------------------------------
+
+
+#if DWC_DMA_MODE_DESC
+static inline hcd_pipe_event_t _slot_verify_result(pipe_t *pipe)
+{
+    return HCD_PIPE_EVENT_NONE;     // The core reports protocol errors via channel interrupts and qTD status
+}
+#else // DWC_DMA_MODE_DESC
+
+/**
+ * @brief Verify the result of a completed control transfer in buffer DMA mode
+ *
+ * @param pipe Pipe object
+ * @return HCD_PIPE_EVENT_ERROR_OVERFLOW if the IN data stage returned more data than was requested,
+           HCD_PIPE_EVENT_NONE otherwise
+ */
+static inline hcd_pipe_event_t _slot_verify_result_ctrl(pipe_t *pipe)
+{
+    urb_slot_t *slot_inflight = pipe->urb_slots[pipe->urb_slot_ring.rd_idx];
+    // Only an IN data stage can overrun. Its result was captured by _slot_exec_cont_ctrl() when that stage completed
+    if (slot_inflight->flags.ctrl.data_stg_skip || !slot_inflight->flags.ctrl.data_stg_in) {
+        return HCD_PIPE_EVENT_NONE;
+    }
+    const int data_stg_len = slot_inflight->urb->transfer.num_bytes - sizeof(usb_setup_packet_t);
+    if ((int)slot_inflight->flags.ctrl.data_stg_actual_bytes > data_stg_len) {
+        return HCD_PIPE_EVENT_ERROR_OVERFLOW;
+    }
+    return HCD_PIPE_EVENT_NONE;
+}
+
+/**
+ * @brief Verify the result of a completed bulk transfer in buffer DMA mode
+ *
+ * @param pipe Pipe object
+ * @return HCD_PIPE_EVENT_ERROR_OVERFLOW if an IN transfer returned more data than was requested,
+           HCD_PIPE_EVENT_NONE otherwise
+ */
+static inline hcd_pipe_event_t _slot_verify_result_bulk(pipe_t *pipe)
+{
+    // Get transfer direction from EP characteristics
+    const bool is_in = pipe->ep_char.bEndpointAddress & USB_B_ENDPOINT_ADDRESS_EP_DIR_MASK;
+    if (!is_in) {
+        return HCD_PIPE_EVENT_NONE;   // OUT transfers send exactly the programmed length
+    }
+
+    // Get channel results to see how many bytes were transferred
+    int actual;
+    usb_dwc_hal_chan_get_buffer_result(pipe->chan_obj, &actual);
+    urb_slot_t *slot_inflight = pipe->urb_slots[pipe->urb_slot_ring.rd_idx];
+    // If actual number of bytes is greater than the number of bytes to transfer (device returned more than requested),
+    // return data overflow error
+    if (actual > slot_inflight->urb->transfer.num_bytes) {
+        return HCD_PIPE_EVENT_ERROR_OVERFLOW;
+    }
+    return HCD_PIPE_EVENT_NONE;
+}
+
+static inline hcd_pipe_event_t _slot_verify_result(pipe_t *pipe)
+{
+    switch (pipe->ep_char.type) {
+    case USB_DWC_XFER_TYPE_CTRL:
+        return _slot_verify_result_ctrl(pipe);
+    case USB_DWC_XFER_TYPE_BULK:
+        return _slot_verify_result_bulk(pipe);
+    default:
+        // TODO: INTR IN transfers need the same overrun check once they are supported in Buffer DMA mode
+        return HCD_PIPE_EVENT_NONE;
+    }
+}
+#endif // DWC_DMA_MODE_DESC
+
 // ------------------------------------------------- Slot parse ------------------------------------------------------
 
 #if DWC_DMA_MODE_DESC
@@ -3738,7 +3867,9 @@ static inline bool _check_port_pipe_state(pipe_t *pipe, bool *submit_urb)
  * (DWC2 rule: databook §5.4.41 HCTSIZi.XferSize; programming guide §3.4 step 5).
 
  * The core may write up to that many bytes into the data buffer (e.g. a non-compliant device can return more data
- * than requested), so the rounded length must fit the data buffer.
+ * than requested), so the rounded length must fit the data buffer. Such a transfer is then failed as a data
+ * overrun once it completes (see _slot_verify_result()), but the data has already been written by then, which
+ * is why the headroom must be reserved up front.
  *
  * A zero-length IN is programmed as XferSize = MPS (§3.4 step 5 requires n > 0), it needs MPS bytes of buffer room.
  * CTRL transfers: only the data stage must be checked: the setup packet at the start of the data buffer
