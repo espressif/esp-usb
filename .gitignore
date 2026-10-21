@@ -10,3 +10,4 @@ warnings.txt
 docs/_build/**
 **/TODO
 **/venv/**
+**/.cache

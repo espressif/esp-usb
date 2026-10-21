@@ -5,3 +5,7 @@ dependencies:
     override_path: "../../../../usb"
     matches:
       - if: "idf_version >=5.5.3"                 # Use managed component only for 5.5.3 and above
+  # Needed for mock device
+  espressif/esp_tinyusb:
+    version: "*"
+    override_path: "../../../../../device/esp_tinyusb"
