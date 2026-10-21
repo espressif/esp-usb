@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: CC0-1.0
  */
 
+#include <string.h>
 #include "unity.h"
 #include "unity_test_runner.h"
 #include "unity_test_utils_memory.h"
@@ -17,17 +18,23 @@
 void setUp(void)
 {
     unity_utils_record_free_mem();
-    dev_msc_init();
-    dev_hid_init();
-    port_hdl = test_hcd_setup();
+    // USB Device test cases (tagged [esp_tinyusb]) initialize the USB PHY themselves.
+    if (strstr(Unity.CurrentDetail1, "[esp_tinyusb]") == NULL) {
+        port_hdl = test_hcd_setup();
+        dev_msc_init();
+        dev_hid_init();
+    }
 }
 
 void tearDown(void)
 {
     // Short delay to allow task to be cleaned up
     vTaskDelay(10);
-    test_hcd_teardown(port_hdl);
-    port_hdl = NULL;
+    // USB Device test cases (tagged [esp_tinyusb]) initialize the USB PHY themselves.
+    if (strstr(Unity.CurrentDetail1, "[esp_tinyusb]") == NULL) {
+        test_hcd_teardown(port_hdl);
+        port_hdl = NULL;
+    }
     esp_reent_cleanup();    //clean up some of the newlib's lazy allocations
     unity_utils_evaluate_leaks();
 }
