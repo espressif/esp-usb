@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2024-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -12,9 +12,11 @@
 
 /*
 Some tests where the ESP (acting as host) will require that a particular test
-device acting as an HID mouse be connected. That test device's information and descriptors are defined in this file.
+device acting as an HID mouse be connected. This header contains
+functions to get information and descriptors about that test device.
 
-If you are connecting a different device, please update the descriptors in
+The descriptors match the TinyUSB based mock HID mouse device (see mock_hid.c).
+If you are connecting a different HID mouse, please update the descriptors in
 dev_hid.c accordingly.
 */
 
@@ -23,11 +25,30 @@ extern "C" {
 #endif
 
 /**
+ * @brief HID test device information
+ *
+ * Structure containing basic information about the HID interface on
+ * the test device.
+ */
+typedef struct {
+    uint8_t bInterfaceNumber;
+    uint8_t bAlternateSetting;
+    uint8_t in_ep_addr;
+} dev_hid_info_t;
+
+/**
  * @brief Initialize the test device
  *
  * @note Call this before running tests. This is necessary due to IDF-9886
  */
 void dev_hid_init(void);
+
+/**
+ * @brief Get information about the test device's HID interface
+ *
+ * @return Information object
+ */
+const dev_hid_info_t *dev_hid_get_info(void);
 
 /**
  * @brief Get the test device's descriptor
@@ -74,6 +95,13 @@ const usb_str_desc_t *dev_hid_get_str_desc_manu(void);
  * @return Product string descriptor
  */
 const usb_str_desc_t *dev_hid_get_str_desc_prod(void);
+
+/**
+ * @brief Get the test device's serial number string descriptor
+ *
+ * @return Serial number string descriptor
+ */
+const usb_str_desc_t *dev_hid_get_str_desc_ser(void);
 
 #ifdef __cplusplus
 }
