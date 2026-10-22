@@ -15,5 +15,18 @@ idf_component_register(SRCS "uac_descriptors.c" "uac_host.c"
                        REQUIRES "${requires}"
                        )
 
-include(package_manager)
-cu_pkg_define_version(${CMAKE_CURRENT_LIST_DIR})
+# package_manager.cmake (component version defines) is provided by the IDF Component Manager.
+# With the Component Manager disabled, parse the version from idf_component.yml and
+# define the macros manually.
+if(cm_enabled)
+    include(package_manager)
+    cu_pkg_define_version(${CMAKE_CURRENT_LIST_DIR})
+else()
+    file(STRINGS "${CMAKE_CURRENT_LIST_DIR}/idf_component.yml" ver_line REGEX "^version:")
+    string(REGEX MATCH "([0-9]+)\\.([0-9]+)\\.([0-9]+)" ver "${ver_line}")
+    target_compile_definitions(${COMPONENT_LIB} PRIVATE
+        USB_HOST_UAC_VER_MAJOR=${CMAKE_MATCH_1}
+        USB_HOST_UAC_VER_MINOR=${CMAKE_MATCH_2}
+        USB_HOST_UAC_VER_PATCH=${CMAKE_MATCH_3}
+    )
+endif()
