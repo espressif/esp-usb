@@ -1056,12 +1056,17 @@ static esp_err_t usb_class_request_get_descriptor(hid_device_t *hid_device, cons
     HID_RETURN_ON_INVALID_ARG(req);
     HID_RETURN_ON_INVALID_ARG(req->data);
 
+    // Get the EP0 MPS from the device descriptor for buffer DMA size alignment
+    const usb_device_desc_t *device_desc;
+    HID_RETURN_ON_ERROR( usb_host_get_device_descriptor(hid_device->dev_hdl, &device_desc),
+                         "Unable to get device descriptor");
+
     HID_RETURN_ON_ERROR( hid_device_try_lock(hid_device, DEFAULT_TIMEOUT_MS),
                          "HID Device is busy by other task");
 
     esp_err_t ret;
     const size_t ctrl_size = hid_device->ctrl_xfer->data_buffer_size;
-    const size_t required_size = USB_SETUP_PACKET_SIZE + req->wLength;
+    const size_t required_size = USB_SETUP_PACKET_SIZE + usb_round_up_to_mps(req->wLength, device_desc->bMaxPacketSize0);
 
     // Reallocate control transfer buffer if necessary
     if (ctrl_size < required_size) {

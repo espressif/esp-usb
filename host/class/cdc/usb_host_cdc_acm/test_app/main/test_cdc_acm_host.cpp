@@ -680,6 +680,7 @@ TEST_CASE("new_device_connection_2", "[cdc_acm]")
     vTaskDelay(20); // Short delay to allow task to be cleaned up
 }
 
+#ifdef CONFIG_USB_HOST_DMA_MODE_BUFFER
 /**
  * @brief CDC-ACM RX Buffer Test
  *
@@ -752,6 +753,7 @@ TEST_CASE("rx_buffer", "[cdc_acm]")
     TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_uninstall());
     vTaskDelay(20); // Short delay to allow task to be cleaned up
 }
+#endif // CONFIG_USB_HOST_DMA_MODE_BUFFER
 
 /**
  * @brief Closing procedure test
@@ -1638,7 +1640,11 @@ TEST_CASE("light_sleep", "[cdc_acm][light_sleep]")
     vTaskDelay(20); // Short delay to allow task to be cleaned up
 }
 
+#ifdef CONFIG_USB_HOST_DMA_MODE_BUFFER
+#define STRESS_TX_BUF_SIZE              (6 * 1024)
+#else
 #define STRESS_TX_BUF_SIZE              (8 * 1024)
+#endif
 #define STRESS_IO_ITERATIONS            (16)
 #define STRESS_LIGHT_SLEEP_WAKEUP_US    (500 * 1000)        // 500 mS
 #define EVT_STRESS_IO_DONE              BIT0
