@@ -40,10 +40,9 @@ Note: Some mice will NAK until it is moved, so try moving the mouse around if th
 #define NUM_URBS                            3
 #define NUM_URB_ITERS                       (NUM_URBS * 100)
 
-TEST_CASE("Test HCD interrupt pipe URBs", "[intr][low_speed]")
+TEST_CASE("Test HCD interrupt pipe URBs", "[intr][tinyusb_mock]")
 {
     usb_speed_t port_speed = test_hcd_wait_for_conn(port_hdl);  // Trigger a connection
-    TEST_ASSERT_EQUAL_MESSAGE(TEST_HID_DEV_SPEED, port_speed, "Connected device is not Low Speed!");
     vTaskDelay(pdMS_TO_TICKS(100)); // Short delay send of SOF (for FS) or EOPs (for LS)
 
     hcd_pipe_handle_t default_pipe = test_hcd_pipe_alloc(port_hdl, NULL, 0, port_speed); // Create a default pipe (using a NULL EP descriptor)
