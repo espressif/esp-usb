@@ -347,7 +347,7 @@ void usb_print_string_descriptor(const usb_str_desc_t *str_desc)
         return;
     }
 
-    for (int i = 0; i < (str_desc->bLength - 2) / 2; i++) {
+    for (int i = 0; i < (str_desc->bLength - USB_STR_DESC_SIZE) / 2; i++) {
         /*
         USB String descriptors of UTF-16.
         Right now we just skip any character larger than 0xFF to stay in BMP Basic Latin and Latin-1 Supplement range.
