@@ -21,7 +21,16 @@ SCENARIO("Test mocked device opening and closing")
     Mockusb_host_Init();
     usb_host_mock_dev_list_init();
     SECTION("Fail to open CDC-ACM Device: CDC-ACM Host is not installed") {
-        REQUIRE(ESP_ERR_INVALID_STATE == cdc_acm_host_open(0, 0, 0, nullptr, nullptr));
+        cdc_acm_dev_hdl_t dev = nullptr;
+        const cdc_acm_host_device_config_t dev_config = {
+            .connection_timeout_ms = 1,
+            .out_buffer_size = 100,
+            .in_buffer_size = 100,
+            .event_cb = nullptr,
+            .data_cb = nullptr,
+            .user_arg = nullptr,
+        };
+        REQUIRE(ESP_ERR_INVALID_STATE == cdc_acm_host_open(0, 0, 0, &dev_config, &dev));
     }
 
     GIVEN("CDC driver is installed") {
@@ -40,10 +49,11 @@ SCENARIO("Test mocked device opening and closing")
 
         cdc_acm_dev_hdl_t dev = nullptr;
         // Define input parameters for cdc_acm_host_open
-        // VID, PID, interface index and IN EP of the added cp210x device
+        // VID, PID, interface index and endpoint addresses of the added CP210x device
         const uint16_t vid = 0x10C4, pid = 0xEA60;
         const uint8_t interface_index = 0;
         const uint8_t in_ep = 0x82;
+        const uint8_t out_ep = 0x02;
         const uint8_t dev_addr = 5;
         cdc_acm_host_device_config_t dev_config = {
             .connection_timeout_ms = 1,   // Set small connection timeout, so the usb_host_device_addr_list_fill() is called only once
@@ -148,12 +158,14 @@ SCENARIO("Test mocked device opening and closing")
                 REQUIRE(dev_b != nullptr);
 
                 test_cdc_acm_reset_transfer_endpoint(in_ep);
+                test_cdc_acm_reset_transfer_endpoint(out_ep);
                 usb_host_interface_release_ExpectAndReturn(nullptr, nullptr, interface_index, ESP_OK);
                 usb_host_interface_release_IgnoreArg_client_hdl();
                 usb_host_interface_release_IgnoreArg_dev_hdl();
                 REQUIRE(ESP_OK == cdc_acm_host_close(dev_a));
 
                 test_cdc_acm_reset_transfer_endpoint(in_ep);
+                test_cdc_acm_reset_transfer_endpoint(out_ep);
                 usb_host_interface_release_ExpectAndReturn(nullptr, nullptr, interface_index, ESP_OK);
                 usb_host_interface_release_IgnoreArg_client_hdl();
                 usb_host_interface_release_IgnoreArg_dev_hdl();
@@ -222,6 +234,9 @@ SCENARIO("Test mocked device opening and closing")
                 // Device is opened, now close it
                 // Cancel pooling of IN endpoint -> halt, flush, clear
                 test_cdc_acm_reset_transfer_endpoint(in_ep);
+
+                // Cancel OUT endpoint -> halt, flush, clear
+                test_cdc_acm_reset_transfer_endpoint(out_ep);
 
                 // Release data interface
                 usb_host_interface_release_ExpectAndReturn(nullptr, nullptr, interface_index, ESP_OK);

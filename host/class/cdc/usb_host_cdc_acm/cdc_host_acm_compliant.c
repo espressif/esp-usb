@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2025-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -39,7 +39,9 @@ static const char *TAG = "cdc_acm_compliant";
  */
 static esp_err_t send_cdc_request(cdc_dev_t *cdc_dev, bool in_transfer, cdc_request_code_t request, uint8_t *data, uint16_t data_len, uint16_t value)
 {
-    CDC_ACM_CHECK(cdc_dev->notif.intf_desc, ESP_ERR_NOT_SUPPORTED);
+    const usb_intf_desc_t *notif_intf = NULL;
+    ESP_RETURN_ON_ERROR(cdc_host_common_get_intf_desc(cdc_dev->common_port, &notif_intf, NULL), TAG, "Failed to get CDC interface descriptors");
+    CDC_ACM_CHECK(notif_intf, ESP_ERR_NOT_SUPPORTED);
 
     uint8_t req_type = USB_BM_REQUEST_TYPE_TYPE_CLASS | USB_BM_REQUEST_TYPE_RECIP_INTERFACE;
     if (in_transfer) {
@@ -47,7 +49,7 @@ static esp_err_t send_cdc_request(cdc_dev_t *cdc_dev, bool in_transfer, cdc_requ
     } else {
         req_type |= USB_BM_REQUEST_TYPE_DIR_OUT;
     }
-    return cdc_acm_host_send_custom_request((cdc_acm_dev_hdl_t) cdc_dev, req_type, request, value, cdc_dev->notif.intf_desc->bInterfaceNumber, data_len, data);
+    return cdc_acm_host_send_custom_request((cdc_acm_dev_hdl_t) cdc_dev, req_type, request, value, notif_intf->bInterfaceNumber, data_len, data);
 }
 
 esp_err_t acm_compliant_line_coding_get(cdc_acm_dev_hdl_t cdc_hdl, cdc_acm_line_coding_t *line_coding)
