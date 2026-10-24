@@ -302,6 +302,15 @@ esp_err_t hub_dev_gone(uint8_t dev_addr);
  *    - ESP_ERR_INVALID_STATE: Hub driver is not in a correct state
  */
 esp_err_t hub_notify_all_free(void);
+
+/**
+ * @brief Sum the authoritative host-channel stats over every root port
+ *
+ * @param[out] total     Total host channels across installed root ports
+ * @param[out] allocated Channels currently allocated across them
+ * @retval ESP_OK / ESP_ERR_INVALID_ARG / ESP_ERR_INVALID_STATE (driver not installed)
+ */
+esp_err_t hub_get_channel_stats(int *total, int *allocated);
 #endif // ENABLE_USB_HUBS
 
 /**

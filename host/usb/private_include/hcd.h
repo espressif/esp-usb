@@ -271,6 +271,22 @@ hcd_port_state_t hcd_port_get_state(hcd_port_handle_t port_hdl);
 esp_err_t hcd_port_get_speed(hcd_port_handle_t port_hdl, usb_speed_t *speed);
 
 /**
+ * @brief Get the port's host-channel usage (authoritative ledger)
+ *
+ * Reads the DWC HAL's own channel bookkeeping: the total number of host
+ * channels this controller configuration has, and how many are currently
+ * allocated (every open pipe — EP0s, hub interrupt pipes and claimed data
+ * endpoints — holds one until freed).
+ *
+ * @param[in]  port_hdl  Port handle
+ * @param[out] total     Total host channels of this controller
+ * @param[out] allocated Channels currently allocated
+ * @retval ESP_OK: stats returned
+ * @retval ESP_ERR_INVALID_ARG / ESP_ERR_INVALID_STATE
+ */
+esp_err_t hcd_port_get_channel_stats(hcd_port_handle_t port_hdl, int *total, int *allocated);
+
+/**
  * @brief Handle a ports event
  *
  * When an port event occurs (as indicated by a callback), this function should be called the handle this event. A

@@ -1645,6 +1645,18 @@ esp_err_t hcd_port_get_speed(hcd_port_handle_t port_hdl, usb_speed_t *speed)
     return ESP_OK;
 }
 
+esp_err_t hcd_port_get_channel_stats(hcd_port_handle_t port_hdl, int *total, int *allocated)
+{
+    port_t *port = (port_t *)port_hdl;
+    HCD_CHECK(port_hdl != NULL && total != NULL && allocated != NULL, ESP_ERR_INVALID_ARG);
+    HCD_ENTER_CRITICAL();
+    HCD_CHECK_FROM_CRIT(port->hal != NULL, ESP_ERR_INVALID_STATE);
+    *total = (int)port->hal->constant_config.chan_num_total;
+    *allocated = port->hal->channels.num_allocated;
+    HCD_EXIT_CRITICAL();
+    return ESP_OK;
+}
+
 hcd_port_event_t hcd_port_handle_event(hcd_port_handle_t port_hdl)
 {
     port_t *port = (port_t *)port_hdl;

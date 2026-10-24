@@ -244,6 +244,21 @@ esp_err_t usb_host_lib_unblock(void);
 esp_err_t usb_host_lib_info(usb_host_lib_info_t *info_ret);
 
 /**
+ * @brief Authoritative host-channel usage from the HCD's own ledger
+ *
+ * Total DWC host channels and how many are currently allocated, summed over
+ * the installed root ports. Every open pipe holds one channel: each connected
+ * device's EP0, each external hub's interrupt pipe, and every endpoint of a
+ * claimed interface. When allocation fails the HCD logs
+ * "No more HCD channels available" and the claim returns ESP_ERR_NOT_SUPPORTED.
+ *
+ * @param[out] total_channels     Total host channels
+ * @param[out] allocated_channels Channels currently allocated
+ * @retval ESP_OK / ESP_ERR_INVALID_ARG / ESP_ERR_INVALID_STATE (library not installed)
+ */
+esp_err_t usb_host_channel_stats(int *total_channels, int *allocated_channels);
+
+/**
  * @brief Power the root port ON or OFF
  *
  * - Powering ON the root port will allow device connections to occur

@@ -1253,6 +1253,29 @@ esp_err_t hub_dev_gone(uint8_t dev_addr)
 }
 
 #if (ENABLE_USB_HUBS)
+esp_err_t hub_get_channel_stats(int *total, int *allocated)
+{
+    HUB_DRIVER_CHECK(total != NULL && allocated != NULL, ESP_ERR_INVALID_ARG);
+    HUB_DRIVER_CHECK(p_hub_driver_obj != NULL, ESP_ERR_INVALID_STATE);
+    int sum_total = 0;
+    int sum_allocated = 0;
+    for (int i = 0; i < HCD_NUM_PORTS; i++) {
+        hcd_port_handle_t hdl = p_hub_driver_obj->root_hub_ports[i].constant.hdl;
+        if (hdl == NULL) {
+            continue;
+        }
+        int port_total = 0;
+        int port_allocated = 0;
+        if (hcd_port_get_channel_stats(hdl, &port_total, &port_allocated) == ESP_OK) {
+            sum_total += port_total;
+            sum_allocated += port_allocated;
+        }
+    }
+    *total = sum_total;
+    *allocated = sum_allocated;
+    return ESP_OK;
+}
+
 esp_err_t hub_notify_all_free(void)
 {
     HUB_DRIVER_ENTER_CRITICAL();
