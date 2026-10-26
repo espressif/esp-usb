@@ -41,13 +41,15 @@ menu "USB-OTG"
 
     config USB_HOST_PARKED_IN_ROTATE_MS
         int "Parked bulk IN listener rotation period (ms)"
-        default 20
+        default 100
         range 5 1000
         help
             Period of the rotation tick that asks one parked bulk IN listener to yield
             its hardware channel while other pipes are waiting for one (see
-            USB_HOST_PARKED_IN_BIND_CAP). The worst-case extra latency for a parked
-            listener is roughly (number of parked listeners / cap) ticks.
+            USB_HOST_PARKED_IN_BIND_CAP). The tick is the only place a yield is requested,
+            at most one per tick. The worst-case extra latency for a parked listener is
+            roughly (number of waiting listeners) x this period, which is fine for parked
+            consoles. The tick pauses while a non-parked bulk transfer is executing.
 
     config USB_HOST_PARKED_IN_MAX_PACKETS
         int "Max packets for a bulk IN transfer to classify as a parked listener"

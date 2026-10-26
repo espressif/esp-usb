@@ -233,6 +233,14 @@ Changes:
   promoted on its next enqueue, and rotation corrects any excess. This is
   accepted: the bind cannot know the future queue depth.
 
+### Phase 2j: tick-only yields, slower rotation, storage guard
+
+A/B on b531e9e: both configs (five parked ACM, and three ACM plus two cp210x) killed storage. The external hub's control URB failed and its port reset, so churn was disturbing hub EP0 and INTR servicing. Measured rates: about one yield per `dd` at three parked (passed), and more than 200 yields per second at five (failed). The amplifier was that yields were requested on every cap or reserve refusal at enqueue, and kick retries turned that into hundreds per second.
+
+- Tick-only yields. The rotation tick is now the only place a yield is requested, at most one per tick per port. The enqueue, clear and kick paths only make sure the timer is running.
+- `CONFIG_USB_HOST_PARKED_IN_ROTATE_MS` default 20 -> 100. Worst-case service latency for a parked listener becomes roughly (number of waiting listeners) x 100 ms, which is fine for parked consoles.
+- Storage-activity guard. Before choosing a victim, the tick checks the port's active list. If any non-parked BULK pipe has a buffer executing (an MSC data or status transfer in flight), the yield is skipped for that tick. The promotion sweep still runs. Rotation exists for parked-listener fairness and can pause at no cost. Residual by design: during a long sequential storage stream, over-cap parked listeners wait until the stream pauses.
+
 ### Phase 2i: reserve narrowed back to the parked profile
 
 Bench evidence on 1f7f2f2: with three parked consoles (cap full, rotation live) storage passed on both disks. With five parked, waiters and rotation churn stalled the MSC bulk path into 30 s SCSI timeouts. `reserve_refusals` climbed by hundreds to thousands per `dd`. The 2f widening made the channel reserve gate every parked-SIZED bind, so the 13-byte CSW status read (always queue depth 1) was refused whenever free channels equalled the reserve. The status phase starved behind the reserve meant to protect it.

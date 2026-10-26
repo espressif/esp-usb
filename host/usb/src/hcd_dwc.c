@@ -830,21 +830,19 @@ static void _pipe_chan_unwait(pipe_t *pipe)
  * (e.g. a mass-storage data read) is never yanked. The halted pipe re-queues
  * at the waiter tail, giving round-robin service among parked listeners.
  */
-static void _port_request_chan_yield(port_t *port, bool from_tick)
+static void _port_request_chan_yield(port_t *port)
 {
     // Round-robin rotor (phase 2d): search circularly from the pipe after the
     // last victim, so one parked listener cannot be victimized every tick while
     // later ones never yield. The cursor is cleared on unbind. Phase 2g: each
     // rejected candidate is counted under its first failing condition, only on
-    // the tick's pass (from_tick), so counts map one-to-one to rotor passes.
+    // the tick's pass, so counts map one-to-one to rotor passes (phase 2j: the tick is the only caller).
     pipe_t *first = TAILQ_FIRST(&port->pipes_active_tailq);
     if (first == NULL) {
         return;
     }
-    if (from_tick) {
-        port->stat_rot_passes++;
-    }
-#define ROTOR_REJECT(field)  do { if (from_tick) { port->field++; } } while (0)
+    port->stat_rot_passes++;
+#define ROTOR_REJECT(field)  do { port->field++; } while (0)
     pipe_t *start = (port->yield_cursor != NULL) ? TAILQ_NEXT(port->yield_cursor, tailq_entry) : NULL;
     if (start == NULL) {
         start = first;
@@ -883,9 +881,7 @@ static void _port_request_chan_yield(port_t *port, bool from_tick)
                 }
                 // Halt reported already-halted: no interrupt will follow, so nothing to yield
                 p->pause_pending = 0;
-                if (from_tick) {
-                    port->stat_halt_noop++;
-                }
+                port->stat_halt_noop++;
             }
         }
         p = TAILQ_NEXT(p, tailq_entry);
@@ -925,8 +921,20 @@ static void _port_rotate_timer_cb(void *arg)
     // Phase 2e: rotate while anything waits OR while the parked count is over the cap
     // (promotions can exceed it). A yielded over-cap holder re-queues, and its capped
     // rebind is refused while the count is still at the cap.
-    if (have_waiter || PARKED_OVER_CAP(port)) {
-        _port_request_chan_yield(port, true);
+    // Phase 2j storage-activity guard: skip the yield while any non-parked BULK pipe has a
+    // buffer executing (an MSC data or status transfer in flight). Rotation's channel
+    // enable/disable churn is what disturbs concurrent bulk traffic, and it is paused for
+    // those bursts. The promotion sweep above still ran.
+    bool bulk_busy = false;
+    TAILQ_FOREACH(p, &port->pipes_active_tailq, tailq_entry) {
+        if (p->ep_char.type == USB_DWC_XFER_TYPE_BULK && !p->parked_bound
+                && p->multi_buffer_control.buffer_is_executing) {
+            bulk_busy = true;
+            break;
+        }
+    }
+    if ((have_waiter || PARKED_OVER_CAP(port)) && !bulk_busy) {
+        _port_request_chan_yield(port);     // the only yield source: at most one per tick
     }
     // Phase 2f: the tick no longer stops itself. Stopping an esp_timer from
     // inside the HCD spinlock raced with a concurrent start (an enqueue that saw
@@ -2635,8 +2643,7 @@ static esp_err_t _pipe_cmd_clear(pipe_t *pipe, bool *chan_wait_started)
     if (_pipe_uses_dynamic_chan(pipe) && !pipe->chan_bound
             && (pipe->num_urb_pending > 0 || pipe->multi_buffer_control.buffer_num_to_exec > 0)) {
         if (_pipe_chan_bind_capped(pipe) != PIPE_CHAN_BIND_OK) {
-            _pipe_chan_wait(pipe);      // runs when a channel frees
-            _port_request_chan_yield(pipe->port, false);
+            _pipe_chan_wait(pipe);      // runs when a channel frees (the rotation tick yields)
             *chan_wait_started = true;
             ret = ESP_OK;
             goto exit;
@@ -3527,8 +3534,7 @@ esp_err_t hcd_urb_enqueue(hcd_pipe_handle_t pipe_hdl, urb_t *urb)
         // A parked-listener cap refusal takes the same wait path as channel
         // exhaustion; the rotation tick cycles capped listeners back in.
         if (_pipe_chan_bind_capped(pipe) != PIPE_CHAN_BIND_OK) {
-            _pipe_chan_wait(pipe);
-            _port_request_chan_yield(pipe->port, false);
+            _pipe_chan_wait(pipe);      // the rotation tick is the only yield source (phase 2j)
             chan_wait_started = true;
             submit_urb = false;
         }
