@@ -22,6 +22,32 @@ menu "USB-OTG"
             from enumerating. The default can be changed at run time with usb_host_set_enum_timeout(), and per
             device with usb_host_set_enum_timeout_cb().
 
+    config USB_HOST_PARKED_IN_BIND_CAP
+        int "Max parked bulk IN listeners holding channels (0 = unlimited)"
+        default 3
+        range 0 16
+        help
+            A "parked listener" is a bulk IN pipe whose current transfer fits in a single
+            packet (num_bytes <= MPS) - e.g. a serial console session that keeps a 64-byte
+            read posted. While such a pipe holds a hardware channel it NAK-polls the bus
+            continuously, and enough of them saturate the bus: observed on a full-speed bus
+            as mass-storage reads timing out (SCSI timeout) behind seven parked console
+            readers. With this cap, at most this many parked listeners hold channels
+            concurrently; the rest wait in the channel-waiter queue and are rotated in
+            every USB_HOST_PARKED_IN_ROTATE_MS, so each still gets regular bus time.
+            Multi-packet transfers are never capped. 0 disables both the cap and the
+            rotation.
+
+    config USB_HOST_PARKED_IN_ROTATE_MS
+        int "Parked bulk IN listener rotation period (ms)"
+        default 20
+        range 5 1000
+        help
+            Period of the rotation tick that asks one parked bulk IN listener to yield
+            its hardware channel while other pipes are waiting for one (see
+            USB_HOST_PARKED_IN_BIND_CAP). The worst-case extra latency for a parked
+            listener is roughly (number of parked listeners / cap) ticks.
+
     choice USB_HOST_HW_BUFFER_BIAS
         prompt "Hardware FIFO size biasing"
         default USB_HOST_HW_BUFFER_BIAS_BALANCED

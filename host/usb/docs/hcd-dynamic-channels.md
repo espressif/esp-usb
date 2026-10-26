@@ -88,6 +88,27 @@ and the yield dissolves). The yielding pipe re-queues at the **tail** of the
 waiter queue, which round-robins channel time across any number of parked
 listeners. A real halt command always takes precedence over a pending yield.
 
+### Phase 2b: parked-listener bind cap + rotation tick
+
+A bound parked listener NAK-polls the bus continuously; on a full-speed bus,
+seven parked console readers saturated the bus and starved a concurrent
+mass-storage read into SCSI timeout. Phase 2b therefore **caps** how many
+parked listeners (bulk IN pipes whose next transfer fits in one packet,
+`num_bytes <= MPS`) may hold channels concurrently:
+`CONFIG_USB_HOST_PARKED_IN_BIND_CAP` (default 3, 0 = uncapped). A
+parked-class bind over the cap is refused *distinctly* from channel
+exhaustion — the pipe waits in the ordinary waiter queue, but
+`_port_chan_waiters_kick` skips it and keeps serving later waiters instead
+of stalling the queue. Multi-packet transfers are never capped. A periodic
+**rotation tick** (`CONFIG_USB_HOST_PARKED_IN_ROTATE_MS`, default 20 ms; an
+esp_timer per port, started when a pipe enters the waiter queue and
+self-stopping when the queue drains) requests a phase-2 yield while any
+waiter has pending URBs, so over-cap listeners rotate onto the bus and each
+still gets regular bus time — worst-case extra latency is roughly
+(listeners / cap) ticks. Yield victim selection now prefers pipes counted
+against the cap (`parked_bound`), with the single-packet-buffer check kept
+as the atomicity guard.
+
 Still future:
 - Rotation for multi-packet bulk IN and for periodic (interrupt) pipes —
   both need partial-progress resume, not just atomic re-execution.

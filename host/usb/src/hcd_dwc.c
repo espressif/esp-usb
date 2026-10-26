@@ -16,6 +16,7 @@
 #include "esp_intr_alloc.h"
 #include "esp_err.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 
 #include "hal/usb_dwc_hal.h"
 #include "hcd.h"
@@ -213,6 +214,7 @@ struct pipe_obj {
     uint8_t chan_waiting;                   // Queued on the port's channel-waiter list
     uint8_t saved_pid;                      // Bulk data toggle preserved across rebinds
     uint8_t pause_pending;                  // Channel yield requested (phase 2 rotation)
+    uint8_t parked_bound;                   // Counted against the parked-listener bind cap
     TAILQ_ENTRY(pipe_obj) chan_wait_entry;  // Entry in the port's channel-waiter queue
     // Port related
     port_t *port;                           // The port to which this pipe is routed through
@@ -250,6 +252,8 @@ struct port_obj {
     int num_pipes_idle;
     int num_pipes_queued;
     int num_pipes_waiting_chan;
+    int num_parked_bound;                   // Bound pipes counted against the parked-listener cap
+    esp_timer_handle_t rotate_timer;        // Periodic parked-listener rotation tick (phase 2b)
     // Port status, state, and events
     hcd_port_state_t state;
     usb_speed_t speed;
@@ -554,13 +558,75 @@ static void _pipe_chan_unbind(pipe_t *pipe)
     }
     usb_dwc_hal_chan_free(pipe->port->hal, pipe->chan_obj);
     pipe->chan_bound = 0;
+    if (pipe->parked_bound) {
+        pipe->parked_bound = 0;
+        pipe->port->num_parked_bound--;
+    }
+}
+
+/**
+ * @brief Whether the pipe's NEXT transfer is a parked listener (critical section)
+ *
+ * Parked class (phase 2b, docs/hcd-dynamic-channels.md): a BULK IN pipe whose
+ * first pending URB fits in a single packet (num_bytes <= MPS) — e.g. a serial
+ * console keeping a read posted. While bound it NAK-polls the bus continuously,
+ * so the number of concurrently bound parked listeners is capped.
+ */
+static inline bool _pipe_next_xfer_parked_class(const pipe_t *pipe)
+{
+    if (pipe->ep_char.type != USB_DWC_XFER_TYPE_BULK ||
+            !(pipe->ep_char.bEndpointAddress & 0x80)) {
+        return false;
+    }
+    const urb_t *urb = TAILQ_FIRST(&pipe->pending_urb_tailq);
+    return (urb != NULL) && (urb->transfer.num_bytes <= (int)pipe->ep_char.mps);
+}
+
+/**
+ * @brief Result of a capped bind attempt
+ */
+typedef enum {
+    PIPE_CHAN_BIND_OK,          // Channel bound (or already bound)
+    PIPE_CHAN_BIND_NO_CHAN,     // No free hardware channel
+    PIPE_CHAN_BIND_CAP,         // Refused: parked-listener bind cap reached
+} pipe_chan_bind_result_t;
+
+/**
+ * @brief Bind a channel, enforcing the parked-listener bind cap (critical section)
+ *
+ * Classifies the pipe's next transfer first: a parked-class pipe is refused
+ * (distinct from channel exhaustion) when CONFIG_USB_HOST_PARKED_IN_BIND_CAP
+ * parked listeners already hold channels. Multi-packet transfers are never
+ * capped. On a successful parked-class bind the pipe is counted against the
+ * cap until it unbinds.
+ */
+static pipe_chan_bind_result_t _pipe_chan_bind_capped(pipe_t *pipe)
+{
+    if (pipe->chan_bound) {
+        return PIPE_CHAN_BIND_OK;
+    }
+    const bool parked = _pipe_next_xfer_parked_class(pipe);
+#if CONFIG_USB_HOST_PARKED_IN_BIND_CAP > 0
+    if (parked && pipe->port->num_parked_bound >= CONFIG_USB_HOST_PARKED_IN_BIND_CAP) {
+        return PIPE_CHAN_BIND_CAP;
+    }
+#endif
+    if (!_pipe_chan_bind(pipe)) {
+        return PIPE_CHAN_BIND_NO_CHAN;
+    }
+    if (parked) {
+        pipe->parked_bound = 1;
+        pipe->port->num_parked_bound++;
+    }
+    return PIPE_CHAN_BIND_OK;
 }
 
 /**
  * @brief Hand freed channels to waiting pipes, oldest first (critical section)
  *
  * A waiter whose pending URBs were all cancelled is dropped from the queue.
- * Stops at the first waiter that still cannot get a channel.
+ * A parked-class waiter refused by the bind cap keeps its place and the next
+ * waiter is tried; only actual channel exhaustion ends the loop.
  */
 static void _port_chan_waiters_kick(port_t *port)
 {
@@ -571,22 +637,26 @@ static void _port_chan_waiters_kick(port_t *port)
             TAILQ_REMOVE(&port->pipes_waiting_chan_tailq, pipe, chan_wait_entry);
             port->num_pipes_waiting_chan--;
             pipe->chan_waiting = 0;
-        } else if (pipe->state == HCD_PIPE_STATE_ACTIVE && _pipe_chan_bind(pipe)) {
-            TAILQ_REMOVE(&port->pipes_waiting_chan_tailq, pipe, chan_wait_entry);
-            port->num_pipes_waiting_chan--;
-            pipe->chan_waiting = 0;
-            while (_buffer_can_fill(pipe)) {
-                _buffer_fill(pipe);
+        } else if (pipe->state == HCD_PIPE_STATE_ACTIVE) {
+            pipe_chan_bind_result_t bind_res = _pipe_chan_bind_capped(pipe);
+            if (bind_res == PIPE_CHAN_BIND_NO_CHAN) {
+                break;          // no free channel yet
             }
-            if (_buffer_can_exec(pipe)) {
-                _buffer_exec(pipe);
+            if (bind_res == PIPE_CHAN_BIND_OK) {
+                TAILQ_REMOVE(&port->pipes_waiting_chan_tailq, pipe, chan_wait_entry);
+                port->num_pipes_waiting_chan--;
+                pipe->chan_waiting = 0;
+                while (_buffer_can_fill(pipe)) {
+                    _buffer_fill(pipe);
+                }
+                if (_buffer_can_exec(pipe)) {
+                    _buffer_exec(pipe);
+                }
             }
-        } else if (pipe->state != HCD_PIPE_STATE_ACTIVE) {
-            pipe = next;        // halted waiter keeps its place until cleared
-            continue;
-        } else {
-            break;              // no free channel yet
+            // PIPE_CHAN_BIND_CAP: over-cap parked listener keeps its place
+            // (rotated in by the rotation tick); try the next waiter
         }
+        // A halted waiter keeps its place until cleared
         pipe = next;
     }
 }
@@ -619,25 +689,26 @@ static void _pipe_chan_unwait(pipe_t *pipe)
  * @brief Ask one eligible channel holder to yield for waiters (critical section)
  *
  * Phase-2 rotation (docs/hcd-dynamic-channels.md): the eligible holder is a
- * bound BULK IN pipe whose executing buffer is a single-packet read
- * (num_bytes <= MPS) — the parked-listener pattern (e.g. cdc-acm read URBs).
- * A single-packet IN transfer is atomic on the wire: when the halt lands the
- * buffer has transferred either nothing (re-execute it later, toggle
- * untouched) or everything (the completion runs instead and the yield is
- * moot). The halted pipe re-queues at the waiter tail, giving round-robin
- * service among parked listeners.
+ * pipe bound as a parked listener (parked_bound — a BULK IN pipe whose bind
+ * was for a single-packet read, e.g. cdc-acm read URBs). As a secondary
+ * guard, the executing buffer must still be a single-packet read
+ * (num_bytes <= MPS): a single-packet IN transfer is atomic on the wire, so
+ * when the halt lands the buffer has transferred either nothing (re-execute
+ * it later, toggle untouched) or everything (the completion runs instead and
+ * the yield is moot). The halted pipe re-queues at the waiter tail, giving
+ * round-robin service among parked listeners.
  */
 static void _port_request_chan_yield(port_t *port)
 {
     pipe_t *p;
     TAILQ_FOREACH(p, &port->pipes_active_tailq, tailq_entry) {
-        if (!p->chan_bound || p->pause_pending || p->cs_flags.waiting_halt
+        if (!p->chan_bound || !p->parked_bound || p->pause_pending
+                || p->cs_flags.waiting_halt
                 || p->state != HCD_PIPE_STATE_ACTIVE
-                || p->ep_char.type != USB_DWC_XFER_TYPE_BULK
-                || !(p->ep_char.bEndpointAddress & 0x80)
                 || !p->multi_buffer_control.buffer_is_executing) {
             continue;
         }
+        // Secondary guard: only yield a buffer that is atomic on the wire
         dma_buffer_block_t *buf = p->buffers[p->multi_buffer_control.rd_idx];
         if (buf->urb == NULL || buf->urb->transfer.num_bytes > (int)p->ep_char.mps) {
             continue;
@@ -651,6 +722,55 @@ static void _port_request_chan_yield(port_t *port)
         return;     // Halt requested; the channel ISR finishes the yield
     }
 }
+
+#if CONFIG_USB_HOST_PARKED_IN_BIND_CAP > 0
+/**
+ * @brief Parked-listener rotation tick (esp_timer task context)
+ *
+ * While any pipe with pending URBs waits for a channel, periodically ask one
+ * parked listener to yield so over-cap listeners rotate onto the bus. When
+ * the waiter queue drains the timer stops itself (legal here: esp_timer
+ * callbacks run in the esp_timer task, and esp_timer_stop() of the running
+ * timer is allowed from task context).
+ */
+static void _port_rotate_timer_cb(void *arg)
+{
+    port_t *port = (port_t *)arg;
+    HCD_ENTER_CRITICAL();
+    bool have_waiter = false;
+    pipe_t *p;
+    TAILQ_FOREACH(p, &port->pipes_waiting_chan_tailq, chan_wait_entry) {
+        if (p->num_urb_pending > 0) {
+            have_waiter = true;
+            break;
+        }
+    }
+    if (have_waiter) {
+        _port_request_chan_yield(port);
+    } else if (TAILQ_EMPTY(&port->pipes_waiting_chan_tailq)) {
+        // Stopped under the HCD lock so a concurrent waiter-add (which only
+        // starts the timer when it is inactive) cannot be missed.
+        (void)esp_timer_stop(port->rotate_timer);
+    }
+    HCD_EXIT_CRITICAL();
+}
+
+/**
+ * @brief Start the rotation tick if it is not already running
+ *
+ * Must be called OUTSIDE the HCD critical section (per esp_timer's contract,
+ * esp_timer_start_periodic is a task-level call and is kept out of the HCD
+ * lock). A benign race with another task starting it simultaneously makes
+ * the second start return ESP_ERR_INVALID_STATE, which is ignored.
+ */
+static void _port_rotate_timer_start(port_t *port)
+{
+    if (!esp_timer_is_active(port->rotate_timer)) {
+        (void)esp_timer_start_periodic(port->rotate_timer,
+                                       (uint64_t)CONFIG_USB_HOST_PARKED_IN_ROTATE_MS * 1000);
+    }
+}
+#endif // CONFIG_USB_HOST_PARKED_IN_BIND_CAP > 0
 
 /**
  * @brief Halt a pipe
@@ -687,9 +807,11 @@ static esp_err_t _pipe_cmd_flush(pipe_t *pipe);
  * - If there are any enqueued URBs, they will executed
  *
  * @param pipe Pipe object
+ * @param[out] chan_wait_started Set when the pipe (re-)entered the channel-waiter queue, so the
+ *                               caller must start the rotation tick once outside the critical section
  * @return esp_err_t
  */
-static esp_err_t _pipe_cmd_clear(pipe_t *pipe);
+static esp_err_t _pipe_cmd_clear(pipe_t *pipe, bool *chan_wait_started);
 
 /**
  * @brief Reset a halted pipe's data toggle so that its next transaction uses DATA0
@@ -1705,6 +1827,23 @@ esp_err_t hcd_port_init(int port_number, const hcd_port_config_t *port_config, h
         goto clean_up;
     }
 
+#if CONFIG_USB_HOST_PARKED_IN_BIND_CAP > 0
+    // Parked-listener rotation tick (phase 2b). Created here, started on
+    // demand when a pipe enters the channel-waiter queue, stops itself when
+    // the waiter queue drains.
+    const esp_timer_create_args_t rotate_timer_args = {
+        .callback = _port_rotate_timer_cb,
+        .arg = (void *)port_obj,
+        .dispatch_method = ESP_TIMER_TASK,
+        .name = "hcd_rotate",
+    };
+    err_ret = esp_timer_create(&rotate_timer_args, &port_obj->rotate_timer);
+    if (err_ret != ESP_OK) {
+        ESP_LOGE(HCD_DWC_TAG, "Rotation timer alloc error: %s", esp_err_to_name(err_ret));
+        goto clean_up;
+    }
+#endif // CONFIG_USB_HOST_PARKED_IN_BIND_CAP > 0
+
     // Clear the frame list. We will set the frame list register and enable periodic scheduling after a successful reset
     memset(port_obj->frame_list, 0, FRAME_LIST_LEN * sizeof(uint32_t));
     // If FIFO config is zeroed -> calculate from bias
@@ -1724,6 +1863,11 @@ esp_err_t hcd_port_init(int port_number, const hcd_port_config_t *port_config, h
 
 clean_up:
     if (port_obj != NULL) {
+#if CONFIG_USB_HOST_PARKED_IN_BIND_CAP > 0
+        if (port_obj->rotate_timer != NULL) {
+            (void)esp_timer_delete(port_obj->rotate_timer);
+        }
+#endif
         if (port_obj->hal != NULL && port_obj->hal->channels.hdls != NULL) {
             free(port_obj->hal->channels.hdls);
             port_obj->hal->channels.hdls = NULL;
@@ -1758,6 +1902,10 @@ esp_err_t hcd_port_deinit(hcd_port_handle_t port_hdl)
     HCD_EXIT_CRITICAL();
 
     esp_intr_free(port->isr_hdl);
+#if CONFIG_USB_HOST_PARKED_IN_BIND_CAP > 0
+    (void)esp_timer_stop(port->rotate_timer);       // May not be running; ignore the result
+    (void)esp_timer_delete(port->rotate_timer);
+#endif
     free(port->hal->channels.hdls);
     usb_dwc_hal_deinit(port->hal);
     port_obj_free(port);
@@ -2199,7 +2347,7 @@ exit:
     return ret;
 }
 
-static esp_err_t _pipe_cmd_clear(pipe_t *pipe)
+static esp_err_t _pipe_cmd_clear(pipe_t *pipe, bool *chan_wait_started)
 {
     esp_err_t ret;
     // Pipe must be in the halted state in order to be made active, and there must be an enabled device on the port
@@ -2209,11 +2357,13 @@ static esp_err_t _pipe_cmd_clear(pipe_t *pipe)
     }
     // Update the pipe's state
     pipe->state = HCD_PIPE_STATE_ACTIVE;
-    // Dynamic pipes may have lost (or never had) their channel while halted
+    // Dynamic pipes may have lost (or never had) their channel while halted.
+    // A parked-listener cap refusal takes the same wait path as channel exhaustion.
     if (_pipe_uses_dynamic_chan(pipe) && !pipe->chan_bound && pipe->num_urb_pending > 0) {
-        if (!_pipe_chan_bind(pipe)) {
+        if (_pipe_chan_bind_capped(pipe) != PIPE_CHAN_BIND_OK) {
             _pipe_chan_wait(pipe);      // runs when a channel frees
             _port_request_chan_yield(pipe->port);
+            *chan_wait_started = true;
             ret = ESP_OK;
             goto exit;
         }
@@ -2386,8 +2536,7 @@ esp_err_t hcd_pipe_free(hcd_pipe_handle_t pipe_hdl)
     pipe->port->num_pipes_idle--;
     _pipe_chan_unwait(pipe);
     if (pipe->chan_bound) {
-        usb_dwc_hal_chan_free(pipe->port->hal, pipe->chan_obj);
-        pipe->chan_bound = 0;
+        _pipe_chan_unbind(pipe);    // Also releases the pipe's parked-listener cap slot
         _port_chan_waiters_kick(pipe->port);
     }
     HCD_EXIT_CRITICAL();
@@ -2469,6 +2618,7 @@ esp_err_t hcd_pipe_command(hcd_pipe_handle_t pipe_hdl, hcd_pipe_cmd_t command)
 {
     pipe_t *pipe = (pipe_t *)pipe_hdl;
     esp_err_t ret = ESP_OK;
+    bool chan_wait_started = false;
 
     HCD_ENTER_CRITICAL();
     pipe->cs_flags.pipe_cmd_processing = 1;
@@ -2482,7 +2632,7 @@ esp_err_t hcd_pipe_command(hcd_pipe_handle_t pipe_hdl, hcd_pipe_cmd_t command)
         break;
     }
     case HCD_PIPE_CMD_CLEAR: {
-        ret = _pipe_cmd_clear(pipe);
+        ret = _pipe_cmd_clear(pipe, &chan_wait_started);
         break;
     }
     case HCD_PIPE_CMD_RESET_TOGGLE: {
@@ -2495,6 +2645,14 @@ esp_err_t hcd_pipe_command(hcd_pipe_handle_t pipe_hdl, hcd_pipe_cmd_t command)
     }
     pipe->cs_flags.pipe_cmd_processing = 0;
     HCD_EXIT_CRITICAL();
+#if CONFIG_USB_HOST_PARKED_IN_BIND_CAP > 0
+    if (chan_wait_started) {
+        // esp_timer calls must happen outside the HCD critical section
+        _port_rotate_timer_start(pipe->port);
+    }
+#else
+    (void)chan_wait_started;
+#endif
     return ret;
 }
 
@@ -3075,12 +3233,16 @@ esp_err_t hcd_urb_enqueue(hcd_pipe_handle_t pipe_hdl, urb_t *urb)
     pipe->num_urb_pending++;
     // use the URB's reserved_flags to store the URB's current state
 
+    bool chan_wait_started = false;
     if (submit_urb && _pipe_uses_dynamic_chan(pipe) && !pipe->chan_bound) {
         // Dynamic binding: acquire a channel now, or queue for one. A waiting
         // pipe's URBs stay PENDING and run from _port_chan_waiters_kick().
-        if (!_pipe_chan_bind(pipe)) {
+        // A parked-listener cap refusal takes the same wait path as channel
+        // exhaustion; the rotation tick cycles capped listeners back in.
+        if (_pipe_chan_bind_capped(pipe) != PIPE_CHAN_BIND_OK) {
             _pipe_chan_wait(pipe);
             _port_request_chan_yield(pipe->port);
+            chan_wait_started = true;
             submit_urb = false;
         }
     }
@@ -3104,6 +3266,14 @@ esp_err_t hcd_urb_enqueue(hcd_pipe_handle_t pipe_hdl, urb_t *urb)
         pipe->cs_flags.has_urb = 1;
     }
     HCD_EXIT_CRITICAL();
+#if CONFIG_USB_HOST_PARKED_IN_BIND_CAP > 0
+    if (chan_wait_started) {
+        // esp_timer calls must happen outside the HCD critical section
+        _port_rotate_timer_start(pipe->port);
+    }
+#else
+    (void)chan_wait_started;
+#endif
     return ESP_OK;
 }
 
