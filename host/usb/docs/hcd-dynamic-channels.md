@@ -194,6 +194,45 @@ could be victimized every tick while later ones never yielded.
   around. The cursor is cleared when its pipe unbinds or is freed, so it
   cannot dangle.
 
+### Phase 2e: over-cap rotation and the parked channel reserve
+
+Hardware retest of 2d (c65d76b): three parked consoles plus a storage read
+passed, but five parked consoles did not, for two structural gaps:
+
+- Cap never engaged. Each console's first URB binds at queue depth 1
+  (uncapped by design), and promotion then marks it parked. All five ended up
+  bound, the waiter queue stayed empty, and the rotation timer only ran while
+  waiters existed, so it never ran. Five bound NAK-pollers saturated the bus.
+- No channel headroom at 16/16. After the resets, device re-claims need INTR
+  pipes, whose allocation is static and hard-fails with
+  `ESP_ERR_NOT_SUPPORTED`. The console logged about 1100 "No more HCD channels
+  available" messages and interface claim failures: a reset and re-claim
+  death spiral that offlined the disk.
+
+Changes:
+
+- Over-cap rotation. The rotation tick runs while a waiter has pending URBs
+  OR the parked count exceeds `CONFIG_USB_HOST_PARKED_IN_BIND_CAP`. A
+  promotion that leaves the count above the cap requests the timer start from
+  URB enqueue, outside the HCD lock, as the waiter path already does. The tick
+  stops only when no waiter is queued and the count is at or under the cap.
+  The tick yields one parked holder. That holder re-queues and rebinds through
+  the capped path, which refuses it while the count is still at the cap, so
+  the system settles at exactly the cap with the rest queued and rotating
+  round-robin.
+- Parked channel reserve (`CONFIG_USB_HOST_PARKED_IN_CHAN_RESERVE`, default 2,
+  range 0-8). A parked-class bind is refused unless MORE than the reserve
+  channels are free. Non-parked binds (control, mass-storage data and status,
+  and static INTR/ISOC allocation) may use the reserve. Free channels are
+  `hal->constant_config.chan_num_total - hal->channels.num_allocated`, read
+  inside the HCD critical section, the same bookkeeping the HAL allocator uses.
+  The refusal reuses the cap-refusal path, so the pipe waits and the waiter
+  kick skips it.
+- A depth-1 initial bind of a future console is not parked-marked, so the
+  reserve does not gate it, and the cap does not count it. Such a pipe is
+  promoted on its next enqueue, and rotation corrects any excess. This is
+  accepted: the bind cannot know the future queue depth.
+
 Still future:
 - Rotation for periodic (interrupt) pipes.
 - Fairness/priority classes for the waiter queue (e.g. EP0 first).

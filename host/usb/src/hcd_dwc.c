@@ -570,6 +570,16 @@ static void _pipe_chan_unbind(pipe_t *pipe)
 }
 
 /**
+ * @brief Host channels currently free on the port (critical section, phase 2e)
+ *
+ * Same bookkeeping as the HAL allocator: total channels minus allocated.
+ */
+static inline int _port_free_chans(const port_t *port)
+{
+    return port->hal->constant_config.chan_num_total - port->hal->channels.num_allocated;
+}
+
+/**
  * @brief Parked-listener transfer-length threshold in bytes (phase 2c)
  *
  * A bulk IN transfer of at most this many bytes classifies as a parked
@@ -648,15 +658,29 @@ static inline bool _pipe_next_xfer_parked_class(const pipe_t *pipe)
  * above the cap; the cap only gates new binds and rotation converges it.
  * There is no demotion: unbind clears parked_bound.
  */
-static void _pipe_maybe_promote_parked(pipe_t *pipe)
+#if CONFIG_USB_HOST_PARKED_IN_BIND_CAP > 0
+#define PARKED_OVER_CAP(port)   ((port)->num_parked_bound > CONFIG_USB_HOST_PARKED_IN_BIND_CAP)
+#else
+#define PARKED_OVER_CAP(port)   (false)
+#endif
+
+/**
+ * @brief Promote a bound pipe to parked listener if it qualifies (critical section)
+ *
+ * @return true if the promotion left the parked count above the cap, so the
+ *         rotation tick must run to converge it (phase 2e)
+ */
+static bool _pipe_maybe_promote_parked(pipe_t *pipe)
 {
     if (!_pipe_uses_dynamic_chan(pipe) || !pipe->chan_bound || pipe->parked_bound) {
-        return;
+        return false;
     }
     if (_pipe_next_xfer_parked_class(pipe)) {
         pipe->parked_bound = 1;
         pipe->port->num_parked_bound++;
+        return PARKED_OVER_CAP(pipe->port);
     }
+    return false;
 }
 
 /**
@@ -682,12 +706,21 @@ static pipe_chan_bind_result_t _pipe_chan_bind_capped(pipe_t *pipe)
     if (pipe->chan_bound) {
         return PIPE_CHAN_BIND_OK;
     }
+    // parked_bound is always clear here (unbind clears it), so classification is the next-transfer test
     const bool parked = _pipe_next_xfer_parked_class(pipe);
 #if CONFIG_USB_HOST_PARKED_IN_BIND_CAP > 0
     if (parked && pipe->port->num_parked_bound >= CONFIG_USB_HOST_PARKED_IN_BIND_CAP) {
         return PIPE_CHAN_BIND_CAP;
     }
 #endif
+    // Channel reserve (phase 2e): parked listeners may only take a channel while
+    // more than CONFIG_USB_HOST_PARKED_IN_CHAN_RESERVE are free. The last channels
+    // stay for non-parked transfers, because INTR allocation is static and
+    // hard-fails on exhaustion (device re-claims after a reset must find one).
+    // Free = HAL total minus allocated, read under the HCD lock.
+    if (parked && _port_free_chans(pipe->port) <= CONFIG_USB_HOST_PARKED_IN_CHAN_RESERVE) {
+        return PIPE_CHAN_BIND_CAP;
+    }
     if (!_pipe_chan_bind(pipe)) {
         return PIPE_CHAN_BIND_NO_CHAN;
     }
@@ -846,7 +879,7 @@ static void _port_rotate_timer_cb(void *arg)
     pipe_t *p;
     // Phase 2d: promote bound pipes whose queue depth has grown into the parked profile
     TAILQ_FOREACH(p, &port->pipes_active_tailq, tailq_entry) {
-        _pipe_maybe_promote_parked(p);
+        (void)_pipe_maybe_promote_parked(p);
     }
     TAILQ_FOREACH(p, &port->pipes_waiting_chan_tailq, chan_wait_entry) {
         if (p->num_urb_pending > 0) {
@@ -854,7 +887,10 @@ static void _port_rotate_timer_cb(void *arg)
             break;
         }
     }
-    if (have_waiter) {
+    // Phase 2e: rotate while anything waits OR while the parked count is over the cap
+    // (promotions can exceed it). A yielded over-cap holder re-queues, and its capped
+    // rebind is refused while the count is still at the cap.
+    if (have_waiter || PARKED_OVER_CAP(port)) {
         _port_request_chan_yield(port);
     } else if (TAILQ_EMPTY(&port->pipes_waiting_chan_tailq)) {
         // Stopped under the HCD lock so a concurrent waiter-add (which only
@@ -3400,11 +3436,12 @@ esp_err_t hcd_urb_enqueue(hcd_pipe_handle_t pipe_hdl, urb_t *urb)
     urb->hcd_var = URB_HCD_STATE_PENDING;
     TAILQ_INSERT_TAIL(&pipe->pending_urb_tailq, urb, tailq_entry);
     pipe->num_urb_pending++;
-    // Phase 2d: a bound pipe that now keeps several small reads posted is promoted to parked listener
-    _pipe_maybe_promote_parked(pipe);
+    // Phase 2d: a bound pipe that now keeps several small reads posted is promoted to parked listener.
+    // Phase 2e: a promotion above the cap needs the rotation tick (started below, outside the lock).
+    const bool promoted_over_cap = _pipe_maybe_promote_parked(pipe);
     // use the URB's reserved_flags to store the URB's current state
 
-    bool chan_wait_started = false;
+    bool chan_wait_started = promoted_over_cap;
     if (submit_urb && _pipe_uses_dynamic_chan(pipe) && !pipe->chan_bound) {
         // Dynamic binding: acquire a channel now, or queue for one. A waiting
         // pipe's URBs stay PENDING and run from _port_chan_waiters_kick().

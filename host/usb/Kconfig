@@ -61,6 +61,19 @@ menu "USB-OTG"
             mass-storage data transfers stay far above the threshold and are never
             capped or rotated.
 
+    config USB_HOST_PARKED_IN_CHAN_RESERVE
+        int "Free host channels reserved from parked bulk IN listeners"
+        default 2
+        range 0 8
+        help
+            Parked bulk IN listeners may only bind a channel while MORE than this
+            many channels are free; the last channels are kept for non-parked
+            transfers. The reserve exists because INTR pipe allocation is static and
+            hard-fails (ESP_ERR_NOT_SUPPORTED) on channel exhaustion, so device
+            interface re-claims after a reset must always find a channel. Non-parked
+            binds (control, mass-storage data and status, and static INTR/ISOC
+            allocation) are not affected.
+
     choice USB_HOST_HW_BUFFER_BIAS
         prompt "Hardware FIFO size biasing"
         default USB_HOST_HW_BUFFER_BIAS_BALANCED
