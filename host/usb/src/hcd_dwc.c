@@ -3181,7 +3181,7 @@ void hcd_debug_arm_ep0_dump(int dev_addr, int count)
     s_dump_left = count;
 }
 
-static void IRAM_ATTR _debug_dump_ctrl_exec(pipe_t *pipe, const char *when)
+static void IRAM_ATTR _debug_dump_ctrl_exec(pipe_t *pipe, const char *when, const uint8_t *setup)
 {
     if (s_dump_left <= 0 || pipe->ep_char.type != USB_DWC_XFER_TYPE_CTRL
             || (s_dump_addr != EP0_DUMP_ANY_ADDR && (int)pipe->ep_char.dev_addr != s_dump_addr)) {
@@ -3190,14 +3190,18 @@ static void IRAM_ATTR _debug_dump_ctrl_exec(pipe_t *pipe, const char *when)
     s_dump_left--;
     pipe->dump_pending = 1;
     volatile usb_dwc_host_chan_regs_t *regs = pipe->chan_obj->regs;
+    /* The 8 setup bytes identify the request (e.g. SET_ADDRESS) on the setup stage; all
+       zero when the buffer has no setup stage in hand. */
+    const uint8_t zero[8] = {0};
+    const uint8_t *s = (setup != NULL) ? setup : zero;
     ESP_EARLY_LOGW(HCD_DWC_TAG,
                    "EPDUMP: %s dev %u ep 0x%02x type %d mps %u ls_via_fs %u chan %u hcchar=0x%08" PRIx32
-                   " hctsiz=0x%08" PRIx32 " (%d left)",
+                   " hctsiz=0x%08" PRIx32 " setup %02x %02x %02x %02x %02x %02x %02x %02x (%d left)",
                    when, (unsigned)pipe->ep_char.dev_addr, (unsigned)pipe->ep_char.bEndpointAddress,
                    (int)pipe->ep_char.type, (unsigned)pipe->ep_char.mps, (unsigned)pipe->ep_char.ls_via_fs_hub,
                    (unsigned)pipe->chan_obj->flags.chan_idx,
                    *(volatile uint32_t *)&regs->hcchar_reg, *(volatile uint32_t *)&regs->hctsiz_reg,
-                   s_dump_left);
+                   s[0], s[1], s[2], s[3], s[4], s[5], s[6], s[7], s_dump_left);
 }
 
 static void IRAM_ATTR _buffer_exec(pipe_t *pipe)
@@ -3242,7 +3246,7 @@ static void IRAM_ATTR _buffer_exec(pipe_t *pipe)
     // Update buffer and multi buffer flags
     buffer_to_exec->status_flags.executing = 1;
     pipe->multi_buffer_control.buffer_is_executing = 1;
-    _debug_dump_ctrl_exec(pipe, "exec-pre");
+    _debug_dump_ctrl_exec(pipe, "exec-pre", buffer_to_exec->urb->transfer.data_buffer);
     usb_dwc_hal_chan_activate(pipe->chan_obj, buffer_to_exec->xfer_desc_list, desc_list_len, start_idx);
 }
 
@@ -3274,7 +3278,7 @@ static void _buffer_exec_cont(pipe_t *pipe)
     // Continue the control transfer
     usb_dwc_hal_chan_set_dir(pipe->chan_obj, next_dir_is_in);
     usb_dwc_hal_chan_set_pid(pipe->chan_obj, next_pid);
-    _debug_dump_ctrl_exec(pipe, "stage-pre");
+    _debug_dump_ctrl_exec(pipe, "stage-pre", buffer_inflight->urb->transfer.data_buffer);
     usb_dwc_hal_chan_activate(pipe->chan_obj, buffer_inflight->xfer_desc_list, XFER_LIST_LEN_CTRL, buffer_inflight->flags.ctrl.cur_stg);
 }
 
