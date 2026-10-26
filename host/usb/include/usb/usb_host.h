@@ -272,6 +272,8 @@ esp_err_t usb_host_channel_waiters(int *waiting_pipes);
 /**
  * @brief Debug: log the raw channel registers for the next `count` control transfers to device
  *        address `dev_addr` (EPDUMP: lines, ISR-safe). Disarms after `count` executions.
+ *        `dev_addr` 0xFF is a wildcard: every control execution on any address. Each dumped
+ *        execution also logs an EPDUMP-done line with its completion event and stage.
  */
 esp_err_t usb_host_debug_arm_ep0_dump(uint8_t dev_addr, int count);
 

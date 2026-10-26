@@ -214,6 +214,7 @@ struct pipe_obj {
     uint8_t chan_waiting;                   // Queued on the port's channel-waiter list
     uint8_t saved_pid;                      // Bulk data toggle preserved across rebinds
     uint8_t pause_pending;                  // Channel yield requested (phase 2 rotation)
+    uint8_t dump_pending;                   // An EPDUMP line was logged for the executing buffer; its completion is logged too (debug)
     uint8_t parked_bound;                   // Counted against the parked-listener bind cap
     TAILQ_ENTRY(pipe_obj) chan_wait_entry;  // Entry in the port's channel-waiter queue
     // Port related
@@ -464,6 +465,15 @@ static inline void _buffer_done(pipe_t *pipe, int stop_idx, hcd_pipe_event_t pip
 {
     // Store the stop_idx and pipe_event for later parsing
     dma_buffer_block_t *buffer_done = pipe->buffers[pipe->multi_buffer_control.rd_idx];
+    if (pipe->dump_pending) {
+        // EPDUMP-done (debug): the completion of a dumped control execution. For control the
+        // stage is the one executing when it ended (0 setup, 1 data, 2 status).
+        pipe->dump_pending = 0;
+        ESP_EARLY_LOGW(HCD_DWC_TAG,
+                       "EPDUMP-done: dev %u ep 0x%02x event %d stop_idx %d stage %u canceled %u",
+                       (unsigned)pipe->ep_char.dev_addr, (unsigned)pipe->ep_char.bEndpointAddress,
+                       (int)pipe_event, stop_idx, (unsigned)buffer_done->flags.ctrl.cur_stg, canceled ? 1u : 0u);
+    }
     buffer_done->status_flags.executing = 0;
     buffer_done->status_flags.was_canceled = canceled;
     buffer_done->status_flags.stop_idx = stop_idx;
@@ -3161,6 +3171,7 @@ static void IRAM_ATTR _buffer_fill(pipe_t *pipe)
 
 /* Debug knob (issue #37): dump the next N control-pipe executions on one device address.
    Armed through usb_host_debug_arm_ep0_dump(); ISR-safe logging (ESP_EARLY_LOGW). */
+#define EP0_DUMP_ANY_ADDR   0xFF    /* wildcard: every control execution on any address */
 static volatile int s_dump_addr = -1;
 static volatile int s_dump_left = 0;
 
@@ -3173,10 +3184,11 @@ void hcd_debug_arm_ep0_dump(int dev_addr, int count)
 static void IRAM_ATTR _debug_dump_ctrl_exec(pipe_t *pipe, const char *when)
 {
     if (s_dump_left <= 0 || pipe->ep_char.type != USB_DWC_XFER_TYPE_CTRL
-            || (int)pipe->ep_char.dev_addr != s_dump_addr) {
+            || (s_dump_addr != EP0_DUMP_ANY_ADDR && (int)pipe->ep_char.dev_addr != s_dump_addr)) {
         return;
     }
     s_dump_left--;
+    pipe->dump_pending = 1;
     volatile usb_dwc_host_chan_regs_t *regs = pipe->chan_obj->regs;
     ESP_EARLY_LOGW(HCD_DWC_TAG,
                    "EPDUMP: %s dev %u ep 0x%02x type %d mps %u ls_via_fs %u chan %u hcchar=0x%08" PRIx32
