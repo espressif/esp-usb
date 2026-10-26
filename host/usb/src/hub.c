@@ -1272,6 +1272,31 @@ esp_err_t hub_get_channel_waiters(int *waiters)
     return ESP_OK;
 }
 
+esp_err_t hub_get_parked_stats(hcd_parked_stats_t *stats)
+{
+    HUB_DRIVER_CHECK(stats != NULL, ESP_ERR_INVALID_ARG);
+    HUB_DRIVER_CHECK(p_hub_driver_obj != NULL, ESP_ERR_INVALID_STATE);
+    hcd_parked_stats_t sum = {0};
+    for (int i = 0; i < HCD_NUM_PORTS; i++) {
+        hcd_port_handle_t hdl = p_hub_driver_obj->root_hub_ports[i].constant.hdl;
+        if (hdl == NULL) {
+            continue;
+        }
+        hcd_parked_stats_t ps;
+        if (hcd_port_get_parked_stats(hdl, &ps) == ESP_OK) {
+            sum.parked_bound += ps.parked_bound;
+            sum.rotor_active = sum.rotor_active || ps.rotor_active;
+            sum.promotions += ps.promotions;
+            sum.yields_req += ps.yields_req;
+            sum.yields_done += ps.yields_done;
+            sum.cap_refusals += ps.cap_refusals;
+            sum.reserve_refusals += ps.reserve_refusals;
+        }
+    }
+    *stats = sum;
+    return ESP_OK;
+}
+
 esp_err_t hub_get_channel_stats(int *total, int *allocated)
 {
     HUB_DRIVER_CHECK(total != NULL && allocated != NULL, ESP_ERR_INVALID_ARG);

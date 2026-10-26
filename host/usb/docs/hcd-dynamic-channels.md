@@ -214,15 +214,15 @@ Changes:
 - Over-cap rotation. The rotation tick runs while a waiter has pending URBs
   OR the parked count exceeds `CONFIG_USB_HOST_PARKED_IN_BIND_CAP`. A
   promotion that leaves the count above the cap requests the timer start from
-  URB enqueue, outside the HCD lock, as the waiter path already does. The tick
-  stops only when no waiter is queued and the count is at or under the cap.
+  URB enqueue, outside the HCD lock, as the waiter path already does. (Phase 2f:
+  the tick no longer stops itself; see below.)
   The tick yields one parked holder. That holder re-queues and rebinds through
   the capped path, which refuses it while the count is still at the cap, so
   the system settles at exactly the cap with the rest queued and rotating
   round-robin.
 - Parked channel reserve (`CONFIG_USB_HOST_PARKED_IN_CHAN_RESERVE`, default 2,
-  range 0-8). A parked-class bind is refused unless MORE than the reserve
-  channels are free. Non-parked binds (control, mass-storage data and status,
+  range 0-8). A parked-sized bind is refused unless MORE than the reserve
+  channels are free (phase 2f: see below). Non-parked binds (control, mass-storage data and status,
   and static INTR/ISOC allocation) may use the reserve. Free channels are
   `hal->constant_config.chan_num_total - hal->channels.num_allocated`, read
   inside the HCD critical section, the same bookkeeping the HAL allocator uses.
@@ -232,6 +232,35 @@ Changes:
   reserve does not gate it, and the cap does not count it. Such a pipe is
   promoted on its next enqueue, and rotation corrects any excess. This is
   accepted: the bind cannot know the future queue depth.
+
+### Phase 2f: audit, reserve scope, observability
+
+Desk-check of the eviction chain (promotion -> over-cap timer start -> tick ->
+victim halt -> ISR yield -> capped rebind), after the 2e retest showed zero
+evictions and zero waiters at five parked consoles:
+
+- Promotion return value and both call sites, the enqueue timer start for the
+  promotion-only case, and the tick's branch order (over-cap checked before any
+  stop) were verified against the code. The timer uses `ESP_TIMER_TASK` with the
+  port as its argument. `buffer_is_executing` is set on exec and cleared on
+  done, and `usb_dwc_hal_chan_request_halt()` returns true only when the
+  channel's active flag is clear, which a bound, executing channel does not have.
+- Defect fixed: the tick called `esp_timer_stop()` from inside the HCD spinlock.
+  An enqueue that saw the timer active skipped its start while the stop was
+  in flight, which could strand the waiter. The tick now runs once started and
+  does its yield work only when needed.
+- Reserve scope widened: the reserve gates every parked-SIZED bulk IN bind
+  (`num_bytes <= CONFIG_USB_HOST_PARKED_IN_MAX_PACKETS x MPS`), regardless of
+  queue depth, so a first bind of a console at depth 1 can no longer take the
+  last channels. The MSC CSW is also parked-sized, but it almost always runs on
+  an already-bound bulk pipe; if a reserve refusal does hit it, the pipe waits
+  and the waiter kick serves it as channels free. Cap accounting still uses the
+  queue-depth profile.
+- Observability (`usb_host_parked_stats()`): `parked_bound`, `rotor_active`,
+  `promotions`, `yields_req`, `yields_done`, `cap_refusals`,
+  `reserve_refusals`. Refusal counters count attempts, not distinct pipes.
+  Comparing `promotions` with `parked_bound`, and `yields_req` with
+  `yields_done`, shows which link of the chain stalls.
 
 Still future:
 - Rotation for periodic (interrupt) pipes.

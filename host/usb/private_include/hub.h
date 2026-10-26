@@ -316,6 +316,12 @@ esp_err_t hub_get_channel_stats(int *total, int *allocated);
  * @brief Sum the channel-waiter counts over every root port
  */
 esp_err_t hub_get_channel_waiters(int *waiters);
+
+/**
+ * @brief Sum the parked-listener and rotation counters over every root port
+ *        (rotor_active is true if any port's rotation tick is running)
+ */
+esp_err_t hub_get_parked_stats(hcd_parked_stats_t *stats);
 #endif // ENABLE_USB_HUBS
 
 /**

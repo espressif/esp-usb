@@ -270,6 +270,27 @@ esp_err_t usb_host_channel_stats(int *total_channels, int *allocated_channels);
 esp_err_t usb_host_channel_waiters(int *waiting_pipes);
 
 /**
+ * @brief Parked bulk IN listener and rotation counters (summed over root ports)
+ */
+typedef struct {
+    int parked_bound;           // Parked listeners currently holding channels
+    bool rotor_active;          // Rotation tick running
+    uint32_t promotions;        // Pipes promoted to parked listener
+    uint32_t yields_req;        // Yield halts requested
+    uint32_t yields_done;       // Yield halts completed in the channel ISR
+    uint32_t cap_refusals;      // Bind attempts refused by the parked cap
+    uint32_t reserve_refusals;  // Bind attempts refused by the channel reserve
+} usb_host_parked_stats_t;
+
+/**
+ * @brief Read the parked-listener and rotation counters
+ *
+ * @param[out] stats Counters, summed over root ports
+ * @retval ESP_OK / ESP_ERR_INVALID_ARG / ESP_ERR_INVALID_STATE
+ */
+esp_err_t usb_host_parked_stats(usb_host_parked_stats_t *stats);
+
+/**
  * @brief Power the root port ON or OFF
  *
  * - Powering ON the root port will allow device connections to occur

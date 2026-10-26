@@ -299,6 +299,24 @@ esp_err_t hcd_port_get_channel_stats(hcd_port_handle_t port_hdl, int *total, int
 esp_err_t hcd_port_get_channel_waiters(hcd_port_handle_t port_hdl, int *waiters);
 
 /**
+ * @brief Parked-listener and rotation counters for one port (phase 2f observability)
+ */
+typedef struct {
+    int parked_bound;           // Parked bulk IN listeners currently holding channels
+    bool rotor_active;          // Rotation tick running
+    uint32_t promotions;        // Pipes promoted to parked listener
+    uint32_t yields_req;        // Yield halts requested (victim found)
+    uint32_t yields_done;       // Yield halts completed in the channel ISR
+    uint32_t cap_refusals;      // Bind attempts refused by the parked cap
+    uint32_t reserve_refusals;  // Bind attempts refused by the parked channel reserve
+} hcd_parked_stats_t;
+
+/**
+ * @brief Read a port's parked-listener and rotation counters
+ */
+esp_err_t hcd_port_get_parked_stats(hcd_port_handle_t port_hdl, hcd_parked_stats_t *stats);
+
+/**
  * @brief Handle a ports event
  *
  * When an port event occurs (as indicated by a callback), this function should be called the handle this event. A

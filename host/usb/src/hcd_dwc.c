@@ -254,6 +254,12 @@ struct port_obj {
     int num_pipes_waiting_chan;
     int num_parked_bound;                   // Bound pipes counted against the parked-listener cap
     pipe_t *yield_cursor;                   // Last parked-listener victim; rotor resumes after it (phase 2d)
+    // Phase 2f observability (read via hcd_port_get_parked_stats; mutated under the HCD lock)
+    uint32_t stat_promotions;
+    uint32_t stat_yields_req;
+    uint32_t stat_yields_done;
+    uint32_t stat_cap_refusals;
+    uint32_t stat_reserve_refusals;
     esp_timer_handle_t rotate_timer;        // Periodic parked-listener rotation tick (phase 2b)
     // Port status, state, and events
     hcd_port_state_t state;
@@ -633,6 +639,22 @@ static inline int _pipe_queued_xfers(const pipe_t *pipe)
  * rather than the pending queue (after a phase-2 yield), so classification
  * checks the buffer first.
  */
+/**
+ * @brief Whether the pipe's next transfer is parked-SIZED, regardless of queue depth (phase 2e)
+ *
+ * Bulk IN with num_bytes <= PARKED_IN_MAX_XFER_BYTES. Used for the channel
+ * reserve: a depth-1 first bind of a console must not take the last channels.
+ */
+static inline bool _pipe_next_xfer_small_in(const pipe_t *pipe)
+{
+    if (pipe->ep_char.type != USB_DWC_XFER_TYPE_BULK ||
+            !(pipe->ep_char.bEndpointAddress & 0x80)) {
+        return false;
+    }
+    const urb_t *urb = _pipe_next_xfer_urb(pipe);
+    return (urb != NULL) && (urb->transfer.num_bytes <= PARKED_IN_MAX_XFER_BYTES(pipe->ep_char.mps));
+}
+
 static inline bool _pipe_next_xfer_parked_class(const pipe_t *pipe)
 {
     if (pipe->ep_char.type != USB_DWC_XFER_TYPE_BULK ||
@@ -678,6 +700,7 @@ static bool _pipe_maybe_promote_parked(pipe_t *pipe)
     if (_pipe_next_xfer_parked_class(pipe)) {
         pipe->parked_bound = 1;
         pipe->port->num_parked_bound++;
+        pipe->port->stat_promotions++;
         return PARKED_OVER_CAP(pipe->port);
     }
     return false;
@@ -710,15 +733,17 @@ static pipe_chan_bind_result_t _pipe_chan_bind_capped(pipe_t *pipe)
     const bool parked = _pipe_next_xfer_parked_class(pipe);
 #if CONFIG_USB_HOST_PARKED_IN_BIND_CAP > 0
     if (parked && pipe->port->num_parked_bound >= CONFIG_USB_HOST_PARKED_IN_BIND_CAP) {
+        pipe->port->stat_cap_refusals++;
         return PIPE_CHAN_BIND_CAP;
     }
 #endif
-    // Channel reserve (phase 2e): parked listeners may only take a channel while
-    // more than CONFIG_USB_HOST_PARKED_IN_CHAN_RESERVE are free. The last channels
-    // stay for non-parked transfers, because INTR allocation is static and
-    // hard-fails on exhaustion (device re-claims after a reset must find one).
-    // Free = HAL total minus allocated, read under the HCD lock.
-    if (parked && _port_free_chans(pipe->port) <= CONFIG_USB_HOST_PARKED_IN_CHAN_RESERVE) {
+    // Channel reserve (phase 2e/2f): any parked-SIZED bulk IN bind, at any queue
+    // depth, may only take a channel while more than CONFIG_USB_HOST_PARKED_IN_CHAN_RESERVE
+    // are free. The last channels stay for non-parked transfers, because INTR
+    // allocation is static and hard-fails on exhaustion (device re-claims after a
+    // reset must find one). Free = HAL total minus allocated, read under the HCD lock.
+    if (_pipe_next_xfer_small_in(pipe) && _port_free_chans(pipe->port) <= CONFIG_USB_HOST_PARKED_IN_CHAN_RESERVE) {
+        pipe->port->stat_reserve_refusals++;
         return PIPE_CHAN_BIND_CAP;
     }
     if (!_pipe_chan_bind(pipe)) {
@@ -849,6 +874,7 @@ static void _port_request_chan_yield(port_t *port)
             p->pause_pending = 1;
             if (!usb_dwc_hal_chan_request_halt(p->chan_obj)) {
                 port->yield_cursor = p;
+                port->stat_yields_req++;
                 return;     // Halt requested; the channel ISR finishes the yield
             }
             // Already halted: a completion is in flight; nothing to yield here.
@@ -892,11 +918,11 @@ static void _port_rotate_timer_cb(void *arg)
     // rebind is refused while the count is still at the cap.
     if (have_waiter || PARKED_OVER_CAP(port)) {
         _port_request_chan_yield(port);
-    } else if (TAILQ_EMPTY(&port->pipes_waiting_chan_tailq)) {
-        // Stopped under the HCD lock so a concurrent waiter-add (which only
-        // starts the timer when it is inactive) cannot be missed.
-        (void)esp_timer_stop(port->rotate_timer);
     }
+    // Phase 2f: the tick no longer stops itself. Stopping an esp_timer from
+    // inside the HCD spinlock raced with a concurrent start (an enqueue that saw
+    // the timer active would skip the start, and the stop would strand it), and
+    // the tick is cheap, so it runs once started. Its yield work is gated above.
     HCD_EXIT_CRITICAL();
 }
 
@@ -1385,6 +1411,7 @@ static hcd_pipe_event_t _intr_hdlr_chan(pipe_t *pipe, usb_dwc_hal_chan_t *chan_o
             // the URB as a short read through the normal done/parse pipeline.
             // Either way the channel goes to the oldest waiter.
             pipe->pause_pending = 0;
+            pipe->port->stat_yields_done++;
             if (pipe->multi_buffer_control.buffer_is_executing) {
                 dma_buffer_block_t *buf = pipe->buffers[pipe->multi_buffer_control.rd_idx];
                 // Bytes already received for the halted IN buffer: the
@@ -2189,6 +2216,26 @@ esp_err_t hcd_port_get_channel_stats(hcd_port_handle_t port_hdl, int *total, int
     *total = (int)port->hal->constant_config.chan_num_total;
     *allocated = port->hal->channels.num_allocated;
     HCD_EXIT_CRITICAL();
+    return ESP_OK;
+}
+
+esp_err_t hcd_port_get_parked_stats(hcd_port_handle_t port_hdl, hcd_parked_stats_t *stats)
+{
+    port_t *port = (port_t *)port_hdl;
+    HCD_CHECK(port_hdl != NULL && stats != NULL, ESP_ERR_INVALID_ARG);
+    HCD_ENTER_CRITICAL();
+    stats->parked_bound = port->num_parked_bound;
+    stats->promotions = port->stat_promotions;
+    stats->yields_req = port->stat_yields_req;
+    stats->yields_done = port->stat_yields_done;
+    stats->cap_refusals = port->stat_cap_refusals;
+    stats->reserve_refusals = port->stat_reserve_refusals;
+    HCD_EXIT_CRITICAL();
+#if CONFIG_USB_HOST_PARKED_IN_BIND_CAP > 0
+    stats->rotor_active = esp_timer_is_active(port->rotate_timer);     // esp_timer call kept outside the lock
+#else
+    stats->rotor_active = false;
+#endif
     return ESP_OK;
 }
 

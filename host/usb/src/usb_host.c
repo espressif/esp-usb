@@ -840,6 +840,25 @@ esp_err_t usb_host_channel_waiters(int *waiting_pipes)
     return hub_get_channel_waiters(waiting_pipes);
 }
 
+esp_err_t usb_host_parked_stats(usb_host_parked_stats_t *stats)
+{
+    HOST_CHECK(stats != NULL, ESP_ERR_INVALID_ARG);
+    HOST_CHECK(p_host_lib_obj != NULL, ESP_ERR_INVALID_STATE);
+    hcd_parked_stats_t s;
+    esp_err_t err = hub_get_parked_stats(&s);
+    if (err != ESP_OK) {
+        return err;
+    }
+    stats->parked_bound = s.parked_bound;
+    stats->rotor_active = s.rotor_active;
+    stats->promotions = s.promotions;
+    stats->yields_req = s.yields_req;
+    stats->yields_done = s.yields_done;
+    stats->cap_refusals = s.cap_refusals;
+    stats->reserve_refusals = s.reserve_refusals;
+    return ESP_OK;
+}
+
 esp_err_t usb_host_channel_stats(int *total_channels, int *allocated_channels)
 {
     HOST_CHECK(total_channels != NULL && allocated_channels != NULL, ESP_ERR_INVALID_ARG);
