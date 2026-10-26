@@ -74,9 +74,21 @@ plumbed through `hub_get_channel_stats_waiters()`/`usb_host_channel_stats()`
 consumers (the esp-usbip-bridge surfaces it as `channels_waiting` in
 `GET /api/usb/claims`).
 
-## Phase 2 (future, not in this change)
+## Phase 2 (this change): rotation among parked listeners
 
-- Channel rotation among bulk pipes with parked IN reads (NAK-based
-  time-slicing, as dwc2 does), so even always-listening sessions share.
-- Periodic microframe scheduling / interrupt-pipe sharing.
+When a pipe has to wait for a channel, `_port_request_chan_yield()` asks one
+eligible holder to give its channel up: a bound **BULK IN** pipe whose
+executing buffer is a **single-packet read** (`num_bytes <= MPS`) — the
+parked-listener pattern (cdc-acm keeps 64-byte read URBs posted). Single
+packets are atomic on the wire, so when the requested halt lands the buffer
+has transferred either nothing (it is simply un-executed: `executing`
+cleared, to-exec count untouched, so the ordinary exec path re-runs it on
+rebind with the preserved toggle) or everything (the completion event wins
+and the yield dissolves). The yielding pipe re-queues at the **tail** of the
+waiter queue, which round-robins channel time across any number of parked
+listeners. A real halt command always takes precedence over a pending yield.
+
+Still future:
+- Rotation for multi-packet bulk IN and for periodic (interrupt) pipes —
+  both need partial-progress resume, not just atomic re-execution.
 - Fairness/priority classes for the waiter queue (e.g. EP0 first).

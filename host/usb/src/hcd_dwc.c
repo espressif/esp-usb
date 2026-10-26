@@ -212,6 +212,7 @@ struct pipe_obj {
     uint8_t chan_bound;                     // The HAL channel is currently allocated to this pipe
     uint8_t chan_waiting;                   // Queued on the port's channel-waiter list
     uint8_t saved_pid;                      // Bulk data toggle preserved across rebinds
+    uint8_t pause_pending;                  // Channel yield requested (phase 2 rotation)
     TAILQ_ENTRY(pipe_obj) chan_wait_entry;  // Entry in the port's channel-waiter queue
     // Port related
     port_t *port;                           // The port to which this pipe is routed through
@@ -611,6 +612,43 @@ static void _pipe_chan_unwait(pipe_t *pipe)
         TAILQ_REMOVE(&pipe->port->pipes_waiting_chan_tailq, pipe, chan_wait_entry);
         pipe->port->num_pipes_waiting_chan--;
         pipe->chan_waiting = 0;
+    }
+}
+
+/**
+ * @brief Ask one eligible channel holder to yield for waiters (critical section)
+ *
+ * Phase-2 rotation (docs/hcd-dynamic-channels.md): the eligible holder is a
+ * bound BULK IN pipe whose executing buffer is a single-packet read
+ * (num_bytes <= MPS) — the parked-listener pattern (e.g. cdc-acm read URBs).
+ * A single-packet IN transfer is atomic on the wire: when the halt lands the
+ * buffer has transferred either nothing (re-execute it later, toggle
+ * untouched) or everything (the completion runs instead and the yield is
+ * moot). The halted pipe re-queues at the waiter tail, giving round-robin
+ * service among parked listeners.
+ */
+static void _port_request_chan_yield(port_t *port)
+{
+    pipe_t *p;
+    TAILQ_FOREACH(p, &port->pipes_active_tailq, tailq_entry) {
+        if (!p->chan_bound || p->pause_pending || p->cs_flags.waiting_halt
+                || p->state != HCD_PIPE_STATE_ACTIVE
+                || p->ep_char.type != USB_DWC_XFER_TYPE_BULK
+                || !(p->ep_char.bEndpointAddress & 0x80)
+                || !p->multi_buffer_control.buffer_is_executing) {
+            continue;
+        }
+        dma_buffer_block_t *buf = p->buffers[p->multi_buffer_control.rd_idx];
+        if (buf->urb == NULL || buf->urb->transfer.num_bytes > (int)p->ep_char.mps) {
+            continue;
+        }
+        p->pause_pending = 1;
+        if (usb_dwc_hal_chan_request_halt(p->chan_obj)) {
+            // Already halted: a completion is in flight; nothing to yield here.
+            p->pause_pending = 0;
+            continue;
+        }
+        return;     // Halt requested; the channel ISR finishes the yield
     }
 }
 
@@ -1034,6 +1072,7 @@ static hcd_pipe_event_t _intr_hdlr_chan(pipe_t *pipe, usb_dwc_hal_chan_t *chan_o
 
     switch (chan_event) {
     case USB_DWC_HAL_CHAN_EVENT_CPLT: {
+        pipe->pause_pending = 0;    // The transfer beat a pending yield to the line
         if (!_buffer_check_done(pipe)) {
             _buffer_exec_cont(pipe);
             break;
@@ -1071,6 +1110,22 @@ static hcd_pipe_event_t _intr_hdlr_chan(pipe_t *pipe, usb_dwc_hal_chan_t *chan_o
         break;
     }
     case USB_DWC_HAL_CHAN_EVENT_HALT_REQ: {
+        if (pipe->pause_pending && !pipe->cs_flags.waiting_halt) {
+            // Phase-2 channel yield: un-execute the single-packet IN buffer
+            // (nothing was transferred — packets are atomic), hand the channel
+            // to the oldest waiter, and requeue this pipe at the waiter tail.
+            pipe->pause_pending = 0;
+            if (pipe->multi_buffer_control.buffer_is_executing) {
+                dma_buffer_block_t *buf = pipe->buffers[pipe->multi_buffer_control.rd_idx];
+                buf->status_flags.executing = 0;
+                pipe->multi_buffer_control.buffer_is_executing = 0;
+                _pipe_chan_unbind(pipe);
+                _pipe_chan_wait(pipe);
+                _port_chan_waiters_kick(pipe->port);
+            }
+            break;
+        }
+        pipe->pause_pending = 0;
         assert(pipe->cs_flags.waiting_halt);
         // We've halted a transfer, so we need to trigger the pipe callback
         pipe->last_event = HCD_PIPE_EVENT_URB_DONE;
@@ -2158,6 +2213,7 @@ static esp_err_t _pipe_cmd_clear(pipe_t *pipe)
     if (_pipe_uses_dynamic_chan(pipe) && !pipe->chan_bound && pipe->num_urb_pending > 0) {
         if (!_pipe_chan_bind(pipe)) {
             _pipe_chan_wait(pipe);      // runs when a channel frees
+            _port_request_chan_yield(pipe->port);
             ret = ESP_OK;
             goto exit;
         }
@@ -3024,6 +3080,7 @@ esp_err_t hcd_urb_enqueue(hcd_pipe_handle_t pipe_hdl, urb_t *urb)
         // pipe's URBs stay PENDING and run from _port_chan_waiters_kick().
         if (!_pipe_chan_bind(pipe)) {
             _pipe_chan_wait(pipe);
+            _port_request_chan_yield(pipe->port);
             submit_urb = false;
         }
     }
