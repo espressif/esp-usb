@@ -27,9 +27,10 @@ menu "USB-OTG"
         default 3
         range 0 16
         help
-            A "parked listener" is a bulk IN pipe whose current transfer fits in a single
-            packet (num_bytes <= MPS) - e.g. a serial console session that keeps a 64-byte
-            read posted. While such a pipe holds a hardware channel it NAK-polls the bus
+            A "parked listener" is a bulk IN pipe whose current transfer is short
+            (num_bytes <= USB_HOST_PARKED_IN_MAX_PACKETS max-size packets) - e.g. a serial
+            console session that keeps a small read posted.
+            While such a pipe holds a hardware channel it NAK-polls the bus
             continuously, and enough of them saturate the bus: observed on a full-speed bus
             as mass-storage reads timing out (SCSI timeout) behind seven parked console
             readers. With this cap, at most this many parked listeners hold channels
@@ -47,6 +48,18 @@ menu "USB-OTG"
             its hardware channel while other pipes are waiting for one (see
             USB_HOST_PARKED_IN_BIND_CAP). The worst-case extra latency for a parked
             listener is roughly (number of parked listeners / cap) ticks.
+
+    config USB_HOST_PARKED_IN_MAX_PACKETS
+        int "Max packets for a bulk IN transfer to classify as a parked listener"
+        default 4
+        range 1 16
+        help
+            A bulk IN transfer counts as a parked listener when its length is at most
+            this many max-size packets (num_bytes <= N x MPS). Real console read URBs
+            are larger than one packet - Linux cdc-acm keeps 2 x MPS (128-byte) reads
+            posted and cp210x larger still - so the default of 4 covers them, while
+            mass-storage data transfers stay far above the threshold and are never
+            capped or rotated.
 
     choice USB_HOST_HW_BUFFER_BIAS
         prompt "Hardware FIFO size biasing"

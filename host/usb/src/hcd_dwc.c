@@ -565,12 +565,41 @@ static void _pipe_chan_unbind(pipe_t *pipe)
 }
 
 /**
+ * @brief Parked-listener transfer-length threshold in bytes (phase 2c)
+ *
+ * A bulk IN transfer of at most this many bytes classifies as a parked
+ * listener. Real console readers post multi-packet URBs (Linux cdc-acm reads
+ * 2 x MPS, cp210x larger), so the threshold is a configurable packet count
+ * rather than a single packet.
+ */
+#define PARKED_IN_MAX_XFER_BYTES(mps)   (CONFIG_USB_HOST_PARKED_IN_MAX_PACKETS * (int)(mps))
+
+/**
+ * @brief The URB holding the pipe's NEXT transfer (critical section)
+ *
+ * The next transfer is the oldest filled-but-unexecuted buffer's URB when one
+ * exists (e.g. a buffer un-executed by a phase-2 yield — its URB has already
+ * left the pending queue), otherwise the first pending URB. NULL if neither
+ * exists.
+ */
+static inline const urb_t *_pipe_next_xfer_urb(const pipe_t *pipe)
+{
+    if (pipe->multi_buffer_control.buffer_num_to_exec > 0) {
+        return pipe->buffers[pipe->multi_buffer_control.rd_idx]->urb;
+    }
+    return TAILQ_FIRST(&pipe->pending_urb_tailq);
+}
+
+/**
  * @brief Whether the pipe's NEXT transfer is a parked listener (critical section)
  *
- * Parked class (phase 2b, docs/hcd-dynamic-channels.md): a BULK IN pipe whose
- * first pending URB fits in a single packet (num_bytes <= MPS) — e.g. a serial
- * console keeping a read posted. While bound it NAK-polls the bus continuously,
- * so the number of concurrently bound parked listeners is capped.
+ * Parked class (phases 2b/2c, docs/hcd-dynamic-channels.md): a BULK IN pipe
+ * whose next transfer fits in CONFIG_USB_HOST_PARKED_IN_MAX_PACKETS max-size
+ * packets — e.g. a serial console keeping a read posted. While bound it
+ * NAK-polls the bus continuously, so the number of concurrently bound parked
+ * listeners is capped. The next transfer may live in an un-executed buffer
+ * rather than the pending queue (after a phase-2 yield), so classification
+ * checks the buffer first.
  */
 static inline bool _pipe_next_xfer_parked_class(const pipe_t *pipe)
 {
@@ -578,8 +607,8 @@ static inline bool _pipe_next_xfer_parked_class(const pipe_t *pipe)
             !(pipe->ep_char.bEndpointAddress & 0x80)) {
         return false;
     }
-    const urb_t *urb = TAILQ_FIRST(&pipe->pending_urb_tailq);
-    return (urb != NULL) && (urb->transfer.num_bytes <= (int)pipe->ep_char.mps);
+    const urb_t *urb = _pipe_next_xfer_urb(pipe);
+    return (urb != NULL) && (urb->transfer.num_bytes <= PARKED_IN_MAX_XFER_BYTES(pipe->ep_char.mps));
 }
 
 /**
@@ -624,16 +653,18 @@ static pipe_chan_bind_result_t _pipe_chan_bind_capped(pipe_t *pipe)
 /**
  * @brief Hand freed channels to waiting pipes, oldest first (critical section)
  *
- * A waiter whose pending URBs were all cancelled is dropped from the queue.
- * A parked-class waiter refused by the bind cap keeps its place and the next
- * waiter is tried; only actual channel exhaustion ends the loop.
+ * A waiter with no work left (no pending URBs AND no filled-but-unexecuted
+ * buffer — a yielded pipe's URB lives in its un-executed buffer, not the
+ * pending queue) is dropped from the queue. A parked-class waiter refused by
+ * the bind cap keeps its place and the next waiter is tried; only actual
+ * channel exhaustion ends the loop.
  */
 static void _port_chan_waiters_kick(port_t *port)
 {
     pipe_t *pipe = TAILQ_FIRST(&port->pipes_waiting_chan_tailq);
     while (pipe != NULL) {
         pipe_t *next = TAILQ_NEXT(pipe, chan_wait_entry);
-        if (pipe->num_urb_pending == 0) {
+        if (pipe->num_urb_pending == 0 && pipe->multi_buffer_control.buffer_num_to_exec == 0) {
             TAILQ_REMOVE(&port->pipes_waiting_chan_tailq, pipe, chan_wait_entry);
             port->num_pipes_waiting_chan--;
             pipe->chan_waiting = 0;
@@ -690,13 +721,14 @@ static void _pipe_chan_unwait(pipe_t *pipe)
  *
  * Phase-2 rotation (docs/hcd-dynamic-channels.md): the eligible holder is a
  * pipe bound as a parked listener (parked_bound — a BULK IN pipe whose bind
- * was for a single-packet read, e.g. cdc-acm read URBs). As a secondary
- * guard, the executing buffer must still be a single-packet read
- * (num_bytes <= MPS): a single-packet IN transfer is atomic on the wire, so
- * when the halt lands the buffer has transferred either nothing (re-execute
- * it later, toggle untouched) or everything (the completion runs instead and
- * the yield is moot). The halted pipe re-queues at the waiter tail, giving
- * round-robin service among parked listeners.
+ * was for a parked-class read, e.g. cdc-acm read URBs). As a secondary
+ * guard, the executing buffer must still be parked-class
+ * (num_bytes <= PARKED_IN_MAX_XFER_BYTES): when the halt lands mid-transfer
+ * the ISR completes any whole packets already received as a partial read
+ * (phase 2c) or, with zero progress, un-executes the buffer untouched for
+ * re-execution with the preserved toggle; a transfer above the threshold
+ * (e.g. a mass-storage data read) is never yanked. The halted pipe re-queues
+ * at the waiter tail, giving round-robin service among parked listeners.
  */
 static void _port_request_chan_yield(port_t *port)
 {
@@ -708,9 +740,9 @@ static void _port_request_chan_yield(port_t *port)
                 || !p->multi_buffer_control.buffer_is_executing) {
             continue;
         }
-        // Secondary guard: only yield a buffer that is atomic on the wire
+        // Secondary guard: only yield a parked-class buffer
         dma_buffer_block_t *buf = p->buffers[p->multi_buffer_control.rd_idx];
-        if (buf->urb == NULL || buf->urb->transfer.num_bytes > (int)p->ep_char.mps) {
+        if (buf->urb == NULL || buf->urb->transfer.num_bytes > PARKED_IN_MAX_XFER_BYTES(p->ep_char.mps)) {
             continue;
         }
         p->pause_pending = 1;
@@ -1233,16 +1265,54 @@ static hcd_pipe_event_t _intr_hdlr_chan(pipe_t *pipe, usb_dwc_hal_chan_t *chan_o
     }
     case USB_DWC_HAL_CHAN_EVENT_HALT_REQ: {
         if (pipe->pause_pending && !pipe->cs_flags.waiting_halt) {
-            // Phase-2 channel yield: un-execute the single-packet IN buffer
-            // (nothing was transferred — packets are atomic), hand the channel
-            // to the oldest waiter, and requeue this pipe at the waiter tail.
+            // Phase-2 channel yield (phase 2c: multi-packet aware). The halt
+            // may land mid-transfer with whole packets already received by
+            // DMA. Zero progress: un-execute the buffer untouched (re-runs on
+            // rebind with the preserved toggle). Partial progress: complete
+            // the URB as a short read through the normal done/parse pipeline.
+            // Either way the channel goes to the oldest waiter.
             pipe->pause_pending = 0;
             if (pipe->multi_buffer_control.buffer_is_executing) {
                 dma_buffer_block_t *buf = pipe->buffers[pipe->multi_buffer_control.rd_idx];
-                buf->status_flags.executing = 0;
-                pipe->multi_buffer_control.buffer_is_executing = 0;
+                // Bytes already received for the halted IN buffer: the
+                // controller writes the remaining transfer size back into the
+                // in-progress QTD when the channel halts. Only whole packets
+                // land, so the count is a multiple of MPS (bulk IN buffers
+                // are filled as a single QTD covering the whole transfer).
+                int received = 0;
+                if (buf->urb != NULL) {
+                    CACHE_SYNC_XFER_DESCRIPTOR_LIST_M2C(buf);
+                    usb_dwc_ll_dma_qtd_t *qtd = &((usb_dwc_ll_dma_qtd_t *)buf->xfer_desc_list)[0];
+                    const int rem_len = (int)qtd->in_non_iso.xfer_size;
+                    if (rem_len >= 0 && rem_len <= buf->urb->transfer.num_bytes) {
+                        received = buf->urb->transfer.num_bytes - rem_len;
+                    }
+                }
+                if (received > 0) {
+                    // Retire the QTD so _buffer_parse_bulk() reads it as a
+                    // successful short completion (actual_num_bytes =
+                    // num_bytes - xfer_size, status COMPLETED).
+                    usb_dwc_ll_dma_qtd_t *qtd = &((usb_dwc_ll_dma_qtd_t *)buf->xfer_desc_list)[0];
+                    qtd->in_non_iso.active = 0;
+                    qtd->in_non_iso.rx_status = 0;      // USB_DWC_LL_QTD_STATUS_SUCCESS
+                    CACHE_SYNC_XFER_DESCRIPTOR_LIST_C2M(buf);
+                    pipe->last_event = HCD_PIPE_EVENT_URB_DONE;
+                    event = pipe->last_event;
+                    _buffer_done(pipe, 0, HCD_PIPE_EVENT_URB_DONE, false);
+                    _buffer_parse(pipe);
+                    if (_buffer_can_fill(pipe) && pipe->port->flags.conn_dev_ena) {
+                        _buffer_fill(pipe);
+                    }
+                } else {
+                    // Zero progress: un-execute untouched; the ordinary exec
+                    // path re-runs it on rebind.
+                    buf->status_flags.executing = 0;
+                    pipe->multi_buffer_control.buffer_is_executing = 0;
+                }
                 _pipe_chan_unbind(pipe);
-                _pipe_chan_wait(pipe);
+                if (pipe->num_urb_pending > 0 || pipe->multi_buffer_control.buffer_num_to_exec > 0) {
+                    _pipe_chan_wait(pipe);
+                }
                 _port_chan_waiters_kick(pipe->port);
             }
             break;
@@ -2358,8 +2428,11 @@ static esp_err_t _pipe_cmd_clear(pipe_t *pipe, bool *chan_wait_started)
     // Update the pipe's state
     pipe->state = HCD_PIPE_STATE_ACTIVE;
     // Dynamic pipes may have lost (or never had) their channel while halted.
-    // A parked-listener cap refusal takes the same wait path as channel exhaustion.
-    if (_pipe_uses_dynamic_chan(pipe) && !pipe->chan_bound && pipe->num_urb_pending > 0) {
+    // A parked-listener cap refusal takes the same wait path as channel
+    // exhaustion. Work may also sit in a filled-but-unexecuted buffer (whose
+    // URB has left the pending queue), not just in pending URBs.
+    if (_pipe_uses_dynamic_chan(pipe) && !pipe->chan_bound
+            && (pipe->num_urb_pending > 0 || pipe->multi_buffer_control.buffer_num_to_exec > 0)) {
         if (_pipe_chan_bind_capped(pipe) != PIPE_CHAN_BIND_OK) {
             _pipe_chan_wait(pipe);      // runs when a channel frees
             _port_request_chan_yield(pipe->port);

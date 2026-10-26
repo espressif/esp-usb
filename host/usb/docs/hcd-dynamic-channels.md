@@ -109,7 +109,37 @@ still gets regular bus time — worst-case extra latency is roughly
 against the cap (`parked_bound`), with the single-packet-buffer check kept
 as the atomicity guard.
 
+### Phase 2c: packet-count threshold + partial-progress yield
+
+A hardware retest showed the phase-2b cap never engaged: classification
+required `num_bytes <= MPS`, but real console readers post multi-packet URBs
+(Linux cdc-acm keeps 2×MPS = 128-byte reads posted, cp210x larger still), so
+no reader was ever classified parked — all 7 bound channels, NAK-saturated
+the full-speed bus, starved a concurrent mass-storage read into SCSI timeout,
+and rotation never fired (victim selection requires `parked_bound`). Phase 2c:
+
+- The parked-class threshold becomes `num_bytes <=
+  CONFIG_USB_HOST_PARKED_IN_MAX_PACKETS × MPS` (default 4, range 1–16),
+  covering cdc-acm/cp210x read URBs while mass-storage data transfers stay
+  far above it. The same threshold guards yield-victim selection.
+- Classification now looks at the pipe's *next transfer* — the oldest
+  filled-but-unexecuted buffer's URB when one exists, else the first pending
+  URB. After a phase-2 yield the un-executed buffer's URB has left the
+  pending queue, so the old pending-queue-only classification saw an empty
+  queue on rebind: the yielded listener rebound uncapped (losing its
+  `parked_bound` marker) and, with a single posted URB, was even dropped from
+  the waiter queue with its buffer stranded. The waiter-drop and
+  rebind-on-clear conditions now also count un-executed buffers as work.
+- With a multi-packet threshold, a yield halt can land mid-transfer with some
+  whole packets already received by DMA. The ISR reads the remaining transfer
+  size the controller writes back into the in-progress QTD at halt: zero
+  progress keeps the old un-execute-untouched path; partial progress retires
+  the QTD as a successful short completion and routes it through the normal
+  buffer-parse/URB-done pipeline (partial `actual_num_bytes`, status
+  completed, pipe event + callback exactly as a short-packet completion),
+  then unbinds and kicks waiters. Only whole packets land, so the partial
+  count is a multiple of MPS.
+
 Still future:
-- Rotation for multi-packet bulk IN and for periodic (interrupt) pipes —
-  both need partial-progress resume, not just atomic re-execution.
+- Rotation for periodic (interrupt) pipes.
 - Fairness/priority classes for the waiter queue (e.g. EP0 first).
