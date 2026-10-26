@@ -311,6 +311,11 @@ esp_err_t hub_notify_all_free(void);
  * @retval ESP_OK / ESP_ERR_INVALID_ARG / ESP_ERR_INVALID_STATE (driver not installed)
  */
 esp_err_t hub_get_channel_stats(int *total, int *allocated);
+
+/**
+ * @brief Sum the channel-waiter counts over every root port
+ */
+esp_err_t hub_get_channel_waiters(int *waiters);
 #endif // ENABLE_USB_HUBS
 
 /**

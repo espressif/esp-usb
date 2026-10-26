@@ -833,6 +833,13 @@ esp_err_t usb_host_lib_unblock(void)
     return ESP_OK;
 }
 
+esp_err_t usb_host_channel_waiters(int *waiting_pipes)
+{
+    HOST_CHECK(waiting_pipes != NULL, ESP_ERR_INVALID_ARG);
+    HOST_CHECK(p_host_lib_obj != NULL, ESP_ERR_INVALID_STATE);
+    return hub_get_channel_waiters(waiting_pipes);
+}
+
 esp_err_t usb_host_channel_stats(int *total_channels, int *allocated_channels)
 {
     HOST_CHECK(total_channels != NULL && allocated_channels != NULL, ESP_ERR_INVALID_ARG);

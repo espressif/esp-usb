@@ -287,6 +287,18 @@ esp_err_t hcd_port_get_speed(hcd_port_handle_t port_hdl, usb_speed_t *speed);
 esp_err_t hcd_port_get_channel_stats(hcd_port_handle_t port_hdl, int *total, int *allocated);
 
 /**
+ * @brief Number of pipes queued for a free hardware channel on this port
+ *
+ * Non-zero means CTRL/BULK transfers are waiting for channel capacity
+ * (dynamic channel binding — docs/hcd-dynamic-channels.md).
+ *
+ * @param[in]  port_hdl Port handle
+ * @param[out] waiters  Pipes currently waiting for a channel
+ * @retval ESP_OK / ESP_ERR_INVALID_ARG
+ */
+esp_err_t hcd_port_get_channel_waiters(hcd_port_handle_t port_hdl, int *waiters);
+
+/**
  * @brief Handle a ports event
  *
  * When an port event occurs (as indicated by a callback), this function should be called the handle this event. A

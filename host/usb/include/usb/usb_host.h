@@ -259,6 +259,17 @@ esp_err_t usb_host_lib_info(usb_host_lib_info_t *info_ret);
 esp_err_t usb_host_channel_stats(int *total_channels, int *allocated_channels);
 
 /**
+ * @brief Number of pipes currently queued for a free host channel
+ *
+ * Non-zero means CTRL/BULK transfers are waiting for channel capacity under
+ * dynamic channel binding; they run as soon as a channel frees.
+ *
+ * @param[out] waiting_pipes Pipes waiting for a channel
+ * @retval ESP_OK / ESP_ERR_INVALID_ARG / ESP_ERR_INVALID_STATE
+ */
+esp_err_t usb_host_channel_waiters(int *waiting_pipes);
+
+/**
  * @brief Power the root port ON or OFF
  *
  * - Powering ON the root port will allow device connections to occur

@@ -203,6 +203,16 @@ struct pipe_obj {
     // HAL related
     usb_dwc_hal_chan_t *chan_obj;
     usb_dwc_hal_ep_char_t ep_char;
+    /* Dynamic channel binding (CTRL/BULK pipes only — see
+       docs/hcd-dynamic-channels.md): the hardware channel is acquired when
+       the first URB is enqueued and released when the pipe goes idle, so an
+       open-but-idle pipe does not pin one of the DWC's scarce host channels.
+       INTR/ISOC pipes keep the static alloc-time binding (their schedule
+       lives in the periodic frame list) and have chan_bound set for life. */
+    uint8_t chan_bound;                     // The HAL channel is currently allocated to this pipe
+    uint8_t chan_waiting;                   // Queued on the port's channel-waiter list
+    uint8_t saved_pid;                      // Bulk data toggle preserved across rebinds
+    TAILQ_ENTRY(pipe_obj) chan_wait_entry;  // Entry in the port's channel-waiter queue
     // Port related
     port_t *port;                           // The port to which this pipe is routed through
     TAILQ_ENTRY(pipe_obj) tailq_entry;      // TailQ entry for port's list of pipes
@@ -234,8 +244,11 @@ struct port_obj {
     // Pipes routed through this port
     TAILQ_HEAD(tailhead_pipes_idle, pipe_obj) pipes_idle_tailq;
     TAILQ_HEAD(tailhead_pipes_queued, pipe_obj) pipes_active_tailq;
+    // CTRL/BULK pipes with pending URBs waiting for a free hardware channel, oldest first
+    TAILQ_HEAD(tailhead_pipes_waiting, pipe_obj) pipes_waiting_chan_tailq;
     int num_pipes_idle;
     int num_pipes_queued;
+    int num_pipes_waiting_chan;
     // Port status, state, and events
     hcd_port_state_t state;
     usb_speed_t speed;
@@ -489,6 +502,117 @@ static bool _buffer_flush_all(pipe_t *pipe, bool canceled);
  * @return hcd_pipe_event_t The corresponding pipe error event
  */
 static inline hcd_pipe_event_t pipe_decode_error_event(usb_dwc_hal_chan_error_t chan_error);
+
+/**
+ * @brief Whether this pipe binds its hardware channel on demand
+ *
+ * CTRL and BULK pipes acquire a channel at first enqueue and release it when
+ * idle (docs/hcd-dynamic-channels.md). INTR/ISOC stay statically bound.
+ */
+static inline bool _pipe_uses_dynamic_chan(const pipe_t *pipe)
+{
+    return pipe->ep_char.type == USB_DWC_XFER_TYPE_CTRL ||
+           pipe->ep_char.type == USB_DWC_XFER_TYPE_BULK;
+}
+
+/**
+ * @brief Bind a hardware channel to the pipe (critical section)
+ *
+ * Allocates a channel, programs the endpoint characteristics and restores the
+ * pipe's data toggle (bulk) / SETUP start (control).
+ *
+ * @return true on success, false when no channel is free
+ */
+static bool _pipe_chan_bind(pipe_t *pipe)
+{
+    if (pipe->chan_bound) {
+        return true;
+    }
+    if (!usb_dwc_hal_chan_alloc(pipe->port->hal, pipe->chan_obj, (void *)pipe)) {
+        return false;
+    }
+    usb_dwc_hal_chan_set_ep_char(pipe->port->hal, pipe->chan_obj, &pipe->ep_char);
+    usb_dwc_hal_chan_set_pid(pipe->chan_obj, pipe->saved_pid);
+    pipe->chan_bound = 1;
+    return true;
+}
+
+/**
+ * @brief Release the pipe's hardware channel (critical section)
+ *
+ * Preserves the bulk data toggle so the next bind resumes with the correct
+ * PID. Only call with nothing in flight on the channel.
+ */
+static void _pipe_chan_unbind(pipe_t *pipe)
+{
+    if (!pipe->chan_bound) {
+        return;
+    }
+    if (pipe->ep_char.type == USB_DWC_XFER_TYPE_BULK) {
+        pipe->saved_pid = (uint8_t)usb_dwc_hal_chan_get_pid(pipe->chan_obj);
+    }
+    usb_dwc_hal_chan_free(pipe->port->hal, pipe->chan_obj);
+    pipe->chan_bound = 0;
+}
+
+/**
+ * @brief Hand freed channels to waiting pipes, oldest first (critical section)
+ *
+ * A waiter whose pending URBs were all cancelled is dropped from the queue.
+ * Stops at the first waiter that still cannot get a channel.
+ */
+static void _port_chan_waiters_kick(port_t *port)
+{
+    pipe_t *pipe = TAILQ_FIRST(&port->pipes_waiting_chan_tailq);
+    while (pipe != NULL) {
+        pipe_t *next = TAILQ_NEXT(pipe, chan_wait_entry);
+        if (pipe->num_urb_pending == 0) {
+            TAILQ_REMOVE(&port->pipes_waiting_chan_tailq, pipe, chan_wait_entry);
+            port->num_pipes_waiting_chan--;
+            pipe->chan_waiting = 0;
+        } else if (pipe->state == HCD_PIPE_STATE_ACTIVE && _pipe_chan_bind(pipe)) {
+            TAILQ_REMOVE(&port->pipes_waiting_chan_tailq, pipe, chan_wait_entry);
+            port->num_pipes_waiting_chan--;
+            pipe->chan_waiting = 0;
+            while (_buffer_can_fill(pipe)) {
+                _buffer_fill(pipe);
+            }
+            if (_buffer_can_exec(pipe)) {
+                _buffer_exec(pipe);
+            }
+        } else if (pipe->state != HCD_PIPE_STATE_ACTIVE) {
+            pipe = next;        // halted waiter keeps its place until cleared
+            continue;
+        } else {
+            break;              // no free channel yet
+        }
+        pipe = next;
+    }
+}
+
+/**
+ * @brief Queue a pipe for a hardware channel (critical section)
+ */
+static void _pipe_chan_wait(pipe_t *pipe)
+{
+    if (!pipe->chan_waiting) {
+        TAILQ_INSERT_TAIL(&pipe->port->pipes_waiting_chan_tailq, pipe, chan_wait_entry);
+        pipe->port->num_pipes_waiting_chan++;
+        pipe->chan_waiting = 1;
+    }
+}
+
+/**
+ * @brief Drop a pipe from the channel-waiter queue (critical section)
+ */
+static void _pipe_chan_unwait(pipe_t *pipe)
+{
+    if (pipe->chan_waiting) {
+        TAILQ_REMOVE(&pipe->port->pipes_waiting_chan_tailq, pipe, chan_wait_entry);
+        pipe->port->num_pipes_waiting_chan--;
+        pipe->chan_waiting = 0;
+    }
+}
 
 /**
  * @brief Halt a pipe
@@ -1145,7 +1269,9 @@ static void _port_reset_all_pipes(port_t *port)
 {
     pipe_t *pipe;
     TAILQ_FOREACH(pipe, &port->pipes_idle_tailq, tailq_entry) {
-        usb_dwc_hal_chan_set_ep_char(port->hal, pipe->chan_obj, &pipe->ep_char);
+        if (pipe->chan_bound) {
+            usb_dwc_hal_chan_set_ep_char(port->hal, pipe->chan_obj, &pipe->ep_char);
+        }
     }
     CACHE_SYNC_FRAME_LIST(port->frame_list);
 }
@@ -1486,6 +1612,7 @@ esp_err_t hcd_port_init(int port_number, const hcd_port_config_t *port_config, h
     port_obj->periph_idx = port_number;
     TAILQ_INIT(&port_obj->pipes_idle_tailq);
     TAILQ_INIT(&port_obj->pipes_active_tailq);
+    TAILQ_INIT(&port_obj->pipes_waiting_chan_tailq);
     port_obj->state = HCD_PORT_STATE_NOT_POWERED;
     port_obj->last_event = HCD_PORT_EVENT_NONE;
     port_obj->callback = port_config->callback;
@@ -1641,6 +1768,16 @@ esp_err_t hcd_port_get_speed(hcd_port_handle_t port_hdl, usb_speed_t *speed)
     // Device speed is only valid if there is device connected to the port that has been reset
     HCD_CHECK_FROM_CRIT(port->flags.conn_dev_ena, ESP_ERR_INVALID_STATE);
     *speed = get_usb_port_speed(usb_dwc_hal_port_get_conn_speed(port->hal));
+    HCD_EXIT_CRITICAL();
+    return ESP_OK;
+}
+
+esp_err_t hcd_port_get_channel_waiters(hcd_port_handle_t port_hdl, int *waiters)
+{
+    port_t *port = (port_t *)port_hdl;
+    HCD_CHECK(port_hdl != NULL && waiters != NULL, ESP_ERR_INVALID_ARG);
+    HCD_ENTER_CRITICAL();
+    *waiters = port->num_pipes_waiting_chan;
     HCD_EXIT_CRITICAL();
     return ESP_OK;
 }
@@ -1937,8 +2074,10 @@ static esp_err_t _pipe_cmd_halt(pipe_t *pipe)
         ret = ESP_OK;
         goto exit;
     }
-    // If the pipe's port is invalid, we just mark the pipe as halted without needing to halt the underlying channel
+    // If the pipe's port is invalid, we just mark the pipe as halted without needing to halt the underlying
+    // channel. An unbound pipe (dynamic binding, no channel held) likewise has no hardware side to halt.
     if (pipe->port->flags.conn_dev_ena // Skip halting the underlying channel if the port is invalid
+            && pipe->chan_bound
             && !usb_dwc_hal_chan_request_halt(pipe->chan_obj)) {   // Check if the channel is already halted
         // Channel is not halted, we need to request and wait for a haltWe need to wait for channel to be halted.
         pipe->cs_flags.waiting_halt = 1;
@@ -1947,7 +2086,9 @@ static esp_err_t _pipe_cmd_halt(pipe_t *pipe)
         assert(pipe->state == HCD_PIPE_STATE_HALTED);
     } else {
         // We are already halted, just need to update the state
-        usb_dwc_hal_chan_mark_halted(pipe->chan_obj);
+        if (pipe->chan_bound) {
+            usb_dwc_hal_chan_mark_halted(pipe->chan_obj);
+        }
         pipe->state = HCD_PIPE_STATE_HALTED;
     }
     ret = ESP_OK;
@@ -2013,6 +2154,14 @@ static esp_err_t _pipe_cmd_clear(pipe_t *pipe)
     }
     // Update the pipe's state
     pipe->state = HCD_PIPE_STATE_ACTIVE;
+    // Dynamic pipes may have lost (or never had) their channel while halted
+    if (_pipe_uses_dynamic_chan(pipe) && !pipe->chan_bound && pipe->num_urb_pending > 0) {
+        if (!_pipe_chan_bind(pipe)) {
+            _pipe_chan_wait(pipe);      // runs when a channel frees
+            ret = ESP_OK;
+            goto exit;
+        }
+    }
     if (pipe->num_urb_pending > 0) {
         // Fill as many buffers as possible
         while (_buffer_can_fill(pipe)) {
@@ -2041,9 +2190,13 @@ static esp_err_t _pipe_cmd_reset_toggle(pipe_t *pipe)
         ret = ESP_ERR_INVALID_STATE;
         goto exit;
     }
-    // Each pipe owns its channel and the channel's HCTSIZ.PID carries the toggle across transfers (it is the
-    // starting PID in descriptor DMA mode and is updated by the controller), so resetting it here is sufficient.
-    usb_dwc_hal_chan_set_pid(pipe->chan_obj, 0);
+    // The channel's HCTSIZ.PID carries the toggle across transfers (it is the starting PID in descriptor
+    // DMA mode and is updated by the controller). With dynamic binding the pipe may currently hold no
+    // channel, in which case clearing the saved toggle (programmed at the next bind) is the whole job.
+    if (pipe->chan_bound) {
+        usb_dwc_hal_chan_set_pid(pipe->chan_obj, 0);
+    }
+    pipe->saved_pid = 0;
     ret = ESP_OK;
 exit:
     return ret;
@@ -2115,23 +2268,28 @@ esp_err_t hcd_pipe_alloc(hcd_port_handle_t port_hdl, const hcd_pipe_config_t *pi
     pipe->callback_arg = pipe_config->callback_arg;
     pipe->context = pipe_config->context;
 
-    // Allocate channel
+    // Allocate channel. CTRL/BULK pipes bind on demand at first enqueue
+    // instead (docs/hcd-dynamic-channels.md), so their allocation can no
+    // longer fail with channel exhaustion.
     HCD_ENTER_CRITICAL();
     if (!s_port_inited[port->periph_idx] || !port->flags.conn_dev_ena) {
         HCD_EXIT_CRITICAL();
         ret = ESP_ERR_INVALID_STATE;
         goto err;
     }
-    bool chan_allocated = usb_dwc_hal_chan_alloc(port->hal, pipe->chan_obj, (void *) pipe);
-    if (!chan_allocated) {
-        HCD_EXIT_CRITICAL();
-        // The only reason why alloc channel could return false is no more free channels
-        ESP_LOGE(HCD_DWC_TAG, "No more HCD channels available");
-        ret = ESP_ERR_NOT_SUPPORTED;
-        goto err;
+    if (type == USB_TRANSFER_TYPE_INTR || type == USB_TRANSFER_TYPE_ISOCHRONOUS) {
+        bool chan_allocated = usb_dwc_hal_chan_alloc(port->hal, pipe->chan_obj, (void *) pipe);
+        if (!chan_allocated) {
+            HCD_EXIT_CRITICAL();
+            // The only reason why alloc channel could return false is no more free channels
+            ESP_LOGE(HCD_DWC_TAG, "No more HCD channels available");
+            ret = ESP_ERR_NOT_SUPPORTED;
+            goto err;
+        }
+        usb_dwc_hal_chan_set_ep_char(port->hal, pipe->chan_obj, &pipe->ep_char);
+        CACHE_SYNC_FRAME_LIST(port->frame_list);
+        pipe->chan_bound = 1;
     }
-    usb_dwc_hal_chan_set_ep_char(port->hal, pipe->chan_obj, &pipe->ep_char);
-    CACHE_SYNC_FRAME_LIST(port->frame_list);
     // Add the pipe to the list of idle pipes in the port object
     TAILQ_INSERT_TAIL(&port->pipes_idle_tailq, pipe, tailq_entry);
     port->num_pipes_idle++;
@@ -2170,7 +2328,12 @@ esp_err_t hcd_pipe_free(hcd_pipe_handle_t pipe_hdl)
     // Remove pipe from the list of idle pipes (it must be in the idle list because it should have no queued URBs)
     TAILQ_REMOVE(&pipe->port->pipes_idle_tailq, pipe, tailq_entry);
     pipe->port->num_pipes_idle--;
-    usb_dwc_hal_chan_free(pipe->port->hal, pipe->chan_obj);
+    _pipe_chan_unwait(pipe);
+    if (pipe->chan_bound) {
+        usb_dwc_hal_chan_free(pipe->port->hal, pipe->chan_obj);
+        pipe->chan_bound = 0;
+        _port_chan_waiters_kick(pipe->port);
+    }
     HCD_EXIT_CRITICAL();
 
     // Free pipe resources
@@ -2191,8 +2354,10 @@ esp_err_t hcd_pipe_update_mps(hcd_pipe_handle_t pipe_hdl, int mps)
                         !pipe->cs_flags.has_urb,
                         ESP_ERR_INVALID_STATE);
     pipe->ep_char.mps = mps;
-    // Update the underlying channel's registers
-    usb_dwc_hal_chan_set_ep_char(pipe->port->hal, pipe->chan_obj, &pipe->ep_char);
+    // Update the underlying channel's registers (at next bind when unbound)
+    if (pipe->chan_bound) {
+        usb_dwc_hal_chan_set_ep_char(pipe->port->hal, pipe->chan_obj, &pipe->ep_char);
+    }
     HCD_EXIT_CRITICAL();
     return ESP_OK;
 }
@@ -2206,8 +2371,10 @@ esp_err_t hcd_pipe_update_dev_addr(hcd_pipe_handle_t pipe_hdl, uint8_t dev_addr)
                         !pipe->cs_flags.has_urb,
                         ESP_ERR_INVALID_STATE);
     pipe->ep_char.dev_addr = dev_addr;
-    // Update the underlying channel's registers
-    usb_dwc_hal_chan_set_ep_char(pipe->port->hal, pipe->chan_obj, &pipe->ep_char);
+    // Update the underlying channel's registers (at next bind when unbound)
+    if (pipe->chan_bound) {
+        usb_dwc_hal_chan_set_ep_char(pipe->port->hal, pipe->chan_obj, &pipe->ep_char);
+    }
     HCD_EXIT_CRITICAL();
     return ESP_OK;
 }
@@ -2852,6 +3019,14 @@ esp_err_t hcd_urb_enqueue(hcd_pipe_handle_t pipe_hdl, urb_t *urb)
     pipe->num_urb_pending++;
     // use the URB's reserved_flags to store the URB's current state
 
+    if (submit_urb && _pipe_uses_dynamic_chan(pipe) && !pipe->chan_bound) {
+        // Dynamic binding: acquire a channel now, or queue for one. A waiting
+        // pipe's URBs stay PENDING and run from _port_chan_waiters_kick().
+        if (!_pipe_chan_bind(pipe)) {
+            _pipe_chan_wait(pipe);
+            submit_urb = false;
+        }
+    }
     if (submit_urb) {
         // URB will not be deferred, can be submitted right now
         if (_buffer_can_fill(pipe)) {
@@ -2898,6 +3073,15 @@ urb_t *hcd_urb_dequeue(hcd_pipe_handle_t pipe_hdl)
             pipe->port->num_pipes_idle++;
             pipe->port->num_pipes_queued--;
             pipe->cs_flags.has_urb = 0;
+            // Dynamic binding: an idle pipe gives its channel back and any
+            // waiter takes it immediately.
+            if (_pipe_uses_dynamic_chan(pipe)) {
+                _pipe_chan_unwait(pipe);
+                if (pipe->chan_bound && !pipe->multi_buffer_control.buffer_is_executing) {
+                    _pipe_chan_unbind(pipe);
+                    _port_chan_waiters_kick(pipe->port);
+                }
+            }
         }
         // Sync user's data in memory to cache. For IN and CTRL transfers
         CACHE_SYNC_DATA_BUFFER_M2C(pipe, urb);
