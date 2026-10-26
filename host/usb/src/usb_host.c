@@ -1882,6 +1882,22 @@ esp_err_t usb_host_transfer_alloc(size_t data_buffer_size, int num_isoc_packets,
     return ESP_OK;
 }
 
+const char *usb_host_transfer_error_detail(const usb_transfer_t *transfer)
+{
+    if (transfer == NULL) {
+        return "none";
+    }
+    const urb_t *urb = __containerof(transfer, urb_t, transfer);
+    /* Encoding is 1 + usb_dwc_hal_chan_error_t: XCS_XACT=0, BNA=1, PKT_BBL=2, STALL=3 */
+    switch (urb->chan_error_detail) {
+    case 1: return "XCS_XACT";
+    case 2: return "BNA";
+    case 3: return "PKT_BBL";
+    case 4: return "STALL";
+    default: return "none";
+    }
+}
+
 esp_err_t usb_host_transfer_free(usb_transfer_t *transfer)
 {
     if (transfer == NULL) {

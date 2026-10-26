@@ -42,6 +42,7 @@ struct urb_s {
     // HCD Layer: Handler pointer and variables. Must be initialized to NULL and 0 respectively
     void *hcd_ptr;
     uint32_t hcd_var;
+    uint8_t chan_error_detail;      // 0 = none, else 1 + the HAL channel error that failed the transfer (debug)
     // Host Lib Layer:
     void *usb_host_client;  // Currently only used when submitted to shared pipes (i.e., Device default pipes)
     bool usb_host_inflight; // Debugging variable, used to prevent re-submitting URBs already inflight

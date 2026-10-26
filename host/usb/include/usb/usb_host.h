@@ -765,6 +765,19 @@ esp_err_t usb_host_endpoint_reset_toggle(usb_device_handle_t dev_hdl, uint8_t bE
 esp_err_t usb_host_transfer_alloc(size_t data_buffer_size, int num_isoc_packets, usb_transfer_t **transfer);
 
 /**
+ * @brief The finer host-controller error behind a failed transfer (debug aid)
+ *
+ * A transfer that completes with USB_TRANSFER_STATUS_ERROR (or STALL) carries the channel
+ * error that caused it: "XCS_XACT" (excessive transaction errors: no response, CRC or
+ * handshake failure), "BNA" (buffer not available), "PKT_BBL" (packet babble) or "STALL".
+ * Returns "none" when the transfer did not fail at the channel level.
+ *
+ * @param[in] transfer Transfer that has completed
+ * @return Static string naming the channel error
+ */
+const char *usb_host_transfer_error_detail(const usb_transfer_t *transfer);
+
+/**
  * @brief Free a transfer object
  *
  * - Free a transfer object previously allocated using usb_host_transfer_alloc()

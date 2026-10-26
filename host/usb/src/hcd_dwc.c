@@ -1417,6 +1417,13 @@ static hcd_pipe_event_t _intr_hdlr_chan(pipe_t *pipe, usb_dwc_hal_chan_t *chan_o
         pipe->last_event = pipe_decode_error_event(chan_error);
         event = pipe->last_event;
         pipe->state = HCD_PIPE_STATE_HALTED;
+        // Keep the finer channel error on the failing URB (see usb_host_transfer_error_detail())
+        {
+            dma_buffer_block_t *err_buf = pipe->buffers[pipe->multi_buffer_control.rd_idx];
+            if (err_buf->urb != NULL) {
+                err_buf->urb->chan_error_detail = (uint8_t)(chan_error + 1);
+            }
+        }
         // Mark the buffer as done with an error
         int stop_idx = usb_dwc_hal_chan_get_qtd_idx(chan_obj);
         _buffer_done(pipe, stop_idx, pipe->last_event, false);
