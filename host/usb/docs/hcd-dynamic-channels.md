@@ -162,6 +162,38 @@ and rotation never fired (victim selection requires `parked_bound`). Phase 2c:
   calling `abort()`. Upstream ESP-IDF aborts here. A residual race should
   fail one transfer, not reboot a multi-device bridge.
 
+### Phase 2d: queue-depth parked profile, promotion, round-robin rotor
+
+Hardware isolation (1 MiB MSC read, dynamic channels): with no parked readers
+the read passes in 1.4 s. With three parked console readers filling the cap,
+the same read times out with periodic device resets, and claims showed more
+parked-class pipes than consoles. Cause: the MSC bulk-IN CSW status read
+(13 bytes) matched the size-only parked test (`num_bytes <= 4 x MPS`). Each
+SCSI command's status phase was then cap-refused into the waiter FIFO when
+consoles held the cap, or, once bound, was a rotation-yield victim and was
+thrashed off the channel every tick before the device returned status.
+Victim selection also always picked the first parked pipe, so one listener
+could be victimized every tick while later ones never yielded.
+
+- Queue-depth rule. The parked profile is BULK IN, next transfer
+  `num_bytes <= CONFIG_USB_HOST_PARKED_IN_MAX_PACKETS x MPS`, AND at least
+  two queued reads. Queued reads are `num_urb_pending +
+  buffer_num_to_exec` (`buffer_num_to_exec` includes the executing buffer;
+  done-but-unparsed buffers are excluded). Linux cdc-acm posts 16 reads and
+  cp210x 2; an MSC CSW is a single URB. A single small read binds uncapped
+  and is never a yield victim.
+- Promotion. A cdc-acm pipe's first URB binds at depth 1 (uncapped), then
+  its later reads arrive. `_pipe_maybe_promote_parked()` runs on URB enqueue
+  to a bound pipe and in the rotation tick, before victim selection; a pipe
+  that now matches the profile gets `parked_bound` and increments
+  `num_parked_bound`. Promotion can take the count above the cap transiently;
+  the cap gates only new binds, and rotation converges it. Demotion is not
+  needed: unbind clears `parked_bound`.
+- Rotor. Each port keeps `yield_cursor`, the last victim. The yield search
+  starts at the pipe after the cursor in the active list and wraps once
+  around. The cursor is cleared when its pipe unbinds or is freed, so it
+  cannot dangle.
+
 Still future:
 - Rotation for periodic (interrupt) pipes.
 - Fairness/priority classes for the waiter queue (e.g. EP0 first).

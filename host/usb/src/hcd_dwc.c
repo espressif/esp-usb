@@ -253,6 +253,7 @@ struct port_obj {
     int num_pipes_queued;
     int num_pipes_waiting_chan;
     int num_parked_bound;                   // Bound pipes counted against the parked-listener cap
+    pipe_t *yield_cursor;                   // Last parked-listener victim; rotor resumes after it (phase 2d)
     esp_timer_handle_t rotate_timer;        // Periodic parked-listener rotation tick (phase 2b)
     // Port status, state, and events
     hcd_port_state_t state;
@@ -559,6 +560,9 @@ static void _pipe_chan_unbind(pipe_t *pipe)
     }
     usb_dwc_hal_chan_free(pipe->port->hal, pipe->chan_obj);
     pipe->chan_bound = 0;
+    if (pipe->port->yield_cursor == pipe) {
+        pipe->port->yield_cursor = NULL;    // Never leave the rotor cursor dangling (phase 2d)
+    }
     if (pipe->parked_bound) {
         pipe->parked_bound = 0;
         pipe->port->num_parked_bound--;
@@ -592,6 +596,23 @@ static inline const urb_t *_pipe_next_xfer_urb(const pipe_t *pipe)
 }
 
 /**
+ * @brief Minimum queued reads for the parked-listener profile (phase 2d)
+ */
+#define PARKED_MIN_QUEUED_XFERS     2
+
+/**
+ * @brief Read URBs queued on a pipe, not yet parsed (critical section, phase 2d)
+ *
+ * Counts pending URBs plus buffers filled-or-executing (buffer_num_to_exec
+ * already includes the executing buffer; it is decremented on done). Done
+ * buffers awaiting parse are excluded.
+ */
+static inline int _pipe_queued_xfers(const pipe_t *pipe)
+{
+    return pipe->num_urb_pending + pipe->multi_buffer_control.buffer_num_to_exec;
+}
+
+/**
  * @brief Whether the pipe's NEXT transfer is a parked listener (critical section)
  *
  * Parked class (phases 2b/2c, docs/hcd-dynamic-channels.md): a BULK IN pipe
@@ -608,8 +629,34 @@ static inline bool _pipe_next_xfer_parked_class(const pipe_t *pipe)
             !(pipe->ep_char.bEndpointAddress & 0x80)) {
         return false;
     }
+    // Queue-depth rule (phase 2d): a parked listener keeps several small
+    // reads posted. A single small read (e.g. an MSC CSW status phase) is not
+    // a listener and binds uncapped; it is never a yield victim.
+    if (_pipe_queued_xfers(pipe) < PARKED_MIN_QUEUED_XFERS) {
+        return false;
+    }
     const urb_t *urb = _pipe_next_xfer_urb(pipe);
     return (urb != NULL) && (urb->transfer.num_bytes <= PARKED_IN_MAX_XFER_BYTES(pipe->ep_char.mps));
+}
+
+/**
+ * @brief Promote a bound, non-parked pipe to parked listener once it qualifies (critical section, phase 2d)
+ *
+ * A pipe binds on its first URB, when its queue depth may still be 1 (e.g.
+ * cdc-acm posts its 16 reads one by one). Once the pipe matches the parked
+ * profile it is counted against the parked cap. Promotion may take the count
+ * above the cap; the cap only gates new binds and rotation converges it.
+ * There is no demotion: unbind clears parked_bound.
+ */
+static void _pipe_maybe_promote_parked(pipe_t *pipe)
+{
+    if (!_pipe_uses_dynamic_chan(pipe) || !pipe->chan_bound || pipe->parked_bound) {
+        return;
+    }
+    if (_pipe_next_xfer_parked_class(pipe)) {
+        pipe->parked_bound = 1;
+        pipe->port->num_parked_bound++;
+    }
 }
 
 /**
@@ -731,34 +778,54 @@ static void _pipe_chan_unwait(pipe_t *pipe)
  * (e.g. a mass-storage data read) is never yanked. The halted pipe re-queues
  * at the waiter tail, giving round-robin service among parked listeners.
  */
+static bool _pipe_yield_eligible(const pipe_t *p)
+{
+    if (!p->chan_bound || !p->parked_bound || p->pause_pending
+            || p->cs_flags.waiting_halt
+            || p->state != HCD_PIPE_STATE_ACTIVE
+            || !p->multi_buffer_control.buffer_is_executing) {
+        return false;
+    }
+    // Secondary guard: only yield a parked-class buffer. Parked class is
+    // bulk IN only, and _buffer_fill_bulk() fills a single QTD for IN, so
+    // a yielded buffer is always single-QTD (the zero-progress re-arm in
+    // the HALT_REQ branch relies on this).
+    const dma_buffer_block_t *buf = p->buffers[p->multi_buffer_control.rd_idx];
+    return p->ep_char.type == USB_DWC_XFER_TYPE_BULK
+           && (p->ep_char.bEndpointAddress & USB_B_ENDPOINT_ADDRESS_EP_DIR_MASK)
+           && buf->urb != NULL
+           && buf->urb->transfer.num_bytes <= PARKED_IN_MAX_XFER_BYTES(p->ep_char.mps);
+}
+
 static void _port_request_chan_yield(port_t *port)
 {
-    pipe_t *p;
-    TAILQ_FOREACH(p, &port->pipes_active_tailq, tailq_entry) {
-        if (!p->chan_bound || !p->parked_bound || p->pause_pending
-                || p->cs_flags.waiting_halt
-                || p->state != HCD_PIPE_STATE_ACTIVE
-                || !p->multi_buffer_control.buffer_is_executing) {
-            continue;
-        }
-        // Secondary guard: only yield a parked-class buffer. Parked class is
-        // bulk IN only, and _buffer_fill_bulk() fills a single QTD for IN, so
-        // a yielded buffer is always single-QTD (the zero-progress re-arm in
-        // the HALT_REQ branch relies on this).
-        dma_buffer_block_t *buf = p->buffers[p->multi_buffer_control.rd_idx];
-        if (p->ep_char.type != USB_DWC_XFER_TYPE_BULK
-                || !(p->ep_char.bEndpointAddress & USB_B_ENDPOINT_ADDRESS_EP_DIR_MASK)
-                || buf->urb == NULL || buf->urb->transfer.num_bytes > PARKED_IN_MAX_XFER_BYTES(p->ep_char.mps)) {
-            continue;
-        }
-        p->pause_pending = 1;
-        if (usb_dwc_hal_chan_request_halt(p->chan_obj)) {
+    // Round-robin rotor (phase 2d): search circularly from the pipe after the
+    // last victim, so one parked listener cannot be victimized every tick
+    // while later ones never yield. The cursor is cleared on unbind.
+    pipe_t *first = TAILQ_FIRST(&port->pipes_active_tailq);
+    if (first == NULL) {
+        return;
+    }
+    pipe_t *start = (port->yield_cursor != NULL) ? TAILQ_NEXT(port->yield_cursor, tailq_entry) : NULL;
+    if (start == NULL) {
+        start = first;
+    }
+    pipe_t *p = start;
+    do {
+        if (_pipe_yield_eligible(p)) {
+            p->pause_pending = 1;
+            if (!usb_dwc_hal_chan_request_halt(p->chan_obj)) {
+                port->yield_cursor = p;
+                return;     // Halt requested; the channel ISR finishes the yield
+            }
             // Already halted: a completion is in flight; nothing to yield here.
             p->pause_pending = 0;
-            continue;
         }
-        return;     // Halt requested; the channel ISR finishes the yield
-    }
+        p = TAILQ_NEXT(p, tailq_entry);
+        if (p == NULL) {
+            p = first;      // wrap around
+        }
+    } while (p != start);
 }
 
 #if CONFIG_USB_HOST_PARKED_IN_BIND_CAP > 0
@@ -777,6 +844,10 @@ static void _port_rotate_timer_cb(void *arg)
     HCD_ENTER_CRITICAL();
     bool have_waiter = false;
     pipe_t *p;
+    // Phase 2d: promote bound pipes whose queue depth has grown into the parked profile
+    TAILQ_FOREACH(p, &port->pipes_active_tailq, tailq_entry) {
+        _pipe_maybe_promote_parked(p);
+    }
     TAILQ_FOREACH(p, &port->pipes_waiting_chan_tailq, chan_wait_entry) {
         if (p->num_urb_pending > 0) {
             have_waiter = true;
@@ -2618,6 +2689,9 @@ esp_err_t hcd_pipe_free(hcd_pipe_handle_t pipe_hdl)
 {
     pipe_t *pipe = (pipe_t *)pipe_hdl;
     HCD_ENTER_CRITICAL();
+    if (pipe->port->yield_cursor == pipe) {
+        pipe->port->yield_cursor = NULL;    // Rotor cursor must not outlive the pipe (phase 2d)
+    }
     // Check that all URBs have been removed and pipe has no pending events
     HCD_CHECK_FROM_CRIT(!pipe->multi_buffer_control.buffer_is_executing
                         && !pipe->cs_flags.has_urb,
@@ -3326,6 +3400,8 @@ esp_err_t hcd_urb_enqueue(hcd_pipe_handle_t pipe_hdl, urb_t *urb)
     urb->hcd_var = URB_HCD_STATE_PENDING;
     TAILQ_INSERT_TAIL(&pipe->pending_urb_tailq, urb, tailq_entry);
     pipe->num_urb_pending++;
+    // Phase 2d: a bound pipe that now keeps several small reads posted is promoted to parked listener
+    _pipe_maybe_promote_parked(pipe);
     // use the URB's reserved_flags to store the URB's current state
 
     bool chan_wait_started = false;
