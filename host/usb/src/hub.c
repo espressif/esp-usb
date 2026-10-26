@@ -1291,6 +1291,16 @@ esp_err_t hub_get_parked_stats(hcd_parked_stats_t *stats)
             sum.yields_done += ps.yields_done;
             sum.cap_refusals += ps.cap_refusals;
             sum.reserve_refusals += ps.reserve_refusals;
+            sum.rot_passes += ps.rot_passes;
+            sum.rej_not_bound += ps.rej_not_bound;
+            sum.rej_not_parked += ps.rej_not_parked;
+            sum.rej_pause += ps.rej_pause;
+            sum.rej_halt_wait += ps.rej_halt_wait;
+            sum.rej_state += ps.rej_state;
+            sum.rej_not_exec += ps.rej_not_exec;
+            sum.rej_urb_null += ps.rej_urb_null;
+            sum.rej_too_big += ps.rej_too_big;
+            sum.halt_noop += ps.halt_noop;
         }
     }
     *stats = sum;

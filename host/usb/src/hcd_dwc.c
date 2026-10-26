@@ -260,6 +260,16 @@ struct port_obj {
     uint32_t stat_yields_done;
     uint32_t stat_cap_refusals;
     uint32_t stat_reserve_refusals;
+    uint32_t stat_rot_passes;
+    uint32_t stat_rej_not_bound;
+    uint32_t stat_rej_not_parked;
+    uint32_t stat_rej_pause;
+    uint32_t stat_rej_halt_wait;
+    uint32_t stat_rej_state;
+    uint32_t stat_rej_not_exec;
+    uint32_t stat_rej_urb_null;
+    uint32_t stat_rej_too_big;
+    uint32_t stat_halt_noop;
     esp_timer_handle_t rotate_timer;        // Periodic parked-listener rotation tick (phase 2b)
     // Port status, state, and events
     hcd_port_state_t state;
@@ -836,55 +846,70 @@ static void _pipe_chan_unwait(pipe_t *pipe)
  * (e.g. a mass-storage data read) is never yanked. The halted pipe re-queues
  * at the waiter tail, giving round-robin service among parked listeners.
  */
-static bool _pipe_yield_eligible(const pipe_t *p)
-{
-    if (!p->chan_bound || !p->parked_bound || p->pause_pending
-            || p->cs_flags.waiting_halt
-            || p->state != HCD_PIPE_STATE_ACTIVE
-            || !p->multi_buffer_control.buffer_is_executing) {
-        return false;
-    }
-    // Secondary guard: only yield a parked-class buffer. Parked class is
-    // bulk IN only, and _buffer_fill_bulk() fills a single QTD for IN, so
-    // a yielded buffer is always single-QTD (the zero-progress re-arm in
-    // the HALT_REQ branch relies on this).
-    const dma_buffer_block_t *buf = p->buffers[p->multi_buffer_control.rd_idx];
-    return p->ep_char.type == USB_DWC_XFER_TYPE_BULK
-           && (p->ep_char.bEndpointAddress & USB_B_ENDPOINT_ADDRESS_EP_DIR_MASK)
-           && buf->urb != NULL
-           && buf->urb->transfer.num_bytes <= PARKED_IN_MAX_XFER_BYTES(p->ep_char.mps);
-}
-
-static void _port_request_chan_yield(port_t *port)
+static void _port_request_chan_yield(port_t *port, bool from_tick)
 {
     // Round-robin rotor (phase 2d): search circularly from the pipe after the
-    // last victim, so one parked listener cannot be victimized every tick
-    // while later ones never yield. The cursor is cleared on unbind.
+    // last victim, so one parked listener cannot be victimized every tick while
+    // later ones never yield. The cursor is cleared on unbind. Phase 2g: each
+    // rejected candidate is counted under its first failing condition, only on
+    // the tick's pass (from_tick), so counts map one-to-one to rotor passes.
     pipe_t *first = TAILQ_FIRST(&port->pipes_active_tailq);
     if (first == NULL) {
         return;
     }
+    if (from_tick) {
+        port->stat_rot_passes++;
+    }
+#define ROTOR_REJECT(field)  do { if (from_tick) { port->field++; } } while (0)
     pipe_t *start = (port->yield_cursor != NULL) ? TAILQ_NEXT(port->yield_cursor, tailq_entry) : NULL;
     if (start == NULL) {
         start = first;
     }
     pipe_t *p = start;
     do {
-        if (_pipe_yield_eligible(p)) {
-            p->pause_pending = 1;
-            if (!usb_dwc_hal_chan_request_halt(p->chan_obj)) {
-                port->yield_cursor = p;
-                port->stat_yields_req++;
-                return;     // Halt requested; the channel ISR finishes the yield
+        if (!p->chan_bound) {
+            ROTOR_REJECT(stat_rej_not_bound);
+        } else if (!p->parked_bound) {
+            ROTOR_REJECT(stat_rej_not_parked);
+        } else if (p->pause_pending) {
+            ROTOR_REJECT(stat_rej_pause);
+        } else if (p->cs_flags.waiting_halt) {
+            ROTOR_REJECT(stat_rej_halt_wait);
+        } else if (p->state != HCD_PIPE_STATE_ACTIVE) {
+            ROTOR_REJECT(stat_rej_state);
+        } else if (!p->multi_buffer_control.buffer_is_executing) {
+            ROTOR_REJECT(stat_rej_not_exec);
+        } else {
+            // Secondary guard: a parked-class buffer. Parked class is bulk IN only and
+            // _buffer_fill_bulk() fills a single QTD for IN, so a yielded buffer is
+            // single-QTD (the zero-progress re-arm in the HALT_REQ branch relies on this).
+            const dma_buffer_block_t *buf = p->buffers[p->multi_buffer_control.rd_idx];
+            if (buf->urb == NULL) {
+                ROTOR_REJECT(stat_rej_urb_null);
+            } else if (p->ep_char.type != USB_DWC_XFER_TYPE_BULK
+                       || !(p->ep_char.bEndpointAddress & USB_B_ENDPOINT_ADDRESS_EP_DIR_MASK)
+                       || buf->urb->transfer.num_bytes > PARKED_IN_MAX_XFER_BYTES(p->ep_char.mps)) {
+                ROTOR_REJECT(stat_rej_too_big);
+            } else {
+                p->pause_pending = 1;
+                if (!usb_dwc_hal_chan_request_halt(p->chan_obj)) {
+                    port->yield_cursor = p;
+                    port->stat_yields_req++;
+                    break;      // Halt requested; the channel ISR finishes the yield
+                }
+                // Halt reported already-halted: no interrupt will follow, so nothing to yield
+                p->pause_pending = 0;
+                if (from_tick) {
+                    port->stat_halt_noop++;
+                }
             }
-            // Already halted: a completion is in flight; nothing to yield here.
-            p->pause_pending = 0;
         }
         p = TAILQ_NEXT(p, tailq_entry);
         if (p == NULL) {
             p = first;      // wrap around
         }
     } while (p != start);
+#undef ROTOR_REJECT
 }
 
 #if CONFIG_USB_HOST_PARKED_IN_BIND_CAP > 0
@@ -917,7 +942,7 @@ static void _port_rotate_timer_cb(void *arg)
     // (promotions can exceed it). A yielded over-cap holder re-queues, and its capped
     // rebind is refused while the count is still at the cap.
     if (have_waiter || PARKED_OVER_CAP(port)) {
-        _port_request_chan_yield(port);
+        _port_request_chan_yield(port, true);
     }
     // Phase 2f: the tick no longer stops itself. Stopping an esp_timer from
     // inside the HCD spinlock raced with a concurrent start (an enqueue that saw
@@ -1386,6 +1411,11 @@ static hcd_pipe_event_t _intr_hdlr_chan(pipe_t *pipe, usb_dwc_hal_chan_t *chan_o
         if (_buffer_can_fill(pipe) && pipe->port->flags.conn_dev_ena) {
             // Now that we've parsed a buffer, see if another URB can be filled in its place
             _buffer_fill(pipe);
+            // Phase 2g: a buffer refilled here must not wait unexecuted. The exec above ran
+            // before this fill, so with the channel idle nothing else would execute it.
+            if (_buffer_can_exec(pipe) && pipe->port->flags.conn_dev_ena) {
+                _buffer_exec(pipe);
+            }
         }
         break;
     }
@@ -2230,6 +2260,16 @@ esp_err_t hcd_port_get_parked_stats(hcd_port_handle_t port_hdl, hcd_parked_stats
     stats->yields_done = port->stat_yields_done;
     stats->cap_refusals = port->stat_cap_refusals;
     stats->reserve_refusals = port->stat_reserve_refusals;
+    stats->rot_passes = port->stat_rot_passes;
+    stats->rej_not_bound = port->stat_rej_not_bound;
+    stats->rej_not_parked = port->stat_rej_not_parked;
+    stats->rej_pause = port->stat_rej_pause;
+    stats->rej_halt_wait = port->stat_rej_halt_wait;
+    stats->rej_state = port->stat_rej_state;
+    stats->rej_not_exec = port->stat_rej_not_exec;
+    stats->rej_urb_null = port->stat_rej_urb_null;
+    stats->rej_too_big = port->stat_rej_too_big;
+    stats->halt_noop = port->stat_halt_noop;
     HCD_EXIT_CRITICAL();
 #if CONFIG_USB_HOST_PARKED_IN_BIND_CAP > 0
     stats->rotor_active = esp_timer_is_active(port->rotate_timer);     // esp_timer call kept outside the lock
@@ -2607,11 +2647,14 @@ static esp_err_t _pipe_cmd_clear(pipe_t *pipe, bool *chan_wait_started)
             && (pipe->num_urb_pending > 0 || pipe->multi_buffer_control.buffer_num_to_exec > 0)) {
         if (_pipe_chan_bind_capped(pipe) != PIPE_CHAN_BIND_OK) {
             _pipe_chan_wait(pipe);      // runs when a channel frees
-            _port_request_chan_yield(pipe->port);
+            _port_request_chan_yield(pipe->port, false);
             *chan_wait_started = true;
             ret = ESP_OK;
             goto exit;
         }
+        // Phase 2g: bound directly here, so drop any stale waiter entry (a bound
+        // pipe left in the waiter queue would be counted and victimized as a waiter).
+        _pipe_chan_unwait(pipe);
     }
     if (pipe->num_urb_pending > 0) {
         // Fill as many buffers as possible
@@ -3496,7 +3539,7 @@ esp_err_t hcd_urb_enqueue(hcd_pipe_handle_t pipe_hdl, urb_t *urb)
         // exhaustion; the rotation tick cycles capped listeners back in.
         if (_pipe_chan_bind_capped(pipe) != PIPE_CHAN_BIND_OK) {
             _pipe_chan_wait(pipe);
-            _port_request_chan_yield(pipe->port);
+            _port_request_chan_yield(pipe->port, false);
             chan_wait_started = true;
             submit_urb = false;
         }

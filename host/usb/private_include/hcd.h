@@ -309,6 +309,16 @@ typedef struct {
     uint32_t yields_done;       // Yield halts completed in the channel ISR
     uint32_t cap_refusals;      // Bind attempts refused by the parked cap
     uint32_t reserve_refusals;  // Bind attempts refused by the parked channel reserve
+    uint32_t rot_passes;  // Phase 2g rotor counters
+    uint32_t rej_not_bound;
+    uint32_t rej_not_parked;
+    uint32_t rej_pause;
+    uint32_t rej_halt_wait;
+    uint32_t rej_state;
+    uint32_t rej_not_exec;
+    uint32_t rej_urb_null;
+    uint32_t rej_too_big;
+    uint32_t halt_noop;
 } hcd_parked_stats_t;
 
 /**

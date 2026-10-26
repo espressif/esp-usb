@@ -856,6 +856,16 @@ esp_err_t usb_host_parked_stats(usb_host_parked_stats_t *stats)
     stats->yields_done = s.yields_done;
     stats->cap_refusals = s.cap_refusals;
     stats->reserve_refusals = s.reserve_refusals;
+    stats->rot_passes = s.rot_passes;
+    stats->rej_not_bound = s.rej_not_bound;
+    stats->rej_not_parked = s.rej_not_parked;
+    stats->rej_pause = s.rej_pause;
+    stats->rej_halt_wait = s.rej_halt_wait;
+    stats->rej_state = s.rej_state;
+    stats->rej_not_exec = s.rej_not_exec;
+    stats->rej_urb_null = s.rej_urb_null;
+    stats->rej_too_big = s.rej_too_big;
+    stats->halt_noop = s.halt_noop;
     return ESP_OK;
 }
 
