@@ -869,6 +869,13 @@ esp_err_t usb_host_parked_stats(usb_host_parked_stats_t *stats)
     return ESP_OK;
 }
 
+esp_err_t usb_host_debug_arm_ep0_dump(uint8_t dev_addr, int count)
+{
+    HOST_CHECK(p_host_lib_obj != NULL, ESP_ERR_INVALID_STATE);
+    hcd_debug_arm_ep0_dump((int)dev_addr, count);
+    return ESP_OK;
+}
+
 esp_err_t usb_host_channel_stats(int *total_channels, int *allocated_channels)
 {
     HOST_CHECK(total_channels != NULL && allocated_channels != NULL, ESP_ERR_INVALID_ARG);

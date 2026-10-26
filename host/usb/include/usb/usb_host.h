@@ -270,6 +270,12 @@ esp_err_t usb_host_channel_stats(int *total_channels, int *allocated_channels);
 esp_err_t usb_host_channel_waiters(int *waiting_pipes);
 
 /**
+ * @brief Debug: log the raw channel registers for the next `count` control transfers to device
+ *        address `dev_addr` (EPDUMP: lines, ISR-safe). Disarms after `count` executions.
+ */
+esp_err_t usb_host_debug_arm_ep0_dump(uint8_t dev_addr, int count);
+
+/**
  * @brief Parked bulk IN listener and rotation counters (summed over root ports)
  */
 typedef struct {

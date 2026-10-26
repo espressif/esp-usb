@@ -327,6 +327,11 @@ typedef struct {
 esp_err_t hcd_port_get_parked_stats(hcd_port_handle_t port_hdl, hcd_parked_stats_t *stats);
 
 /**
+ * @brief Dump the next `count` control-pipe executions on device address `dev_addr` (debug, issue #37)
+ */
+void hcd_debug_arm_ep0_dump(int dev_addr, int count);
+
+/**
  * @brief Handle a ports event
  *
  * When an port event occurs (as indicated by a callback), this function should be called the handle this event. A
