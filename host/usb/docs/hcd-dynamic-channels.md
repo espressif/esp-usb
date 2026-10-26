@@ -139,6 +139,28 @@ and rotation never fired (victim selection requires `parked_bound`). Phase 2c:
   completed, pipe event + callback exactly as a short-packet completion),
   then unbinds and kicks waiters. Only whole packets land, so the partial
   count is a multiple of MPS.
+- Stale-QTD fix (zero progress). A halt writes the in-progress QTD back
+  (remaining `xfer_size`, possibly active cleared). The zero-progress path
+  previously cleared only the executing flags, so rebind re-executed a
+  written-back descriptor: the controller raised BNA
+  (`ERROR_URB_NOT_AVAIL`), the ERROR branch reached `_buffer_parse_error`,
+  and the default case aborted. The zero-progress path now re-arms QTD[0]
+  with `_buffer_fill_bulk()` (the same call `_buffer_fill()` uses for bulk
+  IN, with the same flags and no MPS rounding) followed by the C2M cache
+  sync, so the buffer re-executes as a freshly filled transfer. Parked-class
+  buffers are bulk IN with `num_bytes <= CONFIG_USB_HOST_PARKED_IN_MAX_PACKETS
+  × MPS`, which `_buffer_fill_bulk()` always fills as one QTD; the
+  victim-selection guard restricts yields to bulk IN accordingly.
+- Partial-progress `stop_idx`: `_buffer_parse_bulk()` never reads the stop
+  index (it parses QTD[0] only), so the value does not change the result. The
+  partial path now passes `usb_dwc_hal_chan_get_qtd_idx()`, matching the CPLT,
+  ERROR and non-yield HALT_REQ paths.
+- Fork divergence (defensive, not upstream): `_buffer_parse_error()`'s default
+  case (an unexpected pipe event, normally URB_DONE or
+  ERROR_URB_NOT_AVAIL) logs with `ESP_EARLY_LOGE` (ISR-safe) and sets the URB
+  to `USB_TRANSFER_STATUS_ERROR` with `actual_num_bytes = 0`, instead of
+  calling `abort()`. Upstream ESP-IDF aborts here. A residual race should
+  fail one transfer, not reboot a multi-device bridge.
 
 Still future:
 - Rotation for periodic (interrupt) pipes.

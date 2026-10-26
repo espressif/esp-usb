@@ -370,6 +370,7 @@ static inline bool _buffer_can_fill(pipe_t *pipe)
  * @param pipe Pipe object
  */
 static void _buffer_fill(pipe_t *pipe);
+static inline void _buffer_fill_bulk(dma_buffer_block_t *buffer, usb_transfer_t *transfer, bool is_in, int mps);
 
 /**
  * @brief Check if there are more filled buffers than can be executed
@@ -740,9 +741,14 @@ static void _port_request_chan_yield(port_t *port)
                 || !p->multi_buffer_control.buffer_is_executing) {
             continue;
         }
-        // Secondary guard: only yield a parked-class buffer
+        // Secondary guard: only yield a parked-class buffer. Parked class is
+        // bulk IN only, and _buffer_fill_bulk() fills a single QTD for IN, so
+        // a yielded buffer is always single-QTD (the zero-progress re-arm in
+        // the HALT_REQ branch relies on this).
         dma_buffer_block_t *buf = p->buffers[p->multi_buffer_control.rd_idx];
-        if (buf->urb == NULL || buf->urb->transfer.num_bytes > PARKED_IN_MAX_XFER_BYTES(p->ep_char.mps)) {
+        if (p->ep_char.type != USB_DWC_XFER_TYPE_BULK
+                || !(p->ep_char.bEndpointAddress & USB_B_ENDPOINT_ADDRESS_EP_DIR_MASK)
+                || buf->urb == NULL || buf->urb->transfer.num_bytes > PARKED_IN_MAX_XFER_BYTES(p->ep_char.mps)) {
             continue;
         }
         p->pause_pending = 1;
@@ -1298,14 +1304,26 @@ static hcd_pipe_event_t _intr_hdlr_chan(pipe_t *pipe, usb_dwc_hal_chan_t *chan_o
                     CACHE_SYNC_XFER_DESCRIPTOR_LIST_C2M(buf);
                     pipe->last_event = HCD_PIPE_EVENT_URB_DONE;
                     event = pipe->last_event;
-                    _buffer_done(pipe, 0, HCD_PIPE_EVENT_URB_DONE, false);
+                    // stop_idx: _buffer_parse_bulk() never reads it (it parses
+                    // qtd[0] only), and a bulk buffer is always one QTD. Pass
+                    // the channel's current QTD index, the same convention as
+                    // the CPLT, ERROR and non-yield HALT_REQ paths.
+                    _buffer_done(pipe, usb_dwc_hal_chan_get_qtd_idx(chan_obj), HCD_PIPE_EVENT_URB_DONE, false);
                     _buffer_parse(pipe);
                     if (_buffer_can_fill(pipe) && pipe->port->flags.conn_dev_ena) {
                         _buffer_fill(pipe);
                     }
                 } else {
-                    // Zero progress: un-execute untouched; the ordinary exec
-                    // path re-runs it on rebind.
+                    // Zero progress. The halt may have written the in-progress
+                    // QTD back (active bit cleared). Re-executing that written-back
+                    // descriptor raises BNA (ERROR_URB_NOT_AVAIL) and aborts the
+                    // parse, so re-arm QTD[0] from the URB exactly as _buffer_fill()
+                    // does for bulk. The buffer then re-executes as a fresh
+                    // transfer on rebind, keeping the preserved toggle.
+                    assert(buf->urb != NULL);
+                    const bool is_in = pipe->ep_char.bEndpointAddress & USB_B_ENDPOINT_ADDRESS_EP_DIR_MASK;
+                    _buffer_fill_bulk(buf, &buf->urb->transfer, is_in, pipe->ep_char.mps);
+                    CACHE_SYNC_XFER_DESCRIPTOR_LIST_C2M(buf);
                     buf->status_flags.executing = 0;
                     pipe->multi_buffer_control.buffer_is_executing = 0;
                 }
@@ -3165,8 +3183,12 @@ static inline void _buffer_parse_error(dma_buffer_block_t *buffer)
         transfer->status = USB_TRANSFER_STATUS_STALL;
         break;
     default:
-        // HCD_PIPE_EVENT_URB_DONE and HCD_PIPE_EVENT_ERROR_URB_NOT_AVAIL should not occur here
-        abort();
+        // HCD_PIPE_EVENT_URB_DONE and HCD_PIPE_EVENT_ERROR_URB_NOT_AVAIL should not occur here.
+        // Fork divergence (phase 2c): do not abort(). This runs in channel ISR
+        // context, so only ESP_EARLY_LOGE is used. A residual race fails one
+        // transfer rather than rebooting the bridge.
+        ESP_EARLY_LOGE(HCD_DWC_TAG, "Unexpected pipe event %d in buffer error parse; failing URB", (int)buffer->status_flags.pipe_event);
+        transfer->status = USB_TRANSFER_STATUS_ERROR;
         break;
     }
 }
