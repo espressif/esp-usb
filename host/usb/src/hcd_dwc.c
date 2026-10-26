@@ -1510,6 +1510,10 @@ static hcd_pipe_event_t _intr_hdlr_chan(pipe_t *pipe, usb_dwc_hal_chan_t *chan_o
         _buffer_done(pipe, stop_idx, HCD_PIPE_EVENT_NONE, true);
         // Parse the buffer
         _buffer_parse(pipe);
+        // Phase 2h: the commanded halt is complete and no task waits on it any more. waiting_halt
+        // must be clear afterwards: the rotor reads it as "blocked on a halt", and a stale 1 would
+        // exclude this pipe from eviction forever (and route a later yield into this branch).
+        pipe->cs_flags.waiting_halt = 0;
         // Notify the task waiting for the pipe halt
         *yield |= _internal_pipe_event_notify(pipe, true);
         break;
@@ -2567,6 +2571,7 @@ static esp_err_t _pipe_cmd_halt(pipe_t *pipe)
         // Channel is not halted, we need to request and wait for a haltWe need to wait for channel to be halted.
         pipe->cs_flags.waiting_halt = 1;
         _internal_pipe_event_wait(pipe);
+        pipe->cs_flags.waiting_halt = 0;    // Belt and braces: the ISR clears it; the wait is over either way
         // State should have been updated in the ISR
         assert(pipe->state == HCD_PIPE_STATE_HALTED);
     } else {
