@@ -649,22 +649,6 @@ static inline int _pipe_queued_xfers(const pipe_t *pipe)
  * rather than the pending queue (after a phase-2 yield), so classification
  * checks the buffer first.
  */
-/**
- * @brief Whether the pipe's next transfer is parked-SIZED, regardless of queue depth (phase 2e)
- *
- * Bulk IN with num_bytes <= PARKED_IN_MAX_XFER_BYTES. Used for the channel
- * reserve: a depth-1 first bind of a console must not take the last channels.
- */
-static inline bool _pipe_next_xfer_small_in(const pipe_t *pipe)
-{
-    if (pipe->ep_char.type != USB_DWC_XFER_TYPE_BULK ||
-            !(pipe->ep_char.bEndpointAddress & 0x80)) {
-        return false;
-    }
-    const urb_t *urb = _pipe_next_xfer_urb(pipe);
-    return (urb != NULL) && (urb->transfer.num_bytes <= PARKED_IN_MAX_XFER_BYTES(pipe->ep_char.mps));
-}
-
 static inline bool _pipe_next_xfer_parked_class(const pipe_t *pipe)
 {
     if (pipe->ep_char.type != USB_DWC_XFER_TYPE_BULK ||
@@ -747,12 +731,12 @@ static pipe_chan_bind_result_t _pipe_chan_bind_capped(pipe_t *pipe)
         return PIPE_CHAN_BIND_CAP;
     }
 #endif
-    // Channel reserve (phase 2e/2f): any parked-SIZED bulk IN bind, at any queue
-    // depth, may only take a channel while more than CONFIG_USB_HOST_PARKED_IN_CHAN_RESERVE
-    // are free. The last channels stay for non-parked transfers, because INTR
-    // allocation is static and hard-fails on exhaustion (device re-claims after a
-    // reset must find one). Free = HAL total minus allocated, read under the HCD lock.
-    if (_pipe_next_xfer_small_in(pipe) && _port_free_chans(pipe->port) <= CONFIG_USB_HOST_PARKED_IN_CHAN_RESERVE) {
+    // Channel reserve (phase 2i): a parked listener (the full profile: parked-sized AND queue
+    // depth >= 2) may only take a channel while more than CONFIG_USB_HOST_PARKED_IN_CHAN_RESERVE
+    // are free. The reserve protects static INTR allocation during claim/re-claim from steady-state
+    // parked holders. A depth-1 small read (e.g. an MSC CSW) binds freely, including into the
+    // reserve. Free = HAL total minus allocated, read under the HCD lock.
+    if (parked && _port_free_chans(pipe->port) <= CONFIG_USB_HOST_PARKED_IN_CHAN_RESERVE) {
         pipe->port->stat_reserve_refusals++;
         return PIPE_CHAN_BIND_CAP;
     }

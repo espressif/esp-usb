@@ -233,6 +233,12 @@ Changes:
   promoted on its next enqueue, and rotation corrects any excess. This is
   accepted: the bind cannot know the future queue depth.
 
+### Phase 2i: reserve narrowed back to the parked profile
+
+Bench evidence on 1f7f2f2: with three parked consoles (cap full, rotation live) storage passed on both disks. With five parked, waiters and rotation churn stalled the MSC bulk path into 30 s SCSI timeouts. `reserve_refusals` climbed by hundreds to thousands per `dd`. The 2f widening made the channel reserve gate every parked-SIZED bind, so the 13-byte CSW status read (always queue depth 1) was refused whenever free channels equalled the reserve. The status phase starved behind the reserve meant to protect it.
+
+The reserve now gates the full parked profile only: parked-sized AND queue depth >= 2, the same classification the cap uses. A depth-1 small read binds freely, including into the reserve. The depth-1 loophole that 2f closed is handled by live rotation: a depth-1 console first bind is promoted on its next enqueue and evicted within a tick or two. The reserve's real job is keeping channels available for static INTR allocation during claim and re-claim, which needs protection only from steady-state parked holders, not from transient one-shot reads. Residual: a simultaneous burst of first binds can still fill the pool transiently. Rotation converges it.
+
 ### Phase 2f: audit, reserve scope, observability
 
 Desk-check of the eviction chain (promotion -> over-cap timer start -> tick ->
