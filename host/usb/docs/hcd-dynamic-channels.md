@@ -262,6 +262,10 @@ evictions and zero waiters at five parked consoles:
   Comparing `promotions` with `parked_bound`, and `yields_req` with
   `yields_done`, shows which link of the chain stalls.
 
+### Phase 2h: waiting_halt is live
+
+`cs_flags.waiting_halt` now means "a task is currently blocked waiting for this pipe's halt". It is set when a commanded halt waits, and cleared on completion (in the ISR's commanded-halt branch and after the wait in `_pipe_cmd_halt`). Stock ESP-IDF set it and never cleared it, so its only reader was an assert. The rotor's eligibility check and the yield ISR gate depend on it being live: a stale 1 excluded every halted pipe from eviction and could route a yield into the commanded-halt branch.
+
 Still future:
 - Rotation for periodic (interrupt) pipes.
 - Fairness/priority classes for the waiter queue (e.g. EP0 first).
