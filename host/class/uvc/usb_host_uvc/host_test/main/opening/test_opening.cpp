@@ -8,6 +8,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include "usb/uvc_host.h"
+#include "esp_private/uvc_control.h" // For uvc_host_usb_ctrl()
 #include "uvc_types_priv.h" // For uvc_host_stream_s internals
 
 #include "mock_add_usb_device.h"
@@ -372,6 +373,137 @@ SCENARIO("Test mocked device URB allocation", "[opening]")
             // The driver should round up the requested URB size to the nearest multiple of MPS, which is 6120
             REQUIRE(stream->constant.xfers[0]->data_buffer_size == 2 * 3060);
             REQUIRE(ESP_OK == test_uvc_host_stream_close(stream));
+        }
+
+        REQUIRE(ESP_OK == test_uvc_host_uninstall());
+    }
+}
+
+/* A control transfer that the device never answers stays in flight in the USB Host Library
+ * after uvc_host_usb_ctrl() gives up on it. These helpers let the test decide when the library returns it. */
+static usb_transfer_t *s_inflight_ctrl_xfer = nullptr;
+static int s_device_close_count = 0;
+
+static esp_err_t _submit_control_no_response(usb_host_client_handle_t client_hdl, usb_transfer_t *transfer, int call_count)
+{
+    s_inflight_ctrl_xfer = transfer;
+    return ESP_OK; // The transfer callback is not called: the device does not respond
+}
+
+static void _return_inflight_ctrl_xfer(usb_transfer_status_t status)
+{
+    REQUIRE(s_inflight_ctrl_xfer != nullptr);
+    usb_transfer_t *transfer = s_inflight_ctrl_xfer;
+    s_inflight_ctrl_xfer = nullptr;
+    transfer->status = status;
+    transfer->actual_num_bytes = (status == USB_TRANSFER_STATUS_COMPLETED) ? transfer->num_bytes : 0;
+    transfer->callback(transfer);
+}
+
+static esp_err_t _device_close_counting_callback(usb_host_client_handle_t client_hdl, usb_device_handle_t dev_hdl, int call_count)
+{
+    s_device_close_count++;
+    return usb_host_device_close_mock_callback(client_hdl, dev_hdl, call_count);
+}
+
+static esp_err_t _send_ctrl_request(uvc_host_stream_hdl_t stream)
+{
+    // Any request will do, use SET_INTERFACE(0) with no data stage
+    return uvc_host_usb_ctrl(stream,
+                             USB_BM_REQUEST_TYPE_DIR_OUT | USB_BM_REQUEST_TYPE_TYPE_STANDARD | USB_BM_REQUEST_TYPE_RECIP_INTERFACE,
+                             USB_B_REQUEST_SET_INTERFACE, 0, stream->constant.bInterfaceNumber, 0, nullptr);
+}
+
+SCENARIO("Control transfer timeout", "[opening]")
+{
+    // We will put device adding to the SECTION, to run it just once, not repeatedly for all the following SECTIONs
+    // (if multiple sections are present)
+    SECTION("Add mocked devices") {
+        _add_mocked_devices();
+    }
+
+    SECTION("Install the UVC driver") {
+        const uvc_host_driver_config_t uvc_driver_config = {
+            .driver_task_stack_size = 4 * 1024,
+            .driver_task_priority = 10,
+            .xCoreID = tskNO_AFFINITY,
+            .create_background_task = true,
+            .event_cb = nullptr,
+            .user_ctx = nullptr,
+        };
+        REQUIRE(ESP_OK == test_uvc_host_install(&uvc_driver_config));
+
+        uvc_host_stream_config_t stream_config = {
+            .event_cb = nullptr,
+            .frame_cb = nullptr,
+            .user_ctx = nullptr,
+            .usb = {
+                .dev_addr = 1,
+                .vid = UVC_HOST_ANY_VID,
+                .pid = UVC_HOST_ANY_PID,
+                .uvc_stream_index = 0,
+            },
+            .vs_format = {
+                .h_res = 1280,
+                .v_res = 720,
+                .fps = 15,
+                .format = UVC_VS_FORMAT_MJPEG,
+            },
+            .advanced = {
+                .number_of_frame_buffers = 3,
+                .frame_size = 0,
+                .frame_heap_caps = 0,
+                .number_of_urbs = 4,
+                .urb_size = 10 * 1024,
+                .user_frame_buffers = NULL,
+            },
+        };
+
+        uvc_host_stream_hdl_t stream = nullptr;
+        REQUIRE(ESP_OK == test_uvc_host_stream_open(&stream_config, 0, &stream, true));
+        usb_host_device_close_Stub(_device_close_counting_callback);
+        s_device_close_count = 0;
+
+        // The device does not respond, uvc_host_usb_ctrl() times out while the transfer stays in flight
+        usb_host_transfer_submit_control_AddCallback(_submit_control_no_response);
+        usb_host_transfer_submit_control_ExpectAnyArgsAndReturn(ESP_OK);
+        REQUIRE(ESP_ERR_TIMEOUT == _send_ctrl_request(stream));
+
+        THEN("No control transfer is submitted until the timed out one is returned") {
+            // usb_host_transfer_submit_control() is not expected here: the CTRL transfer is still in flight
+            REQUIRE(ESP_ERR_NOT_FINISHED == _send_ctrl_request(stream));
+
+            _return_inflight_ctrl_xfer(USB_TRANSFER_STATUS_CANCELED);
+            usb_host_transfer_submit_control_AddCallback(usb_host_transfer_submit_control_success_mock_callback);
+            usb_host_transfer_submit_control_ExpectAnyArgsAndReturn(ESP_OK);
+            REQUIRE(ESP_OK == _send_ctrl_request(stream));
+
+            REQUIRE(ESP_OK == test_uvc_host_stream_close(stream));
+            REQUIRE(s_device_close_count == 1);
+        }
+
+        THEN("Late completion of the timed out transfer is not taken for completion of the next one") {
+            _return_inflight_ctrl_xfer(USB_TRANSFER_STATUS_COMPLETED);
+
+            // The device does not respond to the next request either
+            usb_host_transfer_submit_control_ExpectAnyArgsAndReturn(ESP_OK);
+            REQUIRE(ESP_ERR_TIMEOUT == _send_ctrl_request(stream));
+
+            _return_inflight_ctrl_xfer(USB_TRANSFER_STATUS_COMPLETED);
+            REQUIRE(ESP_OK == test_uvc_host_stream_close(stream));
+            REQUIRE(s_device_close_count == 1);
+        }
+
+        THEN("Device is not closed until the timed out transfer is returned") {
+            REQUIRE(ESP_OK == test_uvc_host_stream_close(stream));
+            // Closing the device now would trip the in-flight CTRL transfer check in usbh_dev_close()
+            REQUIRE(s_device_close_count == 0);
+            // The driver cannot free the CTRL transfer while the USB Host Library owns it
+            REQUIRE(ESP_ERR_NOT_FINISHED == uvc_host_uninstall());
+
+            // The USB Host Library returns the transfer, e.g. when the device is disconnected
+            _return_inflight_ctrl_xfer(USB_TRANSFER_STATUS_NO_DEVICE);
+            REQUIRE(s_device_close_count == 1);
         }
 
         REQUIRE(ESP_OK == test_uvc_host_uninstall());
