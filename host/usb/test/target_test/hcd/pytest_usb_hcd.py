@@ -77,7 +77,7 @@ def test_usb_hcd_device_mock(dut: Tuple[IdfDut, IdfDut]) -> None:
 
     tests = [
         # Device                    Host
-        ("hid_dev",                 "tinyusb_mock"),
+        ("hid_dev_mouse",           "tinyusb_mock"),
     ]
 
     for dev_test_mode, host_test_case_group in tests:

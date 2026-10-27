@@ -15,9 +15,11 @@ Some tests where the ESP (acting as host) will require that a particular test
 device acting as an HID mouse be connected. That test device's information and
 descriptors are defined in this file.
 
-The descriptors match the TinyUSB based mock HID mouse device (see mock_hid.c).
-If you are connecting a different HID mouse, please update the descriptor and
-getter functions accordingly.
+The descriptors match the TinyUSB based mock HID mouse device (see mock_hid.c):
+a composite device with 3 HID interfaces, each with its own interrupt IN
+endpoint and (report length, EP MPS) combination. If you are connecting a
+different HID mouse, please update the descriptor and getter functions
+accordingly.
 
 ------------------------------ Device Descriptor -------------------------------
 bLength                     : 0x12      (18 bytes)
@@ -38,8 +40,8 @@ bNumConfigurations          : 1
 --------------------------- Configuration Descriptor ---------------------------
 bLength                     : 0x09      (9 bytes)
 bDescriptorType             : 0x02      (Configuration Descriptor)
-wTotalLength                : 0x0022    (34 bytes)
-bNumInterfaces              : 0x01      (1 Interface)
+wTotalLength                : 0x0054    (84 bytes: 9 + 3 * (9 + 9 + 7))
+bNumInterfaces              : 0x03      (3 Interfaces)
 bConfigurationValue         : 0x01      (Configuration 1)
 iConfiguration              : 0x00      (No String Descriptor)
 bmAttributes                : 0xA0
@@ -49,14 +51,10 @@ bmAttributes                : 0xA0
  D4..0: Reserved, set 0         : 0x00
 MaxPower                    : 0x32      (100 mA)
 
-Data (HexDump)              : 09 02 22 00 01 01 00 A0 32 09 04 00 00 01 03 01
-                              02 00 09 21 11 01 00 01 22 4D 00 07 05 81 03 08
-                              00 0A
-
 ----------------------------- Interface Descriptor -----------------------------
+One per HID interface (bInterfaceNumber = 0, 1, 2):
 bLength                     : 0x09      (9 bytes)
 bDescriptorType             : 0x04      (Interface Descriptor)
-bInterfaceNumber            : 0x00
 bAlternateSetting           : 0x00
 bNumEndpoints               : 0x01      (1 Endpoint)
 bInterfaceClass             : 0x03      (HID - Human Interface Device)
@@ -65,6 +63,7 @@ bInterfaceProtocol          : 0x02      (Mouse)
 iInterface                  : 0x00      (No String Descriptor)
 
 -------------------------------- HID Descriptor --------------------------------
+One per HID interface:
 bLength                     : 0x09      (9 bytes)
 bDescriptorType             : 0x21      (HID Descriptor)
 bcdHID                      : 0x0111    (HID Version 1.11)
@@ -72,15 +71,18 @@ bCountryCode                : 0x00      (00 = not localized)
 bNumDescriptors             : 0x01
 Descriptor 1:
 bDescriptorType             : 0x22      (Class=Report)
-wDescriptorLength           : 0x004D    (77 bytes)
+wDescriptorLength           : 0x004D    (77 bytes: interface 0, 5-byte report)
+                            : 0x0034    (52 bytes: interfaces 1, 2, 4-byte report)
 
 ------------------------------ Endpoint Descriptor -----------------------------
+One per HID interface:
 bLength                     : 0x07      (7 bytes)
 bDescriptorType             : 0x05      (Endpoint Descriptor)
-bEndpointAddress            : 0x81      (Direction=IN EndpointID=1)
 bmAttributes                : 0x03      (TransferType=Interrupt)
-wMaxPacketSize              : 0x0008
 bInterval                   : 0x0A      (10 ms)
+Interface 0: bEndpointAddress : 0x81, wMaxPacketSize : 0x0008, report length 5
+Interface 1: bEndpointAddress : 0x82, wMaxPacketSize : 0x0004, report length 4
+Interface 2: bEndpointAddress : 0x83, wMaxPacketSize : 0x0005, report length 4
 
 ---------------------------- String Descriptor Manu ----------------------------
 bLength                     : 0x10      (16 bytes)
@@ -100,10 +102,10 @@ wData                       : "123456"
 
 // --------------------------- Device Information ------------------------------
 
-static const dev_hid_info_t dev_info = {
-    .bInterfaceNumber = 0x00,
-    .bAlternateSetting = 0x00,
-    .in_ep_addr = 0x81,
+static const dev_hid_info_t dev_info[DEV_HID_NUM_ITF] = {
+    {.bInterfaceNumber = 0, .bAlternateSetting = 0, .in_ep_addr = 0x81, .in_ep_mps = 8, .report_len = 5},
+    {.bInterfaceNumber = 1, .bAlternateSetting = 0, .in_ep_addr = 0x82, .in_ep_mps = 4, .report_len = 4},
+    {.bInterfaceNumber = 2, .bAlternateSetting = 0, .in_ep_addr = 0x83, .in_ep_mps = 5, .report_len = 4},
 };
 
 // ------------------------------- Descriptors ---------------------------------
@@ -128,33 +130,75 @@ static const usb_device_desc_t dev_desc = {
 static const usb_config_desc_t config_desc = {
     .bLength = USB_CONFIG_DESC_SIZE,
     .bDescriptorType = USB_B_DESCRIPTOR_TYPE_CONFIGURATION,
-    .wTotalLength = 0x0022,         // 34 bytes
-    .bNumInterfaces = 1,
+    .wTotalLength = 0x0054,         // 84 bytes (9 + 3 * (9 + 9 + 7))
+    .bNumInterfaces = DEV_HID_NUM_ITF,
     .bConfigurationValue = 1,
     .iConfiguration = 0,
     .bmAttributes = 0xA0,
     .bMaxPower = 0x32,              // 100 mA
 };
 
-static const usb_intf_desc_t intf_desc = {
-    .bLength = USB_INTF_DESC_SIZE,
-    .bDescriptorType = USB_B_DESCRIPTOR_TYPE_INTERFACE,
-    .bInterfaceNumber = 0,
-    .bAlternateSetting = 0,
-    .bNumEndpoints = 1,
-    .bInterfaceClass = USB_CLASS_HID,
-    .bInterfaceSubClass = 0x01,     // Boot Interface
-    .bInterfaceProtocol = 0x02,     // Mouse
-    .iInterface = 0,                // (No String Descriptor)
+static const usb_intf_desc_t intf_desc[DEV_HID_NUM_ITF] = {
+    {
+        .bLength = USB_INTF_DESC_SIZE,
+        .bDescriptorType = USB_B_DESCRIPTOR_TYPE_INTERFACE,
+        .bInterfaceNumber = 0,
+        .bAlternateSetting = 0,
+        .bNumEndpoints = 1,
+        .bInterfaceClass = USB_CLASS_HID,
+        .bInterfaceSubClass = 0x01,     // Boot Interface
+        .bInterfaceProtocol = 0x02,     // Mouse
+        .iInterface = 0,                // (No String Descriptor)
+    },
+    {
+        .bLength = USB_INTF_DESC_SIZE,
+        .bDescriptorType = USB_B_DESCRIPTOR_TYPE_INTERFACE,
+        .bInterfaceNumber = 1,
+        .bAlternateSetting = 0,
+        .bNumEndpoints = 1,
+        .bInterfaceClass = USB_CLASS_HID,
+        .bInterfaceSubClass = 0x01,     // Boot Interface
+        .bInterfaceProtocol = 0x02,     // Mouse
+        .iInterface = 0,                // (No String Descriptor)
+    },
+    {
+        .bLength = USB_INTF_DESC_SIZE,
+        .bDescriptorType = USB_B_DESCRIPTOR_TYPE_INTERFACE,
+        .bInterfaceNumber = 2,
+        .bAlternateSetting = 0,
+        .bNumEndpoints = 1,
+        .bInterfaceClass = USB_CLASS_HID,
+        .bInterfaceSubClass = 0x01,     // Boot Interface
+        .bInterfaceProtocol = 0x02,     // Mouse
+        .iInterface = 0,                // (No String Descriptor)
+    },
 };
 
-static const usb_ep_desc_t in_ep_desc = {
-    .bLength = USB_EP_DESC_SIZE,
-    .bDescriptorType = USB_B_DESCRIPTOR_TYPE_ENDPOINT,
-    .bEndpointAddress = 0x81,       // EP 1 IN
-    .bmAttributes = USB_BM_ATTRIBUTES_XFER_INT,
-    .wMaxPacketSize = 0x0008,
-    .bInterval = 0x0A,              // 10 ms
+static const usb_ep_desc_t in_ep_desc[DEV_HID_NUM_ITF] = {
+    {
+        .bLength = USB_EP_DESC_SIZE,
+        .bDescriptorType = USB_B_DESCRIPTOR_TYPE_ENDPOINT,
+        .bEndpointAddress = 0x81,       // EP 1 IN
+        .bmAttributes = USB_BM_ATTRIBUTES_XFER_INT,
+        .wMaxPacketSize = 0x0008,
+        .bInterval = 0x0A,              // 10 ms
+    },
+    {
+        .bLength = USB_EP_DESC_SIZE,
+        .bDescriptorType = USB_B_DESCRIPTOR_TYPE_ENDPOINT,
+        .bEndpointAddress = 0x82,       // EP 2 IN
+        .bmAttributes = USB_BM_ATTRIBUTES_XFER_INT,
+        .wMaxPacketSize = 0x0004,
+        .bInterval = 0x0A,              // 10 ms
+    },
+    {
+        .bLength = USB_EP_DESC_SIZE,
+        .bDescriptorType = USB_B_DESCRIPTOR_TYPE_ENDPOINT,
+        .bEndpointAddress = 0x83,       // EP 3 IN
+        .bmAttributes = USB_BM_ATTRIBUTES_XFER_INT,
+        .wMaxPacketSize = 0x0005,
+        .bInterval = 0x0A,              // 10 ms
+    },
 };
 
 /*
@@ -233,9 +277,9 @@ void dev_hid_init(void)
     memcpy(ptr, &str_desc_ser_data, sizeof(str_desc_ser_data));
 }
 
-const dev_hid_info_t *dev_hid_get_info(void)
+const dev_hid_info_t *dev_hid_get_info(uint8_t itf_num)
 {
-    return &dev_info;
+    return &dev_info[itf_num];
 }
 
 const usb_device_desc_t *dev_hid_get_dev_desc(usb_speed_t speed)
@@ -248,14 +292,14 @@ const usb_config_desc_t *dev_hid_get_config_desc(usb_speed_t speed)
     return &config_desc;
 }
 
-const usb_intf_desc_t *dev_hid_get_intf_desc(usb_speed_t speed)
+const usb_intf_desc_t *dev_hid_get_intf_desc(usb_speed_t speed, uint8_t itf_num)
 {
-    return &intf_desc;
+    return &intf_desc[itf_num];
 }
 
-const usb_ep_desc_t *dev_hid_get_in_ep_desc(usb_speed_t speed)
+const usb_ep_desc_t *dev_hid_get_in_ep_desc(usb_speed_t speed, uint8_t itf_num)
 {
-    return &in_ep_desc;
+    return &in_ep_desc[itf_num];
 }
 
 const usb_str_desc_t *dev_hid_get_str_desc_manu(void)
