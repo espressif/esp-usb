@@ -1285,6 +1285,7 @@ esp_err_t hub_get_parked_stats(hcd_parked_stats_t *stats)
         hcd_parked_stats_t ps;
         if (hcd_port_get_parked_stats(hdl, &ps) == ESP_OK) {
             sum.parked_bound += ps.parked_bound;
+            sum.parked_intr_bound += ps.parked_intr_bound;
             sum.rotor_active = sum.rotor_active || ps.rotor_active;
             sum.promotions += ps.promotions;
             sum.yields_req += ps.yields_req;

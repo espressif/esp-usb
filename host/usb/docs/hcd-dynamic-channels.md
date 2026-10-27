@@ -280,6 +280,38 @@ evictions and zero waiters at five parked consoles:
 
 `cs_flags.waiting_halt` now means "a task is currently blocked waiting for this pipe's halt". It is set when a commanded halt waits, and cleared on completion (in the ISR's commanded-halt branch and after the wait in `_pipe_cmd_halt`). Stock ESP-IDF set it and never cleared it, so its only reader was an assert. The rotor's eligibility check and the yield ISR gate depend on it being live: a stale 1 excluded every halted pipe from eviction and could route a yield into the commanded-halt branch.
 
+### Phase 3: parked interrupt listeners
+
+Motivation (tyeth-ai-assisted/esp-usb#13): interrupt pipes still bound a channel for life.
+At 9 devices with 3 hub chips, the roughly 12-13 static interrupt channels (per-device cdc-acm
+notification endpoints plus hub status pipes) left no headroom: 23 channel-exhaustion events
+occurred during a simultaneous claim storm, and one mass-storage interface reset-looped.
+
+Design (`CONFIG_USB_HOST_PARKED_INTR_BIND_CAP`, default 0 = feature disabled, all interrupt
+pipes static as before):
+
+- Interrupt IN pipes bind on demand, like bulk, when the option is set. Interrupt OUT and
+  isochronous pipes stay static.
+- Parked interrupt listener: an IN interrupt pipe whose next transfer is one packet
+  (num_bytes <= MPS). No queue-depth rule, because interrupt transfers run once per service
+  interval.
+- Its own bind cap (`num_parked_intr_bound`), separate from the bulk cap. It shares the channel
+  reserve with bulk parked listeners. It is a rotation victim like a bulk listener. Overrunning
+  the interrupt cap also starts the rotation tick.
+- A halt that lands while an interrupt transfer is executing is always the zero-or-all case,
+  because a single packet is atomic. The zero-progress path re-arms the interrupt descriptors
+  (`_buffer_fill_intr`) before re-execution, and the frame-list entry is released at unbind and
+  re-programmed at bind (`usb_dwc_hal_chan_set_ep_char` / `usb_dwc_hal_chan_free`, with a frame
+  list cache sync at each). The data toggle is preserved across rebinds as for bulk.
+
+Deviation, deliberate: an interrupt IN pipe whose transfer is multi-packet binds like non-parked
+bulk, uncapped and never a yield victim, and it is released when idle. It is not left static.
+
+Safety argument: hub status-change bits are latched by the hub until the host reads them. A
+listener that is rotated off the bus delays detection, but it does not lose the event, because
+the next poll returns the still-latched bits. The same holds for cdc-acm notifications that carry
+state (SERIAL_STATE). Rotation therefore changes latency, not correctness.
+
 Still future:
-- Rotation for periodic (interrupt) pipes.
+- Rotation for periodic pipes beyond single-packet listeners (multi-packet interrupt, isochronous).
 - Fairness/priority classes for the waiter queue (e.g. EP0 first).

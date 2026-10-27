@@ -76,6 +76,21 @@ menu "USB-OTG"
             binds (control, mass-storage data and status, and static INTR/ISOC
             allocation) are not affected.
 
+    config USB_HOST_PARKED_INTR_BIND_CAP
+        int "Max parked interrupt IN listeners holding channels (0 = static, feature disabled)"
+        default 0
+        range 0 16
+        help
+            Phase 3: interrupt IN pipes bind a host channel on demand instead of for life,
+            as parked listeners (cdc-acm notification endpoints, hub status pipes). A parked
+            interrupt listener is an IN interrupt pipe whose transfer is a single packet
+            (num_bytes <= MPS). At most this many hold channels concurrently; the rest queue
+            and rotate in with the bulk listeners. Interrupt pipes that do not match the
+            single-packet test bind like non-parked bulk: uncapped, never yielded, and released
+            when idle. 0 keeps every interrupt pipe statically bound, as before. Hub status
+            change bits are latched by the hub until read, so delayed polling under rotation
+            delays detection but does not lose it.
+
     choice USB_HOST_HW_BUFFER_BIAS
         prompt "Hardware FIFO size biasing"
         default USB_HOST_HW_BUFFER_BIAS_BALANCED

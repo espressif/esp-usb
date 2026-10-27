@@ -254,6 +254,7 @@ struct port_obj {
     int num_pipes_queued;
     int num_pipes_waiting_chan;
     int num_parked_bound;                   // Bound pipes counted against the parked-listener cap
+    int num_parked_intr_bound;              // Parked interrupt listeners holding channels (phase 3)
     pipe_t *yield_cursor;                   // Last parked-listener victim; rotor resumes after it (phase 2d)
     // Phase 2f observability (read via hcd_port_get_parked_stats; mutated under the HCD lock)
     uint32_t stat_promotions;
@@ -389,6 +390,7 @@ static inline bool _buffer_can_fill(pipe_t *pipe)
  */
 static void _buffer_fill(pipe_t *pipe);
 static inline void _buffer_fill_bulk(dma_buffer_block_t *buffer, usb_transfer_t *transfer, bool is_in, int mps);
+static inline void _buffer_fill_intr(dma_buffer_block_t *buffer, usb_transfer_t *transfer, bool is_in, int mps);
 
 /**
  * @brief Check if there are more filled buffers than can be executed
@@ -544,8 +546,16 @@ static inline hcd_pipe_event_t pipe_decode_error_event(usb_dwc_hal_chan_error_t 
  */
 static inline bool _pipe_uses_dynamic_chan(const pipe_t *pipe)
 {
-    return pipe->ep_char.type == USB_DWC_XFER_TYPE_CTRL ||
-           pipe->ep_char.type == USB_DWC_XFER_TYPE_BULK;
+    if (pipe->ep_char.type == USB_DWC_XFER_TYPE_CTRL || pipe->ep_char.type == USB_DWC_XFER_TYPE_BULK) {
+        return true;
+    }
+#if CONFIG_USB_HOST_PARKED_INTR_BIND_CAP > 0
+    // Phase 3: interrupt IN pipes bind on demand too (single-packet ones are capped as parked listeners)
+    if (pipe->ep_char.type == USB_DWC_XFER_TYPE_INTR && (pipe->ep_char.bEndpointAddress & 0x80)) {
+        return true;
+    }
+#endif
+    return false;
 }
 
 /**
@@ -565,6 +575,9 @@ static bool _pipe_chan_bind(pipe_t *pipe)
         return false;
     }
     usb_dwc_hal_chan_set_ep_char(pipe->port->hal, pipe->chan_obj, &pipe->ep_char);
+    if (pipe->ep_char.type == USB_DWC_XFER_TYPE_INTR) {
+        CACHE_SYNC_FRAME_LIST(pipe->port->frame_list);   // periodic schedule now holds this channel (phase 3)
+    }
     usb_dwc_hal_chan_set_pid(pipe->chan_obj, pipe->saved_pid);
     pipe->chan_bound = 1;
     return true;
@@ -581,17 +594,24 @@ static void _pipe_chan_unbind(pipe_t *pipe)
     if (!pipe->chan_bound) {
         return;
     }
-    if (pipe->ep_char.type == USB_DWC_XFER_TYPE_BULK) {
+    if (pipe->ep_char.type == USB_DWC_XFER_TYPE_BULK || pipe->ep_char.type == USB_DWC_XFER_TYPE_INTR) {
         pipe->saved_pid = (uint8_t)usb_dwc_hal_chan_get_pid(pipe->chan_obj);
     }
     usb_dwc_hal_chan_free(pipe->port->hal, pipe->chan_obj);
+    if (pipe->ep_char.type == USB_DWC_XFER_TYPE_INTR) {
+        CACHE_SYNC_FRAME_LIST(pipe->port->frame_list);   // the HAL unscheduled the channel (phase 3)
+    }
     pipe->chan_bound = 0;
     if (pipe->port->yield_cursor == pipe) {
         pipe->port->yield_cursor = NULL;    // Never leave the rotor cursor dangling (phase 2d)
     }
     if (pipe->parked_bound) {
         pipe->parked_bound = 0;
-        pipe->port->num_parked_bound--;
+        if (pipe->ep_char.type == USB_DWC_XFER_TYPE_INTR) {
+            pipe->port->num_parked_intr_bound--;
+        } else {
+            pipe->port->num_parked_bound--;
+        }
     }
 }
 
@@ -689,6 +709,11 @@ static inline bool _pipe_next_xfer_parked_class(const pipe_t *pipe)
 #else
 #define PARKED_OVER_CAP(port)   (false)
 #endif
+#if CONFIG_USB_HOST_PARKED_INTR_BIND_CAP > 0
+#define PARKED_INTR_OVER_CAP(port)  ((port)->num_parked_intr_bound > CONFIG_USB_HOST_PARKED_INTR_BIND_CAP)
+#else
+#define PARKED_INTR_OVER_CAP(port)  (false)
+#endif
 
 /**
  * @brief Promote a bound pipe to parked listener if it qualifies (critical section)
@@ -708,6 +733,26 @@ static bool _pipe_maybe_promote_parked(pipe_t *pipe)
         return PARKED_OVER_CAP(pipe->port);
     }
     return false;
+}
+
+/**
+ * @brief Whether the pipe's next transfer is a parked interrupt listener (phase 3)
+ *
+ * IN interrupt pipe whose transfer is one packet (num_bytes <= MPS). Interrupt transfers
+ * run once per service interval, so there is no queue-depth rule.
+ */
+static inline bool _pipe_next_xfer_parked_intr(const pipe_t *pipe)
+{
+#if CONFIG_USB_HOST_PARKED_INTR_BIND_CAP > 0
+    if (pipe->ep_char.type != USB_DWC_XFER_TYPE_INTR || !(pipe->ep_char.bEndpointAddress & 0x80)) {
+        return false;
+    }
+    const urb_t *urb = _pipe_next_xfer_urb(pipe);
+    return (urb != NULL) && (urb->transfer.num_bytes <= pipe->ep_char.mps);
+#else
+    (void)pipe;
+    return false;
+#endif
 }
 
 /**
@@ -734,26 +779,34 @@ static pipe_chan_bind_result_t _pipe_chan_bind_capped(pipe_t *pipe)
         return PIPE_CHAN_BIND_OK;
     }
     // parked_bound is always clear here (unbind clears it), so classification is the next-transfer test
-    const bool parked = _pipe_next_xfer_parked_class(pipe);
+    const bool parked_bulk = _pipe_next_xfer_parked_class(pipe);
+    const bool parked_intr = _pipe_next_xfer_parked_intr(pipe);
 #if CONFIG_USB_HOST_PARKED_IN_BIND_CAP > 0
-    if (parked && pipe->port->num_parked_bound >= CONFIG_USB_HOST_PARKED_IN_BIND_CAP) {
+    if (parked_bulk && pipe->port->num_parked_bound >= CONFIG_USB_HOST_PARKED_IN_BIND_CAP) {
         pipe->port->stat_cap_refusals++;
         return PIPE_CHAN_BIND_CAP;
     }
 #endif
-    // Channel reserve (phase 2i): a parked listener (the full profile: parked-sized AND queue
-    // depth >= 2) may only take a channel while more than CONFIG_USB_HOST_PARKED_IN_CHAN_RESERVE
-    // are free. The reserve protects static INTR allocation during claim/re-claim from steady-state
-    // parked holders. A depth-1 small read (e.g. an MSC CSW) binds freely, including into the
-    // reserve. Free = HAL total minus allocated, read under the HCD lock.
-    if (parked && _port_free_chans(pipe->port) <= CONFIG_USB_HOST_PARKED_IN_CHAN_RESERVE) {
+#if CONFIG_USB_HOST_PARKED_INTR_BIND_CAP > 0
+    if (parked_intr && pipe->port->num_parked_intr_bound >= CONFIG_USB_HOST_PARKED_INTR_BIND_CAP) {
+        pipe->port->stat_cap_refusals++;
+        return PIPE_CHAN_BIND_CAP;
+    }
+#endif
+    // Channel reserve (phase 2i/3): parked listeners of either kind may only take a channel while
+    // more than CONFIG_USB_HOST_PARKED_IN_CHAN_RESERVE are free, so static INTR allocation during a
+    // claim keeps headroom. Non-parked binds may use the reserve.
+    if ((parked_bulk || parked_intr) && _port_free_chans(pipe->port) <= CONFIG_USB_HOST_PARKED_IN_CHAN_RESERVE) {
         pipe->port->stat_reserve_refusals++;
         return PIPE_CHAN_BIND_CAP;
     }
     if (!_pipe_chan_bind(pipe)) {
         return PIPE_CHAN_BIND_NO_CHAN;
     }
-    if (parked) {
+    if (parked_intr) {
+        pipe->parked_bound = 1;
+        pipe->port->num_parked_intr_bound++;
+    } else if (parked_bulk) {
         pipe->parked_bound = 1;
         pipe->port->num_parked_bound++;
     }
@@ -878,7 +931,7 @@ static void _port_request_chan_yield(port_t *port)
             const dma_buffer_block_t *buf = p->buffers[p->multi_buffer_control.rd_idx];
             if (buf->urb == NULL) {
                 ROTOR_REJECT(stat_rej_urb_null);
-            } else if (p->ep_char.type != USB_DWC_XFER_TYPE_BULK
+            } else if ((p->ep_char.type != USB_DWC_XFER_TYPE_BULK && p->ep_char.type != USB_DWC_XFER_TYPE_INTR)
                        || !(p->ep_char.bEndpointAddress & USB_B_ENDPOINT_ADDRESS_EP_DIR_MASK)
                        || buf->urb->transfer.num_bytes > PARKED_IN_MAX_XFER_BYTES(p->ep_char.mps)) {
                 ROTOR_REJECT(stat_rej_too_big);
@@ -943,7 +996,7 @@ static void _port_rotate_timer_cb(void *arg)
             break;
         }
     }
-    if ((have_waiter || PARKED_OVER_CAP(port)) && !bulk_busy) {
+    if ((have_waiter || PARKED_OVER_CAP(port) || PARKED_INTR_OVER_CAP(port)) && !bulk_busy) {
         _port_request_chan_yield(port);     // the only yield source: at most one per tick
     }
     // Phase 2f: the tick no longer stops itself. Stopping an esp_timer from
@@ -1459,7 +1512,7 @@ static hcd_pipe_event_t _intr_hdlr_chan(pipe_t *pipe, usb_dwc_hal_chan_t *chan_o
                 // land, so the count is a multiple of MPS (bulk IN buffers
                 // are filled as a single QTD covering the whole transfer).
                 int received = 0;
-                if (buf->urb != NULL) {
+                if (buf->urb != NULL && pipe->ep_char.type == USB_DWC_XFER_TYPE_BULK) {
                     CACHE_SYNC_XFER_DESCRIPTOR_LIST_M2C(buf);
                     usb_dwc_ll_dma_qtd_t *qtd = &((usb_dwc_ll_dma_qtd_t *)buf->xfer_desc_list)[0];
                     const int rem_len = (int)qtd->in_non_iso.xfer_size;
@@ -1495,7 +1548,11 @@ static hcd_pipe_event_t _intr_hdlr_chan(pipe_t *pipe, usb_dwc_hal_chan_t *chan_o
                     // transfer on rebind, keeping the preserved toggle.
                     assert(buf->urb != NULL);
                     const bool is_in = pipe->ep_char.bEndpointAddress & USB_B_ENDPOINT_ADDRESS_EP_DIR_MASK;
-                    _buffer_fill_bulk(buf, &buf->urb->transfer, is_in, pipe->ep_char.mps);
+                    if (pipe->ep_char.type == USB_DWC_XFER_TYPE_INTR) {
+                        _buffer_fill_intr(buf, &buf->urb->transfer, is_in, pipe->ep_char.mps);
+                    } else {
+                        _buffer_fill_bulk(buf, &buf->urb->transfer, is_in, pipe->ep_char.mps);
+                    }
                     CACHE_SYNC_XFER_DESCRIPTOR_LIST_C2M(buf);
                     buf->status_flags.executing = 0;
                     pipe->multi_buffer_control.buffer_is_executing = 0;
@@ -2268,6 +2325,7 @@ esp_err_t hcd_port_get_parked_stats(hcd_port_handle_t port_hdl, hcd_parked_stats
     HCD_CHECK(port_hdl != NULL && stats != NULL, ESP_ERR_INVALID_ARG);
     HCD_ENTER_CRITICAL();
     stats->parked_bound = port->num_parked_bound;
+    stats->parked_intr_bound = port->num_parked_intr_bound;
     stats->promotions = port->stat_promotions;
     stats->yields_req = port->stat_yields_req;
     stats->yields_done = port->stat_yields_done;
@@ -2784,7 +2842,7 @@ esp_err_t hcd_pipe_alloc(hcd_port_handle_t port_hdl, const hcd_pipe_config_t *pi
         ret = ESP_ERR_INVALID_STATE;
         goto err;
     }
-    if (type == USB_TRANSFER_TYPE_INTR || type == USB_TRANSFER_TYPE_ISOCHRONOUS) {
+    if (!_pipe_uses_dynamic_chan(pipe) && (type == USB_TRANSFER_TYPE_INTR || type == USB_TRANSFER_TYPE_ISOCHRONOUS)) {
         bool chan_allocated = usb_dwc_hal_chan_alloc(port->hal, pipe->chan_obj, (void *) pipe);
         if (!chan_allocated) {
             HCD_EXIT_CRITICAL();

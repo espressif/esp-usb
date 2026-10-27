@@ -850,6 +850,7 @@ esp_err_t usb_host_parked_stats(usb_host_parked_stats_t *stats)
         return err;
     }
     stats->parked_bound = s.parked_bound;
+    stats->parked_intr_bound = s.parked_intr_bound;
     stats->rotor_active = s.rotor_active;
     stats->promotions = s.promotions;
     stats->yields_req = s.yields_req;

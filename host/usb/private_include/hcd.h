@@ -303,6 +303,7 @@ esp_err_t hcd_port_get_channel_waiters(hcd_port_handle_t port_hdl, int *waiters)
  */
 typedef struct {
     int parked_bound;           // Parked bulk IN listeners currently holding channels
+    int parked_intr_bound;      // Parked interrupt IN listeners currently holding channels (phase 3)
     bool rotor_active;          // Rotation tick running
     uint32_t promotions;        // Pipes promoted to parked listener
     uint32_t yields_req;        // Yield halts requested (victim found)

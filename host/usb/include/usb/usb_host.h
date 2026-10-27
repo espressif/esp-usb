@@ -282,6 +282,7 @@ esp_err_t usb_host_debug_arm_ep0_dump(uint8_t dev_addr, int count);
  */
 typedef struct {
     int parked_bound;           // Parked listeners currently holding channels
+    int parked_intr_bound;      // Parked interrupt listeners currently holding channels (phase 3)
     bool rotor_active;          // Rotation tick running
     uint32_t promotions;        // Pipes promoted to parked listener
     uint32_t yields_req;        // Yield halts requested
