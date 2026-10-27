@@ -45,6 +45,7 @@ SCENARIO("Test mocked device opening and closing")
         usb_host_get_active_config_descriptor_Stub(usb_host_get_active_config_descriptor_mock_callback);
         usb_host_transfer_alloc_Stub(usb_host_transfer_alloc_mock_callback);
         usb_host_transfer_free_Stub(usb_host_transfer_free_mock_callback);
+        usb_host_transfer_submit_control_Stub(usb_host_transfer_submit_control_success_mock_callback);
         usb_host_device_info_Stub(usb_host_device_info_mock_callback);
 
         cdc_acm_dev_hdl_t dev = nullptr;

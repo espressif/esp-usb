@@ -31,11 +31,17 @@
 typedef struct cdc_dev_s cdc_dev_t;
 struct cdc_dev_s {
     cdc_acm_intf_t intf_func;             // CDC interface function table
-    cdc_host_common_port_handle_t common_port; // Common CDC host port
+    cdc_host_common_port_handle_t common_port; // Owned until explicit close, including after disconnect
+    unsigned references;                // Explicit owner and active callbacks, protected by the ACM spinlock
+    bool opening;                       // Open owns cleanup until the handle is published
+    bool disconnected;
+    bool closing;
     struct {
+        usb_intf_desc_t desc;
         const usb_intf_desc_t *intf_desc; // Compatibility field for VCP drivers that issue vendor requests on the data interface
     } data;
     struct {
+        usb_intf_desc_t desc;
         const usb_intf_desc_t *intf_desc; // Compatibility field for VCP drivers that issue vendor requests on the notification interface
     } notif;
     cdc_acm_data_callback_t in_cb;       // User's callback for async (non-blocking) data IN
@@ -44,3 +50,6 @@ struct cdc_dev_s {
     cdc_acm_uart_state_t serial_state;    // Serial State
     SLIST_ENTRY(cdc_dev_s) list_entry;
 };
+
+// Return NULL after disconnect or once close starts.
+cdc_host_common_port_handle_t cdc_acm_common_port_get(cdc_dev_t *cdc_dev);

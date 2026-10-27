@@ -39,8 +39,8 @@ static const char *TAG = "cdc_acm_compliant";
  */
 static esp_err_t send_cdc_request(cdc_dev_t *cdc_dev, bool in_transfer, cdc_request_code_t request, uint8_t *data, uint16_t data_len, uint16_t value)
 {
-    const usb_intf_desc_t *notif_intf = NULL;
-    ESP_RETURN_ON_ERROR(cdc_host_common_get_intf_desc(cdc_dev->common_port, &notif_intf, NULL), TAG, "Failed to get CDC interface descriptors");
+    CDC_ACM_CHECK(cdc_acm_common_port_get(cdc_dev), ESP_ERR_INVALID_STATE);
+    const usb_intf_desc_t *notif_intf = cdc_dev->notif.intf_desc;
     CDC_ACM_CHECK(notif_intf, ESP_ERR_NOT_SUPPORTED);
 
     uint8_t req_type = USB_BM_REQUEST_TYPE_TYPE_CLASS | USB_BM_REQUEST_TYPE_RECIP_INTERFACE;

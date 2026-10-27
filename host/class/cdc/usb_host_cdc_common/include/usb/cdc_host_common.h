@@ -121,6 +121,8 @@ typedef struct {
 /**
  * @brief BULK IN data callback.
  *
+ * Runs on the driver task. It may close the port, but must not block waiting for driver work.
+ *
  * @param[in] port     Port that produced the data.
  * @param[in] data     Received bytes, valid only during the callback.
  * @param[in] data_len Length of `data` in bytes.
@@ -132,6 +134,9 @@ typedef bool (*cdc_host_common_data_cb_t)(cdc_host_common_port_handle_t port, co
 
 /**
  * @brief Port-level event callback.
+ *
+ * Runs on the driver task. It may close the port, but must not block waiting for driver work.
+ * DISCONNECTED stops I/O; the application must still call close to release the handle.
  *
  * @param[in] port     Port the event belongs to.
  * @param[in] event    Event payload, valid only during the callback.
@@ -187,14 +192,15 @@ esp_err_t cdc_host_common_acquire(const cdc_host_common_driver_config_t *config,
  * @brief Release a reference to the common CDC host driver.
  *
  * When the refcount reaches zero all remaining device-event callbacks are unregistered, the client task is
- * torn down and the driver is freed. All ports must be closed before the last release.
+ * torn down and the driver is freed. All ports, including disconnected handles, must be explicitly closed.
+ * Waits for pending closes and client callbacks to finish; must not be called from a driver callback.
  *
  * @param[in] driver Driver handle from @ref cdc_host_common_acquire.
  * @return
  *      - ESP_OK on success
  *      - ESP_ERR_INVALID_ARG if `driver` is NULL or does not refer to the active driver instance
- *      - ESP_ERR_INVALID_STATE if any port is still open
- *      - ESP_ERR_NOT_FINISHED if the client task does not tear down in time (the refcount is restored)
+ *      - ESP_ERR_INVALID_STATE if any port has not been closed or this is called from a driver callback
+ *      - ESP_ERR_TIMEOUT if a pending close does not finish; the driver reference is retained
  */
 esp_err_t cdc_host_common_release(cdc_host_common_driver_handle_t driver);
 
@@ -232,8 +238,10 @@ esp_err_t cdc_host_common_unregister_dev_event_cb(cdc_host_common_dev_event_cb_h
  * @brief Open a CDC (or CDC-like) interface on a USB device.
  *
  * Waits up to `connection_timeout_ms` for a device matching `vid`/`pid`/`dev_addr`, parses the requested
- * interface, allocates transfers and ring buffers, claims the interface(s) and starts BULK IN / interrupt IN
- * polling. Falls back to a two-bulk-endpoint vendor-specific layout when the CDC descriptors are not present.
+ * interface, allocates transfers and ring buffers, claims the interface(s), resets their bulk/interrupt endpoint
+ * data toggles via CLEAR_FEATURE(ENDPOINT_HALT), then starts BULK IN / interrupt IN polling. Falls back to a two-bulk-endpoint vendor-specific layout when the CDC descriptors are not present.
+ *
+ * @note Must not be called from driver callbacks; endpoint synchronization waits for the driver task.
  *
  * @param[in]  driver      Driver handle from @ref cdc_host_common_acquire.
  * @param[in]  open_config Open configuration. Must not be NULL.
@@ -241,10 +249,10 @@ esp_err_t cdc_host_common_unregister_dev_event_cb(cdc_host_common_dev_event_cb_h
  * @return
  *      - ESP_OK on success
  *      - ESP_ERR_INVALID_ARG if any required argument is NULL, or if a TX ring buffer is requested without BULK OUT
- *      - ESP_ERR_INVALID_STATE if the interface is already opened on this device
+ *      - ESP_ERR_INVALID_STATE if the interface is already opened or this is called from the driver task
  *      - ESP_ERR_NO_MEM if port, ring buffers or transfers cannot be allocated
  *      - ESP_ERR_NOT_FOUND if no matching device appears before the timeout
- *      - Other error codes from descriptor queries, CDC parsing or USB Host interface claim
+ *      - Other error codes from descriptor queries, CDC parsing, interface claim or endpoint synchronization
  */
 esp_err_t cdc_host_common_open(cdc_host_common_driver_handle_t driver, const cdc_host_common_open_config_t *open_config,
                                cdc_host_common_port_handle_t *port_ret);
@@ -252,15 +260,31 @@ esp_err_t cdc_host_common_open(cdc_host_common_driver_handle_t driver, const cdc
 /**
  * @brief Close a previously opened CDC port.
  *
- * Cancels in-flight transfers, releases claimed interfaces and frees port resources. Calling this on a port
- * that is already closing (for example after a disconnect event) succeeds immediately.
+ * Cancels in-flight transfers and waits for callbacks and active I/O calls before releasing resources.
+ * From a driver callback, requests close and defers resource release until the callback returns.
+ * A disconnected port retains its handle until this function is called; other APIs return ESP_ERR_INVALID_STATE.
+ * Callers must serialize close calls and must not use the handle after successful close.
+ * On timeout, the stopped handle remains owned by the caller and close can be retried after pending I/O completes.
  *
  * @param[in] port Port handle from @ref cdc_host_common_open.
  * @return
  *      - ESP_OK on success
  *      - ESP_ERR_INVALID_ARG if `port` is NULL / already fully closed, or if the driver is not acquired
+ *      - ESP_ERR_TIMEOUT if pending I/O or resource release does not finish; the handle remains valid for retry
  */
 esp_err_t cdc_host_common_close(cdc_host_common_port_handle_t port);
+
+/**
+ * @brief Request close without waiting for pending I/O or callbacks.
+ *
+ * On success, ownership transfers to the driver and the caller must not use the handle again.
+ * Resource release completes on the driver task; the last driver release waits for pending closes.
+ * Already dispatched callbacks may still execute after return; the caller must protect their user_arg lifetime.
+ *
+ * @param[in] port Port handle from @ref cdc_host_common_open.
+ * @return ESP_OK on success; ESP_ERR_INVALID_ARG for an invalid port or inactive driver.
+ */
+esp_err_t cdc_host_common_close_async(cdc_host_common_port_handle_t port);
 
 /**
  * @brief Write data to the port.
@@ -350,7 +374,7 @@ esp_err_t cdc_host_common_get_rx_buffer_size(cdc_host_common_port_handle_t port,
  *      - ESP_ERR_INVALID_STATE if the underlying USB device is not open
  *      - ESP_ERR_INVALID_SIZE if `wLength` exceeds the configured control buffer size
  *      - ESP_ERR_TIMEOUT if the control mutex or the transfer times out
- *      - ESP_ERR_INVALID_RESPONSE on non-`COMPLETED` transfer status
+ *      - ESP_ERR_INVALID_RESPONSE on non-`COMPLETED` status or a transfer length different from the request
  *      - Other error codes from USB control transfer submission
  */
 esp_err_t cdc_host_common_send_control(cdc_host_common_port_handle_t port, uint8_t bmRequestType, uint8_t bRequest, uint16_t wValue,
@@ -380,7 +404,8 @@ esp_err_t cdc_host_common_get_dev_handle(cdc_host_common_port_handle_t port, usb
 /**
  * @brief Get the CDC notification and data interface descriptors. Either output pointer may be NULL to skip that value.
  *
- * `*notif_intf` is set to NULL when the port has no separate notification interface (e.g. two-bulk vendor devices).
+ * `*notif_intf` is set to NULL when no notification interface exists (e.g. two-bulk vendor devices).
+ * Returned descriptors are owned by the port and remain valid until explicit close, including after disconnect.
  *
  * @param[in]  port       Port handle from @ref cdc_host_common_open.
  * @param[out] notif_intf Returned notification interface descriptor, or NULL to ignore.

@@ -177,6 +177,7 @@ void common_port_event_cb(cdc_host_common_port_handle_t port, const cdc_host_com
         break;
     case CDC_HOST_COMMON_PORT_EVENT_DISCONNECTED:
         ESP_LOGI(TAG, "CDC port disconnected: %p", port);
+        ESP_ERROR_CHECK(cdc_host_common_close(port));
         if (test_port1 == port) {
             test_port1 = NULL;
         }
@@ -495,7 +496,7 @@ TEST_CASE("cdc_common_close_idempotent_during_disconnect", "[cdc_common][auto][c
     TEST_ASSERT_TRUE_MESSAGE(idempotent_close_seen, "DISCONNECTED cb did not run");
     TEST_ASSERT_EQUAL_MESSAGE(ESP_OK, idempotent_close_ret,
                               "Re-entrant close during DISCONNECTED must be idempotent");
-    // common layer freed the port right after cb returned; the callback clears it.
+    // The callback requested close and cleared the handle; release waits for cleanup.
     TEST_ASSERT_NULL(test_port1);
 
     // Restore power for subsequent tests.

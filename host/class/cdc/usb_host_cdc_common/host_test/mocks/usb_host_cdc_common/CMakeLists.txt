@@ -17,3 +17,6 @@ idf_component_mock(INCLUDE_DIRS "${original_common_dir}/include"
                                 "${original_common_dir}/private_include"
                    MOCK_HEADER_FILES "${original_common_dir}/include/usb/cdc_host_common.h"
                    REQUIRES usb freertos)
+
+# Exercise the real parser while mocking the common driver's runtime API.
+target_sources(${COMPONENT_LIB} PRIVATE "${original_common_dir}/cdc_host_descriptor_parsing.c")

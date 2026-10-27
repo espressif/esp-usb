@@ -7,14 +7,102 @@
 #include <stdio.h>
 #include <string.h>
 #include <unordered_map>
+#include <vector>
+#include <mutex>
 #include <catch2/catch_test_macros.hpp>
 #include "usb/cdc_acm_host.h"
 #include "mock_add_usb_device.h"
 #include "common_test_fixtures.hpp"
 #include "cdc_host_descriptor_parsing.h"
+#include "usb_helpers.h"
 
 extern "C" {
 #include "Mockusb_host.h"
+}
+
+static std::mutex transfer_mutex;
+static std::vector<usb_transfer_t *> pending_transfers;
+static std::vector<usb_transfer_t *> completed_transfers;
+static usb_host_client_handle_t mock_client;
+static usb_transfer_t *timed_out_control;
+static SemaphoreHandle_t control_completed;
+static mock_usb_transfer_response_t tx_response;
+
+static esp_err_t register_client(const usb_host_client_config_t *config, usb_host_client_handle_t *client, int calls)
+{
+    esp_err_t ret = usb_host_client_register_mock_callback(config, client, calls);
+    mock_client = *client;
+    return ret;
+}
+
+static esp_err_t handle_events(usb_host_client_handle_t client, TickType_t wait, int calls)
+{
+    esp_err_t ret = usb_host_client_handle_events_mock_callback(client, wait, calls);
+    std::vector<usb_transfer_t *> completed;
+    {
+        std::lock_guard<std::mutex> lock(transfer_mutex);
+        completed.swap(completed_transfers);
+    }
+    for (auto *transfer : completed) {
+        transfer->status = USB_TRANSFER_STATUS_CANCELED;
+        transfer->actual_num_bytes = 0;
+        transfer->callback(transfer);
+        if (transfer == timed_out_control) {
+            xSemaphoreGive(control_completed);
+        }
+    }
+    return ret;
+}
+
+static esp_err_t submit_transfer(usb_transfer_t *transfer, int)
+{
+    if ((transfer->bEndpointAddress & USB_B_ENDPOINT_ADDRESS_EP_DIR_MASK) || tx_response == MOCK_USB_TRANSFER_TIMEOUT) {
+        std::lock_guard<std::mutex> lock(transfer_mutex);
+        pending_transfers.push_back(transfer);
+        return ESP_OK;
+    }
+    transfer->status = tx_response == MOCK_USB_TRANSFER_SUCCESS ? USB_TRANSFER_STATUS_COMPLETED : USB_TRANSFER_STATUS_ERROR;
+    transfer->actual_num_bytes = tx_response == MOCK_USB_TRANSFER_SUCCESS ? transfer->num_bytes : 0;
+    transfer->callback(transfer);
+    return ESP_OK;
+}
+
+static esp_err_t flush_endpoint(usb_device_handle_t device, uint8_t endpoint, int)
+{
+    {
+        std::lock_guard<std::mutex> lock(transfer_mutex);
+        for (auto it = pending_transfers.begin(); it != pending_transfers.end();) {
+            if ((*it)->device_handle == device && (*it)->bEndpointAddress == endpoint) {
+                completed_transfers.push_back(*it);
+                it = pending_transfers.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    }
+    return usb_host_client_unblock_mock_callback(mock_client, 0);
+}
+
+esp_err_t test_cdc_control_timeout(usb_host_client_handle_t, usb_transfer_t *transfer, int)
+{
+    timed_out_control = transfer;
+    return ESP_OK;
+}
+
+void test_cdc_complete_control_timeout(void)
+{
+    // Deliver the late USB completion before reusing the timed-out control transfer.
+    control_completed = xSemaphoreCreateBinary();
+    REQUIRE(control_completed != nullptr);
+    {
+        std::lock_guard<std::mutex> lock(transfer_mutex);
+        completed_transfers.push_back(timed_out_control);
+    }
+    usb_host_client_unblock_mock_callback(mock_client, 0);
+    REQUIRE(xSemaphoreTake(control_completed, pdMS_TO_TICKS(1000)) == pdTRUE);
+    vSemaphoreDelete(control_completed);
+    control_completed = nullptr;
+    timed_out_control = nullptr;
 }
 
 /**
@@ -28,14 +116,15 @@ extern "C" {
  * Different device could have CTRL, IN, OUT and NOTIF, thus we must expect those mocked functions exactly 4 times
  */
 typedef struct {
+    unsigned reset_count;
     struct {
-        usb_transfer_t *out_xfer;
-        usb_transfer_t *in_xfer;
+        bool has_out;
+        bool has_in;
         uint8_t in_bEndpointAddress;
         uint8_t out_bEndpointAddress;
     } data;
     struct {
-        usb_transfer_t *xfer;
+        bool has_xfer;
         uint8_t bEndpointAddress;
         bool has_separate_interface;
     } notif;
@@ -109,7 +198,6 @@ static esp_err_t _test_create_cmock_expectations(uint8_t dev_address, uint8_t in
     }
     *out_expects = cdc_dev_expects;
 
-    int notif_xfer, data_in_xfer, data_out_xfer;
     const usb_config_desc_t *config_desc;
     const usb_device_desc_t *device_desc;
     cdc_parsed_info_t cdc_info;
@@ -124,39 +212,58 @@ static esp_err_t _test_create_cmock_expectations(uint8_t dev_address, uint8_t in
     // Get notification endpoint address and check if notification transfer is allocated (if notif. EP exists)
     if (cdc_info.notif_ep) {
         cdc_dev_expects->notif.bEndpointAddress = cdc_info.notif_ep->bEndpointAddress;
-        cdc_dev_expects->notif.xfer = reinterpret_cast<usb_transfer_t *>(&notif_xfer);
+        cdc_dev_expects->notif.has_xfer = true;
         if (cdc_info.notif_intf != cdc_info.data_intf) {
             cdc_dev_expects->notif.has_separate_interface = true;
         }
     } else {
         cdc_dev_expects->notif.bEndpointAddress = 0;
-        cdc_dev_expects->notif.xfer = nullptr;
+        cdc_dev_expects->notif.has_xfer = false;
     }
 
     // Check, if IN data transfer is allocated
     if (dev_config->in_buffer_size) {
-        cdc_dev_expects->data.in_xfer = reinterpret_cast<usb_transfer_t *>(&data_in_xfer);
+        cdc_dev_expects->data.has_in = true;
     } else {
-        cdc_dev_expects->data.in_xfer = nullptr;
+        cdc_dev_expects->data.has_in = false;
     }
 
     // Check if OUT data transfer is allocated
     if (dev_config->out_buffer_size) {
-        cdc_dev_expects->data.out_xfer = reinterpret_cast<usb_transfer_t *>(&data_out_xfer);
+        cdc_dev_expects->data.has_out = true;
     } else {
-        cdc_dev_expects->data.out_xfer = nullptr;
+        cdc_dev_expects->data.has_out = false;
     }
 
+    for (const usb_intf_desc_t *intf : {
+                cdc_info.data_intf, cdc_info.notif_intf != cdc_info.data_intf ? cdc_info.notif_intf : nullptr
+            }) {
+        if (!intf) {
+            continue;
+        }
+        for (int i = 0; i < intf->bNumEndpoints; ++i) {
+            int offset = reinterpret_cast<const uint8_t *>(intf) - reinterpret_cast<const uint8_t *>(config_desc);
+            const auto *ep = usb_parse_endpoint_descriptor_by_index(intf, i, config_desc->wTotalLength, &offset);
+            REQUIRE(ep != nullptr);
+            cdc_dev_expects->reset_count += USB_EP_DESC_GET_XFERTYPE(ep) == USB_TRANSFER_TYPE_BULK || USB_EP_DESC_GET_XFERTYPE(ep) == USB_TRANSFER_TYPE_INTR;
+        }
+    }
+    free(cdc_info.func);
     return ESP_OK;
 }
 
 esp_err_t test_cdc_acm_host_install(const cdc_acm_host_driver_config_t *driver_config)
 {
     usb_host_client_register_ExpectAnyArgsAndReturn(ESP_OK);
-    usb_host_client_register_AddCallback(usb_host_client_register_mock_callback);
-
-    usb_host_client_handle_events_ExpectAnyArgsAndReturn(ESP_OK);
-    usb_host_client_handle_events_AddCallback(usb_host_client_handle_events_mock_callback);
+    usb_host_client_register_AddCallback(register_client);
+    usb_host_client_handle_events_Stub(handle_events);
+    usb_host_client_unblock_Stub(usb_host_client_unblock_mock_callback);
+    usb_host_transfer_submit_AddCallback(submit_transfer);
+    usb_host_endpoint_flush_AddCallback(flush_endpoint);
+    pending_transfers.clear();
+    completed_transfers.clear();
+    timed_out_control = nullptr;
+    tx_response = MOCK_USB_TRANSFER_SUCCESS;
 
     // Call the real function cdc_acm_host_install()
     return cdc_acm_host_install(driver_config);
@@ -164,9 +271,6 @@ esp_err_t test_cdc_acm_host_install(const cdc_acm_host_driver_config_t *driver_c
 
 esp_err_t test_cdc_acm_host_uninstall(void)
 {
-    usb_host_client_unblock_ExpectAnyArgsAndReturn(ESP_OK);
-    usb_host_client_unblock_AddCallback(usb_host_client_unblock_mock_callback);
-
     usb_host_client_deregister_ExpectAnyArgsAndReturn(ESP_OK);
     usb_host_client_deregister_AddCallback(usb_host_client_deregister_mock_callback);
 
@@ -201,13 +305,14 @@ esp_err_t test_cdc_acm_host_open(uint8_t dev_address, uint16_t vid, uint16_t pid
     usb_host_device_open_AddCallback(usb_host_device_open_mock_callback);
     usb_host_device_close_AddCallback(usb_host_device_close_mock_callback);
 
-    // Setup control transfer
-    usb_host_transfer_alloc_ExpectAnyArgsAndReturn(ESP_OK);
-
     // Setup Notif transfer
-    if (cdc_dev_expects->notif.xfer) {
+    if (cdc_dev_expects->notif.has_xfer) {
         usb_host_transfer_alloc_ExpectAnyArgsAndReturn(ESP_OK);
     }
+
+    // The 64-byte payload and 8-byte setup packet share the control transfer allocation.
+    usb_host_transfer_alloc_ExpectAndReturn(64 + USB_SETUP_PACKET_SIZE, 0, nullptr, ESP_OK);
+    usb_host_transfer_alloc_IgnoreArg_transfer();
 
     //  Setup IN data transfer
     if (dev_config->in_buffer_size) {
@@ -232,10 +337,16 @@ esp_err_t test_cdc_acm_host_open(uint8_t dev_address, uint16_t vid, uint16_t pid
     // Claim 2nd interface (if supported)
     if (cdc_dev_expects->notif.has_separate_interface) {
         test_usb_host_interface_claim(interface_index + 1, sep_notif);
-    } else if (cdc_dev_expects->notif.xfer) {
+    } else if (cdc_dev_expects->notif.has_xfer) {
         // If the device has no separate interface, but has notification endpoint
         usb_host_transfer_submit_ExpectAnyArgsAndReturn(ESP_OK);
     }
+
+    // Opening synchronizes every claimed endpoint before polling starts.
+    for (unsigned i = 0; i < cdc_dev_expects->reset_count; i++) {
+        usb_host_transfer_submit_control_ExpectAnyArgsAndReturn(ESP_OK);
+    }
+    usb_host_transfer_submit_control_AddCallback(usb_host_transfer_submit_control_success_mock_callback);
 
     // Call the real function cdc_acm_host_open
     // Expect ESP_OK and dev_hdl non nullptr
@@ -262,12 +373,12 @@ esp_err_t test_cdc_acm_host_close(cdc_acm_dev_hdl_t *cdc_hdl, uint8_t interface_
     test_cdc_acm_reset_transfer_endpoint(exp->data.in_bEndpointAddress);
 
     // Cancel OUT endpoint -> halt, flush, clear
-    if (exp->data.out_xfer) {
+    if (exp->data.has_out) {
         test_cdc_acm_reset_transfer_endpoint(exp->data.out_bEndpointAddress);
     }
 
     // Cancel pooling of Notification endpoint -> halt, flush, clear
-    if (exp->notif.xfer) {
+    if (exp->notif.has_xfer) {
         test_cdc_acm_reset_transfer_endpoint(exp->notif.bEndpointAddress);
     }
 
@@ -283,17 +394,17 @@ esp_err_t test_cdc_acm_host_close(cdc_acm_dev_hdl_t *cdc_hdl, uint8_t interface_
 
 
     // Free notif transfer
-    if (exp->notif.xfer) {
+    if (exp->notif.has_xfer) {
         usb_host_transfer_free_ExpectAnyArgsAndReturn(ESP_OK);
     }
 
     // Free in transfer
-    if (exp->data.in_xfer) {
+    if (exp->data.has_in) {
         usb_host_transfer_free_ExpectAnyArgsAndReturn(ESP_OK);
     }
 
     // Free out transfer
-    if (exp->data.out_xfer) {
+    if (exp->data.has_out) {
         usb_host_transfer_free_ExpectAnyArgsAndReturn(ESP_OK);
     }
 
@@ -321,26 +432,9 @@ esp_err_t test_cdc_acm_host_data_tx_blocking(cdc_acm_dev_hdl_t cdc_hdl, const ui
 
     usb_host_transfer_submit_ExpectAnyArgsAndReturn(ESP_OK);
 
-    switch (transfer_response) {
-    case MOCK_USB_TRANSFER_SUCCESS: {
-        // Make the submitted transfer to pass
-        usb_host_transfer_submit_AddCallback(usb_host_transfer_submit_success_mock_callback);
-        break;
-    }
-    case MOCK_USB_TRANSFER_ERROR: {
-        // Make the submitted transfer to fail
-        usb_host_transfer_submit_AddCallback(usb_host_transfer_submit_invalid_response_mock_callback);
-        break;
-    }
-    case MOCK_USB_TRANSFER_TIMEOUT: {
-        // Make the submitted transfer to be timed out
-        usb_host_transfer_submit_AddCallback(usb_host_transfer_submit_timeout_mock_callback);
-        // Reset out endpoint
+    tx_response = transfer_response;
+    if (transfer_response == MOCK_USB_TRANSFER_TIMEOUT) {
         test_cdc_acm_reset_transfer_endpoint(exp->data.out_bEndpointAddress);
-        break;
-    }
-    default:
-        break;
     }
 
     // Call the real function cdc_acm_host_data_tx_blocking()
