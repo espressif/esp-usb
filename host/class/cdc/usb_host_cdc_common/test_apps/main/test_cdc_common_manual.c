@@ -34,7 +34,6 @@ static const char *TAG = "cdc_common_manual";
 
 static int hotplug_open_count = 0;
 static int hotplug_open_fail_count = 0;
-static bool hotplug_allow_open = false;
 static TaskHandle_t hotplug_rw_task_handle = NULL;
 static volatile bool hotplug_rw_stop = false;
 static int hotplug_rw_start_count = 0;
@@ -146,7 +145,7 @@ static bool hotplug_stop_rw_task(void)
         return false;
     }
 
-    // Stop the read/write task before the common layer frees the disconnected port.
+    // Stop the read/write task before the test releases the disconnected handle.
     hotplug_rw_stop = true;
     EventBits_t bits = xEventGroupWaitBits(test_event_group, EVENT_RW_STOPPED, pdTRUE, pdFALSE, pdMS_TO_TICKS(HOTPLUG_RW_STOP_TIMEOUT_MS));
     if (!(bits & EVENT_RW_STOPPED)) {
@@ -159,56 +158,24 @@ static bool hotplug_stop_rw_task(void)
     return true;
 }
 
-static void hotplug_dev_event_cb(const cdc_host_common_dev_event_data_t *event, void *user_arg)
+static esp_err_t hotplug_open_port(void)
 {
-    (void)user_arg;
-
-    switch (event->type) {
-    case CDC_HOST_COMMON_DEV_EVENT_NEW: {
-        connected_dev_addr = event->data.new_dev.dev_addr;
-        device_connect_count++;
-        ESP_LOGI(TAG, "Hot-plug CDC device connected, addr: %u", connected_dev_addr);
-
-        if (hotplug_allow_open && !test_port1) {
-            cdc_host_common_open_config_t config = CDC_COMMON_OPEN_RINGBUF_CONFIG(connected_dev_addr, TEST_INTERFACE_0,
-                                                                                  NULL, common_port_event_cb, NULL);
-            // Open synchronously while the temporary NEW_DEV device handle is available in common.
-            esp_err_t ret = cdc_host_common_open(test_driver, &config, &test_port1);
-            if (ret == ESP_OK) {
-                hotplug_open_count++;
-                ESP_LOGI(TAG, "Hot-plug CDC port opened: %p", test_port1);
-                ret = hotplug_start_rw_task(test_port1);
-                if (ret != ESP_OK) {
-                    hotplug_open_fail_count++;
-                    ESP_LOGE(TAG, "Failed to start hot-plug CDC read/write task: %s", esp_err_to_name(ret));
-                }
-            } else {
-                hotplug_open_fail_count++;
-                ESP_LOGW(TAG, "Hot-plug CDC port open failed: %s", esp_err_to_name(ret));
-            }
-        }
-
-        if (test_event_group) {
-            xEventGroupSetBits(test_event_group, EVENT_CONNECT);
-            xEventGroupClearBits(test_event_group, EVENT_DISCONNECT);
-        }
-        break;
+    // The test task owns the handle until the I/O worker has stopped.
+    cdc_host_common_open_config_t config = CDC_COMMON_OPEN_RINGBUF_CONFIG(connected_dev_addr, TEST_INTERFACE_0, NULL, NULL, NULL);
+    esp_err_t ret = cdc_host_common_open(test_driver, &config, &test_port1);
+    if (ret != ESP_OK) {
+        hotplug_open_fail_count++;
+        ESP_LOGE(TAG, "Hot-plug CDC port open failed: %s", esp_err_to_name(ret));
+        return ret;
     }
-    case CDC_HOST_COMMON_DEV_EVENT_GONE:
-        device_disconnect_count++;
-        ESP_LOGI(TAG, "Hot-plug CDC device disconnected, addr: %u", event->data.dev_gone.dev_addr);
-        if (!hotplug_stop_rw_task()) {
-            hotplug_rw_stop_fail_count++;
-        }
-        if (test_event_group) {
-            xEventGroupSetBits(test_event_group, EVENT_DISCONNECT);
-            xEventGroupClearBits(test_event_group, EVENT_CONNECT);
-        }
-        break;
-    default:
-        ESP_LOGW(TAG, "Unsupported hot-plug CDC device event");
-        break;
+    hotplug_open_count++;
+    ESP_LOGI(TAG, "Hot-plug CDC port opened: %p", test_port1);
+    ret = hotplug_start_rw_task(test_port1);
+    if (ret != ESP_OK) {
+        hotplug_open_fail_count++;
+        ESP_LOGE(TAG, "Failed to start hot-plug CDC read/write task: %s", esp_err_to_name(ret));
     }
+    return ret;
 }
 
 void cdc_common_manual_reset_state(void)
@@ -223,7 +190,6 @@ void cdc_common_manual_reset_state(void)
 
     hotplug_open_count = 0;
     hotplug_open_fail_count = 0;
-    hotplug_allow_open = false;
     hotplug_rw_task_handle = NULL;
     hotplug_rw_stop = false;
     hotplug_rw_start_count = 0;
@@ -235,7 +201,6 @@ void cdc_common_manual_reset_state(void)
 
 void cdc_common_manual_cleanup(void)
 {
-    hotplug_allow_open = false;
     if (hotplug_rw_task_handle && !hotplug_stop_rw_task()) {
         hotplug_rw_stop_fail_count++;
     }
@@ -245,8 +210,7 @@ TEST_CASE("cdc_common_single_port_random_hot_plugging", "[cdc_common][hot-pluggi
 {
     UPDATE_LEAK_THRESHOLD(-40);
     TEST_ASSERT_NOT_NULL((test_event_group = xEventGroupCreate()));
-    hotplug_allow_open = true;
-    TEST_ASSERT_EQUAL(ESP_OK, install_common_driver(hotplug_dev_event_cb, NULL));
+    TEST_ASSERT_EQUAL(ESP_OK, install_common_driver(common_dev_event_cb, NULL));
 
     vTaskDelay(pdMS_TO_TICKS(100));
     bool test_ok = true;
@@ -259,8 +223,7 @@ TEST_CASE("cdc_common_single_port_random_hot_plugging", "[cdc_common][hot-pluggi
         goto cleanup;
     }
 
-    if (!test_port1) {
-        ESP_LOGE(TAG, "CDC hot-plug port was not opened after initial connection");
+    if (hotplug_open_port() != ESP_OK) {
         test_ok = false;
         goto cleanup;
     }
@@ -284,15 +247,18 @@ TEST_CASE("cdc_common_single_port_random_hot_plugging", "[cdc_common][hot-pluggi
             break;
         }
         ESP_LOGI(TAG, "Hot-plug disconnect event handled");
-        // The device GONE callback can arrive before the port DISCONNECTED callback clears the test handle.
-        for (int wait_ms = 0; test_port1 && wait_ms < TEST_WAIT_DEV_MS; wait_ms += 20) {
-            vTaskDelay(pdMS_TO_TICKS(20));
-        }
-        if (test_port1) {
-            ESP_LOGE(TAG, "CDC hot-plug port handle was not cleared on disconnect");
+        if (!hotplug_stop_rw_task()) {
+            hotplug_rw_stop_fail_count++;
             test_ok = false;
             break;
         }
+        ret = cdc_host_common_close(test_port1);
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to close hot-plug CDC port: %s", esp_err_to_name(ret));
+            test_ok = false;
+            break;
+        }
+        test_port1 = NULL;
 
         printf("Hot-plug stats: connect=%d, disconnect=%d, open=%d, open_fail=%d, rw_start=%d, rw_stop_fail=%d, write=%d, read_try=%d, read=%d\n",
                device_connect_count, device_disconnect_count, hotplug_open_count, hotplug_open_fail_count, hotplug_rw_start_count, hotplug_rw_stop_fail_count, hotplug_rw_write_count, hotplug_rw_read_attempt_count, hotplug_rw_read_count);
@@ -314,8 +280,7 @@ TEST_CASE("cdc_common_single_port_random_hot_plugging", "[cdc_common][hot-pluggi
             test_ok = false;
             break;
         }
-        if (!test_port1) {
-            ESP_LOGE(TAG, "CDC hot-plug port was not opened after reconnect");
+        if (hotplug_open_port() != ESP_OK) {
             test_ok = false;
             break;
         }
@@ -323,8 +288,6 @@ TEST_CASE("cdc_common_single_port_random_hot_plugging", "[cdc_common][hot-pluggi
     }
 
 cleanup:
-    // Prevent late NEW_DEV callbacks from opening a new test port during cleanup.
-    hotplug_allow_open = false;
     if (!hotplug_stop_rw_task()) {
         hotplug_rw_stop_fail_count++;
         test_ok = false;
@@ -351,9 +314,9 @@ cleanup:
              device_connect_count, device_disconnect_count, hotplug_open_count, hotplug_open_fail_count, hotplug_rw_start_count,
              hotplug_rw_stop_fail_count, hotplug_rw_write_count, hotplug_rw_read_attempt_count, hotplug_rw_read_count);
 
+    esp_err_t uninstall_ret = uninstall_common_driver();
     vEventGroupDelete(test_event_group);
     test_event_group = NULL;
-    esp_err_t uninstall_ret = uninstall_common_driver();
 
     TEST_ASSERT_TRUE(test_ok);
     TEST_ASSERT_EQUAL(0, hotplug_open_fail_count);
