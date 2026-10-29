@@ -14,6 +14,7 @@
 
 static const char *TAG = "INTR";
 
+#define URB_DONE_ITERS      50      // Number of URB completions (URB_DONE events) per URB in a test case
 // --------------------------------------------------- Test Cases ------------------------------------------------------
 
 /*
@@ -37,7 +38,7 @@ Note: Some mice will NAK until it is moved, so try moving the mouse around if th
 */
 
 #define NUM_URBS                            3
-#define NUM_URB_ITERS                       (NUM_URBS * 100)
+#define NUM_URB_ITERS                       (NUM_URBS * URB_DONE_ITERS)
 
 TEST_CASE("Test HCD interrupt pipe URBs", "[intr][tinyusb_mock]")
 {
@@ -48,6 +49,7 @@ TEST_CASE("Test HCD interrupt pipe URBs", "[intr][tinyusb_mock]")
     uint8_t dev_addr = test_hcd_enum_device(default_pipe);
 
     // Allocate interrupt pipe and URBS
+    const dev_hid_info_t *hid_info = dev_hid_get_info();
     const usb_ep_desc_t *in_ep_desc = dev_hid_get_in_ep_desc(port_speed);
     const int data_buff_size = USB_EP_DESC_GET_MPS(in_ep_desc);
     hcd_pipe_handle_t intr_pipe = test_hcd_pipe_alloc(port_hdl, in_ep_desc, dev_addr, port_speed);
@@ -70,6 +72,10 @@ TEST_CASE("Test HCD interrupt pipe URBs", "[intr][tinyusb_mock]")
         urb_t *urb = hcd_urb_dequeue(intr_pipe);
         TEST_HCD_EXPECT_TRANSFER_STATUS(urb, USB_TRANSFER_STATUS_COMPLETED);
         TEST_ASSERT_EQUAL(URB_CONTEXT_VAL, urb->transfer.context);
+        // Each report is a single packet: full packet when report == MPS, short packet (early termination) otherwise
+        const int expected_num_bytes = hid_info->report_len;
+        ESP_LOGI(TAG, "Actual num bytes: %d (expected %d)", urb->transfer.actual_num_bytes, expected_num_bytes);
+        TEST_ASSERT_EQUAL(expected_num_bytes, urb->transfer.actual_num_bytes);
         // Byte 1 and 2 contains x and y movement respectively
         ESP_LOGI(TAG, "X mov %d, Y mov %d", (int8_t)urb->transfer.data_buffer[1], (int8_t)urb->transfer.data_buffer[2]);
         // Requeue URB
@@ -82,6 +88,80 @@ TEST_CASE("Test HCD interrupt pipe URBs", "[intr][tinyusb_mock]")
     for (int i = 0; i < NUM_URBS; i++) {
         test_hcd_free_urb(urb_list[i]);
     }
+    test_hcd_pipe_free(intr_pipe);
+    test_hcd_pipe_free(default_pipe);
+    // Cleanup
+    test_hcd_wait_for_disconn(port_hdl, false);
+}
+
+/*
+Test HCD interrupt pipe multi-packet URBs
+Purpose:
+    - Test that an interrupt URB spanning multiple MPS-sized packets completes correctly
+
+Procedure:
+    - Setup HCD and wait for connection
+    - Allocate default pipe and enumerate the device
+    - Setup interrupt pipe and allocate a URB of MULTI_PKT_NUM_PKTS * MPS bytes
+    - Enqueue URB, expect HCD_PIPE_EVENT_URB_DONE, check actual_num_bytes, and requeue
+    - Stop after fixed number of iterations
+    - Deallocate URB
+    - Teardown
+
+Note: Some mice will NAK until it is moved, so try moving the mouse around if this test case gets stuck.
+Note: The mock device's report (5 bytes) is smaller than the EP MPS (8), so the transfer always
+terminates early after the first packet. The buffer-full completion path (report == MPS) is kept
+in the expectations for completeness, but is not exercised by this mock device.
+*/
+
+#define MULTI_PKT_NUM_PKTS  3
+#define MULTI_PKT_ITERS     URB_DONE_ITERS
+
+TEST_CASE("Test HCD interrupt pipe multi-packet URBs", "[intr][tinyusb_mock]")
+{
+    usb_speed_t port_speed = test_hcd_wait_for_conn(port_hdl);  // Trigger a connection
+    vTaskDelay(pdMS_TO_TICKS(100)); // Short delay send of SOF (for FS) or EOPs (for LS)
+
+    hcd_pipe_handle_t default_pipe = test_hcd_pipe_alloc(port_hdl, NULL, 0, port_speed); // Create a default pipe (using a NULL EP descriptor)
+    uint8_t dev_addr = test_hcd_enum_device(default_pipe);
+
+    // Allocate interrupt pipe and a multi-packet URB
+    const dev_hid_info_t *hid_info = dev_hid_get_info();
+    const usb_ep_desc_t *in_ep_desc = dev_hid_get_in_ep_desc(port_speed);
+    const int mps = USB_EP_DESC_GET_MPS(in_ep_desc);
+    const bool fills_buffer = (hid_info->report_len == mps);
+    if (fills_buffer) {
+        // Per-packet DMA activations only stay DWORD aligned if the MPS itself is DWORD aligned
+        TEST_ASSERT_EQUAL_MESSAGE(0, mps % sizeof(uint32_t), "Multi-packet fill requires DWORD aligned MPS");
+    }
+    const int num_bytes = MULTI_PKT_NUM_PKTS * mps;
+    hcd_pipe_handle_t intr_pipe = test_hcd_pipe_alloc(port_hdl, in_ep_desc, dev_addr, port_speed);
+    urb_t *urb = test_hcd_alloc_urb(0, num_bytes);
+    urb->transfer.num_bytes = num_bytes;
+    urb->transfer.context = URB_CONTEXT_VAL;
+
+    for (int iter_count = MULTI_PKT_ITERS; iter_count > 0; iter_count--) {
+        // Enqueue the URB and wait for it to be done
+        TEST_ASSERT_EQUAL(ESP_OK, hcd_urb_enqueue(intr_pipe, urb));
+        TEST_HCD_EXPECT_PIPE_EVENT(intr_pipe, HCD_PIPE_EVENT_URB_DONE);
+        // Dequeue the URB and check results
+        TEST_ASSERT_EQUAL_PTR(urb, hcd_urb_dequeue(intr_pipe));
+        TEST_HCD_EXPECT_TRANSFER_STATUS(urb, USB_TRANSFER_STATUS_COMPLETED);
+        TEST_ASSERT_EQUAL(URB_CONTEXT_VAL, urb->transfer.context);
+        // report == MPS: the transfer completes once the buffer is full (MULTI_PKT_NUM_PKTS full MPS packets)
+        // report <  MPS: the first packet is short, the transfer finishes early with a single report
+        const int expected_num_bytes = fills_buffer ? num_bytes : hid_info->report_len;
+        ESP_LOGI(TAG, "Actual num bytes: %d (expected %d)", urb->transfer.actual_num_bytes, expected_num_bytes);
+        TEST_ASSERT_EQUAL(expected_num_bytes, urb->transfer.actual_num_bytes);
+        // Each MPS-sized chunk is one HID report. Byte 1 and 2 contains x and y movement respectively
+        for (int pkt = 0; pkt * mps < urb->transfer.actual_num_bytes; pkt++) {
+            const uint8_t *report = urb->transfer.data_buffer + (pkt * mps);
+            ESP_LOGI(TAG, "pkt %d: X mov %d, Y mov %d", pkt, report[1], report[2]);
+        }
+    }
+
+    // Free URB and pipes
+    test_hcd_free_urb(urb);
     test_hcd_pipe_free(intr_pipe);
     test_hcd_pipe_free(default_pipe);
     // Cleanup

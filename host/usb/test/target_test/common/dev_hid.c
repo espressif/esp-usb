@@ -107,6 +107,7 @@ static const dev_hid_info_t dev_info = {
     .bInterfaceNumber = 0x00,
     .bAlternateSetting = 0x00,
     .in_ep_addr = 0x81,
+    .report_len = 5,     // Mock HID mouse report: buttons(1), X(1), Y(1), wheel(1), AC pan(1)
 };
 
 // ------------------------------- Descriptors ---------------------------------
