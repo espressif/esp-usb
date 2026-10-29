@@ -1230,6 +1230,18 @@ static esp_err_t _handle_client_events(client_t *client_obj, TickType_t timeout_
     return ret;
 }
 
+static esp_err_t _handle_all_clients_events(client_t *const *client_objs, size_t num_clients, TickType_t timeout_ticks)
+{
+    esp_err_t ret = ESP_OK;
+
+    for (size_t i = 0; i < num_clients; i++) {
+        ret = _handle_client_events(client_objs[i], timeout_ticks);
+        timeout_ticks = 0;
+    }
+
+    return ret;
+}
+
 // ----------------------- Public --------------------------
 
 esp_err_t usb_host_client_register(const usb_host_client_config_t *client_config, usb_host_client_handle_t *client_hdl_ret)
@@ -1344,7 +1356,9 @@ esp_err_t usb_host_client_handle_events(usb_host_client_handle_t client_hdl, Tic
     HOST_CHECK(client_hdl != NULL, ESP_ERR_INVALID_ARG);
     HOST_CHECK(p_host_lib_obj != NULL, ESP_ERR_INVALID_STATE);
     client_t *client_obj = (client_t *)client_hdl;
-    return _handle_client_events(client_obj, timeout_ticks);
+    client_t *client_objs[] = {client_obj};
+
+    return _handle_all_clients_events(client_objs, 1, timeout_ticks);
 }
 
 esp_err_t usb_host_client_unblock(usb_host_client_handle_t client_hdl)
