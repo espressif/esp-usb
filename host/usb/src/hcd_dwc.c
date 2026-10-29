@@ -2695,7 +2695,7 @@ static inline void _buffer_parse_intr(dma_buffer_block_t *buffer, bool is_in, in
             usb_dwc_hal_xfer_desc_parse(buffer->xfer_desc_list, intr_stop_idx - 1, &rem_len, &desc_status);
             assert(rem_len > 0 && desc_status == USB_DWC_HAL_XFER_DESC_STS_SUCCESS);
             // Update actual bytes
-            transfer->actual_num_bytes = (mps * intr_stop_idx - 2) + (mps - rem_len);
+            transfer->actual_num_bytes = (mps * (intr_stop_idx - 1)) + (mps - rem_len);
         } else {
             // Check that all but the last packet transmitted MPS
             for (int i = 0; i < buffer->flags.intr.num_qtds - 1; i++) {
