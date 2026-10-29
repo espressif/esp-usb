@@ -162,6 +162,8 @@ typedef struct {
         SemaphoreHandle_t event_sem;
         SemaphoreHandle_t mux_lock;
         TimerHandle_t auto_suspend_timer;             // Freertos timer used for automatic suspend of the root port
+        SemaphoreHandle_t all_clients_event_sem;      // Shared client event semaphore used in all-clients mode. NULL in per-client mode.
+        usb_host_client_events_mode_t client_events_mode; // Defaults to legacy per-client mode when omitted from a zero-initialized install config.
         usb_phy_handle_t phy_handles[HCD_NUM_PORTS];  // One per port; NULL if skip_phy_setup or port not enabled
         void *enum_client;                            // Pointer to Enum driver (acting as a client). Used to reroute completed USBH control transfers
         void *hub_client;                             // Pointer to External Hub driver (acting as a client). Used to reroute completed USBH control transfers. NULL, when External Hub Driver not available.
@@ -227,6 +229,24 @@ static bool _unblock_lib(bool in_isr)
         yield = (xTaskWoken == pdTRUE);
     } else {
         xSemaphoreGive(p_host_lib_obj->constant.event_sem);
+        yield = false;
+    }
+    HOST_ENTER_CRITICAL_SAFE();
+
+    return yield;
+}
+
+static bool _unblock_all_clients(bool in_isr)
+{
+    bool yield;
+
+    HOST_EXIT_CRITICAL_SAFE();
+    if (in_isr) {
+        BaseType_t xTaskWoken = pdFALSE;
+        xSemaphoreGiveFromISR(p_host_lib_obj->constant.all_clients_event_sem, &xTaskWoken);
+        yield = (xTaskWoken == pdTRUE);
+    } else {
+        xSemaphoreGive(p_host_lib_obj->constant.all_clients_event_sem);
         yield = false;
     }
     HOST_ENTER_CRITICAL_SAFE();
@@ -679,12 +699,23 @@ esp_err_t usb_host_install(const usb_host_config_t *config)
         }
     }
 
+    if (config->client_events_mode > USB_HOST_CLIENT_EVENTS_ALL_CLIENTS) {
+        ESP_LOGE(USB_HOST_TAG, "invalid client_events_mode %d", config->client_events_mode);
+        return ESP_ERR_INVALID_ARG;
+    }
+
     esp_err_t ret;
     host_lib_t *host_lib_obj = heap_caps_calloc(1, sizeof(host_lib_t), MALLOC_CAP_DEFAULT);
     SemaphoreHandle_t event_sem = xSemaphoreCreateBinary();
+    SemaphoreHandle_t all_clients_event_sem = NULL;
     SemaphoreHandle_t mux_lock = xSemaphoreCreateMutex();
     TimerHandle_t auto_suspend_timer = xTimerCreate("auto_suspend_tmr", pdMS_TO_TICKS(1000), pdFALSE, NULL, auto_suspend_timer_cb);
-    if (host_lib_obj == NULL || event_sem == NULL || mux_lock == NULL || auto_suspend_timer == NULL) {
+    if (config->client_events_mode == USB_HOST_CLIENT_EVENTS_ALL_CLIENTS) {
+        // The shared client event semaphore exists only in all-clients mode.
+        all_clients_event_sem = xSemaphoreCreateBinary();
+    }
+    if (host_lib_obj == NULL || event_sem == NULL || mux_lock == NULL || auto_suspend_timer == NULL ||
+            (config->client_events_mode == USB_HOST_CLIENT_EVENTS_ALL_CLIENTS && all_clients_event_sem == NULL)) {
         ret = ESP_ERR_NO_MEM;
         goto alloc_err;
     }
@@ -693,6 +724,8 @@ esp_err_t usb_host_install(const usb_host_config_t *config)
     host_lib_obj->constant.event_sem = event_sem;
     host_lib_obj->constant.mux_lock = mux_lock;
     host_lib_obj->constant.auto_suspend_timer = auto_suspend_timer;
+    host_lib_obj->constant.all_clients_event_sem = all_clients_event_sem;
+    host_lib_obj->constant.client_events_mode = config->client_events_mode;
 
     /*
     Install each layer of the Host stack (listed below) from the lowest layer to the highest
@@ -841,6 +874,9 @@ usbh_err:
         }
     }
 alloc_err:
+    if (all_clients_event_sem) {
+        vSemaphoreDelete(all_clients_event_sem);
+    }
     if (mux_lock) {
         vSemaphoreDelete(mux_lock);
     }
@@ -900,6 +936,9 @@ esp_err_t usb_host_uninstall(void)
     // Free memory objects
     vSemaphoreDelete(host_lib_obj->constant.mux_lock);
     vSemaphoreDelete(host_lib_obj->constant.event_sem);
+    if (host_lib_obj->constant.all_clients_event_sem) {
+        vSemaphoreDelete(host_lib_obj->constant.all_clients_event_sem);
+    }
     xTimerDelete(host_lib_obj->constant.auto_suspend_timer, portMAX_DELAY);
     heap_caps_free(host_lib_obj);
     return ESP_OK;
@@ -1170,6 +1209,39 @@ static void _handle_pending_ep(client_t *client_obj)
     }
 }
 
+static void _handle_pending_client_events(client_t *client_obj)
+{
+    // Process one pass of work that is already pending for this client without waiting on a semaphore.
+    HOST_ENTER_CRITICAL();
+    // Handle pending endpoints
+    if (!TAILQ_EMPTY(&client_obj->dynamic.pending_ep_tailq)) {
+        _handle_pending_ep(client_obj);
+    }
+    // Handle any done control transfers
+    while (client_obj->dynamic.num_done_ctrl_xfer > 0) {
+        urb_t *urb = TAILQ_FIRST(&client_obj->dynamic.done_ctrl_xfer_tailq);
+        TAILQ_REMOVE(&client_obj->dynamic.done_ctrl_xfer_tailq, urb, tailq_entry);
+        client_obj->dynamic.num_done_ctrl_xfer--;
+        HOST_EXIT_CRITICAL();
+        // Clear the transfer's in-flight flag to indicate the transfer is no longer in-flight
+        urb->usb_host_inflight = false;
+        // Call the transfer's callback
+        urb->transfer.callback(&urb->transfer);
+        HOST_ENTER_CRITICAL();
+    }
+    HOST_EXIT_CRITICAL();
+
+    // Handle event messages
+    while (uxQueueMessagesWaiting(client_obj->constant.event_msg_queue) > 0) {
+        // Dequeue the event message and call the client event callback
+        usb_host_client_event_msg_t event_msg;
+        BaseType_t queue_ret = xQueueReceive(client_obj->constant.event_msg_queue, &event_msg, 0);
+        assert(queue_ret == pdTRUE);
+        (void)queue_ret;
+        client_obj->constant.event_callback(&event_msg, client_obj->constant.callback_arg);
+    }
+}
+
 static esp_err_t _handle_client_events(client_t *client_obj, TickType_t timeout_ticks)
 {
     esp_err_t ret = (timeout_ticks == 0) ? ESP_OK : ESP_ERR_TIMEOUT;    // We don't want to return ESP_ERR_TIMEOUT if we aren't blocking
@@ -1186,38 +1258,11 @@ static esp_err_t _handle_client_events(client_t *client_obj, TickType_t timeout_
             break;
         }
 
+        // In per-client mode this waits on the client's semaphore. In all-clients mode the
+        // wait happens elsewhere on the shared semaphore and this helper is not used publicly.
         // Reset the automatic suspend timer, USB Host client is handling events
         reset_auto_suspend_timer();
-
-        HOST_ENTER_CRITICAL();
-        // Handle pending endpoints
-        if (!TAILQ_EMPTY(&client_obj->dynamic.pending_ep_tailq)) {
-            _handle_pending_ep(client_obj);
-        }
-        // Handle any done control transfers
-        while (client_obj->dynamic.num_done_ctrl_xfer > 0) {
-            urb_t *urb = TAILQ_FIRST(&client_obj->dynamic.done_ctrl_xfer_tailq);
-            TAILQ_REMOVE(&client_obj->dynamic.done_ctrl_xfer_tailq, urb, tailq_entry);
-            client_obj->dynamic.num_done_ctrl_xfer--;
-            HOST_EXIT_CRITICAL();
-            // Clear the transfer's in-flight flag to indicate the transfer is no longer in-flight
-            urb->usb_host_inflight = false;
-            // Call the transfer's callback
-            urb->transfer.callback(&urb->transfer);
-            HOST_ENTER_CRITICAL();
-        }
-        HOST_EXIT_CRITICAL();
-
-        // Handle event messages
-        while (uxQueueMessagesWaiting(client_obj->constant.event_msg_queue) > 0) {
-            // Dequeue the event message and call the client event callback
-            usb_host_client_event_msg_t event_msg;
-            BaseType_t queue_ret = xQueueReceive(client_obj->constant.event_msg_queue, &event_msg, 0);
-            assert(queue_ret == pdTRUE);
-            (void)queue_ret;
-            client_obj->constant.event_callback(&event_msg, client_obj->constant.callback_arg);
-        }
-
+        _handle_pending_client_events(client_obj);
         ret = ESP_OK;
         // Set timeout_ticks to 0 so that we can check for events again without blocking
         timeout_ticks = 0;
@@ -1230,16 +1275,11 @@ static esp_err_t _handle_client_events(client_t *client_obj, TickType_t timeout_
     return ret;
 }
 
-static esp_err_t _handle_all_clients_events(client_t *const *client_objs, size_t num_clients, TickType_t timeout_ticks)
+static void _handle_all_clients_events(client_t *const *client_objs, size_t num_clients)
 {
-    esp_err_t ret = ESP_OK;
-
     for (size_t i = 0; i < num_clients; i++) {
-        ret = _handle_client_events(client_objs[i], timeout_ticks);
-        timeout_ticks = 0;
+        _handle_pending_client_events(client_objs[i]);
     }
-
-    return ret;
 }
 
 // ----------------------- Public --------------------------
@@ -1257,7 +1297,14 @@ esp_err_t usb_host_client_register(const usb_host_client_config_t *client_config
     esp_err_t ret;
     // Create client object
     client_t *client_obj = heap_caps_calloc(1, sizeof(client_t), MALLOC_CAP_DEFAULT);
-    SemaphoreHandle_t event_sem = xSemaphoreCreateBinary();
+    SemaphoreHandle_t event_sem;
+    if (p_host_lib_obj->constant.client_events_mode == USB_HOST_CLIENT_EVENTS_PER_CLIENT) {
+        // In per-client mode each client owns and creates its own event semaphore here.
+        event_sem = xSemaphoreCreateBinary();
+    } else {
+        // In all-clients mode the shared semaphore is created during usb_host_install().
+        event_sem = p_host_lib_obj->constant.all_clients_event_sem;
+    }
     QueueHandle_t event_msg_queue = xQueueCreate(client_config->max_num_event_msg, sizeof(usb_host_client_event_msg_t));
     if (client_obj == NULL || event_sem == NULL || event_msg_queue == NULL) {
         ret = ESP_ERR_NO_MEM;
@@ -1291,7 +1338,7 @@ alloc_err:
     if (event_msg_queue) {
         vQueueDelete(event_msg_queue);
     }
-    if (event_sem) {
+    if (p_host_lib_obj->constant.client_events_mode == USB_HOST_CLIENT_EVENTS_PER_CLIENT && event_sem) {
         vSemaphoreDelete(event_sem);
     }
     heap_caps_free(client_obj);
@@ -1342,7 +1389,9 @@ esp_err_t usb_host_client_deregister(usb_host_client_handle_t client_hdl)
     HOST_EXIT_CRITICAL();
     // Free client object
     vQueueDelete(client_obj->constant.event_msg_queue);
-    vSemaphoreDelete(client_obj->constant.event_sem);
+    if (p_host_lib_obj->constant.client_events_mode == USB_HOST_CLIENT_EVENTS_PER_CLIENT) {
+        vSemaphoreDelete(client_obj->constant.event_sem);
+    }
     heap_caps_free(client_obj);
     ret = ESP_OK;
 exit:
@@ -1355,16 +1404,15 @@ esp_err_t usb_host_client_handle_events(usb_host_client_handle_t client_hdl, Tic
     // Check arguments and state
     HOST_CHECK(client_hdl != NULL, ESP_ERR_INVALID_ARG);
     HOST_CHECK(p_host_lib_obj != NULL, ESP_ERR_INVALID_STATE);
+    HOST_CHECK(p_host_lib_obj->constant.client_events_mode == USB_HOST_CLIENT_EVENTS_PER_CLIENT, ESP_ERR_INVALID_STATE);
     client_t *client_obj = (client_t *)client_hdl;
-    client_t *client_objs[] = {client_obj};
-
-    return _handle_all_clients_events(client_objs, 1, timeout_ticks);
+    return _handle_client_events(client_obj, timeout_ticks);
 }
 
 esp_err_t usb_host_all_clients_handle_events(TickType_t timeout_ticks)
 {
     HOST_CHECK(p_host_lib_obj != NULL, ESP_ERR_INVALID_STATE);
-    HOST_CHECK(timeout_ticks == 0, ESP_ERR_INVALID_ARG);
+    HOST_CHECK(p_host_lib_obj->constant.client_events_mode == USB_HOST_CLIENT_EVENTS_ALL_CLIENTS, ESP_ERR_INVALID_STATE);
 
     xSemaphoreTake(p_host_lib_obj->constant.mux_lock, portMAX_DELAY);
 
@@ -1407,7 +1455,27 @@ esp_err_t usb_host_all_clients_handle_events(TickType_t timeout_ticks)
     xSemaphoreGive(p_host_lib_obj->constant.mux_lock);
 
     if (ret == ESP_OK) {
-        ret = _handle_all_clients_events(client_objs, num_clients, timeout_ticks);
+        ret = (timeout_ticks == 0) ? ESP_OK : ESP_ERR_TIMEOUT;
+        while (1) {
+            if (xSemaphoreTake(p_host_lib_obj->constant.all_clients_event_sem, timeout_ticks) == pdFALSE) {
+                break;
+            }
+
+            // Wait once on the shared semaphore, then drain all registered clients without
+            // trying to block again on a per-client semaphore during the same pass.
+            reset_auto_suspend_timer();
+            _handle_all_clients_events(client_objs, num_clients);
+            ret = ESP_OK;
+            timeout_ticks = 0;
+        }
+    }
+
+    if (ret != ESP_ERR_INVALID_STATE) {
+        HOST_ENTER_CRITICAL();
+        for (i = 0; i < num_clients; i++) {
+            client_objs[i]->dynamic.flags.handling_events = 0;
+        }
+        HOST_EXIT_CRITICAL();
     }
 
     heap_caps_free(client_objs);
@@ -1421,6 +1489,18 @@ esp_err_t usb_host_client_unblock(usb_host_client_handle_t client_hdl)
 
     HOST_ENTER_CRITICAL();
     _unblock_client(client_obj, false);
+    HOST_EXIT_CRITICAL();
+
+    return ESP_OK;
+}
+
+esp_err_t usb_host_all_clients_unblock(void)
+{
+    HOST_CHECK(p_host_lib_obj != NULL, ESP_ERR_INVALID_STATE);
+    HOST_CHECK(p_host_lib_obj->constant.client_events_mode == USB_HOST_CLIENT_EVENTS_ALL_CLIENTS, ESP_ERR_INVALID_STATE);
+
+    HOST_ENTER_CRITICAL();
+    _unblock_all_clients(false);
     HOST_EXIT_CRITICAL();
 
     return ESP_OK;

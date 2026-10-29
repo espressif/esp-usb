@@ -60,6 +60,14 @@ typedef enum {
 } usb_host_lib_auto_suspend_tmr_t;
 
 /**
+ * @brief USB Host client event handling mode
+ */
+typedef enum {
+    USB_HOST_CLIENT_EVENTS_PER_CLIENT = 0,          /**< Each client uses its own event semaphore and is handled via usb_host_client_handle_events() */
+    USB_HOST_CLIENT_EVENTS_ALL_CLIENTS,             /**< All clients share one event semaphore and are handled via usb_host_all_clients_handle_events() */
+} usb_host_client_events_mode_t;
+
+/**
  * @brief Client event message
  *
  * Client event messages are sent to each client of the USB Host Library in order to notify them of various
@@ -106,7 +114,7 @@ typedef struct {
  *
  * - Each client of the USB Host Library must register an event callback to receive event messages from the USB Host
  *   Library.
- * - The client event callback is run from the context of the clients usb_host_client_handle_events() function
+ * - The client event callback is run from the context of the configured client event handling function
  */
 typedef void (*usb_host_client_event_cb_t)(const usb_host_client_event_msg_t *event_msg, void *arg);
 
@@ -148,6 +156,7 @@ typedef struct {
     bool fsls_only;               /**< If set, High-Speed capable USB-OTG peripherals operate as Full/Low-Speed only
                                        hosts. The host will not respond to a connected device's High-Speed chirp.
                                        Has no effect on Full-Speed only peripherals. */
+    usb_host_client_events_mode_t client_events_mode;   /**< Selects whether client events are handled per-client or through one all-clients loop. */
 } usb_host_config_t;
 
 /**
@@ -333,7 +342,7 @@ esp_err_t usb_host_lib_set_auto_suspend(usb_host_lib_auto_suspend_tmr_t timer_ty
  * @brief Register a client of the USB Host Library
  *
  * - This function registers a client of the USB Host Library
- * - Once a client is registered, its processing function usb_host_client_handle_events() should be called repeatedly
+ * - Once a client is registered, the processing function that matches the install-time client_events_mode should be called repeatedly
  *
  * @param[in] client_config Client configuration
  * @param[out] client_hdl_ret Client handle
@@ -365,6 +374,7 @@ esp_err_t usb_host_client_deregister(usb_host_client_handle_t client_hdl);
  *
  * - This function handles all of a client's processing and should be called repeatedly in a loop
  * - For a particular client, this function should never be called by multiple threads simultaneously
+ * - This function is only valid when usb_host_install() selected USB_HOST_CLIENT_EVENTS_PER_CLIENT
  *
  * @note This function can block
  * @param[in] client_hdl Client handle
@@ -384,9 +394,10 @@ esp_err_t usb_host_client_handle_events(usb_host_client_handle_t client_hdl, Tic
  * - This function handles all registered clients sequentially
  * - This function should not be called concurrently with usb_host_client_handle_events()
  * - This function should not be called concurrently by multiple threads
+ * - This function is only valid when usb_host_install() selected USB_HOST_CLIENT_EVENTS_ALL_CLIENTS
  *
- * @note This function currently supports only non-blocking operation
- * @param[in] timeout_ticks Timeout in ticks to wait for an event to occur. Must be 0.
+ * @note This function can block
+ * @param[in] timeout_ticks Timeout in ticks to wait for an event to occur
  *
  * @return
  *    - ESP_OK: No event to be handled
@@ -399,7 +410,7 @@ esp_err_t usb_host_all_clients_handle_events(TickType_t timeout_ticks);
 /**
  * @brief Unblock a client
  *
- * - This function simply unblocks a client if it is blocked on the usb_host_client_handle_events() function.
+ * - This function simply unblocks a client if it is blocked on the configured client event handling function.
  * - This function is useful when need to unblock a client in order to deregister it.
  *
  * @param[in] client_hdl Client handle
@@ -409,6 +420,18 @@ esp_err_t usb_host_all_clients_handle_events(TickType_t timeout_ticks);
  *    - ESP_ERR_INVALID_ARG: Invalid argument
  */
 esp_err_t usb_host_client_unblock(usb_host_client_handle_t client_hdl);
+
+/**
+ * @brief Unblock the all-clients handler
+ *
+ * - This function simply unblocks usb_host_all_clients_handle_events()
+ * - This function is only valid when usb_host_install() selected USB_HOST_CLIENT_EVENTS_ALL_CLIENTS
+ *
+ * @return
+ *    - ESP_OK: All-clients handler unblocked successfully
+ *    - ESP_ERR_INVALID_STATE: USB Host Library is not installed, or was not installed in all-clients mode
+ */
+esp_err_t usb_host_all_clients_unblock(void);
 
 // ------------------------------------------------- Device Handling ---------------------------------------------------
 
@@ -552,7 +575,7 @@ esp_err_t usb_host_get_active_config_descriptor(usb_device_handle_t dev_hdl, con
  *
  * @note This function can block
  * @note A client must call usb_host_device_open() on the device first
- * @param[in] client_hdl Client handle - usb_host_client_handle_events() should be called repeatedly in a separate task
+ * @param[in] client_hdl Client handle - the configured client event handling function should be called repeatedly
  *            to handle client events
  * @param[in] dev_hdl Device handle
  * @param[in] bConfigurationValue Index of device's configuration descriptor to be read
@@ -726,7 +749,7 @@ esp_err_t usb_host_transfer_free(usb_transfer_t *transfer);
  *
  * - Submit a transfer to a particular endpoint. The device and endpoint number is specified inside the transfer
  * - The transfer must be properly initialized before submitting
- * - On completion, the transfer's callback will be called from the client's usb_host_client_handle_events() function.
+ * - On completion, the transfer's callback will be called from the configured client event handling function.
  *
  * @param[in] transfer Initialized transfer object
  *
@@ -745,7 +768,7 @@ esp_err_t usb_host_transfer_submit(usb_transfer_t *transfer);
  * - Submit a control transfer to a particular device. The client must have opened the device first
  * - The transfer must be properly initialized before submitting. The first 8 bytes of the transfer's data buffer should
  *   contain the control transfer setup packet
- * - On completion, the transfer's callback will be called from the client's usb_host_client_handle_events() function.
+ * - On completion, the transfer's callback will be called from the configured client event handling function.
  *
  * @param[in] client_hdl Client handle
  * @param[in] transfer Initialized transfer object
