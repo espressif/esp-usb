@@ -1170,6 +1170,66 @@ static void _handle_pending_ep(client_t *client_obj)
     }
 }
 
+static esp_err_t _handle_client_events(client_t *client_obj, TickType_t timeout_ticks)
+{
+    esp_err_t ret = (timeout_ticks == 0) ? ESP_OK : ESP_ERR_TIMEOUT;    // We don't want to return ESP_ERR_TIMEOUT if we aren't blocking
+
+    HOST_ENTER_CRITICAL();
+    // Set handling_events flag. This prevents the client from being deregistered
+    client_obj->dynamic.flags.handling_events = 1;
+    HOST_EXIT_CRITICAL();
+
+    while (1) {
+        // Loop until there are no more events
+        if (xSemaphoreTake(client_obj->constant.event_sem, timeout_ticks) == pdFALSE) {
+            // Timed out waiting for semaphore or currently no events
+            break;
+        }
+
+        // Reset the automatic suspend timer, USB Host client is handling events
+        reset_auto_suspend_timer();
+
+        HOST_ENTER_CRITICAL();
+        // Handle pending endpoints
+        if (!TAILQ_EMPTY(&client_obj->dynamic.pending_ep_tailq)) {
+            _handle_pending_ep(client_obj);
+        }
+        // Handle any done control transfers
+        while (client_obj->dynamic.num_done_ctrl_xfer > 0) {
+            urb_t *urb = TAILQ_FIRST(&client_obj->dynamic.done_ctrl_xfer_tailq);
+            TAILQ_REMOVE(&client_obj->dynamic.done_ctrl_xfer_tailq, urb, tailq_entry);
+            client_obj->dynamic.num_done_ctrl_xfer--;
+            HOST_EXIT_CRITICAL();
+            // Clear the transfer's in-flight flag to indicate the transfer is no longer in-flight
+            urb->usb_host_inflight = false;
+            // Call the transfer's callback
+            urb->transfer.callback(&urb->transfer);
+            HOST_ENTER_CRITICAL();
+        }
+        HOST_EXIT_CRITICAL();
+
+        // Handle event messages
+        while (uxQueueMessagesWaiting(client_obj->constant.event_msg_queue) > 0) {
+            // Dequeue the event message and call the client event callback
+            usb_host_client_event_msg_t event_msg;
+            BaseType_t queue_ret = xQueueReceive(client_obj->constant.event_msg_queue, &event_msg, 0);
+            assert(queue_ret == pdTRUE);
+            (void)queue_ret;
+            client_obj->constant.event_callback(&event_msg, client_obj->constant.callback_arg);
+        }
+
+        ret = ESP_OK;
+        // Set timeout_ticks to 0 so that we can check for events again without blocking
+        timeout_ticks = 0;
+    }
+
+    HOST_ENTER_CRITICAL();
+    client_obj->dynamic.flags.handling_events = 0;
+    HOST_EXIT_CRITICAL();
+
+    return ret;
+}
+
 // ----------------------- Public --------------------------
 
 esp_err_t usb_host_client_register(const usb_host_client_config_t *client_config, usb_host_client_handle_t *client_hdl_ret)
@@ -1283,64 +1343,8 @@ esp_err_t usb_host_client_handle_events(usb_host_client_handle_t client_hdl, Tic
     // Check arguments and state
     HOST_CHECK(client_hdl != NULL, ESP_ERR_INVALID_ARG);
     HOST_CHECK(p_host_lib_obj != NULL, ESP_ERR_INVALID_STATE);
-
-    esp_err_t ret = (timeout_ticks == 0) ? ESP_OK : ESP_ERR_TIMEOUT;    // We don't want to return ESP_ERR_TIMEOUT if we aren't blocking
     client_t *client_obj = (client_t *)client_hdl;
-
-    HOST_ENTER_CRITICAL();
-    // Set handling_events flag. This prevents the client from being deregistered
-    client_obj->dynamic.flags.handling_events = 1;
-    HOST_EXIT_CRITICAL();
-
-    while (1) {
-        // Loop until there are no more events
-        if (xSemaphoreTake(client_obj->constant.event_sem, timeout_ticks) == pdFALSE) {
-            // Timed out waiting for semaphore or currently no events
-            break;
-        }
-
-        // Reset the automatic suspend timer, USB Host client is handling events
-        reset_auto_suspend_timer();
-
-        HOST_ENTER_CRITICAL();
-        // Handle pending endpoints
-        if (!TAILQ_EMPTY(&client_obj->dynamic.pending_ep_tailq)) {
-            _handle_pending_ep(client_obj);
-        }
-        // Handle any done control transfers
-        while (client_obj->dynamic.num_done_ctrl_xfer > 0) {
-            urb_t *urb = TAILQ_FIRST(&client_obj->dynamic.done_ctrl_xfer_tailq);
-            TAILQ_REMOVE(&client_obj->dynamic.done_ctrl_xfer_tailq, urb, tailq_entry);
-            client_obj->dynamic.num_done_ctrl_xfer--;
-            HOST_EXIT_CRITICAL();
-            // Clear the transfer's in-flight flag to indicate the transfer is no longer in-flight
-            urb->usb_host_inflight = false;
-            // Call the transfer's callback
-            urb->transfer.callback(&urb->transfer);
-            HOST_ENTER_CRITICAL();
-        }
-        HOST_EXIT_CRITICAL();
-
-        // Handle event messages
-        while (uxQueueMessagesWaiting(client_obj->constant.event_msg_queue) > 0) {
-            // Dequeue the event message and call the client event callback
-            usb_host_client_event_msg_t event_msg;
-            BaseType_t queue_ret = xQueueReceive(client_obj->constant.event_msg_queue, &event_msg, 0);
-            assert(queue_ret == pdTRUE);
-            (void)queue_ret;
-            client_obj->constant.event_callback(&event_msg, client_obj->constant.callback_arg);
-        }
-
-        ret = ESP_OK;
-        // Set timeout_ticks to 0 so that we can check for events again without blocking
-        timeout_ticks = 0;
-    }
-
-    HOST_ENTER_CRITICAL();
-    client_obj->dynamic.flags.handling_events = 0;
-    HOST_EXIT_CRITICAL();
-
-    return ret;
+    return _handle_client_events(client_obj, timeout_ticks);
 }
 
 esp_err_t usb_host_client_unblock(usb_host_client_handle_t client_hdl)
