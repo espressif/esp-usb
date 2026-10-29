@@ -1361,6 +1361,59 @@ esp_err_t usb_host_client_handle_events(usb_host_client_handle_t client_hdl, Tic
     return _handle_all_clients_events(client_objs, 1, timeout_ticks);
 }
 
+esp_err_t usb_host_all_clients_handle_events(TickType_t timeout_ticks)
+{
+    HOST_CHECK(p_host_lib_obj != NULL, ESP_ERR_INVALID_STATE);
+    HOST_CHECK(timeout_ticks == 0, ESP_ERR_INVALID_ARG);
+
+    xSemaphoreTake(p_host_lib_obj->constant.mux_lock, portMAX_DELAY);
+
+    size_t num_clients = 0;
+    client_t *client_obj;
+    TAILQ_FOREACH(client_obj, &p_host_lib_obj->mux_protected.client_tailq, dynamic.tailq_entry) {
+        num_clients++;
+    }
+    if (num_clients == 0) {
+        xSemaphoreGive(p_host_lib_obj->constant.mux_lock);
+        return ESP_OK;
+    }
+
+    client_t **client_objs = heap_caps_malloc(num_clients * sizeof(client_t *), MALLOC_CAP_DEFAULT);
+    if (client_objs == NULL) {
+        xSemaphoreGive(p_host_lib_obj->constant.mux_lock);
+        return ESP_ERR_NO_MEM;
+    }
+
+    size_t i = 0;
+    TAILQ_FOREACH(client_obj, &p_host_lib_obj->mux_protected.client_tailq, dynamic.tailq_entry) {
+        client_objs[i] = client_obj;
+        i++;
+    }
+
+    esp_err_t ret = ESP_OK;
+    HOST_ENTER_CRITICAL();
+    for (i = 0; i < num_clients; i++) {
+        if (client_objs[i]->dynamic.flags.handling_events) {
+            ret = ESP_ERR_INVALID_STATE;
+            break;
+        }
+    }
+    if (ret == ESP_OK) {
+        for (i = 0; i < num_clients; i++) {
+            client_objs[i]->dynamic.flags.handling_events = 1;
+        }
+    }
+    HOST_EXIT_CRITICAL();
+    xSemaphoreGive(p_host_lib_obj->constant.mux_lock);
+
+    if (ret == ESP_OK) {
+        ret = _handle_all_clients_events(client_objs, num_clients, timeout_ticks);
+    }
+
+    heap_caps_free(client_objs);
+    return ret;
+}
+
 esp_err_t usb_host_client_unblock(usb_host_client_handle_t client_hdl)
 {
     HOST_CHECK(client_hdl != NULL, ESP_ERR_INVALID_ARG);
