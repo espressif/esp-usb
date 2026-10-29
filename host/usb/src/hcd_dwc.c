@@ -3735,7 +3735,7 @@ static inline void _slot_parse_intr(urb_slot_t *urb_slot, bool is_in, int mps)
             usb_dwc_hal_xfer_desc_parse(urb_slot->xfer_desc_list, intr_stop_idx - 1, &rem_len, &desc_status);
             assert(rem_len > 0 && desc_status == USB_DWC_HAL_XFER_DESC_STS_SUCCESS);
             // Update actual bytes
-            transfer->actual_num_bytes = (mps * intr_stop_idx - 2) + (mps - rem_len);
+            transfer->actual_num_bytes = (mps * (intr_stop_idx - 1)) + (mps - rem_len);
         } else {
             // Check that all but the last packet transmitted MPS
             for (int i = 0; i < urb_slot->flags.intr.num_qtds - 1; i++) {
