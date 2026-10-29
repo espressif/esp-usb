@@ -229,7 +229,8 @@ esp_err_t uvc_host_install(const uvc_host_driver_config_t *driver_config);
  * @return
  *      - ESP_OK on success
  *      - ESP_ERR_INVALID_STATE if the driver is not installed or not all streams are closed
- *      - ESP_ERR_NOT_FINISHED if teardown does not complete within the internal timeout
+ *      - ESP_ERR_NOT_FINISHED if teardown does not complete within the internal timeout,
+ *        or a timed out control transfer is still in flight
  */
 esp_err_t uvc_host_uninstall(void);
 
