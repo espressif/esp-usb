@@ -1343,6 +1343,21 @@ esp_err_t usb_host_client_handle_events(usb_host_client_handle_t client_hdl, Tic
     return ret;
 }
 
+esp_err_t usb_host_all_clients_handle_events(TickType_t timeout_ticks)
+{
+    HOST_CHECK(p_host_lib_obj != NULL, ESP_ERR_INVALID_STATE);
+
+    // Keep the placeholder blocking behavior local to the all-clients API until
+    // the real shared client dispatch loop is wired here.
+    if (timeout_ticks > 0) {
+        vTaskDelay(timeout_ticks);
+    }
+
+    // TODO: Replace this placeholder with shared client event handling compatible
+    // with HID/MSC/UVC background task loops.
+    return ESP_OK;
+}
+
 esp_err_t usb_host_client_unblock(usb_host_client_handle_t client_hdl)
 {
     HOST_CHECK(client_hdl != NULL, ESP_ERR_INVALID_ARG);

@@ -8,6 +8,12 @@
 #include "freertos/task.h"
 #include "freertos/semphr.h"
 #include "common_task.h"
+#include "usb/usb_host.h"
+
+#define COMMON_TASK_NAME       "USB Common"
+#define COMMON_TASK_STACK_SIZE 4096
+#define COMMON_TASK_PRIORITY   5
+#define COMMON_TASK_CORE_ID    tskNO_AFFINITY
 
 typedef struct {
     TaskHandle_t task_hdl;
@@ -17,30 +23,121 @@ typedef struct {
 } common_task_ctx_t;
 
 static common_task_ctx_t s_common_task_ctx;
+static StaticSemaphore_t s_common_task_mutex_buffer;
+
+static void common_task(void *arg)
+{
+    (void)arg;
+
+    // Keep the common task structured like existing driver background tasks.
+    while (usb_host_all_clients_handle_events(portMAX_DELAY) == ESP_OK) {
+        // TODO: Replace the dummy usb_host_all_clients_handle_events() path with
+        // a shared event loop compatible with HID/MSC/UVC background tasks.
+    }
+
+    vTaskDelete(NULL);
+}
 
 esp_err_t common_task_acquire(void)
 {
-    (void)s_common_task_ctx;
-    // TODO: wire common-task lifecycle.
+    // Lazily create the common-task mutex the first time the shared manager is used.
+    if (s_common_task_ctx.mutex == NULL) {
+        s_common_task_ctx.mutex = xSemaphoreCreateMutexStatic(&s_common_task_mutex_buffer);
+        if (s_common_task_ctx.mutex == NULL) {
+            return ESP_ERR_NO_MEM;
+        }
+    }
+
+    // Serialize common-task ownership changes, create the task on first use, and
+    // keep a reference count for the drivers sharing it.
+    xSemaphoreTake(s_common_task_ctx.mutex, portMAX_DELAY);
+    if (s_common_task_ctx.task_hdl == NULL) {
+        BaseType_t task_created = xTaskCreatePinnedToCore(common_task,
+                                                          COMMON_TASK_NAME,
+                                                          COMMON_TASK_STACK_SIZE,
+                                                          NULL,
+                                                          COMMON_TASK_PRIORITY,
+                                                          &s_common_task_ctx.task_hdl,
+                                                          COMMON_TASK_CORE_ID);
+        if (task_created != pdPASS) {
+            xSemaphoreGive(s_common_task_ctx.mutex);
+            return ESP_ERR_NO_MEM;
+        }
+    }
+    s_common_task_ctx.ref_count++;
+    xSemaphoreGive(s_common_task_ctx.mutex);
+
     return ESP_OK;
 }
 
 esp_err_t common_task_release(void)
 {
-    // TODO: wire common-task lifecycle.
+    if (s_common_task_ctx.mutex == NULL) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    // Drop one shared owner and tear the task down once the last owner leaves.
+    xSemaphoreTake(s_common_task_ctx.mutex, portMAX_DELAY);
+    if (s_common_task_ctx.ref_count == 0) {
+        xSemaphoreGive(s_common_task_ctx.mutex);
+        return ESP_ERR_INVALID_STATE;
+    }
+    s_common_task_ctx.ref_count--;
+    if (s_common_task_ctx.ref_count == 0) {
+        if (s_common_task_ctx.num_registered_drivers != 0) {
+            s_common_task_ctx.ref_count++;
+            xSemaphoreGive(s_common_task_ctx.mutex);
+            return ESP_ERR_INVALID_STATE;
+        }
+        vTaskDelete(s_common_task_ctx.task_hdl);
+        s_common_task_ctx.task_hdl = NULL;
+        // TODO: Add full mutex teardown on last release once the final reinstall lifecycle is settled.
+    }
+    xSemaphoreGive(s_common_task_ctx.mutex);
+
     return ESP_OK;
 }
 
 esp_err_t common_task_register_driver(void *driver_ctx)
 {
-    (void)driver_ctx;
-    // TODO: wire shared-driver registration.
+    if (driver_ctx == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (s_common_task_ctx.mutex == NULL) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    // Count drivers that have attached to the shared background-task manager.
+    xSemaphoreTake(s_common_task_ctx.mutex, portMAX_DELAY);
+    if (s_common_task_ctx.ref_count == 0) {
+        xSemaphoreGive(s_common_task_ctx.mutex);
+        return ESP_ERR_INVALID_STATE;
+    }
+    s_common_task_ctx.num_registered_drivers++;
+    xSemaphoreGive(s_common_task_ctx.mutex);
+
+    // TODO: Store the registered driver context so the common task can dispatch it.
     return ESP_OK;
 }
 
 esp_err_t common_task_unregister_driver(void *driver_ctx)
 {
-    (void)driver_ctx;
-    // TODO: wire shared-driver deregistration.
+    if (driver_ctx == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (s_common_task_ctx.mutex == NULL) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    // Count drivers leaving the shared background-task manager.
+    xSemaphoreTake(s_common_task_ctx.mutex, portMAX_DELAY);
+    if (s_common_task_ctx.num_registered_drivers == 0) {
+        xSemaphoreGive(s_common_task_ctx.mutex);
+        return ESP_ERR_INVALID_STATE;
+    }
+    s_common_task_ctx.num_registered_drivers--;
+    xSemaphoreGive(s_common_task_ctx.mutex);
+
+    // TODO: Remove the driver context from the common-task dispatch set.
     return ESP_OK;
 }

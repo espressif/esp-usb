@@ -379,6 +379,21 @@ esp_err_t usb_host_client_deregister(usb_host_client_handle_t client_hdl);
 esp_err_t usb_host_client_handle_events(usb_host_client_handle_t client_hdl, TickType_t timeout_ticks);
 
 /**
+ * @brief USB Host Library all-clients processing function
+ *
+ * - This function is intended for future shared client event handling from a single task
+ * - This placeholder implementation currently does not process client events
+ *
+ * @note This function can block
+ * @param[in] timeout_ticks Timeout in ticks to wait
+ *
+ * @return
+ *    - ESP_OK: No event to be handled
+ *    - ESP_ERR_INVALID_STATE: USB Host Library is not installed
+ */
+esp_err_t usb_host_all_clients_handle_events(TickType_t timeout_ticks);
+
+/**
  * @brief Unblock a client
  *
  * - This function simply unblocks a client if it is blocked on the usb_host_client_handle_events() function.
