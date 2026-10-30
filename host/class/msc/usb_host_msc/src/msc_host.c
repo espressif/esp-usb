@@ -460,7 +460,15 @@ esp_err_t msc_host_install(const msc_host_driver_config_t *config)
     driver->user_cb = config->callback;
     driver->user_arg = config->callback_arg;
 
+    // Convert the driver config into the client execution mode persisted by
+    // the USB Host library at client registration time.
+    usb_host_client_exec_mode_t client_exec_mode = USB_HOST_CLIENT_EXEC_MODE_PER_CLIENT;
+    if (config->create_backround_task && config->use_common_background_task) {
+        client_exec_mode = USB_HOST_CLIENT_EXEC_MODE_COMMON_TASK;
+    }
+
     usb_host_client_config_t client_config = {
+        .client_exec_mode = client_exec_mode,
         .async.client_event_callback = client_event_cb,
         .async.callback_arg = NULL,
         .max_num_event_msg = 10,

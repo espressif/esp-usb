@@ -717,9 +717,17 @@ esp_err_t uvc_host_install(const uvc_host_driver_config_t *driver_config)
         goto err;
     }
 
+    // Convert the driver config into the client execution mode persisted by
+    // the USB Host library at client registration time.
+    usb_host_client_exec_mode_t client_exec_mode = USB_HOST_CLIENT_EXEC_MODE_PER_CLIENT;
+    if (driver_config->create_background_task && driver_config->use_common_background_task) {
+        client_exec_mode = USB_HOST_CLIENT_EXEC_MODE_COMMON_TASK;
+    }
+
     // Register USB Host client
     usb_host_client_handle_t usb_client = NULL;
     const usb_host_client_config_t client_config = {
+        .client_exec_mode = client_exec_mode,
         .is_synchronous = false,
         .max_num_event_msg = 3,
         .async.client_event_callback = usb_event_cb,
