@@ -446,6 +446,7 @@ esp_err_t msc_host_install(const msc_host_driver_config_t *config)
 
     MSC_RETURN_ON_INVALID_ARG(config);
     MSC_RETURN_ON_INVALID_ARG(config->callback);
+    MSC_RETURN_ON_FALSE(!(config->create_backround_task && config->use_common_background_task), ESP_ERR_NOT_SUPPORTED);
     if ( config->create_backround_task ) {
         MSC_RETURN_ON_FALSE(config->stack_size != 0, ESP_ERR_INVALID_ARG);
         MSC_RETURN_ON_FALSE(config->task_priority != 0, ESP_ERR_INVALID_ARG);

@@ -1355,6 +1355,9 @@ esp_err_t hid_host_install(const hid_host_driver_config_t *config)
 
     HID_RETURN_ON_INVALID_ARG(config);
     HID_RETURN_ON_INVALID_ARG(config->callback);
+    HID_RETURN_ON_FALSE(!(config->create_background_task && config->use_common_background_task),
+                        ESP_ERR_NOT_SUPPORTED,
+                        "Common background task not implemented yet");
 
     if ( config->create_background_task ) {
         HID_RETURN_ON_FALSE(config->stack_size != 0,

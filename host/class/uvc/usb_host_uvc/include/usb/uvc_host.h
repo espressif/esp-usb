@@ -98,6 +98,8 @@ typedef struct {
     int xCoreID;                           /*!< Core affinity of the driver's task. */
     bool create_background_task;           /*!< When set to true, a background task handles USB events.
                                                 Otherwise call uvc_host_handle_events(). */
+    bool use_common_background_task;        /*!< When set together with create_background_task, requests a shared common background
+                                                 task instead of a dedicated one. Has no effect when create_background_task is false. */
     uvc_host_driver_event_callback_t event_cb; /*!< Callback function that handles driver events. */
     void *user_ctx;                        /*!< User argument passed to event_cb. */
 } uvc_host_driver_config_t;

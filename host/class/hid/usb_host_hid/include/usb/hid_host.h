@@ -117,6 +117,8 @@ typedef void (*hid_host_interface_event_cb_t)(hid_host_device_handle_t hid_devic
 typedef struct {
     bool create_background_task;            /*!< When set to true, background task handling USB events is created.
                                              Otherwise user has to periodically call hid_host_handle_events(). */
+    bool use_common_background_task;        /*!< When set together with create_background_task, requests a shared common background
+                                                 task instead of a dedicated one. Has no effect when create_background_task is false. */
     size_t task_priority;                   /*!< Task priority of the created background task. */
     size_t stack_size;                      /*!< Stack size of the created background task. */
     BaseType_t core_id;                     /*!< Core affinity of the created background task, or tskNO_AFFINITY. */

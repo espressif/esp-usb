@@ -689,6 +689,8 @@ esp_err_t uvc_host_install(const uvc_host_driver_config_t *driver_config)
     if (driver_config == NULL) {
         driver_config = &default_driver_config;
     }
+    UVC_RETURN_ON_FALSE(!(driver_config->create_background_task && driver_config->use_common_background_task),
+                        ESP_ERR_NOT_SUPPORTED, TAG, "Common background task not implemented yet");
 
     // Allocate all we need for this driver
     esp_err_t ret;
