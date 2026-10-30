@@ -60,6 +60,14 @@ typedef enum {
 } usb_host_lib_auto_suspend_tmr_t;
 
 /**
+ * @brief Client execution mode
+ */
+typedef enum {
+    USB_HOST_CLIENT_EXEC_MODE_PER_CLIENT = 0,   /**< Client is driven by its own event loop */
+    USB_HOST_CLIENT_EXEC_MODE_COMMON_TASK,      /**< Client is driven by the common clients event loop */
+} usb_host_client_exec_mode_t;
+
+/**
  * @brief Client event message
  *
  * Client event messages are sent to each client of the USB Host Library in order to notify them of various
@@ -158,6 +166,7 @@ typedef struct {
 typedef struct {
     bool is_synchronous;        /**< Whether the client is asynchronous or synchronous or not. Set to false for now. */
     int max_num_event_msg;      /**< Maximum number of event messages that can be stored (e.g., 3) */
+    usb_host_client_exec_mode_t client_exec_mode;   /**< Selects whether this client is driven by its own event loop or by the common clients loop. */
     struct {
         uint32_t notify_dev_removed: 1;         /**< Whether the client should receive USB_HOST_CLIENT_EVENT_DEV_REMOVED events */
         uint32_t reserved31: 31;                /**< Reserved for future use. Set to 0 */
@@ -379,9 +388,9 @@ esp_err_t usb_host_client_deregister(usb_host_client_handle_t client_hdl);
 esp_err_t usb_host_client_handle_events(usb_host_client_handle_t client_hdl, TickType_t timeout_ticks);
 
 /**
- * @brief USB Host Library all-clients processing function
+ * @brief USB Host Library common-clients processing function
  *
- * - This function is intended for future shared client event handling from a single task
+ * - This function is intended for shared client event handling from a single task
  * - This placeholder implementation currently does not process client events
  *
  * @note This function can block
@@ -391,7 +400,7 @@ esp_err_t usb_host_client_handle_events(usb_host_client_handle_t client_hdl, Tic
  *    - ESP_OK: No event to be handled
  *    - ESP_ERR_INVALID_STATE: USB Host Library is not installed
  */
-esp_err_t usb_host_all_clients_handle_events(TickType_t timeout_ticks);
+esp_err_t usb_host_common_clients_handle_events(TickType_t timeout_ticks);
 
 /**
  * @brief Unblock a client

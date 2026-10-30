@@ -133,6 +133,7 @@ struct client_s {
         usb_host_client_event_cb_t event_callback;
         void *callback_arg;
         QueueHandle_t event_msg_queue;
+        usb_host_client_exec_mode_t client_exec_mode;
         bool notify_dev_removed;
     } constant;
 };
@@ -1177,6 +1178,9 @@ esp_err_t usb_host_client_register(const usb_host_client_config_t *client_config
     HOST_CHECK(p_host_lib_obj, ESP_ERR_INVALID_STATE);
     HOST_CHECK(client_config != NULL && client_hdl_ret != NULL, ESP_ERR_INVALID_ARG);
     HOST_CHECK(client_config->max_num_event_msg > 0, ESP_ERR_INVALID_ARG);
+    HOST_CHECK(client_config->client_exec_mode == USB_HOST_CLIENT_EXEC_MODE_PER_CLIENT ||
+               client_config->client_exec_mode == USB_HOST_CLIENT_EXEC_MODE_COMMON_TASK,
+               ESP_ERR_INVALID_ARG);
     if (!client_config->is_synchronous) {
         // Asynchronous clients must provide a
         HOST_CHECK(client_config->async.client_event_callback != NULL, ESP_ERR_INVALID_ARG);
@@ -1197,6 +1201,7 @@ esp_err_t usb_host_client_register(const usb_host_client_config_t *client_config
     TAILQ_INIT(&client_obj->mux_protected.interface_tailq);
     TAILQ_INIT(&client_obj->dynamic.done_ctrl_xfer_tailq);
     client_obj->constant.event_sem = event_sem;
+    client_obj->constant.client_exec_mode = client_config->client_exec_mode;
     client_obj->constant.event_callback = client_config->async.client_event_callback;
     client_obj->constant.callback_arg = client_config->async.callback_arg;
     client_obj->constant.event_msg_queue = event_msg_queue;
@@ -1343,7 +1348,7 @@ esp_err_t usb_host_client_handle_events(usb_host_client_handle_t client_hdl, Tic
     return ret;
 }
 
-esp_err_t usb_host_all_clients_handle_events(TickType_t timeout_ticks)
+esp_err_t usb_host_common_clients_handle_events(TickType_t timeout_ticks)
 {
     HOST_CHECK(p_host_lib_obj != NULL, ESP_ERR_INVALID_STATE);
 
