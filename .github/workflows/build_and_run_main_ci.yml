@@ -76,3 +76,9 @@ jobs:
     uses: ./.github/workflows/build_and_run_host_test.yml
     with:
       changed_files: ${{ needs.get-changed-files.outputs.all_changed_files }}
+
+  target_test_no_cm:
+    needs: get-changed-files
+    uses: ./.github/workflows/build_test_apps_no_cm.yml
+    with:
+      changed_files: ${{ needs.get-changed-files.outputs.all_changed_files }}

@@ -1,0 +1,69 @@
+# This is a reusable workflow which builds the USB test apps
+# with the IDF Component Manager disabled (IDF_COMPONENT_MANAGER=0):
+#
+#   - host/class/uvc/usb_host_uvc/test_app
+#   - host/class/uac/usb_host_uac/test_app
+#   - host/class/hid/usb_host_hid/test_app
+#   - host/class/msc/usb_host_msc/test_app
+#   - host/class/cdc/usb_host_cdc_acm/test_app
+#   - device/esp_tinyusb/test_apps/general
+#
+# With the Component Manager disabled, idf_component.yml manifests (incl. override_path)
+# are not processed. The test apps provide their dependencies (class driver, usb,
+# esp_tinyusb) via EXTRA_COMPONENT_DIRS in their project CMakeLists.txt instead.
+# Test apps are built for esp32p4 with the default sdkconfig
+
+name: Build USB Test Applications without IDF Component Manager
+
+on:
+  workflow_call:
+    inputs:
+      changed_files:
+        description: 'Changed files separated by semicolon'
+        required: false
+        type: string
+
+jobs:
+  build:
+    name: Build USB class driver test apps (no Component Manager)
+    runs-on: ubuntu-latest
+    container: espressif/idf:latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: 'true'
+      - name: Build USB Test Applications
+        shell: bash
+        run: |
+          . ${IDF_PATH}/export.sh
+          git config --global safe.directory $(pwd)
+          pip install idf-build-apps==3.0.1 --upgrade
+
+          # IDF latest (6.2) and newer use -Werror=unused-but-set-variable=1 (esp-idf@71618c8).
+          PEDANTIC_FLAGS="-DIDF_CI_BUILD -Werror -Werror=deprecated-declarations -Werror=unused-variable -Werror=unused-function -Werror=unused-but-set-variable=1"
+          export EXTRA_CFLAGS="${PEDANTIC_FLAGS} -Wstrict-prototypes"
+          export EXTRA_CXXFLAGS="${PEDANTIC_FLAGS}"
+
+          # Disable the IDF Component Manager: all dependencies are provided
+          # via EXTRA_COMPONENT_DIRS in the test apps' project CMakeLists.txt
+          export IDF_COMPONENT_MANAGER=0
+          # For the completeness: with the Component Manager disabled, the
+          # ENV_VAR_USB_COMP_MANAGED rules in idf_component.yml files are not evaluated
+          export ENV_VAR_USB_COMP_MANAGED=no
+
+          TEST_APP_PATHS="host/class/uvc/usb_host_uvc/test_app \
+                          host/class/uac/usb_host_uac/test_app \
+                          host/class/hid/usb_host_hid/test_app \
+                          host/class/msc/usb_host_msc/test_app \
+                          host/class/cdc/usb_host_cdc_acm/test_app \
+                          device/esp_tinyusb/test_apps/general"
+
+          MODIFIED_FILES_FLAG=""
+          CHANGED_FILES="${{ inputs.changed_files }}"
+          if [ -n "$CHANGED_FILES" ]; then
+            echo "CHANGED_FILES: $CHANGED_FILES"
+            MODIFIED_FILES_FLAG="--modified-files=$CHANGED_FILES"
+          fi
+
+          idf-build-apps find --paths $TEST_APP_PATHS --target esp32p4 --config-rules '=default' $MODIFIED_FILES_FLAG
+          idf-build-apps build --paths $TEST_APP_PATHS --target esp32p4 --config-rules '=default' $MODIFIED_FILES_FLAG

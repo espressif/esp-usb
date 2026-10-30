@@ -8,5 +8,5 @@ idf_component_register(SRC_DIRS .
                        INCLUDE_DIRS .
                        PRIV_INCLUDE_DIRS "../../../include_private"
                        PRIV_REQUIRES ${priv_req}
-                       REQUIRES unity
+                       REQUIRES unity esp_tinyusb
                        WHOLE_ARCHIVE)
