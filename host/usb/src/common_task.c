@@ -89,9 +89,18 @@ esp_err_t common_task_release(void)
             xSemaphoreGive(s_common_task_ctx.mutex);
             return ESP_ERR_INVALID_STATE;
         }
-        vTaskDelete(s_common_task_ctx.task_hdl);
+        // Tear the common task and its mutex down completely so a later opt-in
+        // recreates the shared manager from a clean state.
+        TaskHandle_t task_hdl = s_common_task_ctx.task_hdl;
+        SemaphoreHandle_t mutex = s_common_task_ctx.mutex;
         s_common_task_ctx.task_hdl = NULL;
-        // TODO: Add full mutex teardown on last release once the final reinstall lifecycle is settled.
+        s_common_task_ctx.mutex = NULL;
+        xSemaphoreGive(mutex);
+        if (task_hdl != NULL) {
+            vTaskDelete(task_hdl);
+        }
+        vSemaphoreDelete(mutex);
+        return ESP_OK;
     }
     xSemaphoreGive(s_common_task_ctx.mutex);
 
