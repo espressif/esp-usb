@@ -4,6 +4,18 @@ All notable changes to this component will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- Control requests support a 64-byte payload plus the 8-byte setup packet, increasing the previous 56-byte payload limit.
+- Disconnected handles remain valid until explicit close; operations on them return `ESP_ERR_INVALID_STATE`.
+
+### Fixed
+
+- Preserve device ownership without an event callback and defer VCP cleanup until active callbacks return.
+- Report local RX overflow without changing the cached device serial state.
+
 ## [2.4.1] - 2026-08-25
 
 ### Fixed

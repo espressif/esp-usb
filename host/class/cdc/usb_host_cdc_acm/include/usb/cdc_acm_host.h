@@ -208,7 +208,10 @@ esp_err_t cdc_acm_host_open_v1_dispatch(uint16_t vid, uint16_t pid, uint8_t inte
 /**
  * @brief Close a CDC device and release its resources.
  *
- * @note All in-flight transfers are cancelled before the device is closed.
+ * @note A disconnected device still owns its handle and must be explicitly closed.
+ *       Closing from a callback defers final resource release until that callback returns.
+ *       Do not access the handle after successful close or race close with other API calls.
+ *       A timeout keeps the handle valid for retrying close; data operations remain unavailable.
  *
  * @param[in] cdc_hdl CDC handle obtained from cdc_acm_host_open().
  *
@@ -216,6 +219,7 @@ esp_err_t cdc_acm_host_open_v1_dispatch(uint16_t vid, uint16_t pid, uint8_t inte
  *      - ESP_OK on success
  *      - ESP_ERR_INVALID_ARG if `cdc_hdl` is NULL
  *      - ESP_ERR_INVALID_STATE if the CDC-ACM host driver is not installed
+ *      - ESP_ERR_TIMEOUT if pending transfers have not completed; retry close later
  */
 esp_err_t cdc_acm_host_close(cdc_acm_dev_hdl_t cdc_hdl);
 
@@ -297,7 +301,7 @@ esp_err_t cdc_acm_host_cdc_desc_get(cdc_acm_dev_hdl_t cdc_hdl, cdc_desc_subtype_
  * @param[in] bRequest `bRequest` field of the USB setup packet.
  * @param[in] wValue `wValue` field of the USB setup packet.
  * @param[in] wIndex `wIndex` field of the USB setup packet.
- * @param[in] wLength Payload length in bytes.
+ * @param[in] wLength Payload length in bytes, up to 64. The 8-byte setup packet is allocated separately.
  * @param[inout] data Transfer payload buffer. Must not be NULL when `wLength`
  *                    is greater than 0.
  *

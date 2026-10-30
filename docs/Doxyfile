@@ -27,7 +27,8 @@ INPUT                  = \
     $(PROJECT_PATH)/host/class/cdc/usb_host_cdc_acm/include/usb/cdc_acm_host.h \
     $(PROJECT_PATH)/host/class/cdc/usb_host_cdc_acm/include/usb/cdc_acm_host_ops.h \
     $(PROJECT_PATH)/host/class/cdc/usb_host_cdc_acm/include/usb/cdc_host_types.h \
-    $(PROJECT_PATH)/host/class/cdc/usb_host_cdc_acm/include/usb/usb_types_cdc.h \
+    $(PROJECT_PATH)/host/class/cdc/usb_host_cdc_common/include/usb/usb_types_cdc.h \
+    $(PROJECT_PATH)/host/class/cdc/usb_host_cdc_common/include/usb/cdc_host_common.h \
     $(PROJECT_PATH)/host/class/cdc/usb_host_ch34x_vcp/include/usb/vcp_ch34x.h \
     $(PROJECT_PATH)/host/class/cdc/usb_host_cp210x_vcp/include/usb/vcp_cp210x.h \
     $(PROJECT_PATH)/host/class/cdc/usb_host_ftdi_vcp/include/usb/vcp_ftdi.h \
