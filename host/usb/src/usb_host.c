@@ -1340,35 +1340,7 @@ esp_err_t usb_host_client_handle_events(usb_host_client_handle_t client_hdl, Tic
 
         // Reset the automatic suspend timer, USB Host client is handling events
         reset_auto_suspend_timer();
-
-        HOST_ENTER_CRITICAL();
-        // Handle pending endpoints
-        if (!TAILQ_EMPTY(&client_obj->dynamic.pending_ep_tailq)) {
-            _handle_pending_ep(client_obj);
-        }
-        // Handle any done control transfers
-        while (client_obj->dynamic.num_done_ctrl_xfer > 0) {
-            urb_t *urb = TAILQ_FIRST(&client_obj->dynamic.done_ctrl_xfer_tailq);
-            TAILQ_REMOVE(&client_obj->dynamic.done_ctrl_xfer_tailq, urb, tailq_entry);
-            client_obj->dynamic.num_done_ctrl_xfer--;
-            HOST_EXIT_CRITICAL();
-            // Clear the transfer's in-flight flag to indicate the transfer is no longer in-flight
-            urb->usb_host_inflight = false;
-            // Call the transfer's callback
-            urb->transfer.callback(&urb->transfer);
-            HOST_ENTER_CRITICAL();
-        }
-        HOST_EXIT_CRITICAL();
-
-        // Handle event messages
-        while (uxQueueMessagesWaiting(client_obj->constant.event_msg_queue) > 0) {
-            // Dequeue the event message and call the client event callback
-            usb_host_client_event_msg_t event_msg;
-            BaseType_t queue_ret = xQueueReceive(client_obj->constant.event_msg_queue, &event_msg, 0);
-            assert(queue_ret == pdTRUE);
-            (void)queue_ret;
-            client_obj->constant.event_callback(&event_msg, client_obj->constant.callback_arg);
-        }
+        _handle_pending_client_events(client_obj);
 
         ret = ESP_OK;
         // Set timeout_ticks to 0 so that we can check for events again without blocking
