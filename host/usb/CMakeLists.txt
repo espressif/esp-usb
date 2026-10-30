@@ -26,7 +26,8 @@ else()
 endif()
 
 if(CONFIG_SOC_USB_OTG_SUPPORTED)
-    list(APPEND srcs "src/hcd_dwc.c"
+    list(APPEND srcs "src/common_task.c"
+                     "src/hcd_dwc.c"
                      "src/enum.c"
                      "src/hub.c"
                      "src/usb_helpers.c"
