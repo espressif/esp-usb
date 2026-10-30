@@ -15,7 +15,7 @@ extern "C" {
 /**
  * @brief Acquire the shared common background task manager
  *
- * Creates the common background task on first acquire.
+ * Creates the common-clients semaphore and background task on first acquire.
  *
  * @return
  *    - ESP_OK: The common task manager was acquired successfully
@@ -26,7 +26,7 @@ esp_err_t common_task_acquire(void);
 /**
  * @brief Release the shared common background task manager
  *
- * Deletes the common background task on last release.
+ * Deletes the common background task and common-clients semaphore on last release.
  *
  * @return
  *    - ESP_OK: The common task manager was released successfully

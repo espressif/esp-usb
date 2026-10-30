@@ -8,6 +8,7 @@
 #include "freertos/task.h"
 #include "freertos/semphr.h"
 #include "common_task.h"
+#include "usb_private.h"
 #include "usb/usb_host.h"
 
 #define COMMON_TASK_NAME       "USB Common"
@@ -51,6 +52,16 @@ esp_err_t common_task_acquire(void)
     // keep a reference count for the drivers sharing it.
     xSemaphoreTake(s_common_task_ctx.mutex, portMAX_DELAY);
     if (s_common_task_ctx.task_hdl == NULL) {
+        // Bring the shared client-event wakeup infrastructure up before any
+        // common-mode client is registered to use it.
+        esp_err_t ret = usb_host_common_clients_sem_create();
+        if (ret != ESP_OK) {
+            xSemaphoreGive(s_common_task_ctx.mutex);
+            return ret;
+        }
+
+        // Start the shared background task after the common semaphore exists so
+        // the loop can block on a valid wakeup object from its first iteration.
         BaseType_t task_created = xTaskCreatePinnedToCore(common_task,
                                                           COMMON_TASK_NAME,
                                                           COMMON_TASK_STACK_SIZE,
@@ -59,6 +70,7 @@ esp_err_t common_task_acquire(void)
                                                           &s_common_task_ctx.task_hdl,
                                                           COMMON_TASK_CORE_ID);
         if (task_created != pdPASS) {
+            usb_host_common_clients_sem_delete();
             xSemaphoreGive(s_common_task_ctx.mutex);
             return ESP_ERR_NO_MEM;
         }
@@ -90,9 +102,15 @@ esp_err_t common_task_release(void)
         s_common_task_ctx.task_hdl = NULL;
         s_common_task_ctx.mutex = NULL;
         xSemaphoreGive(mutex);
+
+        // Stop the shared task before deleting the common semaphore it can block on.
         if (task_hdl != NULL) {
             vTaskDelete(task_hdl);
         }
+
+        // Tear the common wakeup infrastructure down on the last release so a
+        // later opt-in recreates it from scratch.
+        ESP_ERROR_CHECK(usb_host_common_clients_sem_delete());
         vSemaphoreDelete(mutex);
         return ESP_OK;
     }

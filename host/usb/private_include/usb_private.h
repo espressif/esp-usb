@@ -11,6 +11,7 @@
 #include <stdint.h>
 #include <sys/queue.h>
 #include "esp_assert.h"
+#include "esp_err.h"
 #include "usb/usb_types_ch9.h"
 #include "usb/usb_types_stack.h"
 
@@ -94,6 +95,29 @@ urb_t *urb_alloc(size_t data_buffer_size, int num_isoc_packets);
  * @param[in] urb URB object
  */
 void urb_free(urb_t *urb);
+
+/**
+ * @brief Create the shared semaphore used by common-task clients
+ *
+ * Safe to call repeatedly. Once created, later calls are no-ops.
+ *
+ * @return
+ *    - ESP_OK: Shared semaphore is ready
+ *    - ESP_ERR_INVALID_STATE: USB Host library is not installed
+ *    - ESP_ERR_NO_MEM: Failed to allocate the semaphore
+ */
+esp_err_t usb_host_common_clients_sem_create(void);
+
+/**
+ * @brief Delete the shared semaphore used by common-task clients
+ *
+ * Safe to call repeatedly. Once deleted, later calls are no-ops.
+ *
+ * @return
+ *    - ESP_OK: Shared semaphore is not present anymore
+ *    - ESP_ERR_INVALID_STATE: USB Host library is not installed
+ */
+esp_err_t usb_host_common_clients_sem_delete(void);
 
 #ifdef __cplusplus
 }

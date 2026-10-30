@@ -161,7 +161,7 @@ typedef struct {
     // Constant members do no change after installation thus do not require a critical section
     struct {
         SemaphoreHandle_t event_sem;
-        SemaphoreHandle_t common_clients_event_sem;   // Shared semaphore used to wake the common clients event loop
+        SemaphoreHandle_t common_clients_event_sem;   // Shared semaphore owned by the common-task infrastructure
         SemaphoreHandle_t mux_lock;
         TimerHandle_t auto_suspend_timer;             // Freertos timer used for automatic suspend of the root port
         usb_phy_handle_t phy_handles[HCD_NUM_PORTS];  // One per port; NULL if skip_phy_setup or port not enabled
@@ -684,18 +684,16 @@ esp_err_t usb_host_install(const usb_host_config_t *config)
     esp_err_t ret;
     host_lib_t *host_lib_obj = heap_caps_calloc(1, sizeof(host_lib_t), MALLOC_CAP_DEFAULT);
     SemaphoreHandle_t event_sem = xSemaphoreCreateBinary();
-    // TODO: Create the common clients semaphore only when the common task infrastructure is actually enabled.
-    SemaphoreHandle_t common_clients_event_sem = xSemaphoreCreateBinary();
     SemaphoreHandle_t mux_lock = xSemaphoreCreateMutex();
     TimerHandle_t auto_suspend_timer = xTimerCreate("auto_suspend_tmr", pdMS_TO_TICKS(1000), pdFALSE, NULL, auto_suspend_timer_cb);
-    if (host_lib_obj == NULL || event_sem == NULL || common_clients_event_sem == NULL || mux_lock == NULL || auto_suspend_timer == NULL) {
+    if (host_lib_obj == NULL || event_sem == NULL || mux_lock == NULL || auto_suspend_timer == NULL) {
         ret = ESP_ERR_NO_MEM;
         goto alloc_err;
     }
     // Initialize host library object
     TAILQ_INIT(&host_lib_obj->mux_protected.client_tailq);
     host_lib_obj->constant.event_sem = event_sem;
-    host_lib_obj->constant.common_clients_event_sem = common_clients_event_sem;
+    host_lib_obj->constant.common_clients_event_sem = NULL;
     host_lib_obj->constant.mux_lock = mux_lock;
     host_lib_obj->constant.auto_suspend_timer = auto_suspend_timer;
 
@@ -849,9 +847,6 @@ alloc_err:
     if (mux_lock) {
         vSemaphoreDelete(mux_lock);
     }
-    if (common_clients_event_sem) {
-        vSemaphoreDelete(common_clients_event_sem);
-    }
     if (event_sem) {
         vSemaphoreDelete(event_sem);
     }
@@ -907,8 +902,9 @@ esp_err_t usb_host_uninstall(void)
 
     // Free memory objects
     vSemaphoreDelete(host_lib_obj->constant.mux_lock);
-    // TODO: Delete this semaphore conditionally once its lifecycle is aligned with common-task-only creation.
-    vSemaphoreDelete(host_lib_obj->constant.common_clients_event_sem);
+    if (host_lib_obj->constant.common_clients_event_sem != NULL) {
+        vSemaphoreDelete(host_lib_obj->constant.common_clients_event_sem);
+    }
     vSemaphoreDelete(host_lib_obj->constant.event_sem);
     xTimerDelete(host_lib_obj->constant.auto_suspend_timer, portMAX_DELAY);
     heap_caps_free(host_lib_obj);
@@ -1213,6 +1209,40 @@ static void _handle_pending_client_events(client_t *client_obj)
     }
 }
 
+esp_err_t usb_host_common_clients_sem_create(void)
+{
+    HOST_CHECK(p_host_lib_obj != NULL, ESP_ERR_INVALID_STATE);
+
+    // Keep repeated acquires idempotent once the shared semaphore is already present.
+    if (p_host_lib_obj->constant.common_clients_event_sem != NULL) {
+        return ESP_OK;
+    }
+
+    // Create the shared wakeup semaphore before any common-mode client starts
+    // reusing it as its event semaphore.
+    SemaphoreHandle_t common_clients_event_sem = xSemaphoreCreateBinary();
+    if (common_clients_event_sem == NULL) {
+        return ESP_ERR_NO_MEM;
+    }
+    p_host_lib_obj->constant.common_clients_event_sem = common_clients_event_sem;
+
+    return ESP_OK;
+}
+
+esp_err_t usb_host_common_clients_sem_delete(void)
+{
+    HOST_CHECK(p_host_lib_obj != NULL, ESP_ERR_INVALID_STATE);
+
+    // Delete the shared wakeup semaphore only when the common-task lifecycle
+    // currently owns one.
+    if (p_host_lib_obj->constant.common_clients_event_sem != NULL) {
+        vSemaphoreDelete(p_host_lib_obj->constant.common_clients_event_sem);
+        p_host_lib_obj->constant.common_clients_event_sem = NULL;
+    }
+
+    return ESP_OK;
+}
+
 // ----------------------- Public --------------------------
 
 esp_err_t usb_host_client_register(const usb_host_client_config_t *client_config, usb_host_client_handle_t *client_hdl_ret)
@@ -1233,7 +1263,8 @@ esp_err_t usb_host_client_register(const usb_host_client_config_t *client_config
     client_t *client_obj = heap_caps_calloc(1, sizeof(client_t), MALLOC_CAP_DEFAULT);
     SemaphoreHandle_t event_sem;
     if (client_config->client_exec_mode == USB_HOST_CLIENT_EXEC_MODE_COMMON_TASK) {
-        // TODO: Revisit who guarantees creation of the shared semaphore and align this with the install/uninstall lifecycle.
+        HOST_CHECK(p_host_lib_obj->constant.common_clients_event_sem != NULL, ESP_ERR_INVALID_STATE);
+
         // Common clients share one semaphore so a single task can block and wake for the whole group.
         event_sem = p_host_lib_obj->constant.common_clients_event_sem;
     } else {
@@ -1389,6 +1420,10 @@ esp_err_t usb_host_common_clients_handle_events(TickType_t timeout_ticks)
     if (num_clients == 0) {
         xSemaphoreGive(p_host_lib_obj->constant.mux_lock);
         return ESP_OK;
+    }
+    if (p_host_lib_obj->constant.common_clients_event_sem == NULL) {
+        xSemaphoreGive(p_host_lib_obj->constant.mux_lock);
+        return ESP_ERR_INVALID_STATE;
     }
 
     client_t **client_objs = heap_caps_malloc(num_clients * sizeof(client_t *), MALLOC_CAP_DEFAULT);
