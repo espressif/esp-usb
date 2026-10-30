@@ -30,8 +30,8 @@ static void common_task(void *arg)
 
     // Keep the common task structured like existing driver background tasks.
     while (usb_host_common_clients_handle_events(portMAX_DELAY) == ESP_OK) {
-        // TODO: Replace the dummy usb_host_common_clients_handle_events() path with
-        // a shared event loop compatible with HID/MSC/UVC background tasks.
+        // TODO: Wire the first class driver path to this shared loop and then
+        // widen the integration to the remaining common-task drivers.
     }
 
     vTaskDelete(NULL);

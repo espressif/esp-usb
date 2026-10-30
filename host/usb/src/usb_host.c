@@ -684,15 +684,18 @@ esp_err_t usb_host_install(const usb_host_config_t *config)
     esp_err_t ret;
     host_lib_t *host_lib_obj = heap_caps_calloc(1, sizeof(host_lib_t), MALLOC_CAP_DEFAULT);
     SemaphoreHandle_t event_sem = xSemaphoreCreateBinary();
+    // TODO: Create the common clients semaphore only when the common task infrastructure is actually enabled.
+    SemaphoreHandle_t common_clients_event_sem = xSemaphoreCreateBinary();
     SemaphoreHandle_t mux_lock = xSemaphoreCreateMutex();
     TimerHandle_t auto_suspend_timer = xTimerCreate("auto_suspend_tmr", pdMS_TO_TICKS(1000), pdFALSE, NULL, auto_suspend_timer_cb);
-    if (host_lib_obj == NULL || event_sem == NULL || mux_lock == NULL || auto_suspend_timer == NULL) {
+    if (host_lib_obj == NULL || event_sem == NULL || common_clients_event_sem == NULL || mux_lock == NULL || auto_suspend_timer == NULL) {
         ret = ESP_ERR_NO_MEM;
         goto alloc_err;
     }
     // Initialize host library object
     TAILQ_INIT(&host_lib_obj->mux_protected.client_tailq);
     host_lib_obj->constant.event_sem = event_sem;
+    host_lib_obj->constant.common_clients_event_sem = common_clients_event_sem;
     host_lib_obj->constant.mux_lock = mux_lock;
     host_lib_obj->constant.auto_suspend_timer = auto_suspend_timer;
 
@@ -846,6 +849,9 @@ alloc_err:
     if (mux_lock) {
         vSemaphoreDelete(mux_lock);
     }
+    if (common_clients_event_sem) {
+        vSemaphoreDelete(common_clients_event_sem);
+    }
     if (event_sem) {
         vSemaphoreDelete(event_sem);
     }
@@ -901,6 +907,8 @@ esp_err_t usb_host_uninstall(void)
 
     // Free memory objects
     vSemaphoreDelete(host_lib_obj->constant.mux_lock);
+    // TODO: Delete this semaphore conditionally once its lifecycle is aligned with common-task-only creation.
+    vSemaphoreDelete(host_lib_obj->constant.common_clients_event_sem);
     vSemaphoreDelete(host_lib_obj->constant.event_sem);
     xTimerDelete(host_lib_obj->constant.auto_suspend_timer, portMAX_DELAY);
     heap_caps_free(host_lib_obj);
@@ -1223,7 +1231,15 @@ esp_err_t usb_host_client_register(const usb_host_client_config_t *client_config
     esp_err_t ret;
     // Create client object
     client_t *client_obj = heap_caps_calloc(1, sizeof(client_t), MALLOC_CAP_DEFAULT);
-    SemaphoreHandle_t event_sem = xSemaphoreCreateBinary();
+    SemaphoreHandle_t event_sem;
+    if (client_config->client_exec_mode == USB_HOST_CLIENT_EXEC_MODE_COMMON_TASK) {
+        // TODO: Revisit who guarantees creation of the shared semaphore and align this with the install/uninstall lifecycle.
+        // Common clients share one semaphore so a single task can block and wake for the whole group.
+        event_sem = p_host_lib_obj->constant.common_clients_event_sem;
+    } else {
+        // Per-client execution keeps the original model where each client owns its own semaphore.
+        event_sem = xSemaphoreCreateBinary();
+    }
     QueueHandle_t event_msg_queue = xQueueCreate(client_config->max_num_event_msg, sizeof(usb_host_client_event_msg_t));
     if (client_obj == NULL || event_sem == NULL || event_msg_queue == NULL) {
         ret = ESP_ERR_NO_MEM;
@@ -1258,7 +1274,7 @@ alloc_err:
     if (event_msg_queue) {
         vQueueDelete(event_msg_queue);
     }
-    if (event_sem) {
+    if (client_config->client_exec_mode == USB_HOST_CLIENT_EXEC_MODE_PER_CLIENT && event_sem) {
         vSemaphoreDelete(event_sem);
     }
     heap_caps_free(client_obj);
@@ -1309,7 +1325,9 @@ esp_err_t usb_host_client_deregister(usb_host_client_handle_t client_hdl)
     HOST_EXIT_CRITICAL();
     // Free client object
     vQueueDelete(client_obj->constant.event_msg_queue);
-    vSemaphoreDelete(client_obj->constant.event_sem);
+    if (client_obj->constant.client_exec_mode == USB_HOST_CLIENT_EXEC_MODE_PER_CLIENT) {
+        vSemaphoreDelete(client_obj->constant.event_sem);
+    }
     heap_caps_free(client_obj);
     ret = ESP_OK;
 exit:
@@ -1322,6 +1340,7 @@ esp_err_t usb_host_client_handle_events(usb_host_client_handle_t client_hdl, Tic
     // Check arguments and state
     HOST_CHECK(client_hdl != NULL, ESP_ERR_INVALID_ARG);
     HOST_CHECK(p_host_lib_obj != NULL, ESP_ERR_INVALID_STATE);
+    HOST_CHECK(((client_t *)client_hdl)->constant.client_exec_mode == USB_HOST_CLIENT_EXEC_MODE_PER_CLIENT, ESP_ERR_INVALID_STATE);
 
     esp_err_t ret = (timeout_ticks == 0) ? ESP_OK : ESP_ERR_TIMEOUT;    // We don't want to return ESP_ERR_TIMEOUT if we aren't blocking
     client_t *client_obj = (client_t *)client_hdl;
@@ -1358,15 +1377,78 @@ esp_err_t usb_host_common_clients_handle_events(TickType_t timeout_ticks)
 {
     HOST_CHECK(p_host_lib_obj != NULL, ESP_ERR_INVALID_STATE);
 
-    // Keep the placeholder blocking behavior local to the all-clients API until
-    // the real shared client dispatch loop is wired here.
-    if (timeout_ticks > 0) {
-        vTaskDelay(timeout_ticks);
+    xSemaphoreTake(p_host_lib_obj->constant.mux_lock, portMAX_DELAY);
+
+    size_t num_clients = 0;
+    client_t *client_obj;
+    TAILQ_FOREACH(client_obj, &p_host_lib_obj->mux_protected.client_tailq, dynamic.tailq_entry) {
+        if (client_obj->constant.client_exec_mode == USB_HOST_CLIENT_EXEC_MODE_COMMON_TASK) {
+            num_clients++;
+        }
+    }
+    if (num_clients == 0) {
+        xSemaphoreGive(p_host_lib_obj->constant.mux_lock);
+        return ESP_OK;
     }
 
-    // TODO: Replace this placeholder with shared client event handling compatible
-    // with HID/MSC/UVC background task loops.
-    return ESP_OK;
+    client_t **client_objs = heap_caps_malloc(num_clients * sizeof(client_t *), MALLOC_CAP_DEFAULT);
+    if (client_objs == NULL) {
+        xSemaphoreGive(p_host_lib_obj->constant.mux_lock);
+        return ESP_ERR_NO_MEM;
+    }
+
+    size_t i = 0;
+    TAILQ_FOREACH(client_obj, &p_host_lib_obj->mux_protected.client_tailq, dynamic.tailq_entry) {
+        if (client_obj->constant.client_exec_mode == USB_HOST_CLIENT_EXEC_MODE_COMMON_TASK) {
+            client_objs[i] = client_obj;
+            i++;
+        }
+    }
+
+    esp_err_t ret = ESP_OK;
+    HOST_ENTER_CRITICAL();
+    for (i = 0; i < num_clients; i++) {
+        if (client_objs[i]->dynamic.flags.handling_events) {
+            ret = ESP_ERR_INVALID_STATE;
+            break;
+        }
+    }
+    if (ret == ESP_OK) {
+        for (i = 0; i < num_clients; i++) {
+            client_objs[i]->dynamic.flags.handling_events = 1;
+        }
+    }
+    HOST_EXIT_CRITICAL();
+    xSemaphoreGive(p_host_lib_obj->constant.mux_lock);
+
+    if (ret == ESP_OK) {
+        ret = (timeout_ticks == 0) ? ESP_OK : ESP_ERR_TIMEOUT;
+        while (1) {
+            if (xSemaphoreTake(p_host_lib_obj->constant.common_clients_event_sem, timeout_ticks) == pdFALSE) {
+                break;
+            }
+
+            // Wait once on the shared semaphore, then drain the clients configured
+            // for the common task without blocking on each client again.
+            reset_auto_suspend_timer();
+            for (i = 0; i < num_clients; i++) {
+                _handle_pending_client_events(client_objs[i]);
+            }
+            ret = ESP_OK;
+            timeout_ticks = 0;
+        }
+    }
+
+    if (ret != ESP_ERR_INVALID_STATE) {
+        HOST_ENTER_CRITICAL();
+        for (i = 0; i < num_clients; i++) {
+            client_objs[i]->dynamic.flags.handling_events = 0;
+        }
+        HOST_EXIT_CRITICAL();
+    }
+
+    heap_caps_free(client_objs);
+    return ret;
 }
 
 esp_err_t usb_host_client_unblock(usb_host_client_handle_t client_hdl)

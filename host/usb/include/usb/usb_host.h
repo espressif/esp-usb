@@ -391,7 +391,7 @@ esp_err_t usb_host_client_handle_events(usb_host_client_handle_t client_hdl, Tic
  * @brief USB Host Library common-clients processing function
  *
  * - This function is intended for shared client event handling from a single task
- * - This placeholder implementation currently does not process client events
+ * - This function handles only the clients configured for the common clients loop
  *
  * @note This function can block
  * @param[in] timeout_ticks Timeout in ticks to wait
