@@ -161,6 +161,7 @@ typedef struct {
     // Constant members do no change after installation thus do not require a critical section
     struct {
         SemaphoreHandle_t event_sem;
+        SemaphoreHandle_t common_clients_event_sem;   // Shared semaphore used to wake the common clients event loop
         SemaphoreHandle_t mux_lock;
         TimerHandle_t auto_suspend_timer;             // Freertos timer used for automatic suspend of the root port
         usb_phy_handle_t phy_handles[HCD_NUM_PORTS];  // One per port; NULL if skip_phy_setup or port not enabled
@@ -1168,6 +1169,39 @@ static void _handle_pending_ep(client_t *client_obj)
         // Update the endpoint's number of URB's in-flight
         assert(num_urb_dequeued <= ep_wrap->dynamic.num_urb_inflight);
         ep_wrap->dynamic.num_urb_inflight -= num_urb_dequeued;
+    }
+}
+
+static void _handle_pending_client_events(client_t *client_obj)
+{
+    // Process one pass of work that is already pending for this client without waiting on a semaphore.
+    HOST_ENTER_CRITICAL();
+    // Handle pending endpoints
+    if (!TAILQ_EMPTY(&client_obj->dynamic.pending_ep_tailq)) {
+        _handle_pending_ep(client_obj);
+    }
+    // Handle any done control transfers
+    while (client_obj->dynamic.num_done_ctrl_xfer > 0) {
+        urb_t *urb = TAILQ_FIRST(&client_obj->dynamic.done_ctrl_xfer_tailq);
+        TAILQ_REMOVE(&client_obj->dynamic.done_ctrl_xfer_tailq, urb, tailq_entry);
+        client_obj->dynamic.num_done_ctrl_xfer--;
+        HOST_EXIT_CRITICAL();
+        // Clear the transfer's in-flight flag to indicate the transfer is no longer in-flight
+        urb->usb_host_inflight = false;
+        // Call the transfer's callback
+        urb->transfer.callback(&urb->transfer);
+        HOST_ENTER_CRITICAL();
+    }
+    HOST_EXIT_CRITICAL();
+
+    // Handle event messages
+    while (uxQueueMessagesWaiting(client_obj->constant.event_msg_queue) > 0) {
+        // Dequeue the event message and call the client event callback
+        usb_host_client_event_msg_t event_msg;
+        BaseType_t queue_ret = xQueueReceive(client_obj->constant.event_msg_queue, &event_msg, 0);
+        assert(queue_ret == pdTRUE);
+        (void)queue_ret;
+        client_obj->constant.event_callback(&event_msg, client_obj->constant.callback_arg);
     }
 }
 
