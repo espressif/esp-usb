@@ -36,14 +36,12 @@ Procedure:
 Note: Some mice will NAK until it is moved, so try moving the mouse around if this test case gets stuck.
 */
 
-#define TEST_HID_DEV_SPEED                  USB_SPEED_LOW
 #define NUM_URBS                            3
 #define NUM_URB_ITERS                       (NUM_URBS * 100)
 
-TEST_CASE("Test HCD interrupt pipe URBs", "[intr][low_speed]")
+TEST_CASE("Test HCD interrupt pipe URBs", "[intr][tinyusb_mock]")
 {
     usb_speed_t port_speed = test_hcd_wait_for_conn(port_hdl);  // Trigger a connection
-    TEST_ASSERT_EQUAL_MESSAGE(TEST_HID_DEV_SPEED, port_speed, "Connected device is not Low Speed!");
     vTaskDelay(pdMS_TO_TICKS(100)); // Short delay send of SOF (for FS) or EOPs (for LS)
 
     hcd_pipe_handle_t default_pipe = test_hcd_pipe_alloc(port_hdl, NULL, 0, port_speed); // Create a default pipe (using a NULL EP descriptor)
@@ -73,7 +71,7 @@ TEST_CASE("Test HCD interrupt pipe URBs", "[intr][low_speed]")
         TEST_HCD_EXPECT_TRANSFER_STATUS(urb, USB_TRANSFER_STATUS_COMPLETED);
         TEST_ASSERT_EQUAL(URB_CONTEXT_VAL, urb->transfer.context);
         // Byte 1 and 2 contains x and y movement respectively
-        ESP_LOGI(TAG, "X mov %d, Y mov %d", urb->transfer.data_buffer[1], urb->transfer.data_buffer[2]);
+        ESP_LOGI(TAG, "X mov %d, Y mov %d", (int8_t)urb->transfer.data_buffer[1], (int8_t)urb->transfer.data_buffer[2]);
         // Requeue URB
         if (iter_count > NUM_URBS) {
             TEST_ASSERT_EQUAL(ESP_OK, hcd_urb_enqueue(intr_pipe, urb));
