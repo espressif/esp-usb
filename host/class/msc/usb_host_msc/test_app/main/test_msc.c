@@ -584,6 +584,57 @@ TEST_CASE("error_recovery_2", "[usb_msc][ignore]")
     msc_teardown();
 }
 
+/**
+ * @brief Bulk endpoint STALL and reset recovery with data toggle resync
+ *
+ * Purpose:
+ *     - Exercise the MSC error recovery path with a deterministically stalled bulk
+ *       endpoint: an out-of-bounds READ10 always fails in the TinyUSB mock device,
+ *       which STALLs its bulk IN endpoint before the data stage
+ *     - Verify that after msc_host_reset_recovery() (Mass Storage Reset +
+ *       CLEAR_FEATURE(ENDPOINT_HALT) on both bulk endpoints) normal traffic
+ *       resumes, with device and host data toggles back in sync (USB 2.0 spec 9.4.5)
+ *
+ * The failing scsi_cmd_read10() also issues the driver's internal REQUEST SENSE
+ * retry, which the halted device cannot answer; it times out (~5 s) before the
+ * timed section of this test starts.
+ *
+ * The TEST UNIT READY before the STALL flips both data toggle parities (one CBW
+ * OUT + one CSW IN), so both host channels hold a stale data toggle when the
+ * STALL hits. Recovery that does not resync the host channel PID to DATA0 then
+ * causes bulk transfer timeouts, which the duration assert below catches.
+ */
+TEST_CASE("bulk_ep_stall_clear_feature", "[usb_msc]")
+{
+    msc_setup();
+    uint8_t data[DISK_BLOCK_SIZE];
+
+    printf("read write before stall\n");
+    write_read_sectors();
+
+    // Flip both data toggle parities with a no-data command
+    ESP_OK_ASSERT( scsi_cmd_unit_ready(device) );
+
+    // Reading an out-of-bounds sector deterministically fails in the TinyUSB mock device, which STALLs its bulk IN EP
+    // before the data stage. The driver's internal REQUEST SENSE retry to the halted endpoint times out first (~5 s).
+    printf("trigger bulk IN EP stall\n");
+    TEST_ASSERT_NOT_EQUAL(ESP_OK, scsi_cmd_read10(device, data, UINT32_MAX, 1, DISK_BLOCK_SIZE));
+
+    // BOT Reset Recovery: Mass Storage Reset + CLEAR_FEATURE(ENDPOINT_HALT) on both bulk endpoints
+    printf("reset recovery\n");
+    const TickType_t recovery_start = xTaskGetTickCount();
+    ESP_OK_ASSERT( msc_host_reset_recovery(device) );
+
+    printf("read write after recovery\n");
+    write_read_sectors();
+
+    // Without the host channel PID resync to DATA0, the post-recovery transfers only
+    // self-heal through bulk transfer timeouts (5 s each); with it, recovery is instant
+    TEST_ASSERT_LESS_THAN_INT(3000, (int)pdTICKS_TO_MS(xTaskGetTickCount() - recovery_start));
+
+    msc_teardown();
+}
+
 #define MAX_BUFFER_SIZE (1024 + 1) // Maximum buffer size for this test
 #define SETVBUF_TEST(_size) do { \
     printf("setvbuf %d\n", _size); \
