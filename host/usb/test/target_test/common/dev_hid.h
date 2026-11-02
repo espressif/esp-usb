@@ -34,6 +34,7 @@ typedef struct {
     uint8_t bInterfaceNumber;
     uint8_t bAlternateSetting;
     uint8_t in_ep_addr;
+    uint8_t report_len;     // HID report length in bytes
 } dev_hid_info_t;
 
 /**
