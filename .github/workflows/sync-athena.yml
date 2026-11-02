@@ -2,7 +2,7 @@ name: Sync to Athena
 
 run-name: >
   Sync to Athena -
-  ${{ github.event_name == 'pull_request' && 'New Pull Request' ||
+  ${{ github.event_name == 'pull_request_target' && 'New Pull Request' ||
       github.event_name == 'issue_comment' && 'New Comment' ||
       github.event_name == 'issues' && 'New Issue' ||
       github.event_name == 'workflow_dispatch' && 'Manual Sync' }}
@@ -12,7 +12,7 @@ on:
     types: [opened, edited, reopened, closed]
   issue_comment:
     types: [created, edited]
-  pull_request:
+  pull_request_target:
     types: [opened, reopened, ready_for_review]
   workflow_dispatch:
     inputs:
@@ -69,7 +69,7 @@ jobs:
           registry_token: ${{ secrets.SYNC_ATHENA_REGISTRY_TOKEN }}
 
   pr-to-task:
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request_target'
     name: Link PR to its USB ticket
     runs-on: ubuntu-latest
     environment: 'athena-sync'
