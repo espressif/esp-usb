@@ -1007,6 +1007,15 @@ static hcd_pipe_event_t _intr_hdlr_chan(pipe_t *pipe, usb_dwc_hal_chan_t *chan_o
         break;
     }
     case USB_DWC_HAL_CHAN_EVENT_ERROR: {
+        if (!pipe->multi_buffer_control.buffer_is_executing) {
+            // The channel reported an error with no buffer executing on it. Seen on an ESP32-P4 when a
+            // device is unplugged while its pipes are being halted and flushed: the flush has already
+            // retired every buffer, so there is no transfer to fail. Marking a buffer done here would
+            // underflow buffer_num_to_exec and parse an empty slot (the urb != NULL assertion in
+            // _buffer_parse()), so drop the event instead.
+            ESP_DRAM_LOGW(HCD_DWC_TAG, "Channel error with no buffer executing, ignored");
+            break;
+        }
         // Get and store the pipe error event
         usb_dwc_hal_chan_error_t chan_error = usb_dwc_hal_chan_get_error(chan_obj);
         pipe->last_event = pipe_decode_error_event(chan_error);
