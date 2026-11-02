@@ -3063,19 +3063,20 @@ static inline void _slot_exec_ctrl_stage(pipe_t *pipe, urb_slot_t *urb_slot, ctr
 {
     usb_transfer_t *transfer = &urb_slot->urb->transfer;
     usb_dwc_hal_buffer_xfer_t xfer;
+    int pid;
     bool is_in;
 
     switch (stage) {
     case CTRL_XFER_STAGE_SETUP:
         xfer.buf = transfer->data_buffer;
         xfer.len = sizeof(usb_setup_packet_t);
-        xfer.pid = USB_DWC_HAL_PID_SETUP;
+        pid = USB_DWC_HAL_PID_SETUP;
         is_in = false;
         break;
     case CTRL_XFER_STAGE_DATA:
         xfer.buf = transfer->data_buffer + sizeof(usb_setup_packet_t);
         xfer.len = transfer->num_bytes - (int)sizeof(usb_setup_packet_t);
-        xfer.pid = USB_DWC_HAL_PID_DATA1;
+        pid = USB_DWC_HAL_PID_DATA1;
         is_in = urb_slot->flags.ctrl.data_stg_in;
         if (is_in) {
             xfer.len = buffer_in_xfer_len(xfer.len, pipe->ep_char.mps);
@@ -3083,7 +3084,7 @@ static inline void _slot_exec_ctrl_stage(pipe_t *pipe, urb_slot_t *urb_slot, ctr
         break;
     case CTRL_XFER_STAGE_STATUS:
         xfer.buf = transfer->data_buffer;   // dummy data buffer address (A valid DMA address is always required to be programmed); even if no data is transferred in this stage
-        xfer.pid = USB_DWC_HAL_PID_DATA1;
+        pid = USB_DWC_HAL_PID_DATA1;
         is_in = urb_slot->flags.ctrl.data_stg_skip ? true : !urb_slot->flags.ctrl.data_stg_in;
         // A zero-length IN transfer is programmed as XferSize = MPS, PktCnt = 1 (DWC_otg programming
         // guide section 3.4, step 5 requires n > 0). Safe with the dummy buffer: the core only writes
@@ -3096,6 +3097,7 @@ static inline void _slot_exec_ctrl_stage(pipe_t *pipe, urb_slot_t *urb_slot, ctr
     }
 
     pipe->xact_err_cnt = 0;     // A new transfer stage starts with a reset error count
+    usb_dwc_hal_chan_set_pid(pipe->chan_obj, pid);  // Each control transfer stage has a fixed starting PID
     usb_dwc_hal_chan_set_dir(pipe->chan_obj, is_in);
     usb_dwc_hal_chan_activate_buffer(pipe->port->hal, pipe->chan_obj, &xfer);
 }
@@ -3142,12 +3144,11 @@ static inline void _slot_exec_bulk(pipe_t *pipe, urb_slot_t *urb_slot)
         len = buffer_in_xfer_len(len, pipe->ep_char.mps);
     }
 
-    // Read the current data toggle PID from HCTSIZ before activating (do not hardcode it here). The DWC core
-    // initialises it to DATA0 on channel allocation and advances it after each successfully transferred packet.
+    // The data toggle PID is maintained by the DWC core (DATA0 from channel allocation, advanced after each
+    // successfully transferred packet); channel activation preserves it.
     const usb_dwc_hal_buffer_xfer_t xfer = {
         .buf = transfer->data_buffer,
         .len = len,
-        .pid = (int)usb_dwc_hal_chan_get_pid(pipe->chan_obj),
     };
     urb_slot->status_flags.executing = 1;
     pipe->urb_slot_ring.is_executing = 1;
@@ -3300,11 +3301,10 @@ static inline void _slot_exec_cont_bulk(pipe_t *pipe, urb_slot_t *urb_slot)
     urb_slot->flags.bulk.actual_bytes = urb_slot->urb->transfer.num_bytes;
     // Advance to the ZLP stage so _slot_check_done() returns true once the ZLP completes
     urb_slot->flags.bulk.cur_stg = BULK_XFER_STAGE_ZLP;
-    // Activate the ZLP using the PID that follows the completed main transfer
+    // Activate the ZLP; the core-maintained PID (advanced past the completed main transfer) is preserved
     usb_dwc_hal_buffer_xfer_t xfer = {
         .buf = urb_slot->urb->transfer.data_buffer,     // HW requires a valid DMA address even for len=0
         .len = 0,                                       // OUT transfers are allowed to be 0, HAL will transfer this to one packet
-        .pid = (int)usb_dwc_hal_chan_get_pid(pipe->chan_obj),
     };
     pipe->xact_err_cnt = 0;
     // We don't need to set the channel direction now, as we are continuing with the bulk transfer's
