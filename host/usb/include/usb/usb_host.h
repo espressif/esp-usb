@@ -663,6 +663,31 @@ esp_err_t usb_host_endpoint_flush(usb_device_handle_t dev_hdl, uint8_t bEndpoint
  */
 esp_err_t usb_host_endpoint_clear(usb_device_handle_t dev_hdl, uint8_t bEndpointAddress);
 
+/**
+ * @brief Resync an endpoint's host-side data toggle to DATA0
+ *
+ * - The device must have been opened by a client
+ * - The endpoint must be part of an interface claimed by a client
+ * - The endpoint must have been halted (either through a transfer error, or usb_host_endpoint_halt())
+ * - Only affects bulk and interrupt endpoints
+ *
+ * A ClearFeature(ENDPOINT_HALT) request reinitializes the device endpoint's data toggle to DATA0
+ * (see USB2.0 specification section 9.4.5). This function resyncs the host-side data toggle to DATA0
+ * as well, and must therefore only be called as part of the endpoint halt recovery, together with the
+ * ClearFeature(ENDPOINT_HALT) control transfer. It must NOT be called in other contexts (e.g. when
+ * resuming a halted endpoint after suspend), as the device endpoint keeps its data toggle there.
+ *
+ * @param[in] dev_hdl Device handle
+ * @param[in] bEndpointAddress Endpoint address
+ *
+ * @return
+ *    - ESP_OK: Endpoint data toggle resynced successfully
+ *    - ESP_ERR_INVALID_ARG: Invalid argument
+ *    - ESP_ERR_NOT_FOUND: Endpoint address not found
+ *    - ESP_ERR_INVALID_STATE: Endpoint pipe is not in the correct state/condition to execute a command
+ */
+esp_err_t usb_host_endpoint_reset_data_toggle(usb_device_handle_t dev_hdl, uint8_t bEndpointAddress);
+
 // ------------------------------------------------ Asynchronous I/O ---------------------------------------------------
 
 /**

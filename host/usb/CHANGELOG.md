@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- Added public API for resetting host channel data toggle. This is used together with ClearFeature(ENDPOINT_HALT) request from class drivers during device's EP recovery.
+
 ### Fixed
 
 - Fixed a device object and HCD channel leak when the enumeration filter rejects a device connected through an external hub (https://github.com/espressif/esp-usb/pull/590).
