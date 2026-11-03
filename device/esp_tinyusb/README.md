@@ -6,7 +6,7 @@ This component extends TinyUSB with features that simplify integration into ESP-
 
 It provides both default and customizable configurations for TinyUSB, enabling USB device functionality on ESP chips with USB-OTG support.
 
-The current TinyUSB version is [0.21.0~2](https://components.espressif.com/components/espressif/tinyusb/versions/0.21.0~2/readme). The stack is bundled as a git submodule, so you do not need a separate `tinyusb` dependency.
+The current TinyUSB version is [0.21.0~3](https://components.espressif.com/components/espressif/tinyusb/versions/0.21.0~3/readme). The stack is bundled as a git submodule, so you do not need a separate `tinyusb` dependency.
 
 ### Run-time configuration
 
