@@ -135,6 +135,7 @@ typedef struct {
     usb_host_client_handle_t client_handle;                     /**< Client task handle */
     hid_host_driver_event_cb_t user_cb;                         /**< User application callback */
     void *user_arg;                                             /**< User application callback args */
+    bool use_common_background_task;                            /**< Shared common background task enabled flag */
     bool event_handling_started;                                /**< Events handler started flag */
     SemaphoreHandle_t all_events_handled;                       /**< Events handler semaphore */
     SemaphoreHandle_t open_close_mutex;                         /**< Mutex to prevent race conditions during device open/close */
@@ -146,6 +147,10 @@ static StaticSemaphore_t s_open_close_mutex_buffer;
 
 
 // ----------------------- Private Prototypes ----------------------------------
+
+esp_err_t common_task_acquire(void);
+esp_err_t common_task_release(void);
+esp_err_t usb_host_client_leave_common_task(usb_host_client_handle_t client_hdl);
 
 static esp_err_t hid_host_install_device(uint8_t dev_addr,
                                          usb_device_handle_t dev_hdl,
@@ -1352,14 +1357,11 @@ esp_err_t hid_host_uninstall_device(hid_device_t *hid_device)
 esp_err_t hid_host_install(const hid_host_driver_config_t *config)
 {
     esp_err_t ret;
+    bool common_task_acquired = false;
 
     HID_RETURN_ON_INVALID_ARG(config);
     HID_RETURN_ON_INVALID_ARG(config->callback);
-    // TODO: Route the common-background-task config through common_task once
-    // the shared driver integration path is implemented.
-    HID_RETURN_ON_FALSE(!(config->create_background_task && config->use_common_background_task),
-                        ESP_ERR_NOT_SUPPORTED,
-                        "Common background task not implemented yet");
+    const bool use_common_background_task = config->create_background_task && config->use_common_background_task;
 
     if ( config->create_background_task ) {
         HID_RETURN_ON_FALSE(config->stack_size != 0,
@@ -1382,11 +1384,12 @@ esp_err_t hid_host_install(const hid_host_driver_config_t *config)
 
     driver->user_cb = config->callback;
     driver->user_arg = config->callback_arg;
+    driver->use_common_background_task = use_common_background_task;
 
     // Convert the driver config into the client execution mode persisted by
     // the USB Host library at client registration time.
     usb_host_client_exec_mode_t client_exec_mode = USB_HOST_CLIENT_EXEC_MODE_PER_CLIENT;
-    if (config->create_background_task && config->use_common_background_task) {
+    if (use_common_background_task) {
         client_exec_mode = USB_HOST_CLIENT_EXEC_MODE_COMMON_TASK;
     }
 
@@ -1406,6 +1409,14 @@ esp_err_t hid_host_install(const hid_host_driver_config_t *config)
 
     driver->open_close_mutex = xSemaphoreCreateMutexStatic(&s_open_close_mutex_buffer);
 
+    // Acquire the shared common-task infrastructure before registering a HID
+    // client that will reuse the common event semaphore.
+    if (use_common_background_task) {
+        HID_GOTO_ON_ERROR(common_task_acquire(),
+                          "Unable to acquire common background task");
+        common_task_acquired = true;
+    }
+
     HID_GOTO_ON_ERROR( usb_host_client_register(&client_config,
                                                 &driver->client_handle),
                        "Unable to register USB Host client");
@@ -1417,7 +1428,9 @@ esp_err_t hid_host_install(const hid_host_driver_config_t *config)
     STAILQ_INIT(&s_hid_driver->hid_ifaces_tailq);
     HID_EXIT_CRITICAL();
 
-    if (config->create_background_task) {
+    // In common-task mode the shared task already exists, so HID only creates
+    // its dedicated background task in the legacy per-driver path.
+    if (config->create_background_task && !use_common_background_task) {
         BaseType_t task_created = xTaskCreatePinnedToCore(
                                       event_handler_task,
                                       "USB HID Host",
@@ -1436,7 +1449,15 @@ esp_err_t hid_host_install(const hid_host_driver_config_t *config)
 fail:
     s_hid_driver = NULL;
     if (driver->client_handle) {
+        if (driver->use_common_background_task) {
+            ESP_ERROR_CHECK(usb_host_client_leave_common_task(driver->client_handle));
+            ESP_ERROR_CHECK(common_task_release());
+            common_task_acquired = false;
+        }
         usb_host_client_deregister(driver->client_handle);
+    }
+    if (common_task_acquired) {
+        common_task_release();
     }
     if (driver->all_events_handled) {
         vSemaphoreDelete(driver->all_events_handled);
@@ -1469,7 +1490,13 @@ esp_err_t hid_host_uninstall(void)
     s_hid_driver->end_client_event_handling = true;
     HID_EXIT_CRITICAL();
 
-    if (s_hid_driver->event_handling_started) {
+    // Stop HID-owned event handling before deregistering the client. In
+    // common-task mode, first remove this client from future shared-loop
+    // iterations, then drop HID's ownership of the common task.
+    if (s_hid_driver->use_common_background_task) {
+        ESP_ERROR_CHECK(usb_host_client_leave_common_task(s_hid_driver->client_handle));
+        ESP_ERROR_CHECK(common_task_release());
+    } else if (s_hid_driver->event_handling_started) {
         ESP_ERROR_CHECK( usb_host_client_unblock(s_hid_driver->client_handle) );
         // In case the event handling started, we must wait until it finishes
         xSemaphoreTake(s_hid_driver->all_events_handled, portMAX_DELAY);

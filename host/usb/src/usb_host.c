@@ -114,7 +114,8 @@ struct client_s {
             struct {
                 uint32_t handling_events: 1;
                 uint32_t taking_mux: 1;
-                uint32_t reserved6: 6;
+                uint32_t leaving_common_task: 1;
+                uint32_t reserved5: 5;
                 uint32_t num_intf_claimed: 8;
                 uint32_t reserved16: 16;
             };
@@ -1209,6 +1210,18 @@ static void _handle_pending_client_events(client_t *client_obj)
     }
 }
 
+static bool _client_uses_common_task(client_t *client_obj)
+{
+    bool uses_common_task;
+
+    HOST_ENTER_CRITICAL();
+    uses_common_task = (client_obj->constant.client_exec_mode == USB_HOST_CLIENT_EXEC_MODE_COMMON_TASK) &&
+                       !client_obj->dynamic.flags.leaving_common_task;
+    HOST_EXIT_CRITICAL();
+
+    return uses_common_task;
+}
+
 esp_err_t usb_host_common_clients_sem_create(void)
 {
     HOST_CHECK(p_host_lib_obj != NULL, ESP_ERR_INVALID_STATE);
@@ -1238,6 +1251,37 @@ esp_err_t usb_host_common_clients_sem_delete(void)
     if (p_host_lib_obj->constant.common_clients_event_sem != NULL) {
         vSemaphoreDelete(p_host_lib_obj->constant.common_clients_event_sem);
         p_host_lib_obj->constant.common_clients_event_sem = NULL;
+    }
+
+    return ESP_OK;
+}
+
+esp_err_t usb_host_client_leave_common_task(usb_host_client_handle_t client_hdl)
+{
+    HOST_CHECK(client_hdl != NULL, ESP_ERR_INVALID_ARG);
+    HOST_CHECK(p_host_lib_obj != NULL, ESP_ERR_INVALID_STATE);
+    client_t *client_obj = (client_t *)client_hdl;
+    HOST_CHECK(client_obj->constant.client_exec_mode == USB_HOST_CLIENT_EXEC_MODE_COMMON_TASK, ESP_ERR_INVALID_STATE);
+
+    // Prevent future shared-loop iterations from snapshotting this client while
+    // the driver is preparing to deregister it.
+    HOST_ENTER_CRITICAL();
+    client_obj->dynamic.flags.leaving_common_task = 1;
+    bool handling_events = client_obj->dynamic.flags.handling_events;
+    HOST_EXIT_CRITICAL();
+
+    // If the shared loop is currently blocked with this client in its snapshot,
+    // wake it once so it can finish the current iteration and drop the flag.
+    if (handling_events) {
+        ESP_RETURN_ON_ERROR(usb_host_client_unblock(client_hdl), USB_HOST_TAG, "Failed to unblock common-task client");
+    }
+
+    // Wait until any current common-task handling of this client has finished.
+    while (handling_events) {
+        vTaskDelay(1);
+        HOST_ENTER_CRITICAL();
+        handling_events = client_obj->dynamic.flags.handling_events;
+        HOST_EXIT_CRITICAL();
     }
 
     return ESP_OK;
@@ -1413,7 +1457,7 @@ esp_err_t usb_host_common_clients_handle_events(TickType_t timeout_ticks)
     size_t num_clients = 0;
     client_t *client_obj;
     TAILQ_FOREACH(client_obj, &p_host_lib_obj->mux_protected.client_tailq, dynamic.tailq_entry) {
-        if (client_obj->constant.client_exec_mode == USB_HOST_CLIENT_EXEC_MODE_COMMON_TASK) {
+        if (_client_uses_common_task(client_obj)) {
             num_clients++;
         }
     }
@@ -1434,7 +1478,7 @@ esp_err_t usb_host_common_clients_handle_events(TickType_t timeout_ticks)
 
     size_t i = 0;
     TAILQ_FOREACH(client_obj, &p_host_lib_obj->mux_protected.client_tailq, dynamic.tailq_entry) {
-        if (client_obj->constant.client_exec_mode == USB_HOST_CLIENT_EXEC_MODE_COMMON_TASK) {
+        if (_client_uses_common_task(client_obj)) {
             client_objs[i] = client_obj;
             i++;
         }

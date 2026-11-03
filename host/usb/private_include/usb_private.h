@@ -12,6 +12,7 @@
 #include <sys/queue.h>
 #include "esp_assert.h"
 #include "esp_err.h"
+#include "usb/usb_host.h"
 #include "usb/usb_types_ch9.h"
 #include "usb/usb_types_stack.h"
 
@@ -118,6 +119,22 @@ esp_err_t usb_host_common_clients_sem_create(void);
  *    - ESP_ERR_INVALID_STATE: USB Host library is not installed
  */
 esp_err_t usb_host_common_clients_sem_delete(void);
+
+/**
+ * @brief Remove one client from future common-task iterations
+ *
+ * Marks a common-task client so the shared loop stops selecting it, wakes the
+ * shared loop if needed, and waits until any in-flight handling of that client
+ * finishes.
+ *
+ * @param[in] client_hdl Client handle to remove from the common-task set
+ *
+ * @return
+ *    - ESP_OK: Client is no longer handled by the common task
+ *    - ESP_ERR_INVALID_ARG: Invalid client handle
+ *    - ESP_ERR_INVALID_STATE: USB Host library not installed or client is not in common-task mode
+ */
+esp_err_t usb_host_client_leave_common_task(usb_host_client_handle_t client_hdl);
 
 #ifdef __cplusplus
 }
