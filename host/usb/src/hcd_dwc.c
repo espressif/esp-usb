@@ -1013,7 +1013,7 @@ static hcd_pipe_event_t _intr_hdlr_chan(pipe_t *pipe, usb_dwc_hal_chan_t *chan_o
             // retired every buffer, so there is no transfer to fail. Marking a buffer done here would
             // underflow buffer_num_to_exec and parse an empty slot (the urb != NULL assertion in
             // _buffer_parse()), so drop the event instead.
-            ESP_DRAM_LOGW(HCD_DWC_TAG, "Channel error with no buffer executing, ignored");
+            ESP_DRAM_LOGD(HCD_DWC_TAG, "Channel error with no buffer executing, ignored");
             break;
         }
         // Get and store the pipe error event
