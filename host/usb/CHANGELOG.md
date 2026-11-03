@@ -10,6 +10,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - Fixed a device object and HCD channel leak when the enumeration filter rejects a device connected through an external hub (https://github.com/espressif/esp-usb/pull/590).
 - Fixed possible OOB read during string descriptor print
+- Fixed an assertion in `_buffer_parse()` when a channel error interrupt arrives with no buffer executing, seen on device disconnect on ESP32-P4
 
 ## [1.6.0] - 2026-10-05
 
