@@ -1,3 +1,7 @@
+## [Unreleased]
+
+- tinyusb: Update to version 0.21.0~3. This version includes security fix for severe vulnerabilities
+
 ## 3.0.0
 
 ### Breaking changes
