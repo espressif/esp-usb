@@ -61,12 +61,17 @@ typedef struct {
     EventGroupHandle_t driver_status;           /*!< Holds status of the driver */
     usb_transfer_t *ctrl_transfer;              /*!< CTRL (endpoint 0) transfer */
     SemaphoreHandle_t ctrl_mutex;               /*!< CTRL mutex */
+    bool use_common_background_task;            /*!< Shared common background task enabled flag */
     uvc_host_driver_event_callback_t user_cb;   /*!< Callback function to handle events */
     void *user_ctx;
     SLIST_HEAD(list_dev, uvc_host_stream_s) uvc_stream_list;   /*!< List of open streams */
 } uvc_host_driver_t;
 
 static uvc_host_driver_t *p_uvc_host_driver = NULL;
+
+esp_err_t common_task_acquire(void);
+esp_err_t common_task_release(void);
+esp_err_t usb_host_client_leave_common_task(usb_host_client_handle_t client_hdl);
 
 static esp_err_t uvc_host_interface_check(uint8_t addr, const usb_config_desc_t *config_desc)
 {
@@ -689,13 +694,11 @@ esp_err_t uvc_host_install(const uvc_host_driver_config_t *driver_config)
     if (driver_config == NULL) {
         driver_config = &default_driver_config;
     }
-    // TODO: Route the common-background-task config through common_task once
-    // the shared driver integration path is implemented.
-    UVC_RETURN_ON_FALSE(!(driver_config->create_background_task && driver_config->use_common_background_task),
-                        ESP_ERR_NOT_SUPPORTED, TAG, "Common background task not implemented yet");
+    const bool use_common_background_task = driver_config->create_background_task && driver_config->use_common_background_task;
 
     // Allocate all we need for this driver
     esp_err_t ret;
+    bool common_task_acquired = false;
     uvc_host_driver_t *uvc_obj = heap_caps_calloc(1, sizeof(uvc_host_driver_t), MALLOC_CAP_DEFAULT);
     EventGroupHandle_t driver_status = xEventGroupCreate();
     SemaphoreHandle_t mutex = xSemaphoreCreateMutex();
@@ -705,22 +708,23 @@ esp_err_t uvc_host_install(const uvc_host_driver_config_t *driver_config)
     usb_host_transfer_alloc(64, 0, &ctrl_xfer); // Worst case HS MPS
     TaskHandle_t driver_task_h = NULL;
 
-    if (driver_config->create_background_task) {
+    if (driver_config->create_background_task && !use_common_background_task) {
         xTaskCreatePinnedToCore(
             uvc_client_task, "USB-UVC", driver_config->driver_task_stack_size, NULL,
             driver_config->driver_task_priority, &driver_task_h, driver_config->xCoreID);
     }
 
-    if (uvc_obj == NULL || (driver_task_h == NULL && driver_config->create_background_task) || driver_status == NULL ||
+    if (uvc_obj == NULL || (driver_task_h == NULL && driver_config->create_background_task && !use_common_background_task) || driver_status == NULL ||
             mutex == NULL || ctrl_mutex == NULL || ctrl_xfer == NULL || ctrl_sem == NULL) {
         ret = ESP_ERR_NO_MEM;
         goto err;
     }
+    uvc_obj->use_common_background_task = use_common_background_task;
 
     // Convert the driver config into the client execution mode persisted by
     // the USB Host library at client registration time.
     usb_host_client_exec_mode_t client_exec_mode = USB_HOST_CLIENT_EXEC_MODE_PER_CLIENT;
-    if (driver_config->create_background_task && driver_config->use_common_background_task) {
+    if (use_common_background_task) {
         client_exec_mode = USB_HOST_CLIENT_EXEC_MODE_COMMON_TASK;
     }
 
@@ -733,6 +737,14 @@ esp_err_t uvc_host_install(const uvc_host_driver_config_t *driver_config)
         .async.client_event_callback = usb_event_cb,
         .async.callback_arg = NULL
     };
+
+    // Acquire the shared common-task infrastructure before registering a UVC
+    // client that will reuse the common event semaphore.
+    if (use_common_background_task) {
+        ESP_GOTO_ON_ERROR(common_task_acquire(), err, TAG, "Failed to acquire common task");
+        common_task_acquired = true;
+    }
+
     ESP_GOTO_ON_ERROR(usb_host_client_register(&client_config, &usb_client), err, TAG, "Failed to register USB host client");
 
     // Initialize UVC driver structure
@@ -763,8 +775,18 @@ esp_err_t uvc_host_install(const uvc_host_driver_config_t *driver_config)
     return ESP_OK;
 
 client_err:
-    usb_host_client_deregister(usb_client);
+    if (usb_client) {
+        if (uvc_obj->use_common_background_task) {
+            ESP_ERROR_CHECK(usb_host_client_leave_common_task(usb_client));
+            ESP_ERROR_CHECK(common_task_release());
+            common_task_acquired = false;
+        }
+        usb_host_client_deregister(usb_client);
+    }
 err: // Clean-up
+    if (common_task_acquired) {
+        common_task_release();
+    }
     free(uvc_obj);
     if (driver_status) {
         vEventGroupDelete(driver_status);
@@ -806,17 +828,22 @@ esp_err_t uvc_host_uninstall()
     }
     UVC_EXIT_CRITICAL();
 
-    // Signal to UVC task to stop, unblock it and wait for its deletion
-    xEventGroupSetBits(uvc_obj->driver_status, UVC_TEARDOWN);
-    usb_host_client_unblock(uvc_obj->usb_client_hdl);
-    taskYIELD(); // Give the now unblocked UVC handling task a chance to run
+    if (uvc_obj->use_common_background_task) {
+        ESP_ERROR_CHECK(usb_host_client_leave_common_task(uvc_obj->usb_client_hdl));
+        ESP_ERROR_CHECK(common_task_release());
+    } else {
+        // Signal to UVC task to stop, unblock it and wait for its deletion
+        xEventGroupSetBits(uvc_obj->driver_status, UVC_TEARDOWN);
+        usb_host_client_unblock(uvc_obj->usb_client_hdl);
+        taskYIELD(); // Give the now unblocked UVC handling task a chance to run
 
-    EventBits_t driver_status = xEventGroupGetBits(uvc_obj->driver_status);
-    if (driver_status & UVC_STARTED) {
-        // Wait for the UVC task to finish
-        ESP_GOTO_ON_FALSE(
-            xEventGroupWaitBits(uvc_obj->driver_status, UVC_TEARDOWN_COMPLETE, pdFALSE, pdFALSE, pdMS_TO_TICKS(100)),
-            ESP_ERR_NOT_FINISHED, unblock, TAG, "Timeout waiting for UVC_TEARDOWN_COMPLETE");
+        EventBits_t driver_status = xEventGroupGetBits(uvc_obj->driver_status);
+        if (driver_status & UVC_STARTED) {
+            // Wait for the UVC task to finish
+            ESP_GOTO_ON_FALSE(
+                xEventGroupWaitBits(uvc_obj->driver_status, UVC_TEARDOWN_COMPLETE, pdFALSE, pdFALSE, pdMS_TO_TICKS(100)),
+                ESP_ERR_NOT_FINISHED, unblock, TAG, "Timeout waiting for UVC_TEARDOWN_COMPLETE");
+        }
     }
 
     ESP_LOGD(TAG, "Deregistering client");
