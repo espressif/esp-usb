@@ -201,6 +201,7 @@ typedef struct {
     usb_host_client_handle_t client_handle;                     /*!< Client task handle */
     uac_host_driver_event_cb_t user_cb;                         /*!< User application callback */
     void *user_arg;                                             /*!< User application callback args */
+    bool use_common_background_task;                            /*!< Shared common background task enabled flag */
     SemaphoreHandle_t all_events_handled;                       /*!< Events handler semaphore */
 } uac_driver_t;
 
@@ -217,6 +218,10 @@ typedef struct uac_cs_request {
 } uac_cs_request_t;
 
 static uac_driver_t *s_uac_driver;                              /*!< Internal pointer to UAC driver */
+
+esp_err_t common_task_acquire(void);
+esp_err_t common_task_release(void);
+esp_err_t usb_host_client_leave_common_task(usb_host_client_handle_t client_hdl);
 
 // ----------------------- Private Prototypes ----------------------------------
 
@@ -2025,10 +2030,12 @@ static esp_err_t uac_cs_request_get_mute(uac_iface_t *iface, bool *mute)
 esp_err_t uac_host_install(const uac_host_driver_config_t *config)
 {
     esp_err_t ret;
+    bool common_task_acquired = false;
     // Make sure uac driver is not installed
     UAC_RETURN_ON_FALSE(!s_uac_driver, ESP_ERR_INVALID_STATE, "UAC Host driver is already installed");
     UAC_RETURN_ON_INVALID_ARG(config);
     UAC_RETURN_ON_INVALID_ARG(config->callback);
+    const bool use_common_background_task = config->create_background_task && config->use_common_background_task;
 
     if (config->create_background_task) {
         UAC_RETURN_ON_FALSE(config->stack_size != 0, ESP_ERR_INVALID_ARG, "Wrong stack size value");
@@ -2040,16 +2047,31 @@ esp_err_t uac_host_install(const uac_host_driver_config_t *config)
 
     driver->user_cb = config->callback;
     driver->user_arg = config->callback_arg;
+    driver->use_common_background_task = use_common_background_task;
     driver->end_client_event_handling = false;
     driver->all_events_handled = xSemaphoreCreateBinary();
     UAC_GOTO_ON_FALSE(driver->all_events_handled, ESP_ERR_NO_MEM, "Unable to create semaphore");
 
+    usb_host_client_exec_mode_t client_exec_mode = USB_HOST_CLIENT_EXEC_MODE_PER_CLIENT;
+    if (use_common_background_task) {
+        client_exec_mode = USB_HOST_CLIENT_EXEC_MODE_COMMON_TASK;
+    }
+
     usb_host_client_config_t client_config = {
+        .client_exec_mode = client_exec_mode,
         .is_synchronous = false,
         .async.client_event_callback = client_event_cb,
         .async.callback_arg = NULL,
         .max_num_event_msg = 16,
     };
+
+    // Acquire the shared common-task infrastructure before registering a UAC
+    // client that will reuse the common event semaphore.
+    if (use_common_background_task) {
+        UAC_GOTO_ON_ERROR(common_task_acquire(), "Unable to acquire common background task");
+        common_task_acquired = true;
+    }
+
     UAC_GOTO_ON_ERROR(usb_host_client_register(&client_config, &driver->client_handle), "Unable to register USB Host client");
 
     UAC_ENTER_CRITICAL();
@@ -2058,7 +2080,7 @@ esp_err_t uac_host_install(const uac_host_driver_config_t *config)
     STAILQ_INIT(&s_uac_driver->uac_ifaces_tailq);
     UAC_EXIT_CRITICAL();
 
-    if (config->create_background_task) {
+    if (config->create_background_task && !use_common_background_task) {
         BaseType_t task_created = xTaskCreatePinnedToCore(event_handler_task, "USB UAC Host", config->stack_size,
                                                           NULL, config->task_priority, NULL, config->core_id);
         UAC_GOTO_ON_FALSE(task_created, ESP_ERR_NO_MEM, "Unable to create USB UAC Host task");
@@ -2069,7 +2091,15 @@ esp_err_t uac_host_install(const uac_host_driver_config_t *config)
 fail:
     s_uac_driver = NULL;
     if (driver->client_handle) {
+        if (driver->use_common_background_task) {
+            ESP_ERROR_CHECK(usb_host_client_leave_common_task(driver->client_handle));
+            ESP_ERROR_CHECK(common_task_release());
+            common_task_acquired = false;
+        }
         usb_host_client_deregister(driver->client_handle);
+    }
+    if (common_task_acquired) {
+        common_task_release();
     }
     if (driver->all_events_handled) {
         vSemaphoreDelete(driver->all_events_handled);
@@ -2092,7 +2122,10 @@ esp_err_t uac_host_uninstall(void)
     s_uac_driver->end_client_event_handling = true;
     UAC_EXIT_CRITICAL();
 
-    if (s_uac_driver->event_handling_started) {
+    if (s_uac_driver->use_common_background_task) {
+        ESP_ERROR_CHECK(usb_host_client_leave_common_task(s_uac_driver->client_handle));
+        ESP_ERROR_CHECK(common_task_release());
+    } else if (s_uac_driver->event_handling_started) {
         ESP_ERROR_CHECK(usb_host_client_unblock(s_uac_driver->client_handle));
         // In case the event handling started, we must wait until it finishes
         xSemaphoreTake(s_uac_driver->all_events_handled, portMAX_DELAY);
