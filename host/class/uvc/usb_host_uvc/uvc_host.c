@@ -69,7 +69,7 @@ typedef struct {
 
 static uvc_host_driver_t *p_uvc_host_driver = NULL;
 
-esp_err_t common_task_acquire(void);
+esp_err_t common_task_acquire(UBaseType_t task_priority, configSTACK_DEPTH_TYPE stack_size, BaseType_t core_id);
 esp_err_t common_task_release(void);
 esp_err_t usb_host_client_leave_common_task(usb_host_client_handle_t client_hdl);
 
@@ -741,7 +741,10 @@ esp_err_t uvc_host_install(const uvc_host_driver_config_t *driver_config)
     // Acquire the shared common-task infrastructure before registering a UVC
     // client that will reuse the common event semaphore.
     if (use_common_background_task) {
-        ESP_GOTO_ON_ERROR(common_task_acquire(), err, TAG, "Failed to acquire common task");
+        ESP_GOTO_ON_ERROR(common_task_acquire(driver_config->driver_task_priority,
+                                              driver_config->driver_task_stack_size,
+                                              driver_config->xCoreID),
+                          err, TAG, "Failed to acquire common task");
         common_task_acquired = true;
     }
 

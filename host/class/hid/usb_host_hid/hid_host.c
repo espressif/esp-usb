@@ -148,7 +148,7 @@ static StaticSemaphore_t s_open_close_mutex_buffer;
 
 // ----------------------- Private Prototypes ----------------------------------
 
-esp_err_t common_task_acquire(void);
+esp_err_t common_task_acquire(UBaseType_t task_priority, configSTACK_DEPTH_TYPE stack_size, BaseType_t core_id);
 esp_err_t common_task_release(void);
 esp_err_t usb_host_client_leave_common_task(usb_host_client_handle_t client_hdl);
 
@@ -1412,7 +1412,9 @@ esp_err_t hid_host_install(const hid_host_driver_config_t *config)
     // Acquire the shared common-task infrastructure before registering a HID
     // client that will reuse the common event semaphore.
     if (use_common_background_task) {
-        HID_GOTO_ON_ERROR(common_task_acquire(),
+        HID_GOTO_ON_ERROR(common_task_acquire(config->task_priority,
+                                              config->stack_size,
+                                              config->core_id),
                           "Unable to acquire common background task");
         common_task_acquired = true;
     }

@@ -11,19 +11,38 @@
 #include "usb_private.h"
 #include "usb/usb_host.h"
 
-#define COMMON_TASK_NAME       "USB Common"
-#define COMMON_TASK_STACK_SIZE 4096
-#define COMMON_TASK_PRIORITY   5
-#define COMMON_TASK_CORE_ID    tskNO_AFFINITY
+#define COMMON_TASK_NAME "USB Common"
 
 typedef struct {
     TaskHandle_t task_hdl;
     SemaphoreHandle_t mutex;
     uint32_t ref_count;
+    struct {
+        UBaseType_t task_priority;
+        configSTACK_DEPTH_TYPE stack_size;
+        BaseType_t core_id;
+    } config;
 } common_task_ctx_t;
 
 static common_task_ctx_t s_common_task_ctx;
 static StaticSemaphore_t s_common_task_mutex_buffer;
+
+static bool common_task_config_is_compatible(UBaseType_t task_priority,
+                                             configSTACK_DEPTH_TYPE stack_size,
+                                             BaseType_t core_id)
+{
+    if (task_priority > s_common_task_ctx.config.task_priority) {
+        return false;
+    }
+    if (stack_size > s_common_task_ctx.config.stack_size) {
+        return false;
+    }
+    if (core_id != tskNO_AFFINITY && core_id != s_common_task_ctx.config.core_id) {
+        return false;
+    }
+
+    return true;
+}
 
 static void common_task(void *arg)
 {
@@ -38,8 +57,12 @@ static void common_task(void *arg)
     vTaskDelete(NULL);
 }
 
-esp_err_t common_task_acquire(void)
+esp_err_t common_task_acquire(UBaseType_t task_priority, configSTACK_DEPTH_TYPE stack_size, BaseType_t core_id)
 {
+    if (task_priority == 0 || stack_size == 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
     // Lazily create the common-task mutex the first time the shared manager is used.
     if (s_common_task_ctx.mutex == NULL) {
         s_common_task_ctx.mutex = xSemaphoreCreateMutexStatic(&s_common_task_mutex_buffer);
@@ -64,16 +87,22 @@ esp_err_t common_task_acquire(void)
         // the loop can block on a valid wakeup object from its first iteration.
         BaseType_t task_created = xTaskCreatePinnedToCore(common_task,
                                                           COMMON_TASK_NAME,
-                                                          COMMON_TASK_STACK_SIZE,
+                                                          stack_size,
                                                           NULL,
-                                                          COMMON_TASK_PRIORITY,
+                                                          task_priority,
                                                           &s_common_task_ctx.task_hdl,
-                                                          COMMON_TASK_CORE_ID);
+                                                          core_id);
         if (task_created != pdPASS) {
             usb_host_common_clients_sem_delete();
             xSemaphoreGive(s_common_task_ctx.mutex);
             return ESP_ERR_NO_MEM;
         }
+        s_common_task_ctx.config.task_priority = task_priority;
+        s_common_task_ctx.config.stack_size = stack_size;
+        s_common_task_ctx.config.core_id = core_id;
+    } else if (!common_task_config_is_compatible(task_priority, stack_size, core_id)) {
+        xSemaphoreGive(s_common_task_ctx.mutex);
+        return ESP_ERR_INVALID_STATE;
     }
     s_common_task_ctx.ref_count++;
     xSemaphoreGive(s_common_task_ctx.mutex);
@@ -101,6 +130,9 @@ esp_err_t common_task_release(void)
         SemaphoreHandle_t mutex = s_common_task_ctx.mutex;
         s_common_task_ctx.task_hdl = NULL;
         s_common_task_ctx.mutex = NULL;
+        s_common_task_ctx.config.task_priority = 0;
+        s_common_task_ctx.config.stack_size = 0;
+        s_common_task_ctx.config.core_id = tskNO_AFFINITY;
         xSemaphoreGive(mutex);
 
         // Stop the shared task before deleting the common semaphore it can block on.

@@ -104,7 +104,7 @@ typedef struct {
 
 static msc_driver_t *s_msc_driver;
 
-esp_err_t common_task_acquire(void);
+esp_err_t common_task_acquire(UBaseType_t task_priority, configSTACK_DEPTH_TYPE stack_size, BaseType_t core_id);
 esp_err_t common_task_release(void);
 esp_err_t usb_host_client_leave_common_task(usb_host_client_handle_t client_hdl);
 
@@ -486,7 +486,9 @@ esp_err_t msc_host_install(const msc_host_driver_config_t *config)
     // Acquire the shared common-task infrastructure before registering an MSC
     // client that will reuse the common event semaphore.
     if (use_common_background_task) {
-        MSC_GOTO_ON_ERROR(common_task_acquire());
+        MSC_GOTO_ON_ERROR(common_task_acquire(config->task_priority,
+                                              config->stack_size,
+                                              config->core_id));
         common_task_acquired = true;
     }
 
