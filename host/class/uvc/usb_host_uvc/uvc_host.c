@@ -1017,7 +1017,14 @@ static esp_err_t uvc_clear_endpoint_feature(uvc_host_stream_hdl_t stream_hdl)
 {
     usb_host_endpoint_halt(stream_hdl->constant.dev_hdl, stream_hdl->constant.bEndpointAddress);
     usb_host_endpoint_flush(stream_hdl->constant.dev_hdl, stream_hdl->constant.bEndpointAddress);
+
+#ifdef USB_HOST_RESET_ENDPOINT_PID_SUPPORTED
+    // The ClearFeature(ENDPOINT_HALT) request below reinitializes the device endpoint's data toggle
+    // to DATA0 (USB 2.0 §9.4.5): resync the host-side data toggle while the endpoint is still halted
+    usb_host_endpoint_reset_data_toggle(stream_hdl->constant.dev_hdl, stream_hdl->constant.bEndpointAddress);
+#endif // USB_HOST_RESET_ENDPOINT_PID_SUPPORTED
     usb_host_endpoint_clear(stream_hdl->constant.dev_hdl, stream_hdl->constant.bEndpointAddress);
+
     return uvc_host_usb_ctrl(
                stream_hdl,
                USB_BM_REQUEST_TYPE_DIR_OUT | USB_BM_REQUEST_TYPE_TYPE_STANDARD | USB_BM_REQUEST_TYPE_RECIP_ENDPOINT,

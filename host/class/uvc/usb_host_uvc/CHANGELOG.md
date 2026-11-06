@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- Fixed data toggle desync when restarting a bulk stream: `ClearFeature(ENDPOINT_HALT)` on stream stop reinitializes the device endpoint's data toggle to DATA0 (USB 2.0 §9.4.5), so the host-side data toggle is now resynced as well
+
 ## [2.6.0] - 2026-09-16
 
 ### Added
