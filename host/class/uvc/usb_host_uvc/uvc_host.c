@@ -41,6 +41,12 @@ static const char *TAG = "uvc";
 #define UVC_CTRL_MAX_ATTEMPTS    3
 #define UVC_CTRL_RETRY_DELAY_MS  10
 
+#if CONFIG_IDF_TARGET_LINUX
+#define UVC_CTRL_TIMEOUT_MS      1000 // To shorten transfer timeout errors on the linux target
+#else
+#define UVC_CTRL_TIMEOUT_MS      5000 // Every device should be able to respond to CTRL transfer in 5 seconds
+#endif // CONFIG_IDF_TARGET_LINUX
+
 // UVC spinlock (extern linkage, shared among all UVC driver files, declared in uvc_critical_priv.h)
 DEFINE_CRIT_SECTION_LOCK(uvc_lock);
 
@@ -54,6 +60,13 @@ static void ctrl_xfer_cb(usb_transfer_t *transfer);
 void isoc_transfer_callback(usb_transfer_t *transfer);
 void bulk_transfer_callback(usb_transfer_t *transfer);
 
+// State of the CTRL transfer shared by all UVC streams
+typedef enum {
+    UVC_CTRL_XFER_IDLE,         /*!< Not submitted, owned by this driver */
+    UVC_CTRL_XFER_PENDING,      /*!< Submitted, uvc_host_usb_ctrl() waits for its completion */
+    UVC_CTRL_XFER_ABANDONED,    /*!< Submitted, uvc_host_usb_ctrl() timed out. Owned by the USB Host Library until its callback */
+} uvc_ctrl_xfer_state_t;
+
 // UVC driver object
 typedef struct {
     usb_host_client_handle_t usb_client_hdl;    /*!< USB Host handle reused for all UVC devices in the system */
@@ -61,6 +74,8 @@ typedef struct {
     EventGroupHandle_t driver_status;           /*!< Holds status of the driver */
     usb_transfer_t *ctrl_transfer;              /*!< CTRL (endpoint 0) transfer */
     SemaphoreHandle_t ctrl_mutex;               /*!< CTRL mutex */
+    uvc_ctrl_xfer_state_t ctrl_xfer_state;      /*!< State of ctrl_transfer, protected by UVC critical section */
+    usb_device_handle_t ctrl_deferred_close;    /*!< Device to close once the abandoned ctrl_transfer is returned, protected by UVC critical section */
     uvc_host_driver_event_callback_t user_cb;   /*!< Callback function to handle events */
     void *user_ctx;
     SLIST_HEAD(list_dev, uvc_host_stream_s) uvc_stream_list;   /*!< List of open streams */
@@ -448,8 +463,24 @@ static void uvc_device_remove(uvc_stream_t *uvc_stream)
     assert(uvc_stream);
     uvc_transfers_free(uvc_stream);
     uvc_frame_free(uvc_stream);
-    // We don't check the error code of usb_host_device_close, as the close might fail, if someone else is still using the device (not all interfaces are released)
-    usb_host_device_close(p_uvc_host_driver->usb_client_hdl, uvc_stream->constant.dev_hdl); // Gracefully continue on error
+
+    // The USB Host Library must not see this device closed while a CTRL transfer to it is in flight.
+    // If uvc_host_usb_ctrl() abandoned one, ctrl_xfer_cb() closes the device once the transfer is returned.
+    bool close_now = true;
+    UVC_ENTER_CRITICAL();
+    if (p_uvc_host_driver->ctrl_xfer_state == UVC_CTRL_XFER_ABANDONED &&
+            p_uvc_host_driver->ctrl_transfer->device_handle == uvc_stream->constant.dev_hdl) {
+        p_uvc_host_driver->ctrl_deferred_close = uvc_stream->constant.dev_hdl;
+        close_now = false;
+    }
+    UVC_EXIT_CRITICAL();
+
+    if (close_now) {
+        // We don't check the error code of usb_host_device_close, as the close might fail, if someone else is still using the device (not all interfaces are released)
+        usb_host_device_close(p_uvc_host_driver->usb_client_hdl, uvc_stream->constant.dev_hdl); // Gracefully continue on error
+    } else {
+        ESP_LOGW(TAG, "CTRL transfer in flight, device will be closed once it is returned");
+    }
     free(uvc_stream);
 }
 
@@ -732,7 +763,7 @@ esp_err_t uvc_host_install(const uvc_host_driver_config_t *driver_config)
     uvc_obj->ctrl_transfer = ctrl_xfer;
     uvc_obj->ctrl_transfer->context = ctrl_sem;
     uvc_obj->ctrl_transfer->bEndpointAddress = 0;
-    uvc_obj->ctrl_transfer->timeout_ms = 5000;
+    uvc_obj->ctrl_transfer->timeout_ms = UVC_CTRL_TIMEOUT_MS;
     uvc_obj->ctrl_transfer->callback = ctrl_xfer_cb;
     uvc_obj->user_cb = driver_config->event_cb;
     uvc_obj->user_ctx = driver_config->user_ctx;
@@ -785,6 +816,12 @@ esp_err_t uvc_host_uninstall()
     xSemaphoreTake(uvc_obj->ctrl_mutex, portMAX_DELAY); // Wait for all CTRL transfers to finish
 
     UVC_ENTER_CRITICAL();
+    if (uvc_obj->ctrl_xfer_state == UVC_CTRL_XFER_ABANDONED) {
+        // The USB Host Library still owns the CTRL transfer, we cannot free it
+        ret = ESP_ERR_NOT_FINISHED;
+        UVC_EXIT_CRITICAL();
+        goto unblock;
+    }
     if (SLIST_EMPTY(&uvc_obj->uvc_stream_list)) { // Check that device list is empty (all devices closed)
         p_uvc_host_driver = NULL; // NULL static driver pointer: No open/close calls form this point
     } else {
@@ -1185,7 +1222,29 @@ static void ctrl_xfer_cb(usb_transfer_t *transfer)
 {
     ESP_LOGD(TAG, "ctrl xfer cb");
     assert(transfer->context);
-    xSemaphoreGive((SemaphoreHandle_t)transfer->context);
+
+    usb_host_client_handle_t client_hdl = NULL;
+    usb_device_handle_t dev_to_close = NULL;
+    UVC_ENTER_CRITICAL();
+    const bool abandoned = (p_uvc_host_driver->ctrl_xfer_state == UVC_CTRL_XFER_ABANDONED);
+    p_uvc_host_driver->ctrl_xfer_state = UVC_CTRL_XFER_IDLE;
+    if (abandoned) {
+        client_hdl = p_uvc_host_driver->usb_client_hdl;
+        dev_to_close = p_uvc_host_driver->ctrl_deferred_close;
+        p_uvc_host_driver->ctrl_deferred_close = NULL;
+    }
+    UVC_EXIT_CRITICAL();
+
+    if (!abandoned) {
+        xSemaphoreGive((SemaphoreHandle_t)transfer->context);
+        return;
+    }
+
+    // uvc_host_usb_ctrl() timed out waiting for this transfer. Nobody waits for it anymore.
+    ESP_LOGW(TAG, "Timed out CTRL transfer returned with status %d", transfer->status);
+    if (dev_to_close) {
+        usb_host_device_close(client_hdl, dev_to_close); // Gracefully continue on error
+    }
 }
 
 esp_err_t uvc_host_usb_ctrl(uvc_host_stream_hdl_t stream_hdl, uint8_t bmRequestType, uint8_t bRequest, uint16_t wValue, uint16_t wIndex, uint16_t wLength, uint8_t *data)
@@ -1201,10 +1260,21 @@ esp_err_t uvc_host_usb_ctrl(uvc_host_stream_hdl_t stream_hdl, uint8_t bmRequestT
     esp_err_t ret;
 
     // Take Mutex and fill the CTRL request
-    BaseType_t taken = xSemaphoreTake(p_uvc_host_driver->ctrl_mutex, pdMS_TO_TICKS(5000));
+    BaseType_t taken = xSemaphoreTake(p_uvc_host_driver->ctrl_mutex, pdMS_TO_TICKS(UVC_CTRL_TIMEOUT_MS));
     if (!taken) {
         return ESP_ERR_TIMEOUT;
     }
+
+    // A transfer abandoned after a timeout is still owned by the USB Host Library: do not touch it
+    UVC_ENTER_CRITICAL();
+    const bool abandoned = (p_uvc_host_driver->ctrl_xfer_state == UVC_CTRL_XFER_ABANDONED);
+    UVC_EXIT_CRITICAL();
+    if (abandoned) {
+        xSemaphoreGive(p_uvc_host_driver->ctrl_mutex);
+        ESP_LOGE(TAG, "CTRL request 0x%02x: previous CTRL transfer still in flight", bRequest);
+        return ESP_ERR_NOT_FINISHED;
+    }
+
     usb_setup_packet_t *req = (usb_setup_packet_t *)(p_uvc_host_driver->ctrl_transfer->data_buffer);
     uint8_t *start_of_data = (uint8_t *)req + sizeof(usb_setup_packet_t);
     req->bmRequestType = bmRequestType;
@@ -1237,9 +1307,15 @@ esp_err_t uvc_host_usb_ctrl(uvc_host_stream_hdl_t stream_hdl, uint8_t bmRequestT
             vTaskDelay(pdMS_TO_TICKS(UVC_CTRL_RETRY_DELAY_MS));   // Let USBH recover EP0
         }
 
+        UVC_ENTER_CRITICAL();
+        p_uvc_host_driver->ctrl_xfer_state = UVC_CTRL_XFER_PENDING;
+        UVC_EXIT_CRITICAL();
         const esp_err_t sub = usb_host_transfer_submit_control(p_uvc_host_driver->usb_client_hdl,
                                                                p_uvc_host_driver->ctrl_transfer);
         if (sub != ESP_OK) {
+            UVC_ENTER_CRITICAL();
+            p_uvc_host_driver->ctrl_xfer_state = UVC_CTRL_XFER_IDLE;
+            UVC_EXIT_CRITICAL();
             // ESP_ERR_INVALID_STATE means the default pipe is still halted from an earlier
             // failure and USBH has not finished recovering it yet. Anything else is our fault.
             if (sub != ESP_ERR_INVALID_STATE) {
@@ -1252,8 +1328,24 @@ esp_err_t uvc_host_usb_ctrl(uvc_host_stream_hdl_t stream_hdl, uint8_t bmRequestT
             continue;
         }
 
-        taken = xSemaphoreTake((SemaphoreHandle_t)p_uvc_host_driver->ctrl_transfer->context, pdMS_TO_TICKS(5000)); // This is a fixed timeout. Every device should be able to respond to CTRL transfer in 5 seconds
-        ESP_GOTO_ON_FALSE(taken, ESP_ERR_TIMEOUT, unblock, TAG, "CTRL timeout");
+        taken = xSemaphoreTake((SemaphoreHandle_t)p_uvc_host_driver->ctrl_transfer->context, pdMS_TO_TICKS(UVC_CTRL_TIMEOUT_MS));
+        if (!taken) {
+            /* The transfer stays in flight until the device responds or the USB Host Library flushes EP0
+             * (e.g. on disconnection). Unless its callback has already run, leave it to ctrl_xfer_cb(). */
+            UVC_ENTER_CRITICAL();
+            const bool returned = (p_uvc_host_driver->ctrl_xfer_state == UVC_CTRL_XFER_IDLE);
+            if (!returned) {
+                p_uvc_host_driver->ctrl_xfer_state = UVC_CTRL_XFER_ABANDONED;
+            }
+            UVC_EXIT_CRITICAL();
+            if (!returned) {
+                ESP_LOGE(TAG, "CTRL request 0x%02x timeout", bRequest);
+                ret = ESP_ERR_TIMEOUT;
+                goto unblock;
+            }
+            // The callback ran just after the timeout and gives the semaphore: take it
+            xSemaphoreTake((SemaphoreHandle_t)p_uvc_host_driver->ctrl_transfer->context, portMAX_DELAY);
+        }
 
         const usb_transfer_status_t status = p_uvc_host_driver->ctrl_transfer->status;
         if (status == USB_TRANSFER_STATUS_COMPLETED) {

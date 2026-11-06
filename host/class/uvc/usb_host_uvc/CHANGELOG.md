@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- Fixed a control transfer that timed out being reused while the USB Host Library still owned it. The next control transfer took the late completion of the timed out one for its own, and closing the device could trip the `num_ctrl_xfers_inflight == 0` assertion in `usbh_dev_close()`. Until the timed out transfer is returned, `uvc_host_usb_ctrl()` now returns `ESP_ERR_NOT_FINISHED`, closing its device is deferred and `uvc_host_uninstall()` returns `ESP_ERR_NOT_FINISHED`.
+
 ## [2.6.0] - 2026-09-16
 
 ### Added

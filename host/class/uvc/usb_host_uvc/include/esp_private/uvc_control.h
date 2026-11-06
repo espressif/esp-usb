@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2024-2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2024-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -29,6 +29,7 @@ extern "C" {
  * @return
  *     - ESP_OK: Transfer succeeded
  *     - ESP_ERR_TIMEOUT: The transfer could not be completed in time
+ *     - ESP_ERR_NOT_FINISHED: A previous transfer timed out and the device has not responded to it yet
  *     - ESP_ERR_INVALID_SIZE: The transfer is too big
  *     - ESP_ERR_INVALID_ARG: stream_hdl is NULL, or data is not NULL and wValue is greater than zero
  *     - ESP_ERR_NOT_SUPPORTED: The device stalled the request; it does not implement it
