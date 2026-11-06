@@ -10,6 +10,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - Fix READ CAPACITY(10) off-by-one: the last accessible LBA was used as a block count, under-reporting device capacity by one block
 
+## [1.3.1] - 2026-10-15
+
+### Changed
+
+- Use `esp_vfs_fat_bdl_unmount_path()` instead of the deprecated two-argument `esp_vfs_fat_bdl_unmount()` on ESP-IDF builds that provide the BDL FatFS API (requires an IDF with `esp_vfs_fat_bdl_unmount_path()`)
+
 ## [1.3.0] - 2026-09-14
 
 ### Added
