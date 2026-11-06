@@ -97,11 +97,16 @@ typedef struct {
     void *user_arg;
     SemaphoreHandle_t all_events_handled;
     volatile bool end_client_event_handling;
+    bool use_common_background_task;
     bool event_handling_started;
     STAILQ_HEAD(devices, msc_host_device) devices_tailq;
 } msc_driver_t;
 
 static msc_driver_t *s_msc_driver;
+
+esp_err_t common_task_acquire(UBaseType_t task_priority, configSTACK_DEPTH_TYPE stack_size, BaseType_t core_id);
+esp_err_t common_task_release(void);
+esp_err_t usb_host_client_leave_common_task(usb_host_client_handle_t client_hdl);
 
 
 static const usb_standard_desc_t *next_interface_desc(const usb_standard_desc_t *desc, size_t len, size_t *offset)
@@ -443,9 +448,11 @@ static void client_event_cb(const usb_host_client_event_msg_t *event, void *arg)
 esp_err_t msc_host_install(const msc_host_driver_config_t *config)
 {
     esp_err_t ret;
+    bool common_task_acquired = false;
 
     MSC_RETURN_ON_INVALID_ARG(config);
     MSC_RETURN_ON_INVALID_ARG(config->callback);
+    const bool use_common_background_task = config->create_backround_task && config->use_common_background_task;
     if ( config->create_backround_task ) {
         MSC_RETURN_ON_FALSE(config->stack_size != 0, ESP_ERR_INVALID_ARG);
         MSC_RETURN_ON_FALSE(config->task_priority != 0, ESP_ERR_INVALID_ARG);
@@ -456,8 +463,17 @@ esp_err_t msc_host_install(const msc_host_driver_config_t *config)
     MSC_RETURN_ON_FALSE(driver, ESP_ERR_NO_MEM);
     driver->user_cb = config->callback;
     driver->user_arg = config->callback_arg;
+    driver->use_common_background_task = use_common_background_task;
+
+    // Convert the driver config into the client execution mode persisted by
+    // the USB Host library at client registration time.
+    usb_host_client_exec_mode_t client_exec_mode = USB_HOST_CLIENT_EXEC_MODE_PER_CLIENT;
+    if (use_common_background_task) {
+        client_exec_mode = USB_HOST_CLIENT_EXEC_MODE_COMMON_TASK;
+    }
 
     usb_host_client_config_t client_config = {
+        .client_exec_mode = client_exec_mode,
         .async.client_event_callback = client_event_cb,
         .async.callback_arg = NULL,
         .max_num_event_msg = 10,
@@ -467,6 +483,15 @@ esp_err_t msc_host_install(const msc_host_driver_config_t *config)
     driver->all_events_handled = xSemaphoreCreateBinary();
     MSC_GOTO_ON_FALSE(driver->all_events_handled, ESP_ERR_NO_MEM);
 
+    // Acquire the shared common-task infrastructure before registering an MSC
+    // client that will reuse the common event semaphore.
+    if (use_common_background_task) {
+        MSC_GOTO_ON_ERROR(common_task_acquire(config->task_priority,
+                                              config->stack_size,
+                                              config->core_id));
+        common_task_acquired = true;
+    }
+
     MSC_GOTO_ON_ERROR( usb_host_client_register(&client_config, &driver->client_handle) );
 
     MSC_ENTER_CRITICAL();
@@ -475,7 +500,7 @@ esp_err_t msc_host_install(const msc_host_driver_config_t *config)
     STAILQ_INIT(&s_msc_driver->devices_tailq);
     MSC_EXIT_CRITICAL();
 
-    if (config->create_backround_task) {
+    if (config->create_backround_task && !use_common_background_task) {
         BaseType_t task_created = xTaskCreatePinnedToCore(
                                       event_handler_task,
                                       "USB MSC",
@@ -491,7 +516,17 @@ esp_err_t msc_host_install(const msc_host_driver_config_t *config)
 
 fail:
     s_msc_driver = NULL;
-    usb_host_client_deregister(driver->client_handle);
+    if (driver->client_handle) {
+        if (driver->use_common_background_task) {
+            ESP_ERROR_CHECK(usb_host_client_leave_common_task(driver->client_handle));
+            ESP_ERROR_CHECK(common_task_release());
+            common_task_acquired = false;
+        }
+        usb_host_client_deregister(driver->client_handle);
+    }
+    if (common_task_acquired) {
+        common_task_release();
+    }
     if (driver->all_events_handled) {
         vSemaphoreDelete(driver->all_events_handled);
     }
@@ -511,7 +546,10 @@ esp_err_t msc_host_uninstall(void)
     s_msc_driver->end_client_event_handling = true;
     MSC_EXIT_CRITICAL();
 
-    if (s_msc_driver->event_handling_started) {
+    if (s_msc_driver->use_common_background_task) {
+        ESP_ERROR_CHECK(usb_host_client_leave_common_task(s_msc_driver->client_handle));
+        ESP_ERROR_CHECK(common_task_release());
+    } else if (s_msc_driver->event_handling_started) {
         ESP_ERROR_CHECK( usb_host_client_unblock(s_msc_driver->client_handle) );
         // In case the event handling started, we must wait until it finishes
         xSemaphoreTake(s_msc_driver->all_events_handled, portMAX_DELAY);
