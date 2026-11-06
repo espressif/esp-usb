@@ -229,9 +229,6 @@ TEST_CASE("Test HCD control pipe STALL", "[ctrl][full_speed][high_speed]")
 /*
 Test control pipe run-time halt and clear
 
-@todo this test is not passing on P4: test with bus analyzer IDF-10996
-@todo test filing on esp32s2 with IDF 6.0. Related to the todo above. Fix will be submitted to esp-idf HAL.
-
 Purpose:
     - Test that a control pipe can be halted with HCD_PIPE_CMD_HALT whilst there are ongoing URBs
     - Test that a control pipe can be un-halted with a HCD_PIPE_CMD_CLEAR
@@ -247,7 +244,7 @@ Procedure:
     - Check that all URBs have completed successfully
     - Dequeue URBs and teardown
 */
-TEST_CASE("Test HCD control pipe runtime halt and clear", "[ignore]")
+TEST_CASE("Test HCD control pipe runtime halt and clear", "[ctrl][low_speed][full_speed][high_speed]")
 {
     usb_speed_t port_speed = test_hcd_wait_for_conn(port_hdl);  // Trigger a connection
     vTaskDelay(pdMS_TO_TICKS(100)); // Short delay send of SOF (for FS) or EOPs (for LS)
