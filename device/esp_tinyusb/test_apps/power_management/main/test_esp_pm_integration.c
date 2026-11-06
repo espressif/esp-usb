@@ -220,6 +220,11 @@ TEST_CASE("tinyusb_power_management", "[device_pm][tinyusb_pm]")
     // esp_pm_configure({light_sleep_enable: true}) calls cpu retention init, we need to deinit manually to prevent memory leaks
     TEST_ASSERT_EQUAL(ESP_OK, esp_sleep_cpu_retention_deinit());
 #endif // SOC_PM_SUPPORT_CPU_PD
+
+    ESP_LOGI(TAG, "Cleanup");
+    ESP_ERROR_CHECK(tinyusb_cdcacm_deinit(TINYUSB_CDC_ACM_0));
+    ESP_ERROR_CHECK(tinyusb_driver_uninstall());
+    vTaskDelay(30);
 }
 
 #if CONFIG_TINYUSB_USB_OTG_WAKEUP
@@ -302,6 +307,10 @@ TEST_CASE("tinyusb_power_management_usb_wakeup", "[device_pm][tinyusb_pm_otg_wak
     // esp_pm_configure({light_sleep_enable: true}) calls cpu retention init, we need to deinit manually to prevent memory leaks
     TEST_ASSERT_EQUAL(ESP_OK, esp_sleep_cpu_retention_deinit());
     ESP_LOGI(TAG, "PM usb wakeup test cleanup");
+
+    ESP_ERROR_CHECK(tinyusb_cdcacm_deinit(TINYUSB_CDC_ACM_0));
+    ESP_ERROR_CHECK(tinyusb_driver_uninstall());
+    vTaskDelay(30);
 }
 #endif // CONFIG_TINYUSB_USB_OTG_WAKEUP
 

@@ -13,10 +13,13 @@
 #include "tinyusb.h"
 #include "sdkconfig.h"
 #include "common_pm.h"
+#include "esp_log.h"
+
 
 #if CONFIG_TINYUSB_PM
 
 #define TEST_PM_PUBLIC_API_GROUP "[device_pm][public_api_tinyusb_pm]"
+static const char *TAG = "public api";
 
 /**
  * @brief Verify `tinyusb_pm_get_lock_status()` when the PM lock is disabled
@@ -37,6 +40,11 @@ TEST_CASE("tinyusb_pm_get_lock_status_lock_disabled", TEST_PM_PUBLIC_API_GROUP)
 
     test_pm_init_tinyusb_cdc(&opts);
     TEST_ASSERT_EQUAL(ESP_ERR_INVALID_STATE, tinyusb_pm_get_lock_status(&lock_held));
+
+    ESP_LOGI(TAG, "Cleanup");
+    ESP_ERROR_CHECK(tinyusb_cdcacm_deinit(TINYUSB_CDC_ACM_0));
+    ESP_ERROR_CHECK(tinyusb_driver_uninstall());
+    vTaskDelay(20);
 }
 
 /**
@@ -57,6 +65,11 @@ TEST_CASE("tinyusb_pm_get_lock_status_api_validation", TEST_PM_PUBLIC_API_GROUP)
 
     test_pm_init_tinyusb_cdc(&opts);
     TEST_ASSERT_EQUAL(ESP_ERR_INVALID_ARG, tinyusb_pm_get_lock_status(NULL));
+
+    ESP_LOGI(TAG, "Cleanup");
+    ESP_ERROR_CHECK(tinyusb_cdcacm_deinit(TINYUSB_CDC_ACM_0));
+    ESP_ERROR_CHECK(tinyusb_driver_uninstall());
+    vTaskDelay(20);
 }
 
 /**
@@ -88,6 +101,11 @@ TEST_CASE("tinyusb_pm_get_lock_status_lock_held_on_install", TEST_PM_PUBLIC_API_
     // esp_pm_configure({light_sleep_enable: true}) calls cpu retention init, we need to deinit manually to prevent memory leaks
     TEST_ASSERT_EQUAL(ESP_OK, esp_sleep_cpu_retention_deinit());
 #endif // SOC_PM_SUPPORT_CPU_PD
+
+    ESP_LOGI(TAG, "Cleanup");
+    ESP_ERROR_CHECK(tinyusb_cdcacm_deinit(TINYUSB_CDC_ACM_0));
+    ESP_ERROR_CHECK(tinyusb_driver_uninstall());
+    vTaskDelay(20);
 }
 
 /**
@@ -112,6 +130,8 @@ TEST_CASE("tinyusb_pm_get_lock_status_reinstall", TEST_PM_PUBLIC_API_GROUP)
     TEST_ASSERT_EQUAL(ESP_OK, tinyusb_cdcacm_deinit(TINYUSB_CDC_ACM_0));
     TEST_ASSERT_EQUAL(ESP_OK, tinyusb_driver_uninstall());
 
+    vTaskDelay(20);
+
     test_pm_init_tinyusb_cdc(&opts);
     expect_device_event(EVENT_BITS_ATTACHED, pdMS_TO_TICKS(DEVICE_EVENT_WAIT_MS));
     TEST_ASSERT_EQUAL(ESP_OK, tinyusb_pm_get_lock_status(&lock_held));
@@ -122,6 +142,11 @@ TEST_CASE("tinyusb_pm_get_lock_status_reinstall", TEST_PM_PUBLIC_API_GROUP)
     // esp_pm_configure({light_sleep_enable: true}) calls cpu retention init, we need to deinit manually to prevent memory leaks
     TEST_ASSERT_EQUAL(ESP_OK, esp_sleep_cpu_retention_deinit());
 #endif // SOC_PM_SUPPORT_CPU_PD
+
+    ESP_LOGI(TAG, "Cleanup");
+    ESP_ERROR_CHECK(tinyusb_cdcacm_deinit(TINYUSB_CDC_ACM_0));
+    ESP_ERROR_CHECK(tinyusb_driver_uninstall());
+    vTaskDelay(20);
 }
 
 /**
@@ -158,6 +183,11 @@ TEST_CASE("tinyusb_pm_get_lock_status_lifecycle", TEST_PM_PUBLIC_API_GROUP)
     // esp_pm_configure({light_sleep_enable: true}) calls cpu retention init, we need to deinit manually to prevent memory leaks
     TEST_ASSERT_EQUAL(ESP_OK, esp_sleep_cpu_retention_deinit());
 #endif // SOC_PM_SUPPORT_CPU_PD
+
+    ESP_LOGI(TAG, "Cleanup");
+    ESP_ERROR_CHECK(tinyusb_cdcacm_deinit(TINYUSB_CDC_ACM_0));
+    ESP_ERROR_CHECK(tinyusb_driver_uninstall());
+    vTaskDelay(20);
 }
 
 #undef TEST_PM_PUBLIC_API_GROUP
