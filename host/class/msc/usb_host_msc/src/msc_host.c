@@ -154,6 +154,9 @@ esp_err_t clear_feature(msc_device_t *device, uint8_t endpoint)
         // Return without ESP_LOGE
         return err;
     }
+    // The ClearFeature(ENDPOINT_HALT) request below reinitializes the device endpoint's data toggle
+    // to DATA0 (USB 2.0 §9.4.5): resync the host-side data toggle while the endpoint is still halted
+    MSC_RETURN_ON_ERROR( usb_host_endpoint_reset_data_toggle(dev, endpoint) );
     MSC_RETURN_ON_ERROR( usb_host_endpoint_clear(dev, endpoint) );
 
     USB_SETUP_PACKET_INIT_CLEAR_FEATURE_EP((usb_setup_packet_t *)xfer->data_buffer, endpoint);

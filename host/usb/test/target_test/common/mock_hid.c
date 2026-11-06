@@ -14,6 +14,7 @@
 #include "tinyusb.h"
 #include "tinyusb_default_config.h"
 #include "class/hid/hid_device.h"
+#include "device/usbd_pvt.h"    // For usbd_edpt_stall()
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "mock_hid.h"
@@ -129,8 +130,10 @@ void tud_hid_set_report_cb(uint8_t instance, uint8_t report_id, hid_report_type_
     (void)instance;
     (void)report_id;
     (void)report_type;
-    (void)buffer;
-    (void)bufsize;
+    // Host test hook: stall the interrupt IN endpoint only on a SET_REPORT carrying the trigger byte
+    if (bufsize >= 1 && buffer[0] == MOCK_HID_SET_REPORT_STALL_TRIGGER) {
+        usbd_edpt_stall(0, MOCK_HID_EP_IN);
+    }
 }
 
 /************* Mock HID device *****************/
