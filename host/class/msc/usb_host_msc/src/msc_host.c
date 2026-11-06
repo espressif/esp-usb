@@ -542,7 +542,7 @@ esp_err_t msc_host_install_device(uint8_t device_address, msc_host_device_handle
     MSC_GOTO_ON_ERROR( usb_host_device_open(s_msc_driver->client_handle, device_address, &msc_device->handle) );
     MSC_GOTO_ON_ERROR( usb_host_get_active_config_descriptor(msc_device->handle, &config_desc) );
     MSC_GOTO_ON_ERROR( extract_config_from_descriptor(config_desc, &msc_device->config) );
-    MSC_GOTO_ON_ERROR( usb_host_transfer_alloc(DEFAULT_XFER_SIZE, 0, &msc_device->xfer) );
+    MSC_GOTO_ON_ERROR( usb_host_transfer_alloc(DEFAULT_XFER_SIZE + USB_SETUP_PACKET_SIZE, 0, &msc_device->xfer) );
     MSC_GOTO_ON_ERROR( usb_host_interface_claim(
                            s_msc_driver->client_handle,
                            msc_device->handle,
