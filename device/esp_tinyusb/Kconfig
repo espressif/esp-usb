@@ -417,6 +417,17 @@ menu "TinyUSB Stack"
                 To improve performance, the NTB buffer size should be large enough to fit multiple MTU-sized
                 frames in a single NTB buffer and it's length should be multiple of 4.
 
+        config TINYUSB_NCM_LINK_BITRATE
+            int "NCM link speed in bit/s advertised to the host"
+            depends on TINYUSB_NET_MODE_NCM
+            default 0
+            range 0 2000000000
+            help
+                Link speed in bit/s reported to the host in the NCM CONNECTION_SPEED_CHANGE
+                notification, for both directions. Hosts use it to rank the interface
+                (Windows derives the route metric from it); it does not limit the transfer rate.
+                Set to 0 to report the USB bus speed (12 Mbit/s for Full-Speed, 480 Mbit/s for High-Speed).
+
     endmenu # "Network driver (ECM/NCM/RNDIS)"
 
     menu "Vendor Specific Interface"
