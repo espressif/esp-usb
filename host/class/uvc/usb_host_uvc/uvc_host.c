@@ -68,6 +68,8 @@ typedef struct {
 
 static uvc_host_driver_t *p_uvc_host_driver = NULL;
 
+usb_host_client_event_handling_t usb_host_lib_get_client_event_handling(void);
+
 static esp_err_t uvc_host_interface_check(uint8_t addr, const usb_config_desc_t *config_desc)
 {
     assert(config_desc);
@@ -689,6 +691,7 @@ esp_err_t uvc_host_install(const uvc_host_driver_config_t *driver_config)
     if (driver_config == NULL) {
         driver_config = &default_driver_config;
     }
+    const bool host_uses_common_handling = (usb_host_lib_get_client_event_handling() == USB_HOST_CLIENT_EVENT_HANDLING_ALL_CLIENTS);
 
     // Allocate all we need for this driver
     esp_err_t ret;
@@ -700,6 +703,11 @@ esp_err_t uvc_host_install(const uvc_host_driver_config_t *driver_config)
     usb_transfer_t *ctrl_xfer = NULL;
     usb_host_transfer_alloc(64, 0, &ctrl_xfer); // Worst case HS MPS
     TaskHandle_t driver_task_h = NULL;
+
+    if (host_uses_common_handling && driver_config->create_background_task) {
+        ret = ESP_ERR_INVALID_ARG;
+        goto err;
+    }
 
     if (driver_config->create_background_task) {
         xTaskCreatePinnedToCore(
@@ -794,17 +802,19 @@ esp_err_t uvc_host_uninstall()
     }
     UVC_EXIT_CRITICAL();
 
-    // Signal to UVC task to stop, unblock it and wait for its deletion
-    xEventGroupSetBits(uvc_obj->driver_status, UVC_TEARDOWN);
-    usb_host_client_unblock(uvc_obj->usb_client_hdl);
-    taskYIELD(); // Give the now unblocked UVC handling task a chance to run
+    if (usb_host_lib_get_client_event_handling() != USB_HOST_CLIENT_EVENT_HANDLING_ALL_CLIENTS) {
+        // Signal to UVC task to stop, unblock it and wait for its deletion
+        xEventGroupSetBits(uvc_obj->driver_status, UVC_TEARDOWN);
+        usb_host_client_unblock(uvc_obj->usb_client_hdl);
+        taskYIELD(); // Give the now unblocked UVC handling task a chance to run
 
-    EventBits_t driver_status = xEventGroupGetBits(uvc_obj->driver_status);
-    if (driver_status & UVC_STARTED) {
-        // Wait for the UVC task to finish
-        ESP_GOTO_ON_FALSE(
-            xEventGroupWaitBits(uvc_obj->driver_status, UVC_TEARDOWN_COMPLETE, pdFALSE, pdFALSE, pdMS_TO_TICKS(100)),
-            ESP_ERR_NOT_FINISHED, unblock, TAG, "Timeout waiting for UVC_TEARDOWN_COMPLETE");
+        EventBits_t driver_status = xEventGroupGetBits(uvc_obj->driver_status);
+        if (driver_status & UVC_STARTED) {
+            // Wait for the UVC task to finish
+            ESP_GOTO_ON_FALSE(
+                xEventGroupWaitBits(uvc_obj->driver_status, UVC_TEARDOWN_COMPLETE, pdFALSE, pdFALSE, pdMS_TO_TICKS(100)),
+                ESP_ERR_NOT_FINISHED, unblock, TAG, "Timeout waiting for UVC_TEARDOWN_COMPLETE");
+        }
     }
 
     ESP_LOGD(TAG, "Deregistering client");

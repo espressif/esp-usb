@@ -11,6 +11,7 @@
 #include <stdint.h>
 #include <sys/queue.h>
 #include "esp_assert.h"
+#include "usb/usb_host.h"
 #include "usb/usb_types_ch9.h"
 #include "usb/usb_types_stack.h"
 
@@ -94,6 +95,13 @@ urb_t *urb_alloc(size_t data_buffer_size, int num_isoc_packets);
  * @param[in] urb URB object
  */
 void urb_free(urb_t *urb);
+
+/**
+ * @brief Get the global client event handling mode selected for the host library
+ *
+ * @return Current host-library-wide client event handling mode
+ */
+usb_host_client_event_handling_t usb_host_lib_get_client_event_handling(void);
 
 #ifdef __cplusplus
 }

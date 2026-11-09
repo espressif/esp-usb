@@ -10,7 +10,7 @@ dependencies:
   idf: ">=5.0"
   cmake_utilities: "0.5.*"
   usb:
-    version: "^1.0.0"
+    version: "^1.7.0"
     public: true
     override_path: "../../../usb"
     rules:

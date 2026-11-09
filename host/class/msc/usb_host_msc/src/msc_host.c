@@ -103,6 +103,8 @@ typedef struct {
 
 static msc_driver_t *s_msc_driver;
 
+usb_host_client_event_handling_t usb_host_lib_get_client_event_handling(void);
+
 
 static const usb_standard_desc_t *next_interface_desc(const usb_standard_desc_t *desc, size_t len, size_t *offset)
 {
@@ -446,11 +448,13 @@ esp_err_t msc_host_install(const msc_host_driver_config_t *config)
 
     MSC_RETURN_ON_INVALID_ARG(config);
     MSC_RETURN_ON_INVALID_ARG(config->callback);
+    const bool host_uses_common_handling = (usb_host_lib_get_client_event_handling() == USB_HOST_CLIENT_EVENT_HANDLING_ALL_CLIENTS);
     if ( config->create_backround_task ) {
         MSC_RETURN_ON_FALSE(config->stack_size != 0, ESP_ERR_INVALID_ARG);
         MSC_RETURN_ON_FALSE(config->task_priority != 0, ESP_ERR_INVALID_ARG);
     }
     MSC_RETURN_ON_FALSE(!s_msc_driver, ESP_ERR_INVALID_STATE);
+    MSC_RETURN_ON_FALSE(!(host_uses_common_handling && config->create_backround_task), ESP_ERR_INVALID_ARG);
 
     msc_driver_t *driver = calloc(1, sizeof(msc_driver_t));
     MSC_RETURN_ON_FALSE(driver, ESP_ERR_NO_MEM);
@@ -491,7 +495,9 @@ esp_err_t msc_host_install(const msc_host_driver_config_t *config)
 
 fail:
     s_msc_driver = NULL;
-    usb_host_client_deregister(driver->client_handle);
+    if (driver->client_handle) {
+        usb_host_client_deregister(driver->client_handle);
+    }
     if (driver->all_events_handled) {
         vSemaphoreDelete(driver->all_events_handled);
     }
@@ -511,7 +517,8 @@ esp_err_t msc_host_uninstall(void)
     s_msc_driver->end_client_event_handling = true;
     MSC_EXIT_CRITICAL();
 
-    if (s_msc_driver->event_handling_started) {
+    if (usb_host_lib_get_client_event_handling() != USB_HOST_CLIENT_EVENT_HANDLING_ALL_CLIENTS &&
+            s_msc_driver->event_handling_started) {
         ESP_ERROR_CHECK( usb_host_client_unblock(s_msc_driver->client_handle) );
         // In case the event handling started, we must wait until it finishes
         xSemaphoreTake(s_msc_driver->all_events_handled, portMAX_DELAY);

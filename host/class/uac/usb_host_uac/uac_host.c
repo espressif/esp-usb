@@ -218,6 +218,8 @@ typedef struct uac_cs_request {
 
 static uac_driver_t *s_uac_driver;                              /*!< Internal pointer to UAC driver */
 
+usb_host_client_event_handling_t usb_host_lib_get_client_event_handling(void);
+
 // ----------------------- Private Prototypes ----------------------------------
 
 static esp_err_t _uac_host_device_add(uint8_t addr, usb_device_handle_t dev_hdl, const usb_config_desc_t *config_desc, uac_device_t **uac_device_handle);
@@ -2029,11 +2031,13 @@ esp_err_t uac_host_install(const uac_host_driver_config_t *config)
     UAC_RETURN_ON_FALSE(!s_uac_driver, ESP_ERR_INVALID_STATE, "UAC Host driver is already installed");
     UAC_RETURN_ON_INVALID_ARG(config);
     UAC_RETURN_ON_INVALID_ARG(config->callback);
+    const bool host_uses_common_handling = (usb_host_lib_get_client_event_handling() == USB_HOST_CLIENT_EVENT_HANDLING_ALL_CLIENTS);
 
     if (config->create_background_task) {
         UAC_RETURN_ON_FALSE(config->stack_size != 0, ESP_ERR_INVALID_ARG, "Wrong stack size value");
         UAC_RETURN_ON_FALSE(config->task_priority != 0, ESP_ERR_INVALID_ARG, "Wrong task priority value");
     }
+    UAC_RETURN_ON_FALSE(!(host_uses_common_handling && config->create_background_task), ESP_ERR_INVALID_ARG, "Background task must be disabled in common client handling mode");
 
     uac_driver_t *driver = heap_caps_calloc(1, sizeof(uac_driver_t), MALLOC_CAP_DEFAULT);
     UAC_RETURN_ON_FALSE(driver, ESP_ERR_NO_MEM, "Unable to allocate memory");
@@ -2092,7 +2096,8 @@ esp_err_t uac_host_uninstall(void)
     s_uac_driver->end_client_event_handling = true;
     UAC_EXIT_CRITICAL();
 
-    if (s_uac_driver->event_handling_started) {
+    if (usb_host_lib_get_client_event_handling() != USB_HOST_CLIENT_EVENT_HANDLING_ALL_CLIENTS &&
+            s_uac_driver->event_handling_started) {
         ESP_ERROR_CHECK(usb_host_client_unblock(s_uac_driver->client_handle));
         // In case the event handling started, we must wait until it finishes
         xSemaphoreTake(s_uac_driver->all_events_handled, portMAX_DELAY);

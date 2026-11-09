@@ -60,6 +60,14 @@ typedef enum {
 } usb_host_lib_auto_suspend_tmr_t;
 
 /**
+ * @brief Client event handling mode
+ */
+typedef enum {
+    USB_HOST_CLIENT_EVENT_HANDLING_PER_CLIENT = 0,  /**< Each client is driven by its own event loop */
+    USB_HOST_CLIENT_EVENT_HANDLING_ALL_CLIENTS,     /**< All clients are driven by one shared event loop */
+} usb_host_client_event_handling_t;
+
+/**
  * @brief Client event message
  *
  * Client event messages are sent to each client of the USB Host Library in order to notify them of various
@@ -148,6 +156,8 @@ typedef struct {
     bool fsls_only;               /**< If set, High-Speed capable USB-OTG peripherals operate as Full/Low-Speed only
                                        hosts. The host will not respond to a connected device's High-Speed chirp.
                                        Has no effect on Full-Speed only peripherals. */
+    usb_host_client_event_handling_t client_event_handling;   /**< Selects whether client events are handled by one loop per client
+                                                                   or by one loop shared by all clients. */
 } usb_host_config_t;
 
 /**
@@ -377,6 +387,22 @@ esp_err_t usb_host_client_deregister(usb_host_client_handle_t client_hdl);
  *    - ESP_ERR_TIMEOUT: Semaphore waiting for events has timed out
  */
 esp_err_t usb_host_client_handle_events(usb_host_client_handle_t client_hdl, TickType_t timeout_ticks);
+
+/**
+ * @brief USB Host Library common-clients processing function
+ *
+ * - This function is intended for shared client event handling from a single task
+ * - This function handles all clients when the USB Host Library is installed with
+ *   `USB_HOST_CLIENT_EVENT_HANDLING_ALL_CLIENTS`
+ *
+ * @note This function can block
+ * @param[in] timeout_ticks Timeout in ticks to wait
+ *
+ * @return
+ *    - ESP_OK: No event to be handled
+ *    - ESP_ERR_INVALID_STATE: USB Host Library is not installed
+ */
+esp_err_t usb_host_common_clients_handle_events(TickType_t timeout_ticks);
 
 /**
  * @brief Unblock a client

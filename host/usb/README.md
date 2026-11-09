@@ -56,6 +56,10 @@ usb_host_config_t host_config = {/* configuration */};
 usb_host_install(&host_config);
 ```
 
+The `usb_host_config_t.client_event_handling` field selects whether client events are handled by one event loop per client or by one shared event loop for all clients.
+
+When `client_event_handling` is set to `USB_HOST_CLIENT_EVENT_HANDLING_ALL_CLIENTS`, the application shall create one task that repeatedly calls `usb_host_common_clients_handle_events()`.
+
 4. Use class drivers (CDC, HID, ets.) on top of the USB Host Library, to interact with USB devices
 
 ## Examples

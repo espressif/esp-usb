@@ -147,6 +147,8 @@ static StaticSemaphore_t s_open_close_mutex_buffer;
 
 // ----------------------- Private Prototypes ----------------------------------
 
+usb_host_client_event_handling_t usb_host_lib_get_client_event_handling(void);
+
 static esp_err_t hid_host_install_device(uint8_t dev_addr,
                                          usb_device_handle_t dev_hdl,
                                          hid_device_t **hid_device);
@@ -1355,6 +1357,7 @@ esp_err_t hid_host_install(const hid_host_driver_config_t *config)
 
     HID_RETURN_ON_INVALID_ARG(config);
     HID_RETURN_ON_INVALID_ARG(config->callback);
+    const bool host_uses_common_handling = (usb_host_lib_get_client_event_handling() == USB_HOST_CLIENT_EVENT_HANDLING_ALL_CLIENTS);
 
     if ( config->create_background_task ) {
         HID_RETURN_ON_FALSE(config->stack_size != 0,
@@ -1368,6 +1371,9 @@ esp_err_t hid_host_install(const hid_host_driver_config_t *config)
     HID_RETURN_ON_FALSE(!s_hid_driver,
                         ESP_ERR_INVALID_STATE,
                         "HID Host driver is already installed");
+    HID_RETURN_ON_FALSE(!(host_uses_common_handling && config->create_background_task),
+                        ESP_ERR_INVALID_ARG,
+                        "create_background_task must be false when USB Host handles all clients together");
 
     // Create HID driver structure
     hid_driver_t *driver = heap_caps_calloc(1, sizeof(hid_driver_t), MALLOC_CAP_DEFAULT);
@@ -1456,7 +1462,11 @@ esp_err_t hid_host_uninstall(void)
     s_hid_driver->end_client_event_handling = true;
     HID_EXIT_CRITICAL();
 
-    if (s_hid_driver->event_handling_started) {
+    // Stop HID-owned event handling before deregistering the client. In
+    // host-library-wide common mode, first remove this client from future
+    // shared-loop iterations.
+    if (usb_host_lib_get_client_event_handling() != USB_HOST_CLIENT_EVENT_HANDLING_ALL_CLIENTS &&
+            s_hid_driver->event_handling_started) {
         ESP_ERROR_CHECK( usb_host_client_unblock(s_hid_driver->client_handle) );
         // In case the event handling started, we must wait until it finishes
         xSemaphoreTake(s_hid_driver->all_events_handled, portMAX_DELAY);
