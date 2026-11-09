@@ -9,7 +9,7 @@ repository_info:
 dependencies:
   idf: ">=5.0"
   usb:
-    version: "^1.0.0"
+    version: "^1.7.0"
     public: true
     override_path: "../../../usb"
     rules:

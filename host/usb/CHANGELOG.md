@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- Added a global client-event handling mode selection in Kconfig, allowing applications to choose between the legacy per-client event loops and one shared event loop for all clients.
+- Added `usb_host_common_clients_handle_events()` so applications can drive all registered clients from one task when `CONFIG_USB_HOST_CLIENT_EVENT_HANDLING_ALL_CLIENTS` is enabled.
+
 ### Fixed
 
 - Fixed a device object and HCD channel leak when the enumeration filter rejects a device connected through an external hub (https://github.com/espressif/esp-usb/pull/590).

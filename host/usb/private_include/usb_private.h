@@ -11,6 +11,7 @@
 #include <stdint.h>
 #include <sys/queue.h>
 #include "esp_assert.h"
+#include "usb/usb_host.h"
 #include "usb/usb_types_ch9.h"
 #include "usb/usb_types_stack.h"
 

@@ -11,6 +11,7 @@
 #include <string.h>
 #include <sys/queue.h>
 #include <sys/param.h>
+#include "sdkconfig.h"
 #include "esp_log.h"
 #include "esp_heap_caps.h"
 #include "freertos/FreeRTOS.h"
@@ -23,6 +24,12 @@
 #include "msc_scsi_bot.h"
 #include "usb/usb_types_ch9.h"
 #include "usb/usb_helpers.h"
+
+#if CONFIG_USB_HOST_CLIENT_EVENT_HANDLING_ALL_CLIENTS
+#define MSC_HOST_COMMON_CLIENT_HANDLING_ENABLED 1
+#else
+#define MSC_HOST_COMMON_CLIENT_HANDLING_ENABLED 0
+#endif
 
 #if !CONFIG_IDF_TARGET_LINUX
 #include "soc/soc_memory_layout.h"
@@ -446,11 +453,13 @@ esp_err_t msc_host_install(const msc_host_driver_config_t *config)
 
     MSC_RETURN_ON_INVALID_ARG(config);
     MSC_RETURN_ON_INVALID_ARG(config->callback);
+    const bool host_uses_common_handling = MSC_HOST_COMMON_CLIENT_HANDLING_ENABLED;
     if ( config->create_backround_task ) {
         MSC_RETURN_ON_FALSE(config->stack_size != 0, ESP_ERR_INVALID_ARG);
         MSC_RETURN_ON_FALSE(config->task_priority != 0, ESP_ERR_INVALID_ARG);
     }
     MSC_RETURN_ON_FALSE(!s_msc_driver, ESP_ERR_INVALID_STATE);
+    MSC_RETURN_ON_FALSE(!(host_uses_common_handling && config->create_backround_task), ESP_ERR_INVALID_ARG);
 
     msc_driver_t *driver = calloc(1, sizeof(msc_driver_t));
     MSC_RETURN_ON_FALSE(driver, ESP_ERR_NO_MEM);
@@ -491,7 +500,9 @@ esp_err_t msc_host_install(const msc_host_driver_config_t *config)
 
 fail:
     s_msc_driver = NULL;
-    usb_host_client_deregister(driver->client_handle);
+    if (driver->client_handle) {
+        usb_host_client_deregister(driver->client_handle);
+    }
     if (driver->all_events_handled) {
         vSemaphoreDelete(driver->all_events_handled);
     }
@@ -511,7 +522,7 @@ esp_err_t msc_host_uninstall(void)
     s_msc_driver->end_client_event_handling = true;
     MSC_EXIT_CRITICAL();
 
-    if (s_msc_driver->event_handling_started) {
+    if (!MSC_HOST_COMMON_CLIENT_HANDLING_ENABLED && s_msc_driver->event_handling_started) {
         ESP_ERROR_CHECK( usb_host_client_unblock(s_msc_driver->client_handle) );
         // In case the event handling started, we must wait until it finishes
         xSemaphoreTake(s_msc_driver->all_events_handled, portMAX_DELAY);
