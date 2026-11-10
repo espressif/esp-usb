@@ -685,18 +685,18 @@ static esp_err_t uvc_claim_interface(uvc_stream_t *uvc_stream, uint8_t uvc_index
 esp_err_t uvc_host_install(const uvc_host_driver_config_t *driver_config)
 {
     UVC_CHECK(!UVC_ATOMIC_LOAD(p_uvc_host_driver), ESP_ERR_INVALID_STATE);
+    const bool host_uses_common_handling = UVC_HOST_COMMON_CLIENT_HANDLING_ENABLED;
 
     // In case user did not provide driver_config, use default settings
     const uvc_host_driver_config_t default_driver_config = {
         .driver_task_stack_size = 5 * 1024,
         .driver_task_priority = 5,
         .xCoreID = tskNO_AFFINITY,
-        .create_background_task = true,
+        .create_background_task = !host_uses_common_handling,
     };
     if (driver_config == NULL) {
         driver_config = &default_driver_config;
     }
-    const bool host_uses_common_handling = UVC_HOST_COMMON_CLIENT_HANDLING_ENABLED;
 
     // Allocate all we need for this driver
     esp_err_t ret;
