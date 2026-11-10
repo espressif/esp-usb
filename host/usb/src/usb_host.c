@@ -1360,6 +1360,11 @@ esp_err_t usb_host_client_deregister(usb_host_client_handle_t client_hdl)
     }
     HOST_EXIT_CRITICAL();
     if (!can_deregister) {
+        if (host_uses_common_client_event_handling()) {
+            HOST_ENTER_CRITICAL();
+            client_obj->dynamic.flags.leaving_common_task = 0;
+            HOST_EXIT_CRITICAL();
+        }
         ret = ESP_ERR_INVALID_STATE;
         goto exit;
     }
