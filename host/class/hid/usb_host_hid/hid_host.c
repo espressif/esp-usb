@@ -1467,10 +1467,7 @@ esp_err_t hid_host_uninstall(void)
     s_hid_driver->end_client_event_handling = true;
     HID_EXIT_CRITICAL();
 
-    // Stop HID-owned event handling before deregistering the client. In
-    // host-library-wide common mode, first remove this client from future
-    // shared-loop iterations.
-    if (!HID_HOST_COMMON_CLIENT_HANDLING_ENABLED && s_hid_driver->event_handling_started) {
+    if (s_hid_driver->event_handling_started) {
         ESP_ERROR_CHECK( usb_host_client_unblock(s_hid_driver->client_handle) );
         // In case the event handling started, we must wait until it finishes
         xSemaphoreTake(s_hid_driver->all_events_handled, portMAX_DELAY);
