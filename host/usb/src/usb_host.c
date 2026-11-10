@@ -176,7 +176,7 @@ const char *USB_HOST_TAG = "USB HOST";
 
 // ----------------------------------------------------- Helpers -------------------------------------------------------
 
-static inline bool _host_uses_common_client_event_handling(void)
+static inline bool host_uses_common_client_event_handling(void)
 {
 #if CONFIG_USB_HOST_CLIENT_EVENT_HANDLING_ALL_CLIENTS
     return true;
@@ -695,11 +695,11 @@ esp_err_t usb_host_install(const usb_host_config_t *config)
     SemaphoreHandle_t common_clients_event_sem = NULL;
     SemaphoreHandle_t mux_lock = xSemaphoreCreateMutex();
     TimerHandle_t auto_suspend_timer = xTimerCreate("auto_suspend_tmr", pdMS_TO_TICKS(1000), pdFALSE, NULL, auto_suspend_timer_cb);
-    if (_host_uses_common_client_event_handling()) {
+    if (host_uses_common_client_event_handling()) {
         common_clients_event_sem = xSemaphoreCreateBinary();
     }
     if (host_lib_obj == NULL || event_sem == NULL || mux_lock == NULL || auto_suspend_timer == NULL ||
-            (_host_uses_common_client_event_handling() && common_clients_event_sem == NULL)) {
+            (host_uses_common_client_event_handling() && common_clients_event_sem == NULL)) {
         ret = ESP_ERR_NO_MEM;
         goto alloc_err;
     }
@@ -1192,7 +1192,7 @@ static void _handle_pending_ep(client_t *client_obj)
     }
 }
 
-static void _handle_pending_client_events(client_t *client_obj)
+static void handle_pending_client_events(client_t *client_obj)
 {
     // Process one pass of work that is already pending for this client without waiting on a semaphore.
     HOST_ENTER_CRITICAL();
@@ -1226,19 +1226,19 @@ static void _handle_pending_client_events(client_t *client_obj)
 }
 
 #if CONFIG_USB_HOST_CLIENT_EVENT_HANDLING_ALL_CLIENTS
-static bool _client_uses_common_task(client_t *client_obj)
+static bool client_uses_common_task(client_t *client_obj)
 {
     bool uses_common_task;
 
     HOST_ENTER_CRITICAL();
-    uses_common_task = _host_uses_common_client_event_handling() && !client_obj->dynamic.flags.leaving_common_task;
+    uses_common_task = host_uses_common_client_event_handling() && !client_obj->dynamic.flags.leaving_common_task;
     HOST_EXIT_CRITICAL();
 
     return uses_common_task;
 }
 #endif // CONFIG_USB_HOST_CLIENT_EVENT_HANDLING_ALL_CLIENTS
 
-static esp_err_t _client_leave_common_task(client_t *client_obj)
+static esp_err_t client_leave_common_task(client_t *client_obj)
 {
     // Prevent future shared-loop iterations from snapshotting this client while
     // the caller is preparing to deregister it.
@@ -1280,7 +1280,7 @@ esp_err_t usb_host_client_register(const usb_host_client_config_t *client_config
     // Create client object
     client_t *client_obj = heap_caps_calloc(1, sizeof(client_t), MALLOC_CAP_DEFAULT);
     SemaphoreHandle_t event_sem;
-    if (_host_uses_common_client_event_handling()) {
+    if (host_uses_common_client_event_handling()) {
         HOST_CHECK(p_host_lib_obj->constant.common_clients_event_sem != NULL, ESP_ERR_INVALID_STATE);
 
         // Common clients share one semaphore so a single task can block and wake for the whole group.
@@ -1322,7 +1322,7 @@ alloc_err:
     if (event_msg_queue) {
         vQueueDelete(event_msg_queue);
     }
-    if (!_host_uses_common_client_event_handling() && event_sem) {
+    if (!host_uses_common_client_event_handling() && event_sem) {
         vSemaphoreDelete(event_sem);
     }
     heap_caps_free(client_obj);
@@ -1336,8 +1336,8 @@ esp_err_t usb_host_client_deregister(usb_host_client_handle_t client_hdl)
     client_t *client_obj = (client_t *)client_hdl;
     esp_err_t ret;
 
-    if (_host_uses_common_client_event_handling()) {
-        ESP_RETURN_ON_ERROR(_client_leave_common_task(client_obj), USB_HOST_TAG, "Failed to leave common-task client");
+    if (host_uses_common_client_event_handling()) {
+        ESP_RETURN_ON_ERROR(client_leave_common_task(client_obj), USB_HOST_TAG, "Failed to leave common-task client");
     }
 
     // We take the mux_lock because we need to access the host library's client_tailq
@@ -1378,7 +1378,7 @@ esp_err_t usb_host_client_deregister(usb_host_client_handle_t client_hdl)
     HOST_EXIT_CRITICAL();
     // Free client object
     vQueueDelete(client_obj->constant.event_msg_queue);
-    if (!_host_uses_common_client_event_handling()) {
+    if (!host_uses_common_client_event_handling()) {
         vSemaphoreDelete(client_obj->constant.event_sem);
     }
     heap_caps_free(client_obj);
@@ -1393,7 +1393,7 @@ esp_err_t usb_host_client_handle_events(usb_host_client_handle_t client_hdl, Tic
     // Check arguments and state
     HOST_CHECK(client_hdl != NULL, ESP_ERR_INVALID_ARG);
     HOST_CHECK(p_host_lib_obj != NULL, ESP_ERR_INVALID_STATE);
-    HOST_CHECK(!_host_uses_common_client_event_handling(), ESP_ERR_INVALID_STATE);
+    HOST_CHECK(!host_uses_common_client_event_handling(), ESP_ERR_INVALID_STATE);
 
     esp_err_t ret = (timeout_ticks == 0) ? ESP_OK : ESP_ERR_TIMEOUT;    // We don't want to return ESP_ERR_TIMEOUT if we aren't blocking
     client_t *client_obj = (client_t *)client_hdl;
@@ -1412,7 +1412,7 @@ esp_err_t usb_host_client_handle_events(usb_host_client_handle_t client_hdl, Tic
 
         // Reset the automatic suspend timer, USB Host client is handling events
         reset_auto_suspend_timer();
-        _handle_pending_client_events(client_obj);
+        handle_pending_client_events(client_obj);
 
         ret = ESP_OK;
         // Set timeout_ticks to 0 so that we can check for events again without blocking
@@ -1436,7 +1436,7 @@ esp_err_t usb_host_common_clients_handle_events(TickType_t timeout_ticks)
     size_t num_clients = 0;
     client_t *client_obj;
     TAILQ_FOREACH(client_obj, &p_host_lib_obj->mux_protected.client_tailq, dynamic.tailq_entry) {
-        if (_client_uses_common_task(client_obj)) {
+        if (client_uses_common_task(client_obj)) {
             num_clients++;
         }
     }
@@ -1457,7 +1457,7 @@ esp_err_t usb_host_common_clients_handle_events(TickType_t timeout_ticks)
 
     size_t i = 0;
     TAILQ_FOREACH(client_obj, &p_host_lib_obj->mux_protected.client_tailq, dynamic.tailq_entry) {
-        if (_client_uses_common_task(client_obj)) {
+        if (client_uses_common_task(client_obj)) {
             client_objs[i] = client_obj;
             i++;
         }
@@ -1490,7 +1490,7 @@ esp_err_t usb_host_common_clients_handle_events(TickType_t timeout_ticks)
             // for the common task without blocking on each client again.
             reset_auto_suspend_timer();
             for (i = 0; i < num_clients; i++) {
-                _handle_pending_client_events(client_objs[i]);
+                handle_pending_client_events(client_objs[i]);
             }
             ret = ESP_OK;
             timeout_ticks = 0;
