@@ -207,7 +207,8 @@ esp_err_t hid_host_device_close(hid_host_device_handle_t hid_dev_handle);
  *      - ESP_FAIL if event handling finished because the driver is being uninstalled
  *      - Other error codes returned by usb_host_client_handle_events()
  */
-esp_err_t hid_host_handle_events(uint32_t timeout);
+esp_err_t hid_host_handle_events(uint32_t timeout)
+__attribute__((deprecated("hid_host_handle_events() is deprecated")));
 
 /**
  * @brief Get HID interface parameters from a handle.
