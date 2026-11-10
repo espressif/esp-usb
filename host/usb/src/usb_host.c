@@ -1424,10 +1424,10 @@ esp_err_t usb_host_client_handle_events(usb_host_client_handle_t client_hdl, Tic
     return ret;
 }
 
+#if CONFIG_USB_HOST_CLIENT_EVENT_HANDLING_ALL_CLIENTS
 esp_err_t usb_host_common_clients_handle_events(TickType_t timeout_ticks)
 {
     HOST_CHECK(p_host_lib_obj != NULL, ESP_ERR_INVALID_STATE);
-    HOST_CHECK(_host_uses_common_client_event_handling(), ESP_ERR_INVALID_STATE);
 
     xSemaphoreTake(p_host_lib_obj->constant.mux_lock, portMAX_DELAY);
 
@@ -1506,6 +1506,7 @@ esp_err_t usb_host_common_clients_handle_events(TickType_t timeout_ticks)
     heap_caps_free(client_objs);
     return ret;
 }
+#endif // CONFIG_USB_HOST_CLIENT_EVENT_HANDLING_ALL_CLIENTS
 
 esp_err_t usb_host_client_unblock(usb_host_client_handle_t client_hdl)
 {

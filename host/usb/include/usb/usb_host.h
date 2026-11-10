@@ -383,6 +383,7 @@ esp_err_t usb_host_client_deregister(usb_host_client_handle_t client_hdl);
  */
 esp_err_t usb_host_client_handle_events(usb_host_client_handle_t client_hdl, TickType_t timeout_ticks);
 
+#if CONFIG_USB_HOST_CLIENT_EVENT_HANDLING_ALL_CLIENTS
 /**
  * @brief USB Host Library common-clients processing function
  *
@@ -397,6 +398,7 @@ esp_err_t usb_host_client_handle_events(usb_host_client_handle_t client_hdl, Tic
  *    - ESP_ERR_INVALID_STATE: USB Host Library is not installed
  */
 esp_err_t usb_host_common_clients_handle_events(TickType_t timeout_ticks);
+#endif // CONFIG_USB_HOST_CLIENT_EVENT_HANDLING_ALL_CLIENTS
 
 /**
  * @brief Unblock a client
