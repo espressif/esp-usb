@@ -652,10 +652,16 @@ void hid_host_test_task(void *pvParameters)
 
 void hid_host_test_polling_task(void *pvParameters)
 {
-    // Wait queue
+#if defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+#endif
     while (!time_to_stop_polling) {
         hid_host_handle_events(portMAX_DELAY);
     }
+#if defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
 
     vTaskDelete(NULL);
 }

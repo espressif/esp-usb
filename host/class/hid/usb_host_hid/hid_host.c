@@ -162,6 +162,7 @@ static esp_err_t hid_host_install_device(uint8_t dev_addr,
 static esp_err_t hid_host_uninstall_device(hid_device_t *hid_device);
 static esp_err_t hid_host_disable_interface_disconnect(hid_iface_t *iface);
 static esp_err_t hid_host_device_close_disconnect(hid_host_device_handle_t hid_dev_handle);
+static esp_err_t hid_host_handle_events_impl(uint32_t timeout);
 
 // --------------------------- Internal Logic ----------------------------------
 /**
@@ -188,7 +189,7 @@ typedef struct hid_class_request {
 static void event_handler_task(void *arg)
 {
     ESP_LOGD(TAG, "USB HID handling start");
-    while (hid_host_handle_events((uint32_t)portMAX_DELAY) == ESP_OK) {
+    while (hid_host_handle_events_impl((uint32_t)portMAX_DELAY) == ESP_OK) {
     }
     ESP_LOGD(TAG, "USB HID handling stop");
     vTaskDelete(NULL);
@@ -1660,7 +1661,7 @@ static esp_err_t hid_host_device_close_disconnect(hid_host_device_handle_t hid_d
     return hid_host_device_close_impl(hid_dev_handle, /*best_effort=*/true);
 }
 
-esp_err_t hid_host_handle_events(uint32_t timeout)
+static esp_err_t hid_host_handle_events_impl(uint32_t timeout)
 {
     HID_RETURN_ON_FALSE(s_hid_driver != NULL,
                         ESP_ERR_INVALID_STATE,
@@ -1677,6 +1678,11 @@ esp_err_t hid_host_handle_events(uint32_t timeout)
         return ESP_FAIL;
     }
     return ret;
+}
+
+esp_err_t hid_host_handle_events(uint32_t timeout)
+{
+    return hid_host_handle_events_impl(timeout);
 }
 
 esp_err_t hid_host_device_get_params(hid_host_device_handle_t hid_dev_handle,
