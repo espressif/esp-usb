@@ -1281,8 +1281,6 @@ esp_err_t usb_host_client_register(const usb_host_client_config_t *client_config
     client_t *client_obj = heap_caps_calloc(1, sizeof(client_t), MALLOC_CAP_DEFAULT);
     SemaphoreHandle_t event_sem;
     if (host_uses_common_client_event_handling()) {
-        HOST_CHECK(p_host_lib_obj->constant.common_clients_event_sem != NULL, ESP_ERR_INVALID_STATE);
-
         // Common clients share one semaphore so a single task can block and wake for the whole group.
         event_sem = p_host_lib_obj->constant.common_clients_event_sem;
     } else {
@@ -1443,10 +1441,6 @@ esp_err_t usb_host_common_clients_handle_events(TickType_t timeout_ticks)
     if (num_clients == 0) {
         xSemaphoreGive(p_host_lib_obj->constant.mux_lock);
         return ESP_OK;
-    }
-    if (p_host_lib_obj->constant.common_clients_event_sem == NULL) {
-        xSemaphoreGive(p_host_lib_obj->constant.mux_lock);
-        return ESP_ERR_INVALID_STATE;
     }
 
     client_t **client_objs = heap_caps_malloc(num_clients * sizeof(client_t *), MALLOC_CAP_DEFAULT);
