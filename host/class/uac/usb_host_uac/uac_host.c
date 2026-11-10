@@ -2100,7 +2100,7 @@ esp_err_t uac_host_uninstall(void)
     s_uac_driver->end_client_event_handling = true;
     UAC_EXIT_CRITICAL();
 
-    if (!UAC_HOST_COMMON_CLIENT_HANDLING_ENABLED && s_uac_driver->event_handling_started) {
+    if (s_uac_driver->event_handling_started) {
         ESP_ERROR_CHECK(usb_host_client_unblock(s_uac_driver->client_handle));
         // In case the event handling started, we must wait until it finishes
         xSemaphoreTake(s_uac_driver->all_events_handled, portMAX_DELAY);

@@ -526,7 +526,7 @@ esp_err_t msc_host_uninstall(void)
     s_msc_driver->end_client_event_handling = true;
     MSC_EXIT_CRITICAL();
 
-    if (!MSC_HOST_COMMON_CLIENT_HANDLING_ENABLED && s_msc_driver->event_handling_started) {
+    if (s_msc_driver->event_handling_started) {
         ESP_ERROR_CHECK( usb_host_client_unblock(s_msc_driver->client_handle) );
         // In case the event handling started, we must wait until it finishes
         xSemaphoreTake(s_msc_driver->all_events_handled, portMAX_DELAY);
