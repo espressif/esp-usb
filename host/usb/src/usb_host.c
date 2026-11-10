@@ -1225,6 +1225,7 @@ static void _handle_pending_client_events(client_t *client_obj)
     }
 }
 
+#if CONFIG_USB_HOST_CLIENT_EVENT_HANDLING_ALL_CLIENTS
 static bool _client_uses_common_task(client_t *client_obj)
 {
     bool uses_common_task;
@@ -1235,6 +1236,7 @@ static bool _client_uses_common_task(client_t *client_obj)
 
     return uses_common_task;
 }
+#endif // CONFIG_USB_HOST_CLIENT_EVENT_HANDLING_ALL_CLIENTS
 
 static esp_err_t _client_leave_common_task(client_t *client_obj)
 {
