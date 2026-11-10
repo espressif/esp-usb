@@ -2306,6 +2306,9 @@ fail:
 esp_err_t uac_host_handle_events(TickType_t timeout)
 {
     UAC_RETURN_ON_FALSE(s_uac_driver != NULL, ESP_ERR_INVALID_STATE, "UAC Driver is not installed");
+    UAC_RETURN_ON_FALSE(!UAC_HOST_COMMON_CLIENT_HANDLING_ENABLED,
+                        ESP_ERR_INVALID_STATE,
+                        "All-clients handling enabled");
     s_uac_driver->event_handling_started = true;
     esp_err_t ret = usb_host_client_handle_events(s_uac_driver->client_handle, timeout);
     UAC_ENTER_CRITICAL();

@@ -347,6 +347,10 @@ static bool is_mass_storage_device(uint8_t dev_addr)
 esp_err_t msc_host_handle_events(TickType_t timeout)
 {
     MSC_RETURN_ON_FALSE(s_msc_driver != NULL, ESP_ERR_INVALID_STATE);
+    ESP_RETURN_ON_FALSE(!MSC_HOST_COMMON_CLIENT_HANDLING_ENABLED,
+                        ESP_ERR_INVALID_STATE,
+                        TAG,
+                        "All-clients handling enabled");
 
     ESP_LOGV(TAG, "USB MSC handling");
     s_msc_driver->event_handling_started = true;

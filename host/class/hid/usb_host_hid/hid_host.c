@@ -1668,6 +1668,9 @@ esp_err_t hid_host_handle_events(uint32_t timeout)
     HID_RETURN_ON_FALSE(s_hid_driver != NULL,
                         ESP_ERR_INVALID_STATE,
                         "HID Driver is not installed");
+    HID_RETURN_ON_FALSE(!HID_HOST_COMMON_CLIENT_HANDLING_ENABLED,
+                        ESP_ERR_INVALID_STATE,
+                        "All-clients handling enabled");
 
     ESP_LOGD(TAG, "USB HID handling");
     s_hid_driver->event_handling_started = true;

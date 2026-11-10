@@ -305,6 +305,10 @@ esp_err_t uvc_host_handle_events(unsigned long timeout)
 {
     uvc_host_driver_t *uvc_obj = UVC_ATOMIC_LOAD(p_uvc_host_driver); // Make local copy of the driver's handle
     UVC_CHECK(uvc_obj, ESP_ERR_INVALID_STATE);
+    ESP_RETURN_ON_FALSE(!UVC_HOST_COMMON_CLIENT_HANDLING_ENABLED,
+                        ESP_ERR_INVALID_STATE,
+                        TAG,
+                        "All-clients handling enabled");
 
     ESP_LOGV(TAG, "USB UVC handling");
     // Get driver status
