@@ -56,6 +56,15 @@ typedef struct {
 
 static cdc_acm_obj_t *p_cdc_acm_obj = NULL;
 
+static inline bool cdc_uses_common_client_event_handling(void)
+{
+#if CONFIG_USB_HOST_CLIENT_EVENT_HANDLING_ALL_CLIENTS
+    return true;
+#else
+    return false;
+#endif
+}
+
 /**
  * @brief Default CDC-ACM driver configuration
  *
@@ -125,7 +134,7 @@ static void cdc_acm_reset_in_transfer(cdc_dev_t *cdc_dev)
 }
 
 /**
- * @brief CDC-ACM driver handling task
+ * @brief CDC-ACM driver handling task in per-client mode
  *
  * USB host client registration and deregistration is handled here.
  *
@@ -392,11 +401,14 @@ esp_err_t cdc_acm_host_install(const cdc_acm_host_driver_config_t *driver_config
     EventGroupHandle_t event_group = xEventGroupCreate();
     SemaphoreHandle_t mutex = xSemaphoreCreateMutex();
     TaskHandle_t driver_task_h = NULL;
-    xTaskCreatePinnedToCore(
-        cdc_acm_client_task, "USB-CDC", driver_config->driver_task_stack_size, NULL,
-        driver_config->driver_task_priority, &driver_task_h, driver_config->xCoreID);
+    if (!cdc_uses_common_client_event_handling()) {
+        xTaskCreatePinnedToCore(
+            cdc_acm_client_task, "USB-CDC", driver_config->driver_task_stack_size, NULL,
+            driver_config->driver_task_priority, &driver_task_h, driver_config->xCoreID);
+    }
 
-    if (cdc_acm_obj == NULL || driver_task_h == NULL || event_group == NULL || mutex == NULL) {
+    if (cdc_acm_obj == NULL || event_group == NULL || mutex == NULL ||
+            (!cdc_uses_common_client_event_handling() && driver_task_h == NULL)) {
         ret = ESP_ERR_NO_MEM;
         goto err;
     }
@@ -432,7 +444,9 @@ esp_err_t cdc_acm_host_install(const cdc_acm_host_driver_config_t *driver_config
     CDC_ACM_EXIT_CRITICAL();
 
     // Everything OK: Start CDC-Driver task and return
-    xTaskNotifyGive(driver_task_h);
+    if (!cdc_uses_common_client_event_handling()) {
+        xTaskNotifyGive(driver_task_h);
+    }
     return ESP_OK;
 
 client_err:
@@ -472,12 +486,22 @@ esp_err_t cdc_acm_host_uninstall()
     }
     CDC_ACM_EXIT_CRITICAL();
 
-    // Signal to CDC task to stop, unblock it and wait for its deletion
-    xEventGroupSetBits(cdc_acm_obj->event_group, CDC_ACM_TEARDOWN);
-    usb_host_client_unblock(cdc_acm_obj->cdc_acm_client_hdl);
-    ESP_GOTO_ON_FALSE(
-        xEventGroupWaitBits(cdc_acm_obj->event_group, CDC_ACM_TEARDOWN_COMPLETE, pdFALSE, pdFALSE, pdMS_TO_TICKS(100)),
-        ESP_ERR_NOT_FINISHED, unblock, TAG,);
+    if (cdc_uses_common_client_event_handling()) {
+        ret = usb_host_client_deregister(cdc_acm_obj->cdc_acm_client_hdl);
+        if (ret != ESP_OK) {
+            CDC_ACM_ENTER_CRITICAL();
+            p_cdc_acm_obj = cdc_acm_obj;
+            CDC_ACM_EXIT_CRITICAL();
+            goto unblock;
+        }
+    } else {
+        // Signal to CDC task to stop, unblock it and wait for its deletion
+        xEventGroupSetBits(cdc_acm_obj->event_group, CDC_ACM_TEARDOWN);
+        usb_host_client_unblock(cdc_acm_obj->cdc_acm_client_hdl);
+        ESP_GOTO_ON_FALSE(
+            xEventGroupWaitBits(cdc_acm_obj->event_group, CDC_ACM_TEARDOWN_COMPLETE, pdFALSE, pdFALSE, pdMS_TO_TICKS(100)),
+            ESP_ERR_NOT_FINISHED, unblock, TAG,);
+    }
 
     // Free remaining resources and return
     vEventGroupDelete(cdc_acm_obj->event_group);

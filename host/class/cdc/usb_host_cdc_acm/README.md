@@ -41,6 +41,11 @@ The following steps outline the typical API call pattern of the CDC-ACM Class Dr
 6. An opened device can be closed via `cdc_acm_host_close()`
 7. The CDC-ACM driver can be uninstalled via `cdc_acm_host_uninstall()`
 
+When `CONFIG_USB_HOST_CLIENT_EVENT_HANDLING_ALL_CLIENTS` is enabled, the
+CDC-ACM driver does not create its private event task. In this mode, the
+application must keep a task running `usb_host_common_clients_handle_events()`
+before expecting CDC driver events or device discovery.
+
 Use `CDC_HOST_ANY_VID`, `CDC_HOST_ANY_PID`, and `CDC_HOST_ANY_DEV_ADDR` when you do not want to filter by vendor ID, product ID, or USB device address. Wildcards are appropriate when only one matching device is expected. If several devices share the same VID and PID (for example behind a hub), fill `cdc_acm_host_open_config_t` and set `dev_addr` to the device’s USB address.
 
 ## Examples
