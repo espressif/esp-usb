@@ -64,6 +64,8 @@ DEFINE_CRIT_SECTION_LOCK_STATIC(host_lock);
 
 #define SHORT_DESC_REQ_LEN                      8
 #define CTRL_TRANSFER_MAX_DATA_LEN              CONFIG_USB_HOST_CONTROL_TRANSFER_MAX_SIZE
+// Number of client pointers captured in the common-clients snapshot.
+#define COMMON_CLIENTS_SNAPSHOT_LEN             8
 
 typedef struct ep_wrapper_s ep_wrapper_t;
 typedef struct interface_s interface_t;
@@ -1306,6 +1308,13 @@ esp_err_t usb_host_client_register(const usb_host_client_config_t *client_config
     // Add client to the host library's list of clients
     xSemaphoreTake(p_host_lib_obj->constant.mux_lock, portMAX_DELAY);
     HOST_ENTER_CRITICAL();
+    if (host_uses_common_client_event_handling() &&
+            p_host_lib_obj->dynamic.flags.num_clients >= COMMON_CLIENTS_SNAPSHOT_LEN) {
+        HOST_EXIT_CRITICAL();
+        xSemaphoreGive(p_host_lib_obj->constant.mux_lock);
+        ret = ESP_ERR_NO_MEM;
+        goto alloc_err;
+    }
     p_host_lib_obj->dynamic.flags.num_clients++;
     HOST_EXIT_CRITICAL();
     TAILQ_INSERT_TAIL(&p_host_lib_obj->mux_protected.client_tailq, client_obj, dynamic.tailq_entry);
@@ -1459,13 +1468,8 @@ esp_err_t usb_host_common_clients_handle_events(TickType_t timeout_ticks)
             continue;
         }
 
-        client_t **client_objs = heap_caps_malloc(num_clients * sizeof(client_t *), MALLOC_CAP_DEFAULT);
-        if (client_objs == NULL) {
-            xSemaphoreGive(p_host_lib_obj->constant.mux_lock);
-            // Restore the consumed wakeup so pending shared work can be retried.
-            xSemaphoreGive(p_host_lib_obj->constant.common_clients_event_sem);
-            return ESP_ERR_NO_MEM;
-        }
+        client_t *client_objs[COMMON_CLIENTS_SNAPSHOT_LEN];
+        assert(num_clients <= COMMON_CLIENTS_SNAPSHOT_LEN);
 
         size_t i = 0;
         TAILQ_FOREACH(client_obj, &p_host_lib_obj->mux_protected.client_tailq, dynamic.tailq_entry) {
@@ -1509,8 +1513,6 @@ esp_err_t usb_host_common_clients_handle_events(TickType_t timeout_ticks)
             }
             HOST_EXIT_CRITICAL();
         }
-
-        heap_caps_free(client_objs);
 
         if (ret != ESP_OK) {
             return ret;

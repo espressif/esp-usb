@@ -346,7 +346,7 @@ esp_err_t usb_host_lib_set_auto_suspend(usb_host_lib_auto_suspend_tmr_t timer_ty
  *    - ESP_OK: USB Host Library client registered successfully
  *    - ESP_ERR_INVALID_STATE: USB Host Library is not installed
  *    - ESP_ERR_INVALID_ARG: Invalid argument
- *    - ESP_ERR_NO_MEM: Insufficient memory
+ *    - ESP_ERR_NO_MEM: Insufficient memory, or insufficient shared snapshot space
  */
 esp_err_t usb_host_client_register(const usb_host_client_config_t *client_config, usb_host_client_handle_t *client_hdl_ret);
 
@@ -396,7 +396,6 @@ esp_err_t usb_host_client_handle_events(usb_host_client_handle_t client_hdl, Tic
  * @return
  *    - ESP_OK: No event to be handled
  *    - ESP_ERR_INVALID_STATE: USB Host Library is not installed
- *    - ESP_ERR_NO_MEM: Insufficient memory to snapshot registered clients
  *    - ESP_ERR_TIMEOUT: Timed out waiting for common client events
  */
 esp_err_t usb_host_common_clients_handle_events(TickType_t timeout_ticks);
