@@ -2041,7 +2041,7 @@ esp_err_t uac_host_install(const uac_host_driver_config_t *config)
         UAC_RETURN_ON_FALSE(config->stack_size != 0, ESP_ERR_INVALID_ARG, "Wrong stack size value");
         UAC_RETURN_ON_FALSE(config->task_priority != 0, ESP_ERR_INVALID_ARG, "Wrong task priority value");
     }
-    UAC_RETURN_ON_FALSE(!(host_uses_common_handling && config->create_background_task), ESP_ERR_INVALID_ARG, "Background task must be disabled in common client handling mode");
+    UAC_RETURN_ON_FALSE(!(host_uses_common_handling && config->create_background_task), ESP_ERR_INVALID_ARG, "create_background_task must be false in all-clients mode");
 
     uac_driver_t *driver = heap_caps_calloc(1, sizeof(uac_driver_t), MALLOC_CAP_DEFAULT);
     UAC_RETURN_ON_FALSE(driver, ESP_ERR_NO_MEM, "Unable to allocate memory");

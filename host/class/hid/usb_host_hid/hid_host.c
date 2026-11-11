@@ -1379,7 +1379,7 @@ esp_err_t hid_host_install(const hid_host_driver_config_t *config)
                         "HID Host driver is already installed");
     HID_RETURN_ON_FALSE(!(host_uses_common_handling && config->create_background_task),
                         ESP_ERR_INVALID_ARG,
-                        "create_background_task must be false when USB Host handles all clients together");
+                        "create_background_task must be false in all-clients mode");
 
     // Create HID driver structure
     hid_driver_t *driver = heap_caps_calloc(1, sizeof(hid_driver_t), MALLOC_CAP_DEFAULT);
