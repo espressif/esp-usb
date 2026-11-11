@@ -119,5 +119,6 @@ TEST_CASE("dconn_detection", "[esp_tinyusb][dconn]")
     // Cleanup
     TEST_ASSERT_EQUAL(ESP_OK, tinyusb_driver_uninstall());
     gpio_uninstall_isr_service();
+    vTaskDelay(10); // Delay for FreeRTOS to delete stale tasks
 }
 #endif // SOC_USB_OTG_SUPPORTED

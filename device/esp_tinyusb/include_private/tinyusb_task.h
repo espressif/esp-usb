@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2025-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -38,7 +38,6 @@ esp_err_t tinyusb_task_check_config(const tinyusb_task_config_t *task_cfg);
  *    - ESP_ERR_INVALID_STATE if TinyUSB Task already started
  *    - ESP_ERR_INVALID_ARG if task_cfg is NULL or init_params is NULL when init_in_task is true
  *    - ESP_ERR_TIMEOUT if task was not able to start TinyUSB stack
- *    - ESP_ERR_NOT_FINISHED if TinyUSB task creation failed
  *    - ESP_ERR_NO_MEM if memory allocation failed
  *    - ESP_OK if TinyUSB Task initialized successfully
  */
@@ -47,11 +46,17 @@ esp_err_t tinyusb_task_start(tinyusb_port_t port, const tinyusb_task_config_t *t
 /**
  * @brief Stops TinyUSB Task
  *
- * @note function should be called only when TinyUSB task was initialized via tinyusb_task_start()
+ * Asks the TinyUSB task to leave `tud_task()`, tear down the stack and descriptors it initialized, and delete itself.
+ * The task is not deleted from the outside, so locks taken inside `tud_task()` are released first.
+ *
+ * @note
+ *      - Call this function only after tinyusb_task_start() has returned ESP_OK.
+ *      - Do not call this function from the TinyUSB task. That task cannot leave `tud_task()` while this function waits for it.
  *
  * @retval
- *    - ESP_ERR_INVALID_STATE if TinyUSB Task not initialized
- *    - ESP_OK if TinyUSB Task deinitialized successfully
+ *    - ESP_ERR_INVALID_STATE if the TinyUSB task is not running, or this function is called from the TinyUSB task
+ *    - ESP_ERR_TIMOUT if the TinyUSB task could not be stopped in time
+ *    - ESP_OK if the TinyUSB task stopped successfully
  */
 esp_err_t tinyusb_task_stop(void);
 

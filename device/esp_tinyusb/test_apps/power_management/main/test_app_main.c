@@ -67,5 +67,6 @@ void tearDown(void)
     tinyusb_cdcacm_deinit(TINYUSB_CDC_ACM_0);
     tinyusb_driver_uninstall();
     esp_reent_cleanup();    //clean up some of the newlib's lazy allocations
+    vTaskDelay(20);
     unity_utils_evaluate_leaks();
 }
