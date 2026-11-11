@@ -1363,6 +1363,9 @@ esp_err_t usb_host_client_deregister(usb_host_client_handle_t client_hdl)
         if (host_uses_common_client_event_handling()) {
             HOST_ENTER_CRITICAL();
             client_obj->dynamic.flags.leaving_common_task = 0;
+            // If a shared wakeup was consumed while the client was temporarily
+            // hidden from the common snapshot, wake the handler again after rollback.
+            _unblock_client(client_obj, false);
             HOST_EXIT_CRITICAL();
         }
         ret = ESP_ERR_INVALID_STATE;
@@ -1459,6 +1462,8 @@ esp_err_t usb_host_common_clients_handle_events(TickType_t timeout_ticks)
         client_t **client_objs = heap_caps_malloc(num_clients * sizeof(client_t *), MALLOC_CAP_DEFAULT);
         if (client_objs == NULL) {
             xSemaphoreGive(p_host_lib_obj->constant.mux_lock);
+            // Restore the consumed wakeup so pending shared work can be retried.
+            xSemaphoreGive(p_host_lib_obj->constant.common_clients_event_sem);
             return ESP_ERR_NO_MEM;
         }
 
