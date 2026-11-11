@@ -75,7 +75,7 @@ typedef void (*msc_host_event_cb_t)(const msc_host_event_t *event, void *arg);
 typedef struct {
     bool create_backround_task;     /*!< When set to true, a background task handles USB events.
                                          Otherwise, event handling is driven by msc_host_handle_events() in
-                                         per-client mode, or by the host library common event loop in all-clients mode. */
+                                         per-client mode, or by the host library shared handling path in all-clients mode. */
     size_t task_priority;           /*!< Task priority of the created background task. */
     size_t stack_size;              /*!< Stack size of the created background task. */
     BaseType_t core_id;             /*!< Core affinity of the created background task, or tskNO_AFFINITY. */

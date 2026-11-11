@@ -146,7 +146,7 @@ typedef struct {
 typedef struct {
     bool create_background_task;            /*!< When set to true, background task handling USB events is created.
                                                  Otherwise, event handling is driven by uac_host_handle_events() in
-                                                 per-client mode, or by the host library common event loop in all-clients mode. */
+                                                 per-client mode, or by the host library shared handling path in all-clients mode. */
     size_t task_priority;                   /*!< Task priority of the created background task. */
     size_t stack_size;                      /*!< Stack size of the created background task. */
     BaseType_t core_id;                     /*!< Core affinity of the created background task, or tskNO_AFFINITY. */
