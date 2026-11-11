@@ -1434,77 +1434,86 @@ esp_err_t usb_host_common_clients_handle_events(TickType_t timeout_ticks)
 {
     HOST_CHECK(p_host_lib_obj != NULL, ESP_ERR_INVALID_STATE);
 
-    xSemaphoreTake(p_host_lib_obj->constant.mux_lock, portMAX_DELAY);
-
-    size_t num_clients = 0;
-    client_t *client_obj;
-    TAILQ_FOREACH(client_obj, &p_host_lib_obj->mux_protected.client_tailq, dynamic.tailq_entry) {
-        if (client_uses_common_task(client_obj)) {
-            num_clients++;
-        }
-    }
-    if (num_clients == 0) {
-        xSemaphoreGive(p_host_lib_obj->constant.mux_lock);
-        return ESP_OK;
-    }
-
-    client_t **client_objs = heap_caps_malloc(num_clients * sizeof(client_t *), MALLOC_CAP_DEFAULT);
-    if (client_objs == NULL) {
-        xSemaphoreGive(p_host_lib_obj->constant.mux_lock);
-        return ESP_ERR_NO_MEM;
-    }
-
-    size_t i = 0;
-    TAILQ_FOREACH(client_obj, &p_host_lib_obj->mux_protected.client_tailq, dynamic.tailq_entry) {
-        if (client_uses_common_task(client_obj)) {
-            client_objs[i] = client_obj;
-            i++;
-        }
-    }
-
-    esp_err_t ret = ESP_OK;
-    HOST_ENTER_CRITICAL();
-    for (i = 0; i < num_clients; i++) {
-        if (client_objs[i]->dynamic.flags.handling_events) {
-            ret = ESP_ERR_INVALID_STATE;
+    esp_err_t ret = (timeout_ticks == 0) ? ESP_OK : ESP_ERR_TIMEOUT;
+    while (1) {
+        if (xSemaphoreTake(p_host_lib_obj->constant.common_clients_event_sem, timeout_ticks) == pdFALSE) {
             break;
         }
-    }
-    if (ret == ESP_OK) {
-        for (i = 0; i < num_clients; i++) {
-            client_objs[i]->dynamic.flags.handling_events = 1;
-        }
-    }
-    HOST_EXIT_CRITICAL();
-    xSemaphoreGive(p_host_lib_obj->constant.mux_lock);
 
-    if (ret == ESP_OK) {
-        ret = (timeout_ticks == 0) ? ESP_OK : ESP_ERR_TIMEOUT;
-        while (1) {
-            if (xSemaphoreTake(p_host_lib_obj->constant.common_clients_event_sem, timeout_ticks) == pdFALSE) {
+        xSemaphoreTake(p_host_lib_obj->constant.mux_lock, portMAX_DELAY);
+
+        size_t num_clients = 0;
+        client_t *client_obj;
+        TAILQ_FOREACH(client_obj, &p_host_lib_obj->mux_protected.client_tailq, dynamic.tailq_entry) {
+            if (client_uses_common_task(client_obj)) {
+                num_clients++;
+            }
+        }
+        if (num_clients == 0) {
+            xSemaphoreGive(p_host_lib_obj->constant.mux_lock);
+            ret = ESP_OK;
+            timeout_ticks = 0;
+            continue;
+        }
+
+        client_t **client_objs = heap_caps_malloc(num_clients * sizeof(client_t *), MALLOC_CAP_DEFAULT);
+        if (client_objs == NULL) {
+            xSemaphoreGive(p_host_lib_obj->constant.mux_lock);
+            return ESP_ERR_NO_MEM;
+        }
+
+        size_t i = 0;
+        TAILQ_FOREACH(client_obj, &p_host_lib_obj->mux_protected.client_tailq, dynamic.tailq_entry) {
+            if (client_uses_common_task(client_obj)) {
+                client_objs[i] = client_obj;
+                i++;
+            }
+        }
+
+        bool handling_marked = false;
+        ret = ESP_OK;
+        HOST_ENTER_CRITICAL();
+        for (i = 0; i < num_clients; i++) {
+            if (client_objs[i]->dynamic.flags.handling_events) {
+                ret = ESP_ERR_INVALID_STATE;
                 break;
             }
+        }
+        if (ret == ESP_OK) {
+            for (i = 0; i < num_clients; i++) {
+                client_objs[i]->dynamic.flags.handling_events = 1;
+            }
+            handling_marked = true;
+        }
+        HOST_EXIT_CRITICAL();
+        xSemaphoreGive(p_host_lib_obj->constant.mux_lock);
 
-            // Wait once on the shared semaphore, then drain the clients configured
-            // for the common task without blocking on each client again.
+        if (ret == ESP_OK) {
+            // Snapshot the clients after the wakeup so newly registered clients are
+            // handled by the semaphore notification that woke this iteration.
             reset_auto_suspend_timer();
             for (i = 0; i < num_clients; i++) {
                 handle_pending_client_events(client_objs[i]);
             }
-            ret = ESP_OK;
-            timeout_ticks = 0;
         }
+
+        if (handling_marked) {
+            HOST_ENTER_CRITICAL();
+            for (i = 0; i < num_clients; i++) {
+                client_objs[i]->dynamic.flags.handling_events = 0;
+            }
+            HOST_EXIT_CRITICAL();
+        }
+
+        heap_caps_free(client_objs);
+
+        if (ret != ESP_OK) {
+            return ret;
+        }
+
+        timeout_ticks = 0;
     }
 
-    if (ret != ESP_ERR_INVALID_STATE) {
-        HOST_ENTER_CRITICAL();
-        for (i = 0; i < num_clients; i++) {
-            client_objs[i]->dynamic.flags.handling_events = 0;
-        }
-        HOST_EXIT_CRITICAL();
-    }
-
-    heap_caps_free(client_objs);
     return ret;
 }
 #endif // CONFIG_USB_HOST_CLIENT_EVENT_HANDLING_ALL_CLIENTS
