@@ -32,6 +32,8 @@ jobs:
       matrix:
         idf_ver: ${{ fromJson(inputs.idf_releases) }}
         test_app: ["device", "host_native", "host_managed"]
+        # Number of shards must match --parallel-count in the build step
+        shard: [1, 2, 3]
         include:
           # Add build paths
           - test_app: device
@@ -93,7 +95,9 @@ jobs:
           fi
 
           idf-build-apps find --paths ${{ matrix.path }} --disable-targets linux $MODIFIED_FILES_FLAG
-          idf-build-apps build --paths ${{ matrix.path }} --disable-targets linux $MODIFIED_FILES_FLAG --collect-app-info="app_info_${{ github.run_id }}.txt"
+          idf-build-apps build --paths ${{ matrix.path }} --disable-targets linux $MODIFIED_FILES_FLAG \
+            --parallel-count=3 --parallel-index=${{ matrix.shard }} \
+            --collect-app-info="app_info_${{ github.run_id }}_@p.txt"
       - name: Check if build artifacts exist
         id: check_build_artifacts
         shell: bash
@@ -106,7 +110,7 @@ jobs:
       - uses: actions/upload-artifact@v6
         if: steps.check_build_artifacts.outputs.build_artifacts_exist == 'true'
         with:
-          name: usb_${{ matrix.test_app }}_test_app_bin_${{ matrix.idf_ver }}
+          name: usb_${{ matrix.test_app }}_test_app_bin_${{ matrix.idf_ver }}_${{ matrix.shard }}
           if-no-files-found: error
           path: |
             **/build_esp*/bootloader/bootloader.bin
@@ -180,7 +184,8 @@ jobs:
         continue-on-error: true
         id: download_artifact
         with:
-          name: usb_${{ matrix.test_app }}_test_app_bin_${{ matrix.idf_ver }}
+          pattern: usb_${{ matrix.test_app }}_test_app_bin_${{ matrix.idf_ver }}_*
+          merge-multiple: true
       - name: Check for MTP test artifact
         id: check_mtp_artifact
         if: success() && steps.download_artifact.outcome == 'success' && matrix.runner_tag == 'usb_device'
