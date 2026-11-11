@@ -268,7 +268,8 @@ esp_err_t usb_host_lib_info(usb_host_lib_info_t *info_ret);
  * @param[in] enable True to power the root port ON, false to power OFF
  * @return
  *    - ESP_OK: Root port power enabled/disabled
- *    - ESP_ERR_INVALID_STATE: Root port already powered or HUB driver not installed
+ *    - ESP_ERR_INVALID_STATE: Root port already powered, still recovering from its last device, or with an event
+ *      not yet handled, or HUB driver not installed
  */
 esp_err_t usb_host_lib_set_root_port_power(bool enable);
 

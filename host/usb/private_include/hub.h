@@ -125,7 +125,8 @@ esp_err_t hub_root_start(void);
  *
  * @return
  *    - ESP_OK: All enabled root ports have been powered off
- *    - ESP_ERR_INVALID_STATE: Hub driver is not installed, or all enabled root ports are already not powered
+ *    - ESP_ERR_INVALID_STATE: Hub driver is not installed, all enabled root ports are already not powered,
+ *      or a root port has an event not yet handled
  */
 esp_err_t hub_root_stop(void);
 
