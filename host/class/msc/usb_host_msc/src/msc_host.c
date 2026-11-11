@@ -71,17 +71,6 @@ DEFINE_CRIT_SECTION_LOCK_STATIC(msc_lock);
     (ctrl_req_ptr)->wLength = 1;                                            \
 })
 
-#define FEATURE_SELECTOR_ENDPOINT   0
-#define USB_SETUP_PACKET_INIT_CLEAR_FEATURE_EP(ctrl_req_ptr, ep_num) ({     \
-    (ctrl_req_ptr)->bmRequestType = USB_BM_REQUEST_TYPE_DIR_OUT |           \
-                                    USB_BM_REQUEST_TYPE_TYPE_STANDARD |     \
-                                    USB_BM_REQUEST_TYPE_RECIP_ENDPOINT;     \
-    (ctrl_req_ptr)->bRequest = USB_B_REQUEST_CLEAR_FEATURE;                 \
-    (ctrl_req_ptr)->wValue = FEATURE_SELECTOR_ENDPOINT;                     \
-    (ctrl_req_ptr)->wIndex = (ep_num);                                      \
-    (ctrl_req_ptr)->wLength = 0;                                            \
-})
-
 #define DEFAULT_XFER_SIZE   (64) // Transfer size used for all transfers apart from SCSI read/write
 #define WAIT_FOR_READY_TIMEOUT_MS 5000
 #define SCSI_COMMAND_SET    0x06
@@ -154,9 +143,12 @@ esp_err_t clear_feature(msc_device_t *device, uint8_t endpoint)
         // Return without ESP_LOGE
         return err;
     }
+    // The ClearFeature(ENDPOINT_HALT) request below reinitializes the device endpoint's data toggle
+    // to DATA0 (USB 2.0 §9.4.5): resync the host-side data toggle while the endpoint is still halted
+    MSC_RETURN_ON_ERROR( usb_host_endpoint_reset_data_toggle(dev, endpoint) );
     MSC_RETURN_ON_ERROR( usb_host_endpoint_clear(dev, endpoint) );
 
-    USB_SETUP_PACKET_INIT_CLEAR_FEATURE_EP((usb_setup_packet_t *)xfer->data_buffer, endpoint);
+    USB_SETUP_PACKET_INIT_CLEAR_EP_FEATURE((usb_setup_packet_t *)xfer->data_buffer, endpoint, ENDPOINT_HALT);
     MSC_RETURN_ON_ERROR( msc_control_transfer(device,  USB_SETUP_PACKET_SIZE) );
 
     return ESP_OK;
