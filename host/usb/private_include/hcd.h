@@ -26,6 +26,18 @@ extern "C" {
 #define AUTO_PM_LIGHT_SLEEP
 #endif // CONFIG_USB_HOST_AUTO_PM_LIGHT_SLEEP
 
+/*
+ * DMA mode resolved from Kconfig and the esp-idf HAL support. Buffer DMA is compiled in only
+ * when the mode is both selected in Kconfig and supported by the esp-idf HAL.
+ */
+#if defined(CONFIG_USB_HOST_DMA_MODE_BUFFER) && defined(USB_DWC_HAL_HAS_BUFFER_DMA)
+#define DWC_DMA_MODE_BUFFER     1
+#define DWC_DMA_MODE_DESC       0
+#else
+#define DWC_DMA_MODE_BUFFER     0
+#define DWC_DMA_MODE_DESC       1
+#endif
+
 // ----------------------- Configs -------------------------
 
 #define HCD_NUM_PORTS                           SOC_USB_OTG_PERIPH_NUM   // Each peripheral is a root port
@@ -372,6 +384,13 @@ int hcd_pipe_get_mps(hcd_pipe_handle_t pipe_hdl);
 
 /**
  * @brief Get the maximum transfer size (in bytes) the controller can move in a single bulk/control transfer
+ *
+ * The limit depends on the DMA mode:
+ * - Scatter/Gather DMA: the 17-bit non-isochronous qTD "Total bytes to transfer" field (a constant)
+ * - Buffer DMA: whichever of the HCTSIZ XferSize (bytes) or PktCnt (packets) fields saturates first.
+ *   The field widths are DWC_OTG core revision specific; they are read from the DWC hardware registers
+ *   by the HAL, or taken from the core revision's known values on ESP-IDF versions without the
+ *   usb_dwc_hal_get_xfer_size_limit() HAL API
  *
  * The limit is floored to a whole number of maximum-sized packets.
  * Periodic (INTR/ISOC) transfers are instead bounded by their descriptor list length and are not covered by this value.
