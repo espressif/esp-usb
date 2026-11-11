@@ -396,6 +396,8 @@ esp_err_t usb_host_client_handle_events(usb_host_client_handle_t client_hdl, Tic
  * @return
  *    - ESP_OK: No event to be handled
  *    - ESP_ERR_INVALID_STATE: USB Host Library is not installed
+ *    - ESP_ERR_NO_MEM: Insufficient memory to snapshot registered clients
+ *    - ESP_ERR_TIMEOUT: Timed out waiting for common client events
  */
 esp_err_t usb_host_common_clients_handle_events(TickType_t timeout_ticks);
 #endif // CONFIG_USB_HOST_CLIENT_EVENT_HANDLING_ALL_CLIENTS
