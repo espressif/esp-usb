@@ -1,9 +1,10 @@
 ## [Unreleased]
 
-- tinyusb: Update from version `0.21.0~2` to `0.21.0~5`. [git diff](https://github.com/espressif/tinyusb/compare/v0.21.0.2...espressif:tinyusb:v0.21.0.5).
+- tinyusb: Update from version `0.21.0~2` to `0.21.0~6`. [git diff](https://github.com/espressif/tinyusb/compare/v0.21.0.2...espressif:tinyusb:v0.21.0.6).
   - Fix security vulnerability with consecutive short SETUP packets.
   - Allow NCM device connection speed configuration.
   - Fix repeated and/or stale Suspend events
+  - Fix babble errors on ESP32-H4 if the CPU is clocked from PLL
 - esp_tinyusb: Added Kconfig option `CONFIG_TINYUSB_NCM_LINK_BITRATE` to configure the link speed advertised by NCM in the `CONNECTION_SPEED_CHANGE` notification (maps to TinyUSB `CFG_TUD_NET_LINK_BITRATE`, 0 = USB bus speed).
 
 ## 3.0.0
