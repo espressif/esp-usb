@@ -4,6 +4,12 @@
 
 This component extends [esp_modem](https://components.espressif.com/component/espressif/esp_modem) with USB DTE.
 
+When `CONFIG_USB_HOST_CLIENT_EVENT_HANDLING_ALL_CLIENTS` is enabled, the
+application must own the shared USB Host client-event task and keep
+calling `usb_host_common_clients_handle_events()`. In this mode, configure
+`install_usb_host = false` and install/manage the USB Host library from
+the application.
+
 ## Examples
 
 For example usage see esp_modem examples:

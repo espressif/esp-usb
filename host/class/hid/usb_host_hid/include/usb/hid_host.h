@@ -116,7 +116,8 @@ typedef void (*hid_host_interface_event_cb_t)(hid_host_device_handle_t hid_devic
  */
 typedef struct {
     bool create_background_task;            /*!< When set to true, background task handling USB events is created.
-                                             Otherwise user has to periodically call hid_host_handle_events(). */
+                                                 Otherwise, event handling is driven by hid_host_handle_events() in
+                                                 per-client mode, or by the host library shared handling path in all-clients mode. */
     size_t task_priority;                   /*!< Task priority of the created background task. */
     size_t stack_size;                      /*!< Stack size of the created background task. */
     BaseType_t core_id;                     /*!< Core affinity of the created background task, or tskNO_AFFINITY. */
@@ -190,19 +191,24 @@ esp_err_t hid_host_device_close(hid_host_device_handle_t hid_dev_handle);
 /**
  * @brief Handle USB Host events for the HID driver.
  *
- * If hid_host_install() is called with `create_background_task = false`, the
- * application must call this function periodically to dispatch USB Host events.
- * Do not call this function when `create_background_task = true`.
+ * If hid_host_install() is called with `create_background_task = false` and
+ * per-client handling is enabled globally, the application must call this
+ * function periodically to dispatch USB Host events.
+ * If `CONFIG_USB_HOST_CLIENT_EVENT_HANDLING_ALL_CLIENTS` is enabled, call
+ * usb_host_common_clients_handle_events() instead.
+ * Do not call this function when `create_background_task = true` or when
+ * global all-clients handling is enabled.
  *
  * @param[in] timeout Timeout in ticks. Use pdMS_TO_TICKS() to convert from milliseconds.
  *
  * @return
  *      - ESP_OK on success
- *      - ESP_ERR_INVALID_STATE if the driver is not installed
+ *      - ESP_ERR_INVALID_STATE if the driver is not installed or global all-clients handling is enabled
  *      - ESP_FAIL if event handling finished because the driver is being uninstalled
  *      - Other error codes returned by usb_host_client_handle_events()
  */
-esp_err_t hid_host_handle_events(uint32_t timeout);
+esp_err_t hid_host_handle_events(uint32_t timeout)
+__attribute__((deprecated("hid_host_handle_events() is deprecated")));
 
 /**
  * @brief Get HID interface parameters from a handle.

@@ -10,6 +10,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - Added public API for resetting host channel data toggle. This is used together with ClearFeature(ENDPOINT_HALT) request from class drivers during device's EP recovery.
 
+### Added
+
+- Added a global client-event handling mode selection in Kconfig, allowing applications to choose between per-client handling and one shared handling path for all clients.
+- Added `usb_host_common_clients_handle_events()` so applications can drive all registered clients from one task when `CONFIG_USB_HOST_CLIENT_EVENT_HANDLING_ALL_CLIENTS` is enabled.
+
 ### Fixed
 
 - Fixed a device object and HCD channel leak when the enumeration filter rejects a device connected through an external hub (https://github.com/espressif/esp-usb/pull/590).

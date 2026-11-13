@@ -184,6 +184,10 @@ typedef struct {
  *       Host Controller is enabled and the USB PHY (internal or external) is already setup before this function is
  *       called.
  *
+ * @note Client event handling mode is selected at build time via Kconfig:
+ *       `CONFIG_USB_HOST_CLIENT_EVENT_HANDLING_PER_CLIENT` or
+ *       `CONFIG_USB_HOST_CLIENT_EVENT_HANDLING_ALL_CLIENTS`.
+ *
  * @note In dual host configuration, fifo_settings_custom field is ignored and intr_flags field is used for all ports.
  * @note `fsls_only` must be set at install time. The underlying USB-DWC core latches Full/Low-Speed only support
  *       during Host Controller initialization and applies it on the first port reset.
@@ -344,7 +348,7 @@ esp_err_t usb_host_lib_set_auto_suspend(usb_host_lib_auto_suspend_tmr_t timer_ty
  *    - ESP_OK: USB Host Library client registered successfully
  *    - ESP_ERR_INVALID_STATE: USB Host Library is not installed
  *    - ESP_ERR_INVALID_ARG: Invalid argument
- *    - ESP_ERR_NO_MEM: Insufficient memory
+ *    - ESP_ERR_NO_MEM: Insufficient memory, or insufficient shared snapshot space
  */
 esp_err_t usb_host_client_register(const usb_host_client_config_t *client_config, usb_host_client_handle_t *client_hdl_ret);
 
@@ -367,6 +371,7 @@ esp_err_t usb_host_client_deregister(usb_host_client_handle_t client_hdl);
  *
  * - This function handles all of a client's processing and should be called repeatedly in a loop
  * - For a particular client, this function should never be called by multiple threads simultaneously
+ * - This function is available when `CONFIG_USB_HOST_CLIENT_EVENT_HANDLING_PER_CLIENT` is enabled
  *
  * @note This function can block
  * @param[in] client_hdl Client handle
@@ -379,6 +384,24 @@ esp_err_t usb_host_client_deregister(usb_host_client_handle_t client_hdl);
  *    - ESP_ERR_TIMEOUT: Semaphore waiting for events has timed out
  */
 esp_err_t usb_host_client_handle_events(usb_host_client_handle_t client_hdl, TickType_t timeout_ticks);
+
+#if CONFIG_USB_HOST_CLIENT_EVENT_HANDLING_ALL_CLIENTS
+/**
+ * @brief USB Host Library common-clients processing function
+ *
+ * - This function is intended for shared client event handling from a single task
+ * - This function handles all clients when `CONFIG_USB_HOST_CLIENT_EVENT_HANDLING_ALL_CLIENTS` is enabled
+ *
+ * @note This function can block
+ * @param[in] timeout_ticks Timeout in ticks to wait
+ *
+ * @return
+ *    - ESP_OK: No event to be handled
+ *    - ESP_ERR_INVALID_STATE: USB Host Library is not installed
+ *    - ESP_ERR_TIMEOUT: Timed out waiting for common client events
+ */
+esp_err_t usb_host_common_clients_handle_events(TickType_t timeout_ticks);
+#endif // CONFIG_USB_HOST_CLIENT_EVENT_HANDLING_ALL_CLIENTS
 
 /**
  * @brief Unblock a client

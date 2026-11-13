@@ -56,6 +56,13 @@ usb_host_config_t host_config = {/* configuration */};
 usb_host_install(&host_config);
 ```
 
+The client event handling model is selected at build time via Kconfig:
+
+- `CONFIG_USB_HOST_CLIENT_EVENT_HANDLING_PER_CLIENT`
+- `CONFIG_USB_HOST_CLIENT_EVENT_HANDLING_ALL_CLIENTS`
+
+When `CONFIG_USB_HOST_CLIENT_EVENT_HANDLING_ALL_CLIENTS` is enabled, the application shall create one task that repeatedly calls `usb_host_common_clients_handle_events()`.
+
 4. Use class drivers (CDC, HID, ets.) on top of the USB Host Library, to interact with USB devices
 
 ## Examples
