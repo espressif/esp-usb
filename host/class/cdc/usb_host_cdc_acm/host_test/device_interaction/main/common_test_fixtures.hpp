@@ -135,3 +135,6 @@ esp_err_t test_cdc_acm_reset_transfer_endpoint(uint8_t ep_address);
  *   - ESP_OK: Interface claim successful
  */
 esp_err_t test_usb_host_interface_claim(uint8_t interface_index, bool has_separate_notification_interface = false);
+
+esp_err_t test_cdc_control_timeout(usb_host_client_handle_t client, usb_transfer_t *transfer, int calls);
+void test_cdc_complete_control_timeout(void);

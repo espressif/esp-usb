@@ -140,9 +140,10 @@ static void _set_remote_wakeup(cdc_acm_dev_hdl_t *dev, uint8_t address)
     if (supports_remote_wakeup) {
         // Register ctrl transfer function to timeout callback
         usb_host_get_active_config_descriptor_ExpectAnyArgsAndReturn(ESP_OK);
-        usb_host_transfer_submit_control_AddCallback(usb_host_transfer_submit_control_timeout_mock_callback);
+        usb_host_transfer_submit_control_AddCallback(test_cdc_control_timeout);
         usb_host_transfer_submit_control_ExpectAnyArgsAndReturn(ESP_OK);
         REQUIRE(ESP_ERR_TIMEOUT == cdc_acm_host_enable_remote_wakeup(*dev, true));
+        test_cdc_complete_control_timeout();
 
         // Register ctrl transfer function to invalid response callback
         usb_host_get_active_config_descriptor_ExpectAnyArgsAndReturn(ESP_OK);
@@ -182,7 +183,31 @@ static void _set_remote_wakeup(cdc_acm_dev_hdl_t *dev, uint8_t address)
     }
 }
 
-SCENARIO("Invalid custom command")
+static uint16_t expected_control_length;
+static uint8_t expected_request_type;
+
+static esp_err_t check_control_payload(usb_host_client_handle_t client, usb_transfer_t *transfer, int call_count)
+{
+    const auto *setup = reinterpret_cast<const usb_setup_packet_t *>(transfer->data_buffer);
+    REQUIRE(transfer->data_buffer_size >= 64 + USB_SETUP_PACKET_SIZE);
+    REQUIRE(transfer->num_bytes == expected_control_length + USB_SETUP_PACKET_SIZE);
+    REQUIRE(setup->bmRequestType == expected_request_type);
+    REQUIRE(setup->bRequest == 34);
+    REQUIRE(setup->wValue == 0x1234);
+    REQUIRE(setup->wIndex == 7);
+    REQUIRE(setup->wLength == expected_control_length);
+    uint8_t *payload = transfer->data_buffer + USB_SETUP_PACKET_SIZE;
+    for (uint16_t i = 0; i < expected_control_length; ++i) {
+        if (expected_request_type & USB_BM_REQUEST_TYPE_DIR_IN) {
+            payload[i] = static_cast<uint8_t>(i + 1);
+        } else {
+            REQUIRE(payload[i] == static_cast<uint8_t>(i + 1));
+        }
+    }
+    return usb_host_transfer_submit_control_success_mock_callback(client, transfer, call_count);
+}
+
+SCENARIO("Custom command payload boundaries")
 {
     Mockusb_host_Init();
     _add_mocked_devices();
@@ -208,9 +233,33 @@ SCENARIO("Invalid custom command")
         REQUIRE(ESP_OK == test_cdc_acm_host_open(device_address, vid, pid, interface_index, &dev_config, &dev));
         REQUIRE(dev != nullptr);
 
-        THEN("Command that does not fit into EP0 buffer is rejected with ESP_ERR_INVALID_SIZE") {
-            uint8_t data[64 - USB_SETUP_PACKET_SIZE + 1]; // +1 to make sure that the buffer overflows
-            REQUIRE(ESP_ERR_INVALID_SIZE == cdc_acm_host_send_custom_request(dev, 0x21, 34, 1, 0, sizeof(data), data));
+        THEN("IN and OUT payloads include setup space and enforce the 64-byte limit") {
+            usb_host_transfer_submit_control_AddCallback(check_control_payload);
+            for (uint8_t request_type : {
+                        uint8_t(0x21), uint8_t(0xA1)
+                    }) {
+                for (uint16_t length : {
+                            0, 56, 57, 64, 65
+                        }) {
+                    uint8_t data[65] = {};
+                    if (!(request_type & USB_BM_REQUEST_TYPE_DIR_IN)) {
+                        for (uint16_t i = 0; i < length; ++i) {
+                            data[i] = static_cast<uint8_t>(i + 1);
+                        }
+                    }
+                    expected_control_length = length;
+                    expected_request_type = request_type;
+                    if (length <= 64) {
+                        usb_host_transfer_submit_control_ExpectAnyArgsAndReturn(ESP_OK);
+                        REQUIRE(ESP_OK == cdc_acm_host_send_custom_request(dev, request_type, 34, 0x1234, 7, length, length ? data : nullptr));
+                        for (uint16_t i = 0; i < length; ++i) {
+                            REQUIRE(data[i] == static_cast<uint8_t>(i + 1));
+                        }
+                    } else {
+                        REQUIRE(ESP_ERR_INVALID_SIZE == cdc_acm_host_send_custom_request(dev, request_type, 34, 0x1234, 7, length, data));
+                    }
+                }
+            }
         }
 
         THEN("Command length > 0 but data is NULL is rejected with ESP_ERR_INVALID_ARG") {
@@ -497,6 +546,9 @@ SCENARIO("TinyUSB serial")
                 REQUIRE(ESP_ERR_INVALID_ARG == cdc_acm_host_cdc_desc_get(NULL, USB_CDC_DESC_SUBTYPE_HEADER, (const usb_standard_desc_t **)&header_desc));
             }
 
+            usb_host_endpoint_halt_ExpectAnyArgsAndReturn(ESP_OK);
+            usb_host_endpoint_flush_ExpectAnyArgsAndReturn(ESP_OK);
+            usb_host_endpoint_clear_ExpectAnyArgsAndReturn(ESP_OK);
             usb_host_endpoint_halt_ExpectAnyArgsAndReturn(ESP_OK);
             usb_host_endpoint_flush_ExpectAnyArgsAndReturn(ESP_OK);
             usb_host_endpoint_clear_ExpectAnyArgsAndReturn(ESP_OK);
