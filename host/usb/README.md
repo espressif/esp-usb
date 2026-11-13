@@ -20,7 +20,7 @@ The USB Host Library is included in [esp-idf](https://github.com/espressif/esp-i
 
 **Bugfixes** are backported to all active esp-idf 5.x releases branches. You can find the currently supported release branches [here](https://github.com/espressif/esp-idf?tab=readme-ov-file#esp-idf-release-support-schedule).
 
-**New features** are added only to this component. However, backward compatibility is maintained for all esp-idf service-period branches. This means that users of active 5.x releases can override the version of the library bundled with esp-idf if they need features introduced after esp-idf version 6.0.
+**New features** are added only to this component. The component remains backward compatible with the esp-idf `release/v5.5` branch. Projects based on esp-idf 5.5.3 or later can therefore override the bundled library version to use features added after the release of esp-idf 6.0.
 
 ## Usage
 
