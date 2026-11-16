@@ -306,8 +306,7 @@ struct pipe_obj {
     hcd_pipe_state_t state;
     hcd_pipe_event_t last_event;
     unsigned int xact_err_cnt;              // Number of consecutive XactErr retries of the in-flight transfer (Buffer DMA mode)
-    uint32_t next_due_frame: 14;            // Next (micro)frame number (HFNUM units) at which this pipe's channel should be (re=)armed, Periodic (INTR) pipes in Buffer DMA, (no HW frame-list scheduler).
-    // Must be 14 bits wide so it wraps at 0x3FFF exactly like the HFNUM.FrNum hardware counter
+    uint32_t next_due_tick;                 // Port SOF tick at which this periodic Buffer DMA INTR pipe must next be (re=)armed.
     volatile TaskHandle_t task_waiting_pipe_notif;  // Task handle used for internal pipe events. Set by waiter, cleared by notifier
     union {
         struct {
@@ -355,6 +354,7 @@ struct port_obj {
     int periph_idx;                                 // Peripheral index of this port. Used for initialization check
     int num_pipes_intr_active;                      // Number of INTR pipes (Buffer DMA mode) with an in-flight transfer. The SOF
     // interrupt is enabled while this is non-zero, and disabled when it reaches 0.
+    uint32_t sof_tick;                              // Software SOF tick for Buffer DMA periodic scheduling. Unlike HFNUM, it does not wrap every 0x4000 frames.
     // FIFO related
     usb_dwc_hal_fifo_config_t fifo_config;          // FIFO config to be applied at HAL level
     // Port callback and context
@@ -1248,15 +1248,15 @@ static inline hcd_pipe_event_t _channel_hw_error(pipe_t *pipe, usb_dwc_hal_chan_
         case USB_DWC_HAL_CHAN_ERROR_NAK:
         case USB_DWC_HAL_CHAN_ERROR_DATA_TGL:
             pipe->xact_err_cnt = 0;
-            pipe->next_due_frame += pipe->ep_char.periodic.interval;  // 14-bit field wraps like HFNUM.FrNum
+            pipe->next_due_tick += pipe->ep_char.periodic.interval;     // NO data (yet, if NAK), deadline advances by binterval
             return HCD_PIPE_EVENT_NONE;
         case USB_DWC_HAL_CHAN_ERROR_FRM_OVERRUN:
-            pipe->next_due_frame += pipe->ep_char.periodic.interval;
+            pipe->next_due_tick += pipe->ep_char.periodic.interval;
             return HCD_PIPE_EVENT_NONE;
         case USB_DWC_HAL_CHAN_ERROR_XACT_ERR:
             if (pipe->xact_err_cnt < XACT_ERR_RETRY_LIMIT) {
                 pipe->xact_err_cnt++;
-                pipe->next_due_frame += pipe->ep_char.periodic.interval;
+                pipe->next_due_tick += pipe->ep_char.periodic.interval;
                 return HCD_PIPE_EVENT_NONE;
             }
             break;  // Retry limit exceeded: fall through to the generic failure path below
@@ -1432,6 +1432,13 @@ static inline void _slot_exec_sof_intr(pipe_t *pipe, urb_slot_t *urb_slot)
     const int pkt_len = (remaining < mps) ? remaining : mps;    // Short packet, ZLP, or full MPS packet
     urb_slot->flags.intr.cur_pkt_len = pkt_len;
 
+    /*
+     * Limitation: every Buffer DMA HCDMA address must be DWORD aligned. A multi-packet interrupt transfer
+     * with a non-DWORD-aligned MPS would re-arm at data_buffer + actual_bytes and assert in the HAL after
+     * its first full packet. HID and CDC-ACM notification drivers submit one-MPS interrupt URBs, so they do
+     * not reach this path. Generic multi-packet interrupt support for these endpoints requires an aligned
+     * scratch buffer and copy-back per packet.
+     */
     const usb_dwc_hal_buffer_xfer_t xfer = {
         .buf = transfer->data_buffer + urb_slot->flags.intr.actual_bytes,
         .len = pkt_len,
@@ -1458,7 +1465,6 @@ static void _sw_frame_list_scheduler(port_t *port)
     if (port->num_pipes_intr_active == 0) {
         return;  // No pipe needs servicing; SOF should already be disabled in this case
     }
-    const uint32_t cur_frame_num = usb_dwc_hal_port_get_cur_frame_num(port->hal);
     pipe_t *pipe;
     TAILQ_FOREACH(pipe, &port->pipes_active_tailq, tailq_entry) {
         if (pipe->ep_char.type != USB_DWC_XFER_TYPE_INTR
@@ -1467,7 +1473,8 @@ static void _sw_frame_list_scheduler(port_t *port)
                 || usb_dwc_hal_chan_is_active(pipe->chan_obj)) {
             continue;  // Not a periodic pipe, halted/suspended/deferred, nothing in-flight, or already armed
         }
-        if ((int32_t)(cur_frame_num - pipe->next_due_frame) < 0) {
+        // The largest deadline distance is the 32768-microframe HS bInterval, well within the signed-delta range.
+        if ((int32_t)(port->sof_tick - pipe->next_due_tick) < 0) {
             continue;  // Not due yet
         }
         _slot_exec_sof_intr(pipe, pipe->urb_slots[pipe->urb_slot_ring.rd_idx]);
@@ -1498,6 +1505,7 @@ static void intr_hdlr_main(void *arg)
      * the entire GINTSTS register, so SOF must be checked (and cleared) independently here
      */
     if (usb_dwc_hal_port_check_sof(port->hal)) {
+        port->sof_tick++;
         _sw_frame_list_scheduler(port);
     }
 #endif // DWC_DMA_MODE_BUFFER
@@ -3438,7 +3446,7 @@ static inline void _slot_exec_bulk(pipe_t *pipe, urb_slot_t *urb_slot)
  * Unlike bulk/control, this does not touch the hardware channel directly: Buffer DMA periodic channels
  * have no frame-list scheduler, so the first (and every subsequent) (micro)frame activation is performed
  * by the SOF-driven scheduler (_sw_frame_list_scheduler()) once due. This function only establishes the
- * schedule (the next due (micro)frame, with at least one (micro)frame of margin) and marks the slot as
+ * schedule (the next due software SOF tick, with at least one (micro)frame of margin) and marks the slot as
  * executing, enabling the SOF interrupt if this is the pipe's first in-flight transfer.
  *
  * @param pipe Pipe object
@@ -3449,10 +3457,10 @@ static inline void _slot_exec_intr(pipe_t *pipe, urb_slot_t *urb_slot)
     urb_slot->status_flags.executing = 1;
     pipe->urb_slot_ring.is_executing = 1;
     pipe->xact_err_cnt = 0;
-    pipe->next_due_frame = usb_dwc_hal_port_get_cur_frame_num(pipe->port->hal) + 1;  // 14-bit field wraps like HFNUM.FrNum
+    pipe->next_due_tick = pipe->port->sof_tick + 1;
     _port_intr_pipe_record(pipe->port, true);
-    ESP_EARLY_LOGD(HCD_DWC_TAG, "buf exec (intr): ep=0x%02x urb=%p next_due=%" PRIu32,
-                   pipe->ep_char.bEndpointAddress, urb_slot->urb, (uint32_t)pipe->next_due_frame);
+    ESP_EARLY_LOGD(HCD_DWC_TAG, "buf exec (intr): ep=0x%02x urb=%p next_due_tick=%" PRIu32,
+                   pipe->ep_char.bEndpointAddress, urb_slot->urb, pipe->next_due_tick);
 }
 
 #endif // DWC_DMA_MODE_DESC
@@ -3621,9 +3629,9 @@ static inline void _slot_exec_cont_intr(pipe_t *pipe, urb_slot_t *urb_slot)
 {
     assert(!urb_slot->flags.intr.done);
     pipe->xact_err_cnt = 0;    // A successful packet resets the error streak
-    pipe->next_due_frame += pipe->ep_char.periodic.interval;  // 14-bit field wraps like HFNUM.FrNum
-    ESP_EARLY_LOGD(HCD_DWC_TAG, "buf cont (intr): ep=0x%02x urb=%p actual=%u next_due=%" PRIu32,
-                   pipe->ep_char.bEndpointAddress, urb_slot->urb, (unsigned)urb_slot->flags.intr.actual_bytes, (uint32_t)pipe->next_due_frame);
+    pipe->next_due_tick += pipe->ep_char.periodic.interval;
+    ESP_EARLY_LOGD(HCD_DWC_TAG, "buf cont (intr): ep=0x%02x urb=%p actual=%u next_due_tick=%" PRIu32,
+                   pipe->ep_char.bEndpointAddress, urb_slot->urb, (unsigned)urb_slot->flags.intr.actual_bytes, pipe->next_due_tick);
 }
 
 #endif // DWC_DMA_MODE_DESC
