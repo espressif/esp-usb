@@ -10,6 +10,7 @@
 #include <string.h>
 #include <sys/queue.h>
 #include <sys/param.h>
+#include "sdkconfig.h"
 #include "esp_log.h"
 #include "esp_check.h"
 #include "freertos/FreeRTOS.h"
@@ -19,6 +20,12 @@
 #include "usb/usb_host.h"
 
 #include "usb/hid_host.h"
+
+#if CONFIG_USB_HOST_CLIENT_EVENT_HANDLING_ALL_CLIENTS
+#define HID_HOST_COMMON_CLIENT_HANDLING_ENABLED 1
+#else
+#define HID_HOST_COMMON_CLIENT_HANDLING_ENABLED 0
+#endif
 
 // We are allowing realloc ctrl_xfer buffer, so max report desc size is limited by sane value
 // based on very large, exotic devices: can go into the low kilobytes
@@ -1355,6 +1362,7 @@ esp_err_t hid_host_install(const hid_host_driver_config_t *config)
 
     HID_RETURN_ON_INVALID_ARG(config);
     HID_RETURN_ON_INVALID_ARG(config->callback);
+    const bool host_uses_common_handling = HID_HOST_COMMON_CLIENT_HANDLING_ENABLED;
 
     if ( config->create_background_task ) {
         HID_RETURN_ON_FALSE(config->stack_size != 0,
@@ -1368,6 +1376,9 @@ esp_err_t hid_host_install(const hid_host_driver_config_t *config)
     HID_RETURN_ON_FALSE(!s_hid_driver,
                         ESP_ERR_INVALID_STATE,
                         "HID Host driver is already installed");
+    HID_RETURN_ON_FALSE(!(host_uses_common_handling && config->create_background_task),
+                        ESP_ERR_INVALID_ARG,
+                        "create_background_task must be false in all-clients mode");
 
     // Create HID driver structure
     hid_driver_t *driver = heap_caps_calloc(1, sizeof(hid_driver_t), MALLOC_CAP_DEFAULT);
@@ -1654,6 +1665,9 @@ esp_err_t hid_host_handle_events(uint32_t timeout)
     HID_RETURN_ON_FALSE(s_hid_driver != NULL,
                         ESP_ERR_INVALID_STATE,
                         "HID Driver is not installed");
+    HID_RETURN_ON_FALSE(!HID_HOST_COMMON_CLIENT_HANDLING_ENABLED,
+                        ESP_ERR_INVALID_STATE,
+                        "All-clients handling enabled");
 
     ESP_LOGD(TAG, "USB HID handling");
     s_hid_driver->event_handling_started = true;
