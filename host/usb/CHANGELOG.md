@@ -9,6 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Fixed
 
 - Fixed bInterval range check for HS interrupt pipes, restraining the interval to 1..16.
+- Fixed isochronous transfers losing their first packet (`USB_TRANSFER_STATUS_SKIPPED`) on High-Speed ports: the HCD interrupt handler is now placed in RAM, so it enables the channel for the next transfer in time (https://github.com/espressif/esp-usb/issues/654).
 
 ## [1.6.1] - 2026-11-13
 
