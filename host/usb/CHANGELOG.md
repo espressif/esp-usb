@@ -4,6 +4,12 @@ All notable changes to this component will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.2] - Unreleased
+
+### Fixed
+
+- Added an enumeration quirk to skip optional string requests for the Brovi/Zowee E3372-325 modem (VID:PID 3566:2001), which can disconnect during manufacturer-string retrieval (https://github.com/espressif/esp-usb/issues/655).
+
 ## [1.6.1] - 2026-11-13
 
 ### Added
