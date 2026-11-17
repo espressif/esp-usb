@@ -4,6 +4,12 @@ All notable changes to this component will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- Fixed isochronous transfers losing their first packet (`USB_TRANSFER_STATUS_SKIPPED`) on High-Speed ports: the HCD interrupt handler is now placed in RAM, so it enables the channel for the next transfer in time (https://github.com/espressif/esp-usb/issues/654).
+
 ## [1.6.1] - 2026-11-13
 
 ### Added
