@@ -416,7 +416,7 @@ static void _buffer_fill(pipe_t *pipe);
  * @return true There are more filled buffers to be executed
  * @return false No more buffers to execute
  */
-static inline bool _buffer_can_exec(pipe_t *pipe)
+static inline bool IRAM_ATTR _buffer_can_exec(pipe_t *pipe)
 {
     // We can only execute if there is not already a buffer executing and if there are filled buffers awaiting execution
     if (!pipe->multi_buffer_control.buffer_is_executing && pipe->multi_buffer_control.buffer_num_to_exec > 0) {
@@ -446,7 +446,7 @@ static void _buffer_exec(pipe_t *pipe);
  * @return true Buffer complete
  * @return false Buffer not complete
  */
-static inline bool _buffer_check_done(pipe_t *pipe)
+static inline bool IRAM_ATTR _buffer_check_done(pipe_t *pipe)
 {
     // Only control transfers need to be continued
     if (pipe->ep_char.type != USB_DWC_XFER_TYPE_CTRL) {
@@ -480,7 +480,7 @@ static void _buffer_exec_cont(pipe_t *pipe);
  * @param pipe_event Pipe event that caused the buffer to be complete. Use HCD_PIPE_EVENT_NONE for halt request of disconnections
  * @param canceled Whether the buffer was done due to a canceled (i.e., halt request). Must set pipe_event to HCD_PIPE_EVENT_NONE
  */
-static inline void _buffer_done(pipe_t *pipe, int stop_idx, hcd_pipe_event_t pipe_event, bool canceled)
+static inline void IRAM_ATTR _buffer_done(pipe_t *pipe, int stop_idx, hcd_pipe_event_t pipe_event, bool canceled)
 {
     // Store the stop_idx and pipe_event for later parsing
     dma_buffer_block_t *buffer_done = pipe->buffers[pipe->multi_buffer_control.rd_idx];
@@ -997,7 +997,7 @@ static hcd_port_event_t _intr_hdlr_hprt(port_t *port, usb_dwc_hal_port_event_t h
  * @param[out] yield Set to true if a yield is required as a result of handling the interrupt
  * @return hcd_pipe_event_t The pipe event
  */
-static hcd_pipe_event_t _intr_hdlr_chan(pipe_t *pipe, usb_dwc_hal_chan_t *chan_obj, bool *yield)
+static hcd_pipe_event_t IRAM_ATTR _intr_hdlr_chan(pipe_t *pipe, usb_dwc_hal_chan_t *chan_obj, bool *yield)
 {
     usb_dwc_hal_chan_event_t chan_event = usb_dwc_hal_chan_decode_intr(chan_obj);
     hcd_pipe_event_t event = HCD_PIPE_EVENT_NONE;
@@ -1083,9 +1083,14 @@ static hcd_pipe_event_t _intr_hdlr_chan(pipe_t *pipe, usb_dwc_hal_chan_t *chan_o
  * - The HCD has not blocking functions, so the user's ISR callback is run to
  *   allow the users to send whatever OS primitives they need.
  *
+ * @note The path from here to _buffer_exec() is placed in RAM. When a periodic transfer completes, the channel is
+ *       halted and must be enabled for the next buffer before the next (micro)frame starts. With this code in flash
+ *       the handler could spend more than a microframe fetching it, and the next isochronous transfer then lost its
+ *       first packet (USB_TRANSFER_STATUS_SKIPPED).
+ *
  * @param arg Interrupt handler argument
  */
-static void intr_hdlr_main(void *arg)
+static void IRAM_ATTR intr_hdlr_main(void *arg)
 {
     port_t *port = (port_t *) arg;
     bool yield = false;
