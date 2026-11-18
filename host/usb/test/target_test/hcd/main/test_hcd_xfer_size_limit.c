@@ -22,11 +22,14 @@ static const char *TAG = "XFER_SIZE_LIMIT";
 
 /*
 These tests validate the HCD's per-transfer size-limit enforcement for all transfer types. The limit is the maximum
-number of bytes the controller can move in a single transfer; what bounds it depends on the transfer type (see the
-table below):
+number of bytes the controller can move in a single transfer; what bounds it depends on the transfer type and the
+DMA mode (see the table below):
     - Bulk/control: the 17-bit non-isochronous qTD "Total bytes to transfer" field (Scatter/Gather DMA,
-      programming guide Section 6)
-    - Interrupt/isochronous: the descriptor list length, at one qTD per packet
+      programming guide Section 6); the HCTSIZ XferSize/PktCnt field widths (Buffer DMA, core-revision specific)
+    - Interrupt: the descriptor list length, at one qTD per packet (Scatter/Gather DMA); the HCTSIZ-derived
+      per-transfer byte limit (Buffer DMA)
+    - Isochronous: the descriptor list length, at one qTD per packet (Scatter/Gather DMA only - Buffer DMA does
+      not support isochronous transfers)
 
 Control is exercised with a real GET_CONFIGURATION_DESCRIPTOR whose data stage is sized to L - MPS, L and L + MPS; the
 first two MUST be accepted (and complete via the device's short descriptor packet), and the last MUST be rejected.
@@ -38,11 +41,20 @@ the read-back matches, confirming the HAL programs a limit-sized transfer withou
 truncating the qTD size field. An over-limit transfer (L + MPS) is then enqueued and MUST be rejected with
 ESP_ERR_INVALID_SIZE before any hardware/buffer access.
 
-Periodic (interrupt/isochronous) transfers are not bounded by the qTD byte-count field: they use one qTD per packet,
-so their size is bounded by the descriptor list length - XFER_LIST_LEN_INTR (== FRAME_LIST_LEN) qTDs for interrupt,
-XFER_LIST_LEN_ISOC minus a scheduling timing margin for isochronous. They are exercised with endpoint descriptors
-targeting a non-existent device address (isochronous OUT completes without a handshake; interrupt acceptance is fully
-exercised by the synchronous descriptor list fill at enqueue), so no periodic-capable device is required.
+In Scatter/Gather DMA, periodic (interrupt/isochronous) transfers are not bounded by the qTD byte-count field: they
+use one qTD per packet, so their size is bounded by the descriptor list length - XFER_LIST_LEN_INTR (== FRAME_LIST_LEN)
+qTDs for interrupt, XFER_LIST_LEN_ISOC minus a scheduling timing margin for isochronous. In Buffer DMA mode there is
+no descriptor list: an interrupt transfer is driven one packet per (micro)frame activation and is bounded by the same
+HCTSIZ-derived per-transfer byte limit as bulk/control (isochronous transfers are not supported). Periodic transfers
+are exercised with endpoint descriptors targeting a non-existent device address (isochronous OUT completes without a
+handshake; interrupt acceptance is fully exercised by the synchronous checks at enqueue), so no periodic-capable
+device is required.
+
+Interrupt transfers are additionally checked for packetization constraints enforceable at enqueue: an IN transfer
+must be a non-zero multiple of MPS (both DMA modes), and in Buffer DMA mode a transfer needing a second activation
+(multi-packet, or one packet + a zero-length packet) requires a DWORD-aligned MPS (every re-activation programs
+HCDMA to data_buffer + MPS, and the HAL asserts DWORD alignment). These are exercised with a fabricated
+non-DWORD-aligned MPS=10 interrupt endpoint.
 
 Maximum transfer sizes in Scatter/Gather DMA mode, per transfer type. The limits are set by the qTD byte-count
 fields and the HCD's descriptor list lengths, so they are identical on all targets regardless of the DWC2 core
@@ -57,6 +69,25 @@ revision (4.30a on P4 ECO5+/S31, 4.00a on P4 ECO4/S2/S3/H4):
 | ISOC  | 62464 (61 x MPS 1024)     | 62403 (61 x MPS 1023)     | XFER_LIST_LEN_ISOC (64) - XFER_LIST_ISOC_MARGIN (3)  |
 |       |                           |                           | descriptors; (61 / interval) packets of <= MPS each  |
 +-------+---------------------------+---------------------------+------------------------------------------------------+
+
+Maximum transfer sizes in Buffer DMA mode, per transfer type. The limit is the HCTSIZ-based
+min(XferSize byte count, MPS * PktCnt packet count), floored to a whole number of MPS
+(hcd_pipe_get_xfer_size_limit()), so it is core-revision specific - values are given as
+"core 4.30a / core 4.00a" (4.30a on P4 ECO5+/S31, 4.00a on P4 ECO4/S2/S3/H4). For control transfers only the
+data stage is bounded (the 8-byte setup packet is excluded).
+
++-------+---------------------------+---------------------------+------------------------------------------------------+
+| Type  | Max bytes (HS)            | Max bytes (FS)            | Limited by                                           |
++-------+---------------------------+---------------------------+------------------------------------------------------+
+| CTRL  | 65472 / 8128 (MPS 64)     | 65472 / 8128 (MPS 64)     | PktCnt (1023 / 127 packets) saturates before         |
+| BULK  | 523776 / 65024 (MPS 512)  | 65472 / 8128 (MPS 64)     | XferSize (524287 / 65535 B); floored to whole MPS    |
+| INTR  | 523264 / 64512 (MPS 1024) | 65472 / 8128 (MPS 64)     | PktCnt (1023 / 127 packets) for MPS <= 512;          |
+|       |                           |                           | XferSize (524287 / 65535 B) for MPS 1024             |
+| ISOC  | not supported             | not supported             | -                                                    |
++-------+---------------------------+---------------------------+------------------------------------------------------+
+
+The test's fabricated interrupt endpoint (MPS 64) sees the FS-column values at both speeds (PktCnt saturates
+first at this MPS on both core revisions).
 */
 
 // -----------------------------------------------------------------------------
@@ -416,12 +447,15 @@ TEST_CASE("Test HCD bulk transfer size limit", "[bulk][full_speed][high_speed]")
 // Periodic transfer size limits
 // -----------------------------------------------------------------------------
 
-// Mirror the HCD's periodic descriptor list lengths (hcd_dwc.c): periodic transfers use one qTD per packet, so their
-// size is bounded by the descriptor list length - not by hcd_pipe_get_xfer_size_limit(), which applies to bulk/control
-#define TEST_INTR_XFER_LIST_LEN     32  // XFER_LIST_LEN_INTR == FRAME_LIST_LEN (USB_HAL_FRAME_LIST_LEN_32)
-#define TEST_ISOC_XFER_LIST_LEN     64  // XFER_LIST_LEN_ISOC
-#define TEST_ISOC_XFER_LIST_MARGIN  3   // XFER_LIST_ISOC_MARGIN: list slots reserved for scheduling timing margin
+// Mirror the HCD's Scatter/Gather DMA periodic descriptor list lengths (hcd_dwc.c): in Scatter/Gather DMA mode,
+// periodic transfers use one qTD per packet, so their size is bounded by the descriptor list length - not by
+// hcd_pipe_get_xfer_size_limit(). In Buffer DMA mode there is no descriptor list: interrupt transfers are bounded
+// by hcd_pipe_get_xfer_size_limit() instead (and isochronous transfers are not supported at all)
+#define TEST_INTR_DESC_LIST_LEN     32  // XFER_LIST_LEN_INTR == FRAME_LIST_LEN (USB_HAL_FRAME_LIST_LEN_32)
+#define TEST_ISOC_DESC_LIST_LEN     64  // XFER_LIST_LEN_ISOC
+#define TEST_ISOC_DESC_LIST_MARGIN  3   // XFER_LIST_ISOC_MARGIN: list slots reserved for scheduling timing margin
 #define TEST_INTR_MPS               64  // Fabricated interrupt endpoint MPS, legal at both FS and HS
+#define TEST_INTR_UNALIGNED_MPS     10  // Fabricated non-DWORD-aligned interrupt endpoint MPS, legal at both FS and HS
 
 /**
  * @brief Assert the HCD rejects an over-limit interrupt transfer at enqueue time
@@ -440,6 +474,36 @@ static void expect_reject_intr(hcd_pipe_handle_t pipe, int num_bytes, uint32_t f
     urb->transfer.flags = flags;
     ESP_LOGI(TAG, "Expecting reject (intr): num_bytes=%d flags=0x%"PRIx32, num_bytes, flags);
     TEST_ASSERT_EQUAL(ESP_ERR_INVALID_SIZE, hcd_urb_enqueue(pipe, urb));
+    test_hcd_free_urb(urb);
+}
+
+/**
+ * @brief Assert the HCD accepts an interrupt transfer at enqueue time, then reclaim it
+ *
+ * The pipe targets a non-existent device address, so the transfer can never complete on the bus: it is halted
+ * and flushed immediately after enqueue to reclaim the URB. Acceptance is decided synchronously at enqueue
+ * (in Scatter/Gather DMA the descriptor list is filled there; in Buffer DMA the size/packetization checks run).
+ *
+ * @param pipe       Interrupt pipe to enqueue on
+ * @param num_bytes  Total transfer num_bytes
+ * @param flags      Transfer flags (e.g. USB_TRANSFER_FLAG_ZERO_PACK)
+ */
+static void expect_accept_intr(hcd_pipe_handle_t pipe, int num_bytes, uint32_t flags)
+{
+    urb_t *urb = test_hcd_alloc_urb(0, num_bytes);
+    urb->transfer.num_bytes = num_bytes;
+    urb->transfer.flags = flags;
+    ESP_LOGI(TAG, "Expecting accept (intr): num_bytes=%d flags=0x%"PRIx32, num_bytes, flags);
+    // Halt immediately after enqueue: at HS (bInterval=1) a transfer to this non-existent address hits
+    // XCS_XACT (3 transaction timeouts) after ~3 microframes and would report HCD_PIPE_EVENT_ERROR_XFER
+    // instead of URB_DONE if the halt is delayed
+    TEST_ASSERT_EQUAL(ESP_OK, hcd_urb_enqueue(pipe, urb));
+    TEST_ASSERT_EQUAL(ESP_OK, hcd_pipe_command(pipe, HCD_PIPE_CMD_HALT));
+    TEST_ASSERT_EQUAL(ESP_OK, hcd_pipe_command(pipe, HCD_PIPE_CMD_FLUSH));
+    TEST_HCD_EXPECT_PIPE_EVENT(pipe, HCD_PIPE_EVENT_URB_DONE);
+    TEST_ASSERT_EQUAL_PTR(urb, hcd_urb_dequeue(pipe));
+    // The reclaim left the pipe halted; clear the halt so the pipe accepts a next URB
+    TEST_ASSERT_EQUAL(ESP_OK, hcd_pipe_command(pipe, HCD_PIPE_CMD_CLEAR));
     test_hcd_free_urb(urb);
 }
 
@@ -498,20 +562,27 @@ static void expect_accept_isoc(hcd_pipe_handle_t pipe, int num_isoc_packets, int
 Test HCD interrupt transfer size limit
 
 Purpose:
-    - Interrupt transfers use one qTD per packet (plus one extra qTD for the optional zero-length packet), so the
-      transfer is bounded by the interrupt descriptor list length (XFER_LIST_LEN_INTR == FRAME_LIST_LEN == 32 qTDs)
-    - Verify the HCD rejects interrupt transfers needing more qTDs than the list holds with ESP_ERR_INVALID_SIZE,
-      including the zero-length-packet corner case (an MPS-aligned OUT transfer with USB_TRANSFER_FLAG_ZERO_PACK
-      needs one extra qTD)
-    - Verify the HCD accepts interrupt transfers that fill the descriptor list exactly (the list is filled
-      synchronously at enqueue, so an accepted transfer must not trip the fill-time assert)
+    - The interrupt transfer bound depends on the DMA mode:
+      - Scatter/Gather DMA: one qTD per packet (plus one extra qTD for the optional zero-length packet), so the
+        transfer is bounded by the interrupt descriptor list length (XFER_LIST_LEN_INTR == FRAME_LIST_LEN == 32 qTDs)
+      - Buffer DMA: there is no descriptor list; the transfer is driven one packet per (micro)frame activation,
+        so it is bounded by the same HCTSIZ-derived per-transfer byte limit as bulk/control
+        (hcd_pipe_get_xfer_size_limit())
+    - Verify the HCD rejects interrupt transfers over the limit with ESP_ERR_INVALID_SIZE; in Scatter/Gather DMA
+      this includes the zero-length-packet corner case (an MPS-aligned OUT transfer at the limit with
+      USB_TRANSFER_FLAG_ZERO_PACK needs one extra qTD; in Buffer DMA the ZLP costs no descriptor and is allowed)
+    - Verify the HCD accepts interrupt transfers exactly at the limit (in Scatter/Gather DMA the descriptor list
+      is filled synchronously at enqueue, so an accepted transfer must not trip the fill-time assert)
 
 Procedure:
     - Setup HCD and wait for connection (no enumeration: the pipes target a non-existent device address, the
-      acceptance path is fully exercised by the synchronous descriptor list fill at enqueue)
+      acceptance path is fully exercised by the synchronous checks at enqueue)
     - Allocate interrupt IN and OUT pipes with a fabricated endpoint descriptor (MPS=64, bInterval=1)
-    - Enqueue 33*MPS IN, 32*MPS+1 OUT and 32*MPS+ZLP OUT (all need 33 qTDs) -> rejected with ESP_ERR_INVALID_SIZE
-    - Enqueue 32*MPS IN and 31*MPS+ZLP OUT (both exactly 32 qTDs) -> accepted; halt+flush to reclaim the URBs
+    - Get the limit L (Scatter/Gather DMA: 32*MPS from the descriptor list length; Buffer DMA:
+      hcd_pipe_get_xfer_size_limit())
+    - Enqueue L+MPS IN and L+1 OUT (both over the limit) -> rejected with ESP_ERR_INVALID_SIZE; in Scatter/Gather
+      DMA also L OUT with ZLP (needs one qTD over the list length)
+    - Enqueue L IN and L-MPS OUT with ZLP (both at/under the limit) -> accepted; halt+flush to reclaim the URBs
     - Teardown
 */
 TEST_CASE("Test HCD interrupt transfer size limit", "[intr][full_speed][high_speed]")
@@ -533,18 +604,35 @@ TEST_CASE("Test HCD interrupt transfer size limit", "[intr][full_speed][high_spe
     hcd_pipe_handle_t intr_in_pipe = test_hcd_pipe_alloc(port_hdl, &intr_in_ep_desc, 1, port_speed);
     hcd_pipe_handle_t intr_out_pipe = test_hcd_pipe_alloc(port_hdl, &intr_out_ep_desc, 1, port_speed);
 
-    // --- Rejected: need more qTDs than the descriptor list holds (33 > 32) ---
-    expect_reject_intr(intr_in_pipe, (TEST_INTR_XFER_LIST_LEN + 1) * TEST_INTR_MPS, 0);          // IN: 33 packets
-    expect_reject_intr(intr_out_pipe, TEST_INTR_XFER_LIST_LEN * TEST_INTR_MPS + 1, 0);            // OUT: 32 packets + short packet
-    expect_reject_intr(intr_out_pipe, TEST_INTR_XFER_LIST_LEN * TEST_INTR_MPS, USB_TRANSFER_FLAG_ZERO_PACK); // OUT: 32 packets + ZLP
+#ifdef CONFIG_USB_HOST_DMA_MODE_DESC
+    // Scatter/Gather DMA: the transfer is bounded by the interrupt descriptor list length, one qTD per packet
+    const int limit = TEST_INTR_DESC_LIST_LEN * TEST_INTR_MPS;
+#else
+    // Buffer DMA: no descriptor list; the transfer is bounded by the per-transfer byte limit reported for the pipe
+    const int in_limit = hcd_pipe_get_xfer_size_limit(intr_in_pipe);
+    const int out_limit = hcd_pipe_get_xfer_size_limit(intr_out_pipe);
+    const int limit = (in_limit < out_limit) ? in_limit : out_limit;
+#endif // CONFIG_USB_HOST_DMA_MODE_DESC
+    ESP_LOGI(TAG, "INTR: mps=%d limit=%d", TEST_INTR_MPS, limit);
+    TEST_ASSERT_GREATER_THAN(0, limit);
+    TEST_ASSERT_EQUAL_MESSAGE(0, limit % TEST_INTR_MPS, "Interrupt size limit is not an integer multiple of MPS");
 
-    // --- Accepted: exactly fills the descriptor list (32 qTDs) ---
-    // IN: 32 packets
-    urb_t *urb_in = test_hcd_alloc_urb(0, TEST_INTR_XFER_LIST_LEN * TEST_INTR_MPS);
-    urb_in->transfer.num_bytes = TEST_INTR_XFER_LIST_LEN * TEST_INTR_MPS;
-    // OUT: 31 packets + zero-length packet
-    urb_t *urb_out = test_hcd_alloc_urb(0, (TEST_INTR_XFER_LIST_LEN - 1) * TEST_INTR_MPS);
-    urb_out->transfer.num_bytes = (TEST_INTR_XFER_LIST_LEN - 1) * TEST_INTR_MPS;
+    // --- Rejected: over the limit ---
+    expect_reject_intr(intr_in_pipe, limit + TEST_INTR_MPS, 0);     // IN: one packet over the limit
+    expect_reject_intr(intr_out_pipe, limit + 1, 0);                // OUT: limit plus a short packet
+#ifdef CONFIG_USB_HOST_DMA_MODE_DESC
+    // Scatter/Gather DMA only: an MPS-aligned OUT at the limit needs one extra qTD for its zero-length packet
+    expect_reject_intr(intr_out_pipe, limit, USB_TRANSFER_FLAG_ZERO_PACK);
+#endif // CONFIG_USB_HOST_DMA_MODE_DESC
+
+    // --- Accepted: exactly at the limit ---
+    // IN: limit (an integer multiple of MPS in both DMA modes)
+    urb_t *urb_in = test_hcd_alloc_urb(0, limit);
+    urb_in->transfer.num_bytes = limit;
+    // OUT: one packet under the limit, plus a zero-length packet (Scatter/Gather DMA: the ZLP's own qTD fills the
+    // list exactly; Buffer DMA: the ZLP costs no descriptor and stays within the byte limit)
+    urb_t *urb_out = test_hcd_alloc_urb(0, limit - TEST_INTR_MPS);
+    urb_out->transfer.num_bytes = limit - TEST_INTR_MPS;
     urb_out->transfer.flags = USB_TRANSFER_FLAG_ZERO_PACK;
 
     // Reclaim the URBs: the non-existent endpoint can never complete them
@@ -565,6 +653,76 @@ TEST_CASE("Test HCD interrupt transfer size limit", "[intr][full_speed][high_spe
     TEST_ASSERT_EQUAL_PTR(urb_out, hcd_urb_dequeue(intr_out_pipe));
     test_hcd_free_urb(urb_in);
     test_hcd_free_urb(urb_out);
+
+    test_hcd_pipe_free(intr_in_pipe);
+    test_hcd_pipe_free(intr_out_pipe);
+    test_hcd_wait_for_disconn(port_hdl, false);
+}
+
+/*
+Test HCD interrupt transfer packetization constraints
+
+Purpose:
+    - An IN interrupt transfer must be a non-zero multiple of MPS (both DMA modes): the programmed IN length
+      must be an MPS multiple (DWC_otg programming guide §3.4 step 5). Scatter/Gather DMA would otherwise assert
+      at descriptor fill time, Buffer DMA at the last packet's activation (HAL calc_pkt_count())
+    - In Buffer DMA mode, every activation programs HCDMA directly and the HAL asserts it is DWORD aligned: a
+      transfer needing a second activation (multi-packet, or one packet + a zero-length packet) re-arms at
+      data_buffer + MPS and therefore requires a DWORD-aligned MPS. Scatter/Gather DMA has no such constraint
+      (the core supports non-DWORD-aligned addresses in Scatter/Gather DMA host mode, programming guide §6)
+    - Verify the HCD rejects such transfers at enqueue with ESP_ERR_INVALID_SIZE, before any HW/buffer access,
+      and that single-packet transfers on a non-DWORD-MPS endpoint stay accepted in both DMA modes
+
+Procedure:
+    - Setup HCD and wait for connection (no enumeration: the pipes target a non-existent device address)
+    - Allocate interrupt IN and OUT pipes with a fabricated endpoint descriptor (non-DWORD-aligned MPS=10,
+      bInterval=1)
+    - IN: 0 and MPS+5 (invalid IN lengths) -> rejected in both DMA modes
+    - OUT: 2*MPS and MPS+5 (multi-packet), MPS+ZLP (re-activation for the ZLP) -> rejected in Buffer DMA,
+      accepted in Scatter/Gather DMA
+    - IN/OUT: MPS (single packet, no re-activation) -> accepted in both DMA modes; halt+flush to reclaim
+    - Teardown
+*/
+TEST_CASE("Test HCD interrupt transfer packetization constraints", "[intr][full_speed][high_speed]")
+{
+    usb_speed_t port_speed = test_hcd_wait_for_conn(port_hdl);
+    vTaskDelay(pdMS_TO_TICKS(100));
+
+    // Fabricated endpoint descriptors with a non-DWORD-aligned MPS; the device address is intentionally left
+    // non-existent (no enumeration): acceptance is decided synchronously at enqueue
+    usb_ep_desc_t intr_in_ep_desc = {
+        .bLength = USB_EP_DESC_SIZE,
+        .bDescriptorType = USB_B_DESCRIPTOR_TYPE_ENDPOINT,
+        .bEndpointAddress = 0x81, // IN endpoint
+        .bmAttributes = USB_BM_ATTRIBUTES_XFER_INT,
+        .wMaxPacketSize = TEST_INTR_UNALIGNED_MPS,
+        .bInterval = 1,
+    };
+    usb_ep_desc_t intr_out_ep_desc = intr_in_ep_desc;
+    intr_out_ep_desc.bEndpointAddress = 0x02; // OUT endpoint
+    hcd_pipe_handle_t intr_in_pipe = test_hcd_pipe_alloc(port_hdl, &intr_in_ep_desc, 1, port_speed);
+    hcd_pipe_handle_t intr_out_pipe = test_hcd_pipe_alloc(port_hdl, &intr_out_ep_desc, 1, port_speed);
+
+    // --- Rejected in both DMA modes: an IN transfer is not a non-zero multiple of MPS ---
+    expect_reject_intr(intr_in_pipe, 0, 0);                                 // IN: zero length
+    expect_reject_intr(intr_in_pipe, TEST_INTR_UNALIGNED_MPS + 5, 0);       // IN: not an MPS multiple
+
+#ifdef CONFIG_USB_HOST_DMA_MODE_DESC
+    // Scatter/Gather DMA: the core handles non-DWORD-aligned qTD buffer addresses, so a multi-packet or
+    // ZLP-terminated transfer on a non-DWORD MPS endpoint is accepted
+    expect_accept_intr(intr_out_pipe, 2 * TEST_INTR_UNALIGNED_MPS, 0);                  // OUT: two packets
+    expect_accept_intr(intr_out_pipe, TEST_INTR_UNALIGNED_MPS + 5, 0);                  // OUT: full + short packet
+    expect_accept_intr(intr_out_pipe, TEST_INTR_UNALIGNED_MPS, USB_TRANSFER_FLAG_ZERO_PACK); // OUT: packet + ZLP
+#else
+    // Buffer DMA: a second activation would re-arm HCDMA at data_buffer + MPS (not DWORD aligned) -> rejected
+    expect_reject_intr(intr_out_pipe, 2 * TEST_INTR_UNALIGNED_MPS, 0);                  // OUT: two packets
+    expect_reject_intr(intr_out_pipe, TEST_INTR_UNALIGNED_MPS + 5, 0);                  // OUT: full + short packet
+    expect_reject_intr(intr_out_pipe, TEST_INTR_UNALIGNED_MPS, USB_TRANSFER_FLAG_ZERO_PACK); // OUT: packet + ZLP
+#endif // CONFIG_USB_HOST_DMA_MODE_DESC
+
+    // --- Accepted in both DMA modes: a single packet never re-activates the channel ---
+    expect_accept_intr(intr_in_pipe, TEST_INTR_UNALIGNED_MPS, 0);
+    expect_accept_intr(intr_out_pipe, TEST_INTR_UNALIGNED_MPS, 0);
 
     test_hcd_pipe_free(intr_in_pipe);
     test_hcd_pipe_free(intr_out_pipe);
@@ -607,7 +765,7 @@ TEST_CASE("Test HCD isochronous transfer size limit", "[isoc][full_speed][high_s
     hcd_pipe_handle_t isoc_pipe = test_hcd_pipe_alloc(port_hdl, &isoc_ep_desc, dev_addr + 1, port_speed);
 
     // Effective limit in packets at interval = 1: list length minus the scheduling margin
-    const int max_packets = TEST_ISOC_XFER_LIST_LEN - TEST_ISOC_XFER_LIST_MARGIN;
+    const int max_packets = TEST_ISOC_DESC_LIST_LEN - TEST_ISOC_DESC_LIST_MARGIN;
 
     // Over the limit (62 descriptors > 61) -> rejected at enqueue, before the descriptor list is touched
     expect_reject_isoc(isoc_pipe, max_packets + 1, mps);

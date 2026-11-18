@@ -4263,8 +4263,14 @@ static bool check_in_buffer_headroom(pipe_t *pipe, urb_t *urb, bool is_in)
  *   DMA the limit is the 17-bit non-isochronous qTD "Total bytes to transfer" field; in Buffer DMA it is derived
  *   from the HCTSIZ XferSize/PktCnt field widths. Otherwise the transfer size would silently truncate upon the
  *   hardware field. For control transfers only the data stage is bounded, the 8-byte setup packet is excluded.
- * - Interrupt: one qTD per packet (plus one extra qTD for the optional zero-length packet), bounded by the
- *   interrupt descriptor list length.
+ * - Interrupt: an IN transfer must be a non-zero multiple of MPS in both DMA modes (the programmed IN length
+ *   must be an MPS multiple, DWC_otg programming guide §3.4 step 5). In Scatter/Gather DMA, one qTD per packet
+ *   (plus one extra qTD for the optional zero-length packet), bounded by the interrupt descriptor list length.
+ *   In Buffer DMA there is no descriptor list: the transfer is driven one packet per (micro)frame activation
+ *   and accumulated in the slot state, so it is bounded by the per-transfer byte limit (so the slot's byte
+ *   accumulator cannot overflow), and a transfer needing a second activation (multi-packet, or one packet +
+ *   zero-length packet) requires a DWORD-aligned MPS (every re-activation programs HCDMA to
+ *   data_buffer + MPS, see _slot_arm_intr()).
  * - Isochronous: one qTD per packet, spaced by the pipe's interval in the isochronous descriptor list
  *   (XFER_LIST_ISOC_MARGIN slots are reserved for scheduling timing margin, see _buffer_fill_isoc()).
  *
@@ -4310,14 +4316,46 @@ static bool check_xfer_size(pipe_t *pipe, urb_t *urb)
     }
     case USB_DWC_XFER_TYPE_INTR: {
         const int mps = pipe->ep_char.mps;
-        int num_qtds = (urb->transfer.num_bytes + mps - 1) / mps;   // One qTD per (short) packet
         const bool is_in = pipe->ep_char.bEndpointAddress & USB_B_ENDPOINT_ADDRESS_EP_DIR_MASK;
+        /*
+         * An IN interrupt transfer must be a non-zero multiple of MPS (both DMA modes): the programmed IN
+         * length must be an MPS multiple (DWC_otg programming guide §3.4 step 5). Scatter/Gather DMA asserts
+         * the same at descriptor fill time (and would fill descriptor index -1 for a zero-length IN);
+         * Buffer DMA asserts it in the HAL on the last packet's activation (calc_pkt_count()).
+         */
+        if (is_in && (urb->transfer.num_bytes == 0 || (urb->transfer.num_bytes % mps) != 0)) {
+            fits = false;
+        }
+#if DWC_DMA_MODE_DESC
+        int num_qtds = (urb->transfer.num_bytes + mps - 1) / mps;   // One qTD per (short) packet
         if (!is_in && (urb->transfer.flags & USB_TRANSFER_FLAG_ZERO_PACK) && (urb->transfer.num_bytes % mps) == 0) {
             num_qtds++;     // Extra qTD for the terminating zero-length packet
         }
         if (num_qtds > XFER_LIST_LEN_INTR) {
             fits = false;
         }
+#else // DWC_DMA_MODE_BUFFER
+        /*
+         * Buffer DMA: there is no descriptor list. The transfer is driven one packet per (micro)frame
+         * activation and accumulated in the slot state (urb_slot_t.flags.intr.actual_bytes), so bound it by
+         * the per-transfer byte limit (derived from the HCTSIZ XferSize/PktCnt field widths, which the byte
+         * accumulator is sized after). The ZLP flag costs no descriptor, so it plays no role in the bound.
+         */
+        if (urb->transfer.num_bytes > hcd_pipe_get_xfer_size_limit((hcd_pipe_handle_t)pipe)) {
+            fits = false;
+        }
+        /*
+         * Every Buffer DMA HCDMA address must be DWORD aligned (HAL-asserted). The first activation uses the
+         * (aligned) data buffer, but a second activation re-arms at data_buffer + MPS (or further), so a
+         * transfer needing more than one activation - multi-packet, or a single packet followed by a
+         * zero-length packet - requires a DWORD-aligned MPS. See the limitation note in _slot_arm_intr().
+         */
+        const bool zero_len_packet = !is_in && (urb->transfer.flags & USB_TRANSFER_FLAG_ZERO_PACK)
+                                     && (urb->transfer.num_bytes > 0) && (urb->transfer.num_bytes % mps == 0);
+        if ((mps % sizeof(uint32_t)) != 0 && (urb->transfer.num_bytes > mps || zero_len_packet)) {
+            fits = false;
+        }
+#endif // DWC_DMA_MODE_DESC
         break;
     }
     case USB_DWC_XFER_TYPE_ISOCHRONOUS:
