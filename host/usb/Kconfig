@@ -12,6 +12,20 @@ menu "USB-OTG"
             - The maximum length of control transfers is limited
             - Device's with configuration descriptors larger than this limit cannot be supported
 
+    choice USB_HOST_CLIENT_EVENT_HANDLING_MODE
+        prompt "Client event handling mode"
+        default USB_HOST_CLIENT_EVENT_HANDLING_PER_CLIENT
+        help
+            Select whether USB Host clients are handled per client or by one
+            shared handling path for all clients.
+
+        config USB_HOST_CLIENT_EVENT_HANDLING_PER_CLIENT
+            bool "Per-client handling"
+
+        config USB_HOST_CLIENT_EVENT_HANDLING_ALL_CLIENTS
+            bool "One shared handling path for all clients"
+    endchoice
+
     choice USB_HOST_HW_BUFFER_BIAS
         prompt "Hardware FIFO size biasing"
         default USB_HOST_HW_BUFFER_BIAS_BALANCED

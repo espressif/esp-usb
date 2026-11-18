@@ -35,7 +35,7 @@ The Host Library has the following features:
     :esp32p4: - {IDF_TARGET_NAME} has two USB 2.0 OTG controllers: one High-Speed and one Full-Speed. Each controller can operate as a USB host independently, so either one alone or both together can function as USB hosts simultaneously.
     - Allows multiple class drivers to run simultaneously, i.e., multiple clients of the Host Library.
     - A single device can be used by multiple clients simultaneously, e.g., composite devices.
-    - The Host Library itself and the underlying Host Stack does not internally instantiate any OS tasks. The number of tasks is entirely controlled by how the Host Library interface is used. However, a general rule of thumb regarding the number of tasks is ``(the number of host class drivers running + 1)``.
+    - The Host Library itself and the underlying Host Stack does not internally instantiate any OS tasks. The application, or a class driver, creates every task. In the default per-client mode, expect one task per class driver plus the Daemon Task. In all-clients mode, expect two tasks: the Daemon Task and one task shared by every client.
     - Allows single Hub support (If option :ref:`CONFIG_USB_HOST_HUBS_SUPPORTED` is enabled).
     - Allows multiple Hubs support (If option :ref:`CONFIG_USB_HOST_HUB_MULTI_LEVEL` is enabled).
     - Supports global suspend and resume, implemented by suspending or resuming the entire bus.
@@ -91,9 +91,11 @@ The Host Library's API is split into two sub-sets, namely the **Library API** an
 Clients
 ^^^^^^^
 
-A client of the Host Library is a software component, such as a host class driver or user component, which utilizes the Host Library to establish communication with a USB device. Generally, each client has a one-to-one relation with a task. This implies that all Client API calls pertaining to a specific client must originate from the context of the same task.
+A client of the Host Library is a software component, such as a host class driver or user component, which utilizes the Host Library to establish communication with a USB device. The Host Library delivers that client's events to a task you provide. Which task receives them depends on the client-event mode selected at build time. See `Client Event Handling`_.
 
-By organizing the software components that use the Host Library's into clients, the Host Library can delegate the handling of all events specific to that client to the client's task. In other words, each client task is responsible for all the required processing and event handling associated with the USB communication that the client initiates.
+In per-client mode, each client has its own task. That task calls the client's event handler and runs that client's callbacks.
+
+In all-clients mode, one task does this work for every registered client. Each client is still registered separately and still receives its own callbacks.
 
 Daemon Task
 ^^^^^^^^^^^
@@ -104,7 +106,7 @@ Although the Host Library delegates the handling of client events to the clients
 - Rerouting control transfers to/from clients
 - Forwarding events to clients
 
-Therefore, in addition to the client tasks, the Host Library also requires a task, which is usually the Host Library Daemon Task, to handle all of the library events.
+The Host Library still needs a Daemon Task for these library events. That task is separate from the task, or tasks, that handle client events.
 
 Devices
 ^^^^^^^
@@ -117,7 +119,7 @@ For a client to communicate with a device, the client must:
 
 #. Open the device using the device's address. This lets the Host Library know that the client is using that device.
 #. Claim the interface(s) that will be used for communication. This prevents other clients from claiming the same interface(s).
-#. Send transfers to the endpoints of claimed interfaces. The client's task is responsible for handling its own processing and events related to USB device communication.
+#. Send transfers to the endpoints of claimed interfaces. The task selected by the client-event mode handles that client's events.
 
 
 .. ------------------------------------------------------ Usage --------------------------------------------------------
@@ -125,7 +127,60 @@ For a client to communicate with a device, the client must:
 Usage
 -----
 
-The Host Library and the underlying Host Stack will not create any tasks. All tasks, namely the client tasks and the Daemon Task, need to be created by the class drivers or the user. Instead, the Host Library provides two event handler functions that handle all of the required Host Library processing, thus these functions should be called repeatedly from the client tasks and the Daemon Task. Therefore, the implementation of client tasks and the Daemon Task will be largely centered around the invocation of these event handler functions.
+The Host Library and the underlying Host Stack will not create any tasks. You create them, either in the application or in a class driver. Two kinds of work need a task:
+
+- Library events, such as device connection and enumeration. Call :cpp:func:`usb_host_lib_handle_events` from the Daemon Task. This is the same in both client-event modes.
+- Client events, such as a transfer completing or a device plug-in. Call either :cpp:func:`usb_host_client_handle_events` or :cpp:func:`usb_host_common_clients_handle_events`, depending on the mode below.
+
+Client Event Handling
+^^^^^^^^^^^^^^^^^^^^^
+
+A client event is a message for one registered client. Examples are "a new device is ready", "a device you opened was removed", and "a transfer finished". The Host Library does not create a task to deliver these messages. A task that you create must call a handler function in a loop. The handler runs the client's callback and then returns, so the task can do the work the callback requested.
+
+Select the mode in menuconfig under ``USB-OTG``, then ``Client event handling mode``. The choice is fixed at build time. The default is per-client handling.
+
+Per-client handling
+"""""""""""""""""""
+
+This mode is :ref:`CONFIG_USB_HOST_CLIENT_EVENT_HANDLING_PER_CLIENT <CONFIG_USB_HOST_CLIENT_EVENT_HANDLING_PER_CLIENT>`. It is the default.
+
+Create one task per client. In that task, call :cpp:func:`usb_host_client_handle_events` with that client's handle. The call waits until that client has an event, then runs that client's callbacks. Another client's events are not handled by this call.
+
+Use this mode when each class driver already runs in its own task. The worked example in `Clients and Class Driver`_ uses this mode.
+
+All clients in one task
+"""""""""""""""""""""""
+
+This mode is :ref:`CONFIG_USB_HOST_CLIENT_EVENT_HANDLING_ALL_CLIENTS <CONFIG_USB_HOST_CLIENT_EVENT_HANDLING_ALL_CLIENTS>`.
+
+Create a single task and use it for every client. In that task, call :cpp:func:`usb_host_common_clients_handle_events`. The call waits until any registered client has an event, then runs that client's callbacks. There is no client handle argument: one call covers all registered clients.
+
+Start this task after :cpp:func:`usb_host_install` and keep it running while clients are registered. Callbacks are delivered only while the loop is running.
+
+Do not call :cpp:func:`usb_host_client_handle_events` in this mode. It returns ``ESP_ERR_INVALID_STATE``.
+
+This mode accepts up to 8 registered clients. :cpp:func:`usb_host_client_register` returns ``ESP_ERR_NO_MEM`` for a ninth client.
+
+Call :cpp:func:`usb_host_common_clients_handle_events` from one task only. If a second task calls it while the first call is still handling clients, the second call returns ``ESP_ERR_INVALID_STATE``.
+
+.. code-block:: c
+
+    #include "usb/usb_host.h"
+
+    void client_event_task(void *arg)
+    {
+        ... // Wait until the Host Library is installed and the clients are registered
+        bool exit = false;
+        while (!exit) {
+            // Block until any registered client has an event, then run its callback
+            usb_host_common_clients_handle_events(portMAX_DELAY);
+            ... // Open, transfer, or close, based on flags set by the callbacks
+        }
+    }
+
+The Daemon Task is still required. It keeps calling :cpp:func:`usb_host_lib_handle_events`. The shared client task does not replace it.
+
+In both modes, a callback runs inside the handler call. Do not block in a callback. A blocked callback delays every later event that the same call still has to deliver. Set a flag in the callback and do the longer work in the loop, after the handler returns.
 
 Host Library & Daemon Task
 ^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -212,13 +267,17 @@ With reference to the graph above, the typical lifecycle involves the following 
     - The Daemon Task must wait for :cpp:func:`usb_host_lib_handle_events` to return the :c:macro:`USB_HOST_LIB_EVENT_FLAGS_ALL_FREE` event flag in order to know when all devices have been freed.
 9. Once the Daemon Task has verified that all clients have deregistered and all devices have been freed, it can now uninstall the Host Library by calling :cpp:func:`usb_host_uninstall`.
 
-Clients & Class Driver
-^^^^^^^^^^^^^^^^^^^^^^
+.. _clients-and-class-driver:
+
+Clients and Class Driver
+^^^^^^^^^^^^^^^^^^^^^^^^
+
+This section describes per-client mode. Use it when :ref:`CONFIG_USB_HOST_CLIENT_EVENT_HANDLING_PER_CLIENT <CONFIG_USB_HOST_CLIENT_EVENT_HANDLING_PER_CLIENT>` is enabled. For one task that handles every client, see `All clients in one task`_.
 
 Basic Usage
 """""""""""
 
-The Host Library API provides :cpp:func:`usb_host_client_handle_events` to handle a particular client's events. This function should be called repeatedly, typically from the client's task. Some notable features regarding :cpp:func:`usb_host_client_handle_events` are:
+The Host Library API provides :cpp:func:`usb_host_client_handle_events` to handle one client's events. Call it repeatedly from that client's task. Some notable features regarding :cpp:func:`usb_host_client_handle_events` are:
 
 - The function can block until a client event needs handling.
 - The function's primary purpose is to call the various event handling callbacks when a client event occurs.
@@ -230,7 +289,7 @@ The following callbacks are called from within :cpp:func:`usb_host_client_handle
 
 .. note::
 
-    Given that the callbacks are called from within :cpp:func:`usb_host_client_handle_events`, users should avoid blocking from within the callbacks as this will result in :cpp:func:`usb_host_client_handle_events` being blocked as well, thus preventing other pending client events from being handled.
+    Callbacks run inside :cpp:func:`usb_host_client_handle_events` in per-client mode, and inside :cpp:func:`usb_host_common_clients_handle_events` in all-clients mode. Do not block in a callback. A blocked callback delays the other events that the same call still has to deliver.
 
 Client events
 """""""""""""
