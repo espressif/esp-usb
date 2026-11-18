@@ -47,7 +47,6 @@
 #define RESUME_HOLD_MS                          CONFIG_USB_HOST_RESUME_HOLD_MS
 #define RESUME_RECOVERY_MS                      CONFIG_USB_HOST_RESUME_RECOVERY_MS
 #define SUSPEND_ENTRY_MS                        CONFIG_USB_HOST_SUSPEND_ENTRY_MS
-
 // ----------------------- Configs -------------------------
 
 #ifdef CONFIG_USB_HOST_DWC_DMA_CAP_MEMORY_IN_PSRAM      // In esp32p4 and esp32s31, the USB-DWC internal DMA can access external RAM
@@ -307,6 +306,7 @@ struct pipe_obj {
     hcd_pipe_event_t last_event;
     unsigned int xact_err_cnt;              // Number of consecutive XactErr retries of the in-flight transfer (Buffer DMA mode)
     uint32_t next_due_tick;                 // Port SOF tick at which this periodic Buffer DMA INTR pipe must next be (re=)armed.
+    uint32_t last_service_tick;             // Port SOF tick selected for the most recently armed periodic Buffer DMA INTR transaction.
     volatile TaskHandle_t task_waiting_pipe_notif;  // Task handle used for internal pipe events. Set by waiter, cleared by notifier
     union {
         struct {
@@ -1248,15 +1248,15 @@ static inline hcd_pipe_event_t _channel_hw_error(pipe_t *pipe, usb_dwc_hal_chan_
         case USB_DWC_HAL_CHAN_ERROR_NAK:
         case USB_DWC_HAL_CHAN_ERROR_DATA_TGL:
             pipe->xact_err_cnt = 0;
-            pipe->next_due_tick += pipe->ep_char.periodic.interval;     // NO data (yet, if NAK), deadline advances by binterval
+            pipe->next_due_tick = pipe->last_service_tick + pipe->ep_char.periodic.interval;    // NO data (yet, if NAK), deadline advances in binterval ahead
             return HCD_PIPE_EVENT_NONE;
         case USB_DWC_HAL_CHAN_ERROR_FRM_OVERRUN:
-            pipe->next_due_tick += pipe->ep_char.periodic.interval;
+            pipe->next_due_tick = pipe->last_service_tick + pipe->ep_char.periodic.interval;
             return HCD_PIPE_EVENT_NONE;
         case USB_DWC_HAL_CHAN_ERROR_XACT_ERR:
             if (pipe->xact_err_cnt < XACT_ERR_RETRY_LIMIT) {
                 pipe->xact_err_cnt++;
-                pipe->next_due_tick += pipe->ep_char.periodic.interval;
+                pipe->next_due_tick = pipe->last_service_tick + pipe->ep_char.periodic.interval;
                 return HCD_PIPE_EVENT_NONE;
             }
             break;  // Retry limit exceeded: fall through to the generic failure path below
@@ -1411,17 +1411,17 @@ static hcd_pipe_event_t _intr_hdlr_chan(pipe_t *pipe, usb_dwc_hal_chan_t *chan_o
 /**
  * @brief Arm a periodic (INTR) pipe's channel for its next (micro)frame transaction, in buffer DMA mode
  *
- * Computes the next packet to attempt (continuing from flags.intr.actual_bytes, which is only advanced
- * on a successfully completed packet - see _slot_check_done_intr()), sets the (micro)frame parity so the
- * core waits for the correct (micro)frame boundary before actually transacting (programming guide §5.2,
- * HCCHARn.OddFrm), and activates the channel. This is called once per scheduled (micro)frame by
- * _sw_frame_list_scheduler(), both for the first packet of a transfer and for every subsequent packet
- * or retry (a retry simply recomputes the same packet, since flags.intr.actual_bytes did not advance).
+ * The transaction is always armed for the following (micro)frame. This avoids relying on a
+ * controller-specific estimates to decide whether the current frame can still be used.
+ *
+ * Linux DWC2 instead calculates the remaining bus budget and selects the current frame only when
+ * that calculation says it is feasible; this Buffer DMA path structurally selects the next frame.
+ * The selected service tick is saved so subsequent packets remain spaced by bInterval.
  *
  * @param pipe Pipe object (must be an INTR pipe, Buffer DMA mode, with an in-flight, not-yet-done slot)
  * @param urb_slot The in-flight slot
  */
-static inline void _slot_exec_sof_intr(pipe_t *pipe, urb_slot_t *urb_slot)
+static inline void _slot_arm_intr(pipe_t *pipe, urb_slot_t *urb_slot)
 {
     usb_transfer_t *transfer = &urb_slot->urb->transfer;
     const int mps = pipe->ep_char.mps;
@@ -1443,10 +1443,12 @@ static inline void _slot_exec_sof_intr(pipe_t *pipe, urb_slot_t *urb_slot)
         .buf = transfer->data_buffer + urb_slot->flags.intr.actual_bytes,
         .len = pkt_len,
     };
-    // The core waits for the next matching (micro)frame parity before transacting, which gives roughly
-    // one (micro)frame of scheduling tolerance; arming for the parity of the current (micro)frame means
-    // the core fires as soon as possible (this (micro)frame if there's still time, the next one otherwise).
-    usb_dwc_hal_chan_set_odd_frame(pipe->chan_obj, usb_dwc_hal_port_get_cur_frame_num(pipe->port->hal) & 1);
+
+    // Select the following (micro)frame, save it as the actual service tick, then arm the channel for that parity.
+    const uint32_t current_frame = usb_dwc_hal_port_get_cur_frame_num(pipe->port->hal);
+    const bool is_odd_frame = (current_frame + 1) & 1;
+    pipe->last_service_tick = pipe->port->sof_tick + 1;
+    usb_dwc_hal_chan_set_odd_frame(pipe->chan_obj, is_odd_frame);
     usb_dwc_hal_chan_activate_buffer(pipe->port->hal, pipe->chan_obj, &xfer);
 }
 
@@ -1473,11 +1475,12 @@ static void _sw_frame_list_scheduler(port_t *port)
                 || usb_dwc_hal_chan_is_active(pipe->chan_obj)) {
             continue;  // Not a periodic pipe, halted/suspended/deferred, nothing in-flight, or already armed
         }
+        const uint32_t next_service_tick = port->sof_tick + 1;
         // The largest deadline distance is the 32768-microframe HS bInterval, well within the signed-delta range.
-        if ((int32_t)(port->sof_tick - pipe->next_due_tick) < 0) {
-            continue;  // Not due yet
+        if ((int32_t)(next_service_tick - pipe->next_due_tick) < 0) {
+            continue;  // The next service frame is not due yet
         }
-        _slot_exec_sof_intr(pipe, pipe->urb_slots[pipe->urb_slot_ring.rd_idx]);
+        _slot_arm_intr(pipe, pipe->urb_slots[pipe->urb_slot_ring.rd_idx]);
     }
 }
 #endif // DWC_DMA_MODE_BUFFER
@@ -3629,7 +3632,12 @@ static inline void _slot_exec_cont_intr(pipe_t *pipe, urb_slot_t *urb_slot)
 {
     assert(!urb_slot->flags.intr.done);
     pipe->xact_err_cnt = 0;    // A successful packet resets the error streak
-    pipe->next_due_tick += pipe->ep_char.periodic.interval;
+    pipe->next_due_tick = pipe->last_service_tick + pipe->ep_char.periodic.interval;
+
+    // For bInterval 1, the next service is the following (micro)frame, so pre-arm it now to preserve cadence.
+    if ((int32_t)((pipe->port->sof_tick + 1) - pipe->next_due_tick) >= 0) {
+        _slot_arm_intr(pipe, urb_slot);
+    }
     ESP_EARLY_LOGD(HCD_DWC_TAG, "buf cont (intr): ep=0x%02x urb=%p actual=%u next_due_tick=%" PRIu32,
                    pipe->ep_char.bEndpointAddress, urb_slot->urb, (unsigned)urb_slot->flags.intr.actual_bytes, pipe->next_due_tick);
 }

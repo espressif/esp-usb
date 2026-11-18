@@ -16,7 +16,7 @@ device acting as an HID mouse be connected. That test device's information and
 descriptors are defined in this file.
 
 The descriptors match the TinyUSB based mock HID mouse device (see mock_hid.c):
-a composite device with 3 HID interfaces, each with its own interrupt IN
+a composite device with 4 HID interfaces, each with its own interrupt IN
 endpoint and (report length, EP MPS) combination. If you are connecting a
 different HID mouse, please update the descriptor and getter functions
 accordingly.
@@ -43,8 +43,8 @@ Data (HexDump)              : 12 01 00 02 00 00 00 40 3A 30 04 40 00 01 01 02
 --------------------------- Configuration Descriptor ---------------------------
 bLength                     : 0x09      (9 bytes)
 bDescriptorType             : 0x02      (Configuration Descriptor)
-wTotalLength                : 0x0054    (84 bytes: 9 + 3 * (9 + 9 + 7))
-bNumInterfaces              : 0x03      (3 Interfaces)
+wTotalLength                : 0x006D    (109 bytes: 9 + 4 * (9 + 9 + 7))
+bNumInterfaces              : 0x04      (4 Interfaces)
 bConfigurationValue         : 0x01      (Configuration 1)
 iConfiguration              : 0x00      (No String Descriptor)
 bmAttributes                : 0xA0
@@ -55,7 +55,7 @@ bmAttributes                : 0xA0
 MaxPower                    : 0x32      (100 mA)
 
 ----------------------------- Interface Descriptor -----------------------------
-One per HID interface (bInterfaceNumber = 0, 1, 2):
+One per HID interface (bInterfaceNumber = 0, 1, 2, 3):
 bLength                     : 0x09      (9 bytes)
 bDescriptorType             : 0x04      (Interface Descriptor)
 bAlternateSetting           : 0x00
@@ -75,7 +75,7 @@ bNumDescriptors             : 0x01
 Descriptor 1:
 bDescriptorType             : 0x22      (Class=Report)
 wDescriptorLength           : 0x004D    (77 bytes: interface 0, 5-byte report)
-                            : 0x0034    (52 bytes: interfaces 1, 2, 4-byte report)
+                            : 0x0034    (52 bytes: interfaces 1, 2, 3, 4-byte report)
 
 ------------------------------ Endpoint Descriptor -----------------------------
 One per HID interface:
@@ -86,6 +86,7 @@ bInterval                   : 0x0A      (10 ms)
 Interface 0: bEndpointAddress : 0x81, wMaxPacketSize : 0x0008, report length 5
 Interface 1: bEndpointAddress : 0x82, wMaxPacketSize : 0x0004, report length 4
 Interface 2: bEndpointAddress : 0x83, wMaxPacketSize : 0x0005, report length 4
+Interface 3: bEndpointAddress : 0x84, wMaxPacketSize : 0x0004, report length 4, bInterval 1
 
 ---------------------------- String Descriptor Manu ----------------------------
 bLength                     : 0x10      (16 bytes)
@@ -109,6 +110,7 @@ static const dev_hid_info_t dev_info[DEV_HID_NUM_ITF] = {
     {.bInterfaceNumber = 0, .bAlternateSetting = 0, .in_ep_addr = 0x81, .in_ep_mps = 8, .report_len = 5},
     {.bInterfaceNumber = 1, .bAlternateSetting = 0, .in_ep_addr = 0x82, .in_ep_mps = 4, .report_len = 4},
     {.bInterfaceNumber = 2, .bAlternateSetting = 0, .in_ep_addr = 0x83, .in_ep_mps = 5, .report_len = 4},
+    {.bInterfaceNumber = 3, .bAlternateSetting = 0, .in_ep_addr = 0x84, .in_ep_mps = 4, .report_len = 4},
 };
 
 // ------------------------------- Descriptors ---------------------------------
@@ -133,7 +135,7 @@ static const usb_device_desc_t dev_desc = {
 static const usb_config_desc_t config_desc = {
     .bLength = USB_CONFIG_DESC_SIZE,
     .bDescriptorType = USB_B_DESCRIPTOR_TYPE_CONFIGURATION,
-    .wTotalLength = 0x0054,         // 84 bytes (9 + 3 * (9 + 9 + 7))
+    .wTotalLength = 0x006D,         // 109 bytes (9 + 4 * (9 + 9 + 7))
     .bNumInterfaces = DEV_HID_NUM_ITF,
     .bConfigurationValue = 1,
     .iConfiguration = 0,
@@ -175,6 +177,17 @@ static const usb_intf_desc_t intf_desc[DEV_HID_NUM_ITF] = {
         .bInterfaceProtocol = 0x02,     // Mouse
         .iInterface = 0,                // (No String Descriptor)
     },
+    {
+        .bLength = USB_INTF_DESC_SIZE,
+        .bDescriptorType = USB_B_DESCRIPTOR_TYPE_INTERFACE,
+        .bInterfaceNumber = 3,
+        .bAlternateSetting = 0,
+        .bNumEndpoints = 1,
+        .bInterfaceClass = USB_CLASS_HID,
+        .bInterfaceSubClass = 0x01,     // Boot Interface
+        .bInterfaceProtocol = 0x02,     // Mouse
+        .iInterface = 0,                // (No String Descriptor)
+    },
 };
 
 static const usb_ep_desc_t in_ep_desc[DEV_HID_NUM_ITF] = {
@@ -201,6 +214,14 @@ static const usb_ep_desc_t in_ep_desc[DEV_HID_NUM_ITF] = {
         .bmAttributes = USB_BM_ATTRIBUTES_XFER_INT,
         .wMaxPacketSize = 0x0005,
         .bInterval = 0x0A,              // 10 ms
+    },
+    {
+        .bLength = USB_EP_DESC_SIZE,
+        .bDescriptorType = USB_B_DESCRIPTOR_TYPE_ENDPOINT,
+        .bEndpointAddress = 0x84,       // EP 4 IN
+        .bmAttributes = USB_BM_ATTRIBUTES_XFER_INT,
+        .wMaxPacketSize = 0x0004,
+        .bInterval = 0x01,              // Poll every frame/microframe
     },
 };
 

@@ -20,7 +20,9 @@
 #define MOCK_HID_EP_IN_R5_MPS8      0x81    // Interface 0: 5-byte report, MPS 8 (DWORD)
 #define MOCK_HID_EP_IN_R4_MPS4      0x82    // Interface 1: 4-byte report, MPS 4 (DWORD)
 #define MOCK_HID_EP_IN_R4_MPS5      0x83    // Interface 2: 4-byte report, MPS 5 (non-DWORD)
+#define MOCK_HID_EP_IN_STRICT       0x84    // Interface 3: 4-byte report, MPS 4, bInterval 1
 #define MOCK_HID_EP_INTERVAL_MS     10
+#define MOCK_HID_EP_STRICT_INTERVAL 1
 
 #define MOCK_HID_REPORT_PERIOD_MS   10      // Period of generating mouse movement reports
 #define MOCK_HID_MOVE_DELTA         5       // Cursor movement per report
@@ -89,14 +91,15 @@ static const uint8_t report_len_per_itf[MOCK_HID_NUM_ITF] = {
     MOCK_HID_REPORT_LEN_5B,
     MOCK_HID_REPORT_LEN_4B,
     MOCK_HID_REPORT_LEN_4B,
+    MOCK_HID_REPORT_LEN_4B,
 };
 
 /************* Configuration descriptor ****************/
 
 /**
- * @brief Configuration descriptor: composite mouse with 3 HID interfaces
+ * @brief Configuration descriptor: composite mouse with 4 HID interfaces
  *
- * 1 configuration, 3 HID interfaces (boot protocol mouse), one interrupt IN endpoint each
+ * 1 configuration, 4 HID interfaces (boot protocol mouse), one interrupt IN endpoint each
  */
 static const uint8_t hid_configuration_descriptor[] = {
     // Configuration number, interface count, string index, total length, attribute, power in mA
@@ -106,6 +109,7 @@ static const uint8_t hid_configuration_descriptor[] = {
     TUD_HID_DESCRIPTOR(0, 0, HID_ITF_PROTOCOL_MOUSE, sizeof(hid_report_descriptor_5b), MOCK_HID_EP_IN_R5_MPS8, 8, MOCK_HID_EP_INTERVAL_MS),
     TUD_HID_DESCRIPTOR(1, 0, HID_ITF_PROTOCOL_MOUSE, sizeof(hid_report_descriptor_4b), MOCK_HID_EP_IN_R4_MPS4, 4, MOCK_HID_EP_INTERVAL_MS),
     TUD_HID_DESCRIPTOR(2, 0, HID_ITF_PROTOCOL_MOUSE, sizeof(hid_report_descriptor_4b), MOCK_HID_EP_IN_R4_MPS5, 5, MOCK_HID_EP_INTERVAL_MS),
+    TUD_HID_DESCRIPTOR(3, 0, HID_ITF_PROTOCOL_MOUSE, sizeof(hid_report_descriptor_4b), MOCK_HID_EP_IN_STRICT, 4, MOCK_HID_EP_STRICT_INTERVAL),
 };
 
 /************* Device descriptors ****************/
@@ -198,6 +202,24 @@ void tud_hid_set_report_cb(uint8_t instance, uint8_t report_id, hid_report_type_
 
 /************* Mock HID device *****************/
 
+static void mock_hid_queue_strict_report(void)
+{
+    static uint8_t report_sequence;
+    const uint8_t report[MOCK_HID_REPORT_LEN_4B] = {0, report_sequence++, 0, 0};
+    if (tud_hid_n_ready(MOCK_HID_STRICT_ITF)) {
+        tud_hid_n_report(MOCK_HID_STRICT_ITF, 0, report, sizeof(report));
+    }
+}
+
+void tud_hid_report_complete_cb(uint8_t instance, uint8_t const *report, uint16_t len)
+{
+    (void)report;
+    (void)len;
+    if (instance == MOCK_HID_STRICT_ITF) {
+        mock_hid_queue_strict_report();
+    }
+}
+
 /**
  * @brief Mouse task
  *
@@ -233,11 +255,12 @@ static void mock_hid_mouse_task(void *arg)
         }
         // buttons, X, Y, wheel, AC pan (each interface sends only the first report_len_per_itf bytes)
         const uint8_t report[MOCK_HID_REPORT_LEN_5B] = {0, (uint8_t)dx, (uint8_t)dy, 0, 0};
-        for (uint8_t instance = 0; instance < MOCK_HID_NUM_ITF; instance++) {
+        for (uint8_t instance = 0; instance < MOCK_HID_STRICT_ITF; instance++) {
             if (tud_hid_n_ready(instance)) {
                 tud_hid_n_report(instance, 0, report, report_len_per_itf[instance]);
             }
         }
+        mock_hid_queue_strict_report();
     }
 }
 
@@ -266,6 +289,7 @@ void mock_hid_dev_run(void)
  *  - Interface 0 (EP 0x81): 5-byte report, MPS 8 (DWORD)      - report < MPS, short packet
  *  - Interface 1 (EP 0x82): 4-byte report, MPS 4 (DWORD)      - report == MPS, multi-packet fill
  *  - Interface 2 (EP 0x83): 4-byte report, MPS 5 (non-DWORD)  - report < MPS, short packet
+ *  - Interface 3 (EP 0x84): 4-byte report, MPS 4, bInterval 1 - continuous full-packet reports
  *
  * Each interface periodically generates mouse movement reports on its interrupt IN endpoint
  */

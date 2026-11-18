@@ -16,11 +16,12 @@ device acting as an HID mouse be connected. This header contains
 functions to get information and descriptors about that test device.
 
 The descriptors match the TinyUSB based mock HID mouse device (see mock_hid.c):
-a composite device with 3 HID interfaces, each with its own interrupt IN
+a composite device with 4 HID interfaces, each with its own interrupt IN
 endpoint and (report length, EP MPS) combination:
   - Interface 0 (EP 0x81): 5-byte report, MPS 8 (DWORD)      - report < MPS, short packet
   - Interface 1 (EP 0x82): 4-byte report, MPS 4 (DWORD)      - report == MPS, multi-packet fill
   - Interface 2 (EP 0x83): 4-byte report, MPS 5 (non-DWORD)  - report < MPS, short packet
+  - Interface 3 (EP 0x84): 4-byte report, MPS 4, bInterval 1 - continuous full-packet reports
 If you are connecting a different HID mouse, please update the descriptors in
 dev_hid.c accordingly.
 */
@@ -32,7 +33,8 @@ extern "C" {
 /**
  * @brief Number of HID interfaces of the composite test device
  */
-#define DEV_HID_NUM_ITF     3
+#define DEV_HID_NUM_ITF     4
+#define DEV_HID_STRICT_ITF  3
 
 /**
  * @brief HID test device information

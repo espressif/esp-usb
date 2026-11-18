@@ -5,11 +5,13 @@
  */
 
 #include <stdio.h>
+#include "hal/usb_dwc_hal.h"
 #include "hal/usb_dwc_ll.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "unity.h"
 #include "esp_log.h"
+#include "esp_rom_sys.h"
 #include "esp_timer.h"
 #include "dev_hid.h"
 #include "hcd_common.h"
@@ -562,6 +564,87 @@ TEST_CASE("Test HCD interrupt pipe HFNUM rollover", "[intr][tinyusb_mock]")
     TEST_ASSERT_EQUAL_PTR(urb, hcd_urb_dequeue(intr_pipe));
     TEST_HCD_EXPECT_TRANSFER_STATUS(urb, USB_TRANSFER_STATUS_COMPLETED);
     TEST_ASSERT_EQUAL(2 * mps, urb->transfer.actual_num_bytes);
+
+    test_hcd_free_urb(urb);
+    test_hcd_pipe_free(intr_pipe);
+    test_hcd_pipe_free(default_pipe);
+    test_hcd_wait_for_disconn(port_hdl, false);
+}
+
+#define STRICT_INTERVAL_PACKET_COUNT     16
+#define STRICT_INTERVAL_MAX_HFNUM_DELTA  (STRICT_INTERVAL_PACKET_COUNT + 8)
+#define STRICT_SOF_STRESS_ITERATIONS     8
+#define STRICT_SOF_STRESS_HS_DELAY_US    125
+#define STRICT_SOF_STRESS_FSLS_DELAY_US  1000
+
+static portMUX_TYPE s_strict_sof_stress_mux = portMUX_INITIALIZER_UNLOCKED;
+static uint32_t s_strict_sof_stress_delay_us;
+static TaskHandle_t s_strict_sof_test_task;
+
+static void strict_sof_stress_task(void *arg)
+{
+    (void)arg;
+    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+    for (int i = 0; i < STRICT_SOF_STRESS_ITERATIONS; i++) {
+        portENTER_CRITICAL(&s_strict_sof_stress_mux);
+        esp_rom_delay_us(s_strict_sof_stress_delay_us);
+        portEXIT_CRITICAL(&s_strict_sof_stress_mux);
+    }
+    xTaskNotifyGive(s_strict_sof_test_task);
+    vTaskDelete(NULL);
+}
+
+/*
+Test HCD bInterval 1 scheduling
+Purpose:
+    - Transfer a sequence of full packets from the strict bInterval-1 HID endpoint
+    - Verify they complete within the expected number of USB frames/microframes
+
+The strict mock endpoint queues its next full report from its report-complete callback. This
+keeps an IN packet available for every host poll, so the HFNUM delta reflects host scheduling.
+*/
+TEST_CASE("Test HCD interrupt pipe bInterval 1 scheduling", "[intr][tinyusb_mock]")
+{
+    usb_speed_t port_speed = test_hcd_wait_for_conn(port_hdl);
+    hcd_pipe_handle_t default_pipe = test_hcd_pipe_alloc(port_hdl, NULL, 0, port_speed);
+    uint8_t dev_addr = test_hcd_enum_device(default_pipe);
+    const usb_ep_desc_t *in_ep_desc = dev_hid_get_in_ep_desc(port_speed, DEV_HID_STRICT_ITF);
+    const int mps = USB_EP_DESC_GET_MPS(in_ep_desc);
+    hcd_pipe_handle_t intr_pipe = test_hcd_pipe_alloc(port_hdl, in_ep_desc, dev_addr, port_speed);
+    urb_t *urb = test_hcd_alloc_urb(0, STRICT_INTERVAL_PACKET_COUNT * mps);
+    urb->transfer.num_bytes = STRICT_INTERVAL_PACKET_COUNT * mps;
+
+    // Let the strict endpoint's task queue its first report before the initial poll.
+    vTaskDelay(pdMS_TO_TICKS(20));
+
+    // Create stress task
+    ulTaskNotifyTake(pdTRUE, 0); // Clear any stale task notification before using it for stress completion.
+    s_strict_sof_stress_delay_us = (port_speed == USB_SPEED_HIGH) ? STRICT_SOF_STRESS_HS_DELAY_US : STRICT_SOF_STRESS_FSLS_DELAY_US;
+    s_strict_sof_test_task = xTaskGetCurrentTaskHandle();
+    const UBaseType_t test_task_priority = uxTaskPriorityGet(NULL);
+    const UBaseType_t stress_task_priority = (test_task_priority < configMAX_PRIORITIES - 1)
+                                             ? test_task_priority + 1
+                                             : test_task_priority;
+    TaskHandle_t stress_task;
+    TEST_ASSERT_EQUAL(pdPASS, xTaskCreatePinnedToCore(strict_sof_stress_task, "strict_sof_stress", 2048,
+                                                      NULL, stress_task_priority, &stress_task, xPortGetCoreID()));
+
+    // Check the scheduling
+    const uint32_t start_hfnum = usb_dwc_ll_hfnum_get_frame_num(USB_DWC_LL_GET_HW(TEST_PORT_NUM));
+    TEST_ASSERT_EQUAL(ESP_OK, hcd_urb_enqueue(intr_pipe, urb));
+    xTaskNotifyGive(stress_task);
+    TEST_HCD_EXPECT_PIPE_EVENT(intr_pipe, HCD_PIPE_EVENT_URB_DONE);
+    TEST_ASSERT_NOT_EQUAL(0, ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(10000)));
+    s_strict_sof_test_task = NULL;
+    const uint32_t completion_hfnum = usb_dwc_ll_hfnum_get_frame_num(USB_DWC_LL_GET_HW(TEST_PORT_NUM));
+    const uint32_t hfnum_delta = (completion_hfnum - start_hfnum) & (USB_DWC_LL_HFNUM_FRAME_COUNT - 1);
+
+    ESP_LOGI(TAG, "HFNUM start: %d, HFNUM stop: %d, HFNUM delta: %d packets serviced: %d", start_hfnum, completion_hfnum, hfnum_delta, STRICT_INTERVAL_PACKET_COUNT);
+    TEST_ASSERT_LESS_OR_EQUAL_MESSAGE(STRICT_INTERVAL_MAX_HFNUM_DELTA, hfnum_delta,
+                                      "bInterval 1 packets were not serviced every USB frame/microframe");
+    TEST_ASSERT_EQUAL_PTR(urb, hcd_urb_dequeue(intr_pipe));
+    TEST_HCD_EXPECT_TRANSFER_STATUS(urb, USB_TRANSFER_STATUS_COMPLETED);
+    TEST_ASSERT_EQUAL(STRICT_INTERVAL_PACKET_COUNT * mps, urb->transfer.actual_num_bytes);
 
     test_hcd_free_urb(urb);
     test_hcd_pipe_free(intr_pipe);
