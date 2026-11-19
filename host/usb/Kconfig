@@ -16,8 +16,14 @@ menu "USB-OTG"
         prompt "Client event handling mode"
         default USB_HOST_CLIENT_EVENT_HANDLING_PER_CLIENT
         help
-            Select whether USB Host clients are handled per client or by one
-            shared handling path for all clients.
+            Select how USB Host client events are handled.
+            In per-client handling, each client has its own task that calls
+            usb_host_client_handle_events(). This is usually the simplest model to understand, and it fits class
+            drivers that already run in a dedicated task.
+            In the shared handling path, one task calls usb_host_common_clients_handle_events() for every client.
+            This can save RAM by reducing the number of client tasks, but callbacks then run one after another in
+            that same task. If one callback blocks or runs for too long, it delays event delivery for other
+            clients. The Daemon Task is still required in both modes.
 
         config USB_HOST_CLIENT_EVENT_HANDLING_PER_CLIENT
             bool "Per-client handling"
