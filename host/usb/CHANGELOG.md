@@ -4,6 +4,13 @@ All notable changes to this component will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Added a global client-event handling mode selection in Kconfig, allowing applications to choose between per-client handling and one shared handling path for all clients.
+- Added `usb_host_common_clients_handle_events()` so applications can drive all registered clients from one task when `CONFIG_USB_HOST_CLIENT_EVENT_HANDLING_ALL_CLIENTS` is enabled.
+
 ## [1.6.1] - 2026-11-13
 
 ### Added
