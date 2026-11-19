@@ -11,6 +11,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Fix READ CAPACITY(10) off-by-one: the last accessible LBA was used as a block count, under-reporting device capacity by one block
 - Fix bulk transfers stalling after `msc_host_reset_recovery()`: `ClearFeature(ENDPOINT_HALT)` reinitializes the device endpoint's data toggle to DATA0 (USB 2.0 §9.4.5), so the host-side data toggle is now resynced during reset recovery
 
+## [1.3.1] - 2026-10-15
+
+### Changed
+
+- Use `esp_vfs_fat_bdl_unmount_path()` instead of the deprecated two-argument `esp_vfs_fat_bdl_unmount()` on ESP-IDF builds that provide the BDL FatFS API (requires an IDF with `esp_vfs_fat_bdl_unmount_path()`)
+
 ## [1.3.0] - 2026-09-14
 
 ### Added
