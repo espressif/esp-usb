@@ -1403,17 +1403,19 @@ esp_err_t hid_host_install(const hid_host_driver_config_t *config)
                       "Unable to create semaphore");
 
     driver->open_close_mutex = xSemaphoreCreateMutexStatic(&s_open_close_mutex_buffer);
+    STAILQ_INIT(&driver->hid_devices_tailq);
+    STAILQ_INIT(&driver->hid_ifaces_tailq);
+
+    // In all-clients mode, NEW_DEV can be delivered as soon as registration
+    // returns, so publish the fully initialized driver object first.
+    HID_ENTER_CRITICAL();
+    HID_GOTO_ON_FALSE_CRITICAL(!s_hid_driver, ESP_ERR_INVALID_STATE);
+    s_hid_driver = driver;
+    HID_EXIT_CRITICAL();
 
     HID_GOTO_ON_ERROR( usb_host_client_register(&client_config,
                                                 &driver->client_handle),
                        "Unable to register USB Host client");
-
-    HID_ENTER_CRITICAL();
-    HID_GOTO_ON_FALSE_CRITICAL(!s_hid_driver, ESP_ERR_INVALID_STATE);
-    s_hid_driver = driver;
-    STAILQ_INIT(&s_hid_driver->hid_devices_tailq);
-    STAILQ_INIT(&s_hid_driver->hid_ifaces_tailq);
-    HID_EXIT_CRITICAL();
 
     if (config->create_background_task) {
         BaseType_t task_created = xTaskCreatePinnedToCore(
@@ -1432,10 +1434,14 @@ esp_err_t hid_host_install(const hid_host_driver_config_t *config)
     return ESP_OK;
 
 fail:
-    s_hid_driver = NULL;
     if (driver->client_handle) {
         usb_host_client_deregister(driver->client_handle);
     }
+    HID_ENTER_CRITICAL();
+    if (s_hid_driver == driver) {
+        s_hid_driver = NULL;
+    }
+    HID_EXIT_CRITICAL();
     if (driver->all_events_handled) {
         vSemaphoreDelete(driver->all_events_handled);
     }

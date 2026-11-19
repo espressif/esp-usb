@@ -712,6 +712,7 @@ esp_err_t uvc_host_install(const uvc_host_driver_config_t *driver_config)
     usb_transfer_t *ctrl_xfer = NULL;
     usb_host_transfer_alloc(64, 0, &ctrl_xfer); // Worst case HS MPS
     TaskHandle_t driver_task_h = NULL;
+    usb_host_client_handle_t usb_client = NULL;
 
     if (host_uses_common_handling && driver_config->create_background_task) {
         ret = ESP_ERR_INVALID_ARG;
@@ -730,21 +731,10 @@ esp_err_t uvc_host_install(const uvc_host_driver_config_t *driver_config)
         goto err;
     }
 
-    // Register USB Host client
-    usb_host_client_handle_t usb_client = NULL;
-    const usb_host_client_config_t client_config = {
-        .is_synchronous = false,
-        .max_num_event_msg = 3,
-        .async.client_event_callback = usb_event_cb,
-        .async.callback_arg = NULL
-    };
-    ESP_GOTO_ON_ERROR(usb_host_client_register(&client_config, &usb_client), err, TAG, "Failed to register USB host client");
-
-    // Initialize UVC driver structure
+    // Initialize the shared driver object before publishing it.
     SLIST_INIT(&(uvc_obj->uvc_stream_list));
     uvc_obj->driver_status = driver_status;
     uvc_obj->open_close_mutex = mutex;
-    uvc_obj->usb_client_hdl = usb_client;
     uvc_obj->ctrl_mutex = ctrl_mutex;
     uvc_obj->ctrl_transfer = ctrl_xfer;
     uvc_obj->ctrl_transfer->context = ctrl_sem;
@@ -754,22 +744,34 @@ esp_err_t uvc_host_install(const uvc_host_driver_config_t *driver_config)
     uvc_obj->user_cb = driver_config->event_cb;
     uvc_obj->user_ctx = driver_config->user_ctx;
 
-    // Between 1st call of this function and following section, another task might try to install this driver:
-    // Make sure that there is only one instance of this driver in the system
+    // In all-clients mode, callbacks can run as soon as registration returns.
     if (!UVC_ATOMIC_SET_IF_NULL(p_uvc_host_driver, uvc_obj)) {
         ret = ESP_ERR_INVALID_STATE;
-        goto client_err;
+        goto err;
     }
+
+    // Register USB Host client
+    const usb_host_client_config_t client_config = {
+        .is_synchronous = false,
+        .max_num_event_msg = 3,
+        .async.client_event_callback = usb_event_cb,
+        .async.callback_arg = NULL
+    };
+    ESP_GOTO_ON_ERROR(usb_host_client_register(&client_config, &usb_client), err, TAG, "Failed to register USB host client");
+    uvc_obj->usb_client_hdl = usb_client;
 
     // Everything OK: Start UVC-Driver task and return
     if (driver_task_h) {
         xTaskNotifyGive(driver_task_h);
     }
     return ESP_OK;
-
-client_err:
-    usb_host_client_deregister(usb_client);
 err: // Clean-up
+    if (usb_client != NULL) {
+        usb_host_client_deregister(usb_client);
+    }
+    if (UVC_ATOMIC_LOAD(p_uvc_host_driver) == uvc_obj) {
+        __atomic_store_n(&p_uvc_host_driver, NULL, __ATOMIC_SEQ_CST);
+    }
     free(uvc_obj);
     if (driver_status) {
         vEventGroupDelete(driver_status);

@@ -484,14 +484,15 @@ esp_err_t msc_host_install(const msc_host_driver_config_t *config)
     driver->end_client_event_handling = false;
     driver->all_events_handled = xSemaphoreCreateBinary();
     MSC_GOTO_ON_FALSE(driver->all_events_handled, ESP_ERR_NO_MEM);
+    STAILQ_INIT(&driver->devices_tailq);
 
-    MSC_GOTO_ON_ERROR( usb_host_client_register(&client_config, &driver->client_handle) );
-
+    // In all-clients mode, callbacks can run as soon as registration returns.
     MSC_ENTER_CRITICAL();
     MSC_GOTO_ON_FALSE_CRITICAL(!s_msc_driver, ESP_ERR_INVALID_STATE);
     s_msc_driver = driver;
-    STAILQ_INIT(&s_msc_driver->devices_tailq);
     MSC_EXIT_CRITICAL();
+
+    MSC_GOTO_ON_ERROR( usb_host_client_register(&client_config, &driver->client_handle) );
 
     if (config->create_backround_task) {
         BaseType_t task_created = xTaskCreatePinnedToCore(
@@ -508,10 +509,14 @@ esp_err_t msc_host_install(const msc_host_driver_config_t *config)
     return ESP_OK;
 
 fail:
-    s_msc_driver = NULL;
     if (driver->client_handle) {
         usb_host_client_deregister(driver->client_handle);
     }
+    MSC_ENTER_CRITICAL();
+    if (s_msc_driver == driver) {
+        s_msc_driver = NULL;
+    }
+    MSC_EXIT_CRITICAL();
     if (driver->all_events_handled) {
         vSemaphoreDelete(driver->all_events_handled);
     }

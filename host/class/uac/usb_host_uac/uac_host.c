@@ -2051,6 +2051,14 @@ esp_err_t uac_host_install(const uac_host_driver_config_t *config)
     driver->end_client_event_handling = false;
     driver->all_events_handled = xSemaphoreCreateBinary();
     UAC_GOTO_ON_FALSE(driver->all_events_handled, ESP_ERR_NO_MEM, "Unable to create semaphore");
+    STAILQ_INIT(&driver->uac_devices_tailq);
+    STAILQ_INIT(&driver->uac_ifaces_tailq);
+
+    // In all-clients mode, callbacks can run as soon as registration returns.
+    UAC_ENTER_CRITICAL();
+    UAC_GOTO_ON_FALSE_CRITICAL(!s_uac_driver, ESP_ERR_INVALID_STATE);
+    s_uac_driver = driver;
+    UAC_EXIT_CRITICAL();
 
     usb_host_client_config_t client_config = {
         .is_synchronous = false,
@@ -2059,12 +2067,6 @@ esp_err_t uac_host_install(const uac_host_driver_config_t *config)
         .max_num_event_msg = 16,
     };
     UAC_GOTO_ON_ERROR(usb_host_client_register(&client_config, &driver->client_handle), "Unable to register USB Host client");
-
-    UAC_ENTER_CRITICAL();
-    s_uac_driver = driver;
-    STAILQ_INIT(&s_uac_driver->uac_devices_tailq);
-    STAILQ_INIT(&s_uac_driver->uac_ifaces_tailq);
-    UAC_EXIT_CRITICAL();
 
     if (config->create_background_task) {
         BaseType_t task_created = xTaskCreatePinnedToCore(event_handler_task, "USB UAC Host", config->stack_size,
@@ -2075,10 +2077,14 @@ esp_err_t uac_host_install(const uac_host_driver_config_t *config)
     return ESP_OK;
 
 fail:
-    s_uac_driver = NULL;
     if (driver->client_handle) {
         usb_host_client_deregister(driver->client_handle);
     }
+    UAC_ENTER_CRITICAL();
+    if (s_uac_driver == driver) {
+        s_uac_driver = NULL;
+    }
+    UAC_EXIT_CRITICAL();
     if (driver->all_events_handled) {
         vSemaphoreDelete(driver->all_events_handled);
     }
