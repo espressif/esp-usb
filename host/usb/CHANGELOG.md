@@ -6,9 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- Added `CONFIG_USB_HOST_ISR_HANDLER_IN_IRAM` (disabled by default) to place the USB Host interrupt handler and the functions it calls in IRAM.
+
 ### Fixed
 
-- Fixed isochronous transfers losing their first packet (`USB_TRANSFER_STATUS_SKIPPED`) on High-Speed ports: the HCD interrupt handler is now placed in RAM, so it enables the channel for the next transfer in time (https://github.com/espressif/esp-usb/issues/654).
+- Fixed isochronous transfers losing their first packet (`USB_TRANSFER_STATUS_SKIPPED`) on High-Speed ports when `CONFIG_USB_HOST_ISR_HANDLER_IN_IRAM` is enabled (https://github.com/espressif/esp-usb/issues/654).
 
 ## [1.6.1] - 2026-11-13
 
