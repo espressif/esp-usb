@@ -24,6 +24,7 @@ extern "C" {
 // Capability defines for class drivers
 #define REMOTE_WAKE_HAL_SUPPORTED (1)  // Supports remote wakeup HAL API.
 #define USB_HOST_RESET_ENDPOINT_PID_SUPPORTED (1) // Support endpoint reset PID (data toggle)
+#define USB_HOST_COMMON_HANDLING_SUPPORTED (1) // Supports common client-event handling API.
 
 // ----------------------- Handles -------------------------
 
