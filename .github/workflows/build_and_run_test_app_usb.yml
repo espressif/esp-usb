@@ -55,6 +55,8 @@ jobs:
           - test_app: host_native
             idf_ver: "release-v6.1"
           - test_app: host_native
+            idf_ver: "release-v6.2"
+          - test_app: host_native
             idf_ver: "latest"
 
     runs-on: ubuntu-latest
@@ -154,6 +156,8 @@ jobs:
             idf_ver: "release-v6.0"
           - test_app: host_native
             idf_ver: "release-v6.1"
+          - test_app: host_native
+            idf_ver: "release-v6.2"
           - test_app: host_native
             idf_ver: "latest"
           # Exclude eco4 version for esp32s2
