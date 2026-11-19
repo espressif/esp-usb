@@ -51,6 +51,14 @@ public:
     {
         const struct esp_modem_usb_term_config *usb_config = (struct esp_modem_usb_term_config *)(config->extension_config);
 
+#if CONFIG_USB_HOST_CLIENT_EVENT_HANDLING_ALL_CLIENTS
+        // This helper can only create the USB Host library task. In
+        // all-clients mode, the application must own the common client-event
+        // task, so install_usb_host must stay false here.
+        ESP_MODEM_THROW_IF_FALSE(!usb_config->install_usb_host,
+                                 "install_usb_host must be false in all-clients mode");
+#endif
+
         // Install USB Host driver (if not already installed)
         if (usb_config->install_usb_host && !usb_host_lib_task) {
             usb_host_config_t host_config = {};
