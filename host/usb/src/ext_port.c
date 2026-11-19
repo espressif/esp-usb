@@ -63,7 +63,8 @@ struct ext_port_s {
             uint32_t has_enum_device: 1;    /**< Port has an enumerated device */
             uint32_t waiting_recycle: 1;    /**< Port is waiting to be recycled */
             uint32_t waiting_free: 1;       /**< Port is waiting to be freed */
-            uint32_t reserved25: 25;        /**< Reserved */
+            uint32_t reporting_connection: 1; /**< Port is reporting a new device to the Hub Driver (EXT_PORT_CONNECTED) */
+            uint32_t reserved24: 24;        /**< Reserved */
         };
         uint32_t val;                       /**< Ports' flags value */
     } flags;                                /**< Ports' flags */
@@ -693,7 +694,9 @@ static void handle_port_state(ext_port_t *ext_port)
                         "Low", "Full", "High"
                     }[dev_speed]);
                     ext_port->dev_state = PORT_DEV_PRESENT;
+                    ext_port->flags.reporting_connection = 1;
                     port_event(ext_port, EXT_PORT_CONNECTED);
+                    ext_port->flags.reporting_connection = 0;
                 } else {
                     // Port enabled, device present, reset completed
                     ext_port->dev_reset_attempts = 0;
@@ -1043,6 +1046,13 @@ static esp_err_t port_disable(void *port_hdl)
 
     EXT_PORT_CHECK(ext_port->state == USB_PORT_STATE_ENABLED, ESP_ERR_INVALID_STATE);
 
+    if (ext_port->flags.reporting_connection) {
+        // The Hub Driver could not add a USBH device for the connection it is being told of
+        // (no free channel, say), so there is none to report gone, and no recycle will come.
+        // A disable for any other reason, such as a cancelled enumeration, comes later, from
+        // a device that exists and will be recycled.
+        ext_port->dev_state = PORT_DEV_NOT_PRESENT;
+    }
     port_set_actions(ext_port, PORT_ACTION_DISABLE);
     return ESP_OK;
 }
@@ -1098,6 +1108,13 @@ static esp_err_t port_gone(void *port_hdl)
              ext_port->dev_state);
 
     bool has_device = false;
+    // A device already reported disconnected, by handle_disable(), handle_port_state() or
+    // handle_port_connection(), but not yet recycled: its recycle still comes through the
+    // parent Hub, so this port must outlive it, whatever its state. The recycle calls this
+    // function again, with is_gone set, and that call lets the port be freed. A port whose
+    // device the Hub Driver never added is never marked: port_disable() sets that device
+    // not present first.
+    const bool awaiting_recycle = ext_port->flags.waiting_recycle && !ext_port->flags.is_gone;
 
     ext_port->flags.is_gone = 1;
     ext_port->flags.waiting_free = 1;
@@ -1125,6 +1142,9 @@ static esp_err_t port_gone(void *port_hdl)
         // Should never occur
         abort();
         break;
+    }
+    if (awaiting_recycle) {
+        has_device = true;
     }
 
     // If the port is in handling list, stop it
