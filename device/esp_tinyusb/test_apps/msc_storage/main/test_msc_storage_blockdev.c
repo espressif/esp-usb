@@ -368,9 +368,19 @@ TEST_CASE("MSC: dual storage SPIFLASH (direct) + SD/MMC (blockdev)", "[storage][
 
     vTaskDelay(pdMS_TO_TICKS(TEST_DEVICE_PRESENCE_TIMEOUT_MS)); // Allow some time for the device to be recognized
     TEST_ASSERT_EQUAL(ESP_OK, tinyusb_driver_uninstall());
+    // tinyusb_driver_uninstall() implicitly remounts both LUNs back to APP (tud_umount_cb);
+    // drain those events so the storage event queue doesn't overflow below.
+    test_storage_event_wait_callback(TINYUSB_MSC_EVENT_MOUNT_START);
+    test_storage_event_wait_callback(TINYUSB_MSC_EVENT_MOUNT_COMPLETE);
+    test_storage_event_wait_callback(TINYUSB_MSC_EVENT_MOUNT_START);
+    test_storage_event_wait_callback(TINYUSB_MSC_EVENT_MOUNT_COMPLETE);
 
     TEST_ASSERT_EQUAL_MESSAGE(ESP_OK, tinyusb_msc_delete_storage(storage2_hdl), "Failed to delete LUN1 (SD/MMC, blockdev)");
+    test_storage_event_wait_callback(TINYUSB_MSC_EVENT_MOUNT_START);
+    test_storage_event_wait_callback(TINYUSB_MSC_EVENT_MOUNT_COMPLETE);
     TEST_ASSERT_EQUAL_MESSAGE(ESP_OK, tinyusb_msc_delete_storage(storage1_hdl), "Failed to delete LUN0 (SPI flash, direct)");
+    test_storage_event_wait_callback(TINYUSB_MSC_EVENT_MOUNT_START);
+    test_storage_event_wait_callback(TINYUSB_MSC_EVENT_MOUNT_COMPLETE);
     TEST_ASSERT_EQUAL_MESSAGE(ESP_OK, tinyusb_msc_uninstall_driver(), "Failed to uninstall TinyUSB MSC driver");
 
     TEST_ASSERT_EQUAL(ESP_OK, card_bdl->ops->release(card_bdl));
@@ -443,9 +453,19 @@ TEST_CASE("MSC: dual storage SD/MMC (direct) + SPIFLASH (blockdev)", "[storage][
 
     vTaskDelay(pdMS_TO_TICKS(TEST_DEVICE_PRESENCE_TIMEOUT_MS)); // Allow some time for the device to be recognized
     TEST_ASSERT_EQUAL(ESP_OK, tinyusb_driver_uninstall());
+    // tinyusb_driver_uninstall() implicitly remounts both LUNs back to APP (tud_umount_cb);
+    // drain those events so the storage event queue doesn't overflow below.
+    test_storage_event_wait_callback(TINYUSB_MSC_EVENT_MOUNT_START);
+    test_storage_event_wait_callback(TINYUSB_MSC_EVENT_MOUNT_COMPLETE);
+    test_storage_event_wait_callback(TINYUSB_MSC_EVENT_MOUNT_START);
+    test_storage_event_wait_callback(TINYUSB_MSC_EVENT_MOUNT_COMPLETE);
 
     TEST_ASSERT_EQUAL_MESSAGE(ESP_OK, tinyusb_msc_delete_storage(storage2_hdl), "Failed to delete LUN1 (SPI flash, blockdev)");
+    test_storage_event_wait_callback(TINYUSB_MSC_EVENT_MOUNT_START);
+    test_storage_event_wait_callback(TINYUSB_MSC_EVENT_MOUNT_COMPLETE);
     TEST_ASSERT_EQUAL_MESSAGE(ESP_OK, tinyusb_msc_delete_storage(storage1_hdl), "Failed to delete LUN0 (SD/MMC, direct)");
+    test_storage_event_wait_callback(TINYUSB_MSC_EVENT_MOUNT_START);
+    test_storage_event_wait_callback(TINYUSB_MSC_EVENT_MOUNT_COMPLETE);
     TEST_ASSERT_EQUAL_MESSAGE(ESP_OK, tinyusb_msc_uninstall_driver(), "Failed to uninstall TinyUSB MSC driver");
 
     TEST_ASSERT_EQUAL(ESP_OK, wl_bdl->ops->release(wl_bdl));
