@@ -39,7 +39,7 @@ jobs:
     # Run the workflow, only with BUILD_AND_TEST_IDF_EXAMPLES PR Label or when scheduled
     if: github.event_name == 'schedule' || contains(github.event.pull_request.labels.*.name, 'BUILD_AND_TEST_IDF_EXAMPLES')
     strategy:
-      fail-fast: true
+      fail-fast: false
       matrix:
         idf_ver:
           [
@@ -197,7 +197,7 @@ jobs:
     if: ${{ github.repository_owner == 'espressif' }}
     needs: build
     strategy:
-      fail-fast: true
+      fail-fast: false
       matrix:
         idf_ver:
           [
