@@ -25,7 +25,9 @@ struct esp_modem_usb_term_config {
     int xCoreID;                 /*!< Core affinity for the created tasks, including the CDC-ACM driver task and the
                                       optional USB Host task. */
     bool cdc_compliant __attribute__((deprecated("Deprecated: CDC compliance is auto-detected"))); /*!< Deprecated. */
-    bool install_usb_host;       /*!< Set to true to install the USB Host driver automatically. */
+    bool install_usb_host;       /*!< Set to true to install the USB Host driver automatically.
+                                      When `CONFIG_USB_HOST_CLIENT_EVENT_HANDLING_ALL_CLIENTS` is enabled, set this to
+                                      false and keep the common client-event task in the application. */
 };
 
 /**

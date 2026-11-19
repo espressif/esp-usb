@@ -28,6 +28,12 @@
 #include "usb/uac_host.h"
 #include "usb/usb_types_ch9.h"
 
+#if CONFIG_USB_HOST_CLIENT_EVENT_HANDLING_ALL_CLIENTS
+#define UAC_HOST_COMMON_CLIENT_HANDLING_ENABLED 1
+#else
+#define UAC_HOST_COMMON_CLIENT_HANDLING_ENABLED 0
+#endif
+
 // UAC spinlock
 DEFINE_CRIT_SECTION_LOCK_STATIC(uac_lock);
 #define UAC_ENTER_CRITICAL()           esp_os_enter_critical(&uac_lock)
@@ -2029,11 +2035,13 @@ esp_err_t uac_host_install(const uac_host_driver_config_t *config)
     UAC_RETURN_ON_FALSE(!s_uac_driver, ESP_ERR_INVALID_STATE, "UAC Host driver is already installed");
     UAC_RETURN_ON_INVALID_ARG(config);
     UAC_RETURN_ON_INVALID_ARG(config->callback);
+    const bool host_uses_common_handling = UAC_HOST_COMMON_CLIENT_HANDLING_ENABLED;
 
     if (config->create_background_task) {
         UAC_RETURN_ON_FALSE(config->stack_size != 0, ESP_ERR_INVALID_ARG, "Wrong stack size value");
         UAC_RETURN_ON_FALSE(config->task_priority != 0, ESP_ERR_INVALID_ARG, "Wrong task priority value");
     }
+    UAC_RETURN_ON_FALSE(!(host_uses_common_handling && config->create_background_task), ESP_ERR_INVALID_ARG, "create_background_task must be false in all-clients mode");
 
     uac_driver_t *driver = heap_caps_calloc(1, sizeof(uac_driver_t), MALLOC_CAP_DEFAULT);
     UAC_RETURN_ON_FALSE(driver, ESP_ERR_NO_MEM, "Unable to allocate memory");
@@ -2043,6 +2051,14 @@ esp_err_t uac_host_install(const uac_host_driver_config_t *config)
     driver->end_client_event_handling = false;
     driver->all_events_handled = xSemaphoreCreateBinary();
     UAC_GOTO_ON_FALSE(driver->all_events_handled, ESP_ERR_NO_MEM, "Unable to create semaphore");
+    STAILQ_INIT(&driver->uac_devices_tailq);
+    STAILQ_INIT(&driver->uac_ifaces_tailq);
+
+    // In all-clients mode, callbacks can run as soon as registration returns.
+    UAC_ENTER_CRITICAL();
+    UAC_GOTO_ON_FALSE_CRITICAL(!s_uac_driver, ESP_ERR_INVALID_STATE);
+    s_uac_driver = driver;
+    UAC_EXIT_CRITICAL();
 
     usb_host_client_config_t client_config = {
         .is_synchronous = false,
@@ -2051,12 +2067,6 @@ esp_err_t uac_host_install(const uac_host_driver_config_t *config)
         .max_num_event_msg = 16,
     };
     UAC_GOTO_ON_ERROR(usb_host_client_register(&client_config, &driver->client_handle), "Unable to register USB Host client");
-
-    UAC_ENTER_CRITICAL();
-    s_uac_driver = driver;
-    STAILQ_INIT(&s_uac_driver->uac_devices_tailq);
-    STAILQ_INIT(&s_uac_driver->uac_ifaces_tailq);
-    UAC_EXIT_CRITICAL();
 
     if (config->create_background_task) {
         BaseType_t task_created = xTaskCreatePinnedToCore(event_handler_task, "USB UAC Host", config->stack_size,
@@ -2067,10 +2077,14 @@ esp_err_t uac_host_install(const uac_host_driver_config_t *config)
     return ESP_OK;
 
 fail:
-    s_uac_driver = NULL;
     if (driver->client_handle) {
         usb_host_client_deregister(driver->client_handle);
     }
+    UAC_ENTER_CRITICAL();
+    if (s_uac_driver == driver) {
+        s_uac_driver = NULL;
+    }
+    UAC_EXIT_CRITICAL();
     if (driver->all_events_handled) {
         vSemaphoreDelete(driver->all_events_handled);
     }
@@ -2298,6 +2312,9 @@ fail:
 esp_err_t uac_host_handle_events(TickType_t timeout)
 {
     UAC_RETURN_ON_FALSE(s_uac_driver != NULL, ESP_ERR_INVALID_STATE, "UAC Driver is not installed");
+    UAC_RETURN_ON_FALSE(!UAC_HOST_COMMON_CLIENT_HANDLING_ENABLED,
+                        ESP_ERR_INVALID_STATE,
+                        "All-clients handling enabled");
     s_uac_driver->event_handling_started = true;
     esp_err_t ret = usb_host_client_handle_events(s_uac_driver->client_handle, timeout);
     UAC_ENTER_CRITICAL();

@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- Added support for the USB Host all-clients event handling mode. In this mode install UAC with `create_background_task = false` and drive it from `usb_host_common_clients_handle_events()` instead of `uac_host_handle_events()`.
+
 ### Fixed
 
 - Reject Feature Unit descriptors with `bControlSize == 0` or `bLength < 7` before dividing by `bControlSize` (BBP 575 open-time divide-by-zero DoS)
