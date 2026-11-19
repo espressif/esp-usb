@@ -128,6 +128,7 @@ typedef struct {
     uint8_t iSerialNumber;          /**< Index of the Serial Number string descriptor */
     uint8_t str_desc_bLength;       /**< Saved bLength from getting a short string descriptor */
     uint8_t bConfigurationValue;    /**< Device's current configuration number */
+    bool skip_string_descriptors;   /**< Device quirk: do not request optional strings during enumeration */
 } enum_device_params_t;
 
 typedef struct {
@@ -539,6 +540,11 @@ static esp_err_t parse_full_dev_desc(void)
     p_enum_driver->single_thread.dev_params.iManufacturer = dev_desc->iManufacturer;
     p_enum_driver->single_thread.dev_params.iProduct = dev_desc->iProduct;
     p_enum_driver->single_thread.dev_params.iSerialNumber = dev_desc->iSerialNumber;
+    // Brovi/Zowee E3372-325 can disconnect during manufacturer-string requests.
+    // Keep the original device descriptor intact for clients, but avoid optional
+    // string transfers during enumeration for this VID/PID.
+    p_enum_driver->single_thread.dev_params.skip_string_descriptors =
+        dev_desc->idVendor == 0x3566 && dev_desc->idProduct == 0x2001;
 
     // Device has more than one configuration
     if (dev_desc->bNumConfigurations > 1) {
@@ -1075,6 +1081,12 @@ static bool set_next_stage(bool last_stage_pass)
 
         // Check if the next stage should be skipped
         switch (next_stage) {
+        case ENUM_STAGE_GET_SHORT_LANGID_TABLE:
+            if (p_enum_driver->single_thread.dev_params.skip_string_descriptors) {
+                ESP_LOGW(ENUM_TAG, "Skipping optional strings for USB device 3566:2001");
+                next_stage = ENUM_STAGE_SET_CONFIG;
+            }
+            break;
         case ENUM_STAGE_GET_SHORT_MANU_STR_DESC:
         case ENUM_STAGE_CHECK_SHORT_MANU_STR_DESC:
         case ENUM_STAGE_GET_FULL_MANU_STR_DESC:
