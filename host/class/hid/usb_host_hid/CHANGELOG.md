@@ -4,6 +4,12 @@ All notable changes to this component will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Added support for the USB Host all-clients event handling mode. In this mode install HID with `create_background_task = false` and drive it from `usb_host_common_clients_handle_events()` instead of `hid_host_handle_events()`.
+
 ## [1.2.1] - 2026-08-26
 
 ### Fixed

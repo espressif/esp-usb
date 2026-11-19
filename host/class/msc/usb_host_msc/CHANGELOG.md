@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- Added support for the USB Host all-clients event handling mode. In this mode install MSC with `create_backround_task = false` and drive it from `usb_host_common_clients_handle_events()` instead of `msc_host_handle_events()`.
+
 ### Fixed
 
 - Fix READ CAPACITY(10) off-by-one: the last accessible LBA was used as a block count, under-reporting device capacity by one block
