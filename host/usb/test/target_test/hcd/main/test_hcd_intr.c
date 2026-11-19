@@ -5,10 +5,14 @@
  */
 
 #include <stdio.h>
+#include "hal/usb_dwc_hal.h"
+#include "hal/usb_dwc_ll.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "unity.h"
 #include "esp_log.h"
+#include "esp_rom_sys.h"
+#include "esp_timer.h"
 #include "dev_hid.h"
 #include "hcd_common.h"
 #include "mock_hid.h"
@@ -27,11 +31,17 @@ Purpose:
     - Interrupt pipe returns HCD_PIPE_EVENT_URB_DONE
     - Test that URBs can be aborted when enqueued
 
+The test device is a composite HID mouse with multiple HID interfaces (see dev_hid.h),
+each with a different (report length, EP MPS) combination. Each interface is tested
+one-by-one:
+    - report < MPS: every report is a short packet, the transfer finishes early
+    - report == MPS: every report is a full packet, the transfer fills the whole URB
+
 Procedure:
     - Setup HCD and wait for connection
     - Allocate default pipe and enumerate the device
-    - Setup interrupt pipe and allocate URBs
-    - Enqueue URBs, expect HCD_PIPE_EVENT_URB_DONE, and requeue
+    - For each HID interface: setup interrupt pipe, allocate URBs, enqueue URBs,
+      expect HCD_PIPE_EVENT_URB_DONE, check actual_num_bytes, requeue
     - Stop after fixed number of iterations
     - Deallocate URBs
     - Teardown
@@ -50,47 +60,49 @@ TEST_CASE("Test HCD interrupt pipe URBs", "[intr][tinyusb_mock]")
     hcd_pipe_handle_t default_pipe = test_hcd_pipe_alloc(port_hdl, NULL, 0, port_speed); // Create a default pipe (using a NULL EP descriptor)
     uint8_t dev_addr = test_hcd_enum_device(default_pipe);
 
-    // Allocate interrupt pipe and URBS
-    const dev_hid_info_t *hid_info = dev_hid_get_info();
-    const usb_ep_desc_t *in_ep_desc = dev_hid_get_in_ep_desc(port_speed);
-    const int data_buff_size = USB_EP_DESC_GET_MPS(in_ep_desc);
-    hcd_pipe_handle_t intr_pipe = test_hcd_pipe_alloc(port_hdl, in_ep_desc, dev_addr, port_speed);
-    urb_t *urb_list[NUM_URBS];
-    for (int i = 0; i < NUM_URBS; i++) {
-        urb_list[i] = test_hcd_alloc_urb(0, data_buff_size);
-        urb_list[i]->transfer.num_bytes = data_buff_size;
-        urb_list[i]->transfer.context = URB_CONTEXT_VAL;
-    }
+    // Test each HID interface of the composite device one-by-one
+    for (uint8_t itf_num = 0; itf_num < DEV_HID_NUM_ITF; itf_num++) {
+        const dev_hid_info_t *hid_info = dev_hid_get_info(itf_num);
+        const usb_ep_desc_t *in_ep_desc = dev_hid_get_in_ep_desc(port_speed, itf_num);
+        const int data_buff_size = USB_EP_DESC_GET_MPS(in_ep_desc);
+        ESP_LOGI(TAG, "Interface %d: EP 0x%02x, MPS %d, report %d bytes", itf_num, hid_info->in_ep_addr, data_buff_size, hid_info->report_len);
 
-    // Enqueue URBs
-    for (int i = 0; i < NUM_URBS; i++) {
-        TEST_ASSERT_EQUAL(ESP_OK, hcd_urb_enqueue(intr_pipe, urb_list[i]));
-    }
-    int iter_count = NUM_URB_ITERS;
-    for (iter_count = NUM_URB_ITERS; iter_count > 0; iter_count--) {
-        // Wait for an URB to be done
-        TEST_HCD_EXPECT_PIPE_EVENT(intr_pipe, HCD_PIPE_EVENT_URB_DONE);
-        // Dequeue the URB and check results
-        urb_t *urb = hcd_urb_dequeue(intr_pipe);
-        TEST_HCD_EXPECT_TRANSFER_STATUS(urb, USB_TRANSFER_STATUS_COMPLETED);
-        TEST_ASSERT_EQUAL(URB_CONTEXT_VAL, urb->transfer.context);
-        // Each report is a single packet: full packet when report == MPS, short packet (early termination) otherwise
-        const int expected_num_bytes = hid_info->report_len;
-        ESP_LOGI(TAG, "Actual num bytes: %d (expected %d)", urb->transfer.actual_num_bytes, expected_num_bytes);
-        TEST_ASSERT_EQUAL(expected_num_bytes, urb->transfer.actual_num_bytes);
-        // Byte 1 and 2 contains x and y movement respectively
-        ESP_LOGI(TAG, "X mov %d, Y mov %d", (int8_t)urb->transfer.data_buffer[1], (int8_t)urb->transfer.data_buffer[2]);
-        // Requeue URB
-        if (iter_count > NUM_URBS) {
-            TEST_ASSERT_EQUAL(ESP_OK, hcd_urb_enqueue(intr_pipe, urb));
+        // Allocate interrupt pipe and URBS
+        hcd_pipe_handle_t intr_pipe = test_hcd_pipe_alloc(port_hdl, in_ep_desc, dev_addr, port_speed);
+        urb_t *urb_list[NUM_URBS];
+        for (int i = 0; i < NUM_URBS; i++) {
+            urb_list[i] = test_hcd_alloc_urb(0, data_buff_size);
+            urb_list[i]->transfer.num_bytes = data_buff_size;
+            urb_list[i]->transfer.context = URB_CONTEXT_VAL;
         }
-    }
 
-    // Free URB list and pipe
-    for (int i = 0; i < NUM_URBS; i++) {
-        test_hcd_free_urb(urb_list[i]);
+        // Enqueue URBs
+        for (int i = 0; i < NUM_URBS; i++) {
+            TEST_ASSERT_EQUAL(ESP_OK, hcd_urb_enqueue(intr_pipe, urb_list[i]));
+        }
+        for (int iter_count = NUM_URB_ITERS; iter_count > 0; iter_count--) {
+            // Wait for an URB to be done
+            TEST_HCD_EXPECT_PIPE_EVENT(intr_pipe, HCD_PIPE_EVENT_URB_DONE);
+            // Dequeue the URB and check results
+            urb_t *urb = hcd_urb_dequeue(intr_pipe);
+            TEST_HCD_EXPECT_TRANSFER_STATUS(urb, USB_TRANSFER_STATUS_COMPLETED);
+            TEST_ASSERT_EQUAL(URB_CONTEXT_VAL, urb->transfer.context);
+            // Each report is a single packet: full packet when report == MPS, short packet (early termination) otherwise
+            TEST_ASSERT_EQUAL(hid_info->report_len, urb->transfer.actual_num_bytes);
+            // Byte 1 and 2 contains x and y movement respectively
+            ESP_LOGI(TAG, "X mov %d, Y mov %d", (int8_t)urb->transfer.data_buffer[1], (int8_t)urb->transfer.data_buffer[2]);
+            // Requeue URB
+            if (iter_count > NUM_URBS) {
+                TEST_ASSERT_EQUAL(ESP_OK, hcd_urb_enqueue(intr_pipe, urb));
+            }
+        }
+
+        // Free URB list and pipe
+        for (int i = 0; i < NUM_URBS; i++) {
+            test_hcd_free_urb(urb_list[i]);
+        }
+        test_hcd_pipe_free(intr_pipe);
     }
-    test_hcd_pipe_free(intr_pipe);
     test_hcd_pipe_free(default_pipe);
     // Cleanup
     test_hcd_wait_for_disconn(port_hdl, false);
@@ -100,20 +112,34 @@ TEST_CASE("Test HCD interrupt pipe URBs", "[intr][tinyusb_mock]")
 Test HCD interrupt pipe multi-packet URBs
 Purpose:
     - Test that an interrupt URB spanning multiple MPS-sized packets completes correctly
+    - In buffer DMA mode, a multi-packet interrupt IN transfer is driven one MPS-sized packet per
+      scheduled (micro)frame (DWC_otg programming guide, section 5.2.1). Each packet activation
+      is programmed at data_buffer + actual_bytes, and the HAL requires a DWORD-aligned DMA address
+
+The test device is a composite HID mouse with multiple HID interfaces (see dev_hid.h),
+each with a different (report length, EP MPS) combination. Each interface is tested
+one-by-one:
+    - report == MPS (DWORD aligned MPS): no short packet, the URB completes once the
+      buffer is full (actual_num_bytes == num_bytes)
+    - report < MPS: the first packet is a short packet, the transfer finishes early
+      (actual_num_bytes == report length). Only a single packet is received, so no
+      unaligned per-packet DMA activation can occur - this is safe even for a
+      non-DWORD aligned MPS
 
 Procedure:
     - Setup HCD and wait for connection
     - Allocate default pipe and enumerate the device
-    - Setup interrupt pipe and allocate a URB of MULTI_PKT_NUM_PKTS * MPS bytes
-    - Enqueue URB, expect HCD_PIPE_EVENT_URB_DONE, check actual_num_bytes, and requeue
+    - For each HID interface: setup interrupt pipe, allocate a URB of MULTI_PKT_NUM_PKTS * MPS
+      bytes, enqueue URB, expect HCD_PIPE_EVENT_URB_DONE, check actual_num_bytes, and requeue
     - Stop after fixed number of iterations
     - Deallocate URB
     - Teardown
 
 Note: Some mice will NAK until it is moved, so try moving the mouse around if this test case gets stuck.
-Note: The mock device's report (5 bytes) is smaller than the EP MPS (8), so the transfer always
-terminates early after the first packet. The buffer-full completion path (report == MPS) is kept
-in the expectations for completeness, but is not exercised by this mock device.
+Note: A multi-packet transfer with a non-DWORD-aligned MPS and no short packet (report == MPS)
+is a known design limitation of the buffer DMA implementation (the per-packet activation address
+would not stay DWORD aligned) and asserts in the HAL. It is deliberately not covered: the test
+device's non-DWORD MPS interface has report < MPS, so the transfer always ends after one packet.
 */
 
 #define MULTI_PKT_NUM_PKTS  3
@@ -127,44 +153,49 @@ TEST_CASE("Test HCD interrupt pipe multi-packet URBs", "[intr][tinyusb_mock]")
     hcd_pipe_handle_t default_pipe = test_hcd_pipe_alloc(port_hdl, NULL, 0, port_speed); // Create a default pipe (using a NULL EP descriptor)
     uint8_t dev_addr = test_hcd_enum_device(default_pipe);
 
-    // Allocate interrupt pipe and a multi-packet URB
-    const dev_hid_info_t *hid_info = dev_hid_get_info();
-    const usb_ep_desc_t *in_ep_desc = dev_hid_get_in_ep_desc(port_speed);
-    const int mps = USB_EP_DESC_GET_MPS(in_ep_desc);
-    const bool fills_buffer = (hid_info->report_len == mps);
-    if (fills_buffer) {
-        // Per-packet DMA activations only stay DWORD aligned if the MPS itself is DWORD aligned
-        TEST_ASSERT_EQUAL_MESSAGE(0, mps % sizeof(uint32_t), "Multi-packet fill requires DWORD aligned MPS");
-    }
-    const int num_bytes = MULTI_PKT_NUM_PKTS * mps;
-    hcd_pipe_handle_t intr_pipe = test_hcd_pipe_alloc(port_hdl, in_ep_desc, dev_addr, port_speed);
-    urb_t *urb = test_hcd_alloc_urb(0, num_bytes);
-    urb->transfer.num_bytes = num_bytes;
-    urb->transfer.context = URB_CONTEXT_VAL;
-
-    for (int iter_count = MULTI_PKT_ITERS; iter_count > 0; iter_count--) {
-        // Enqueue the URB and wait for it to be done
-        TEST_ASSERT_EQUAL(ESP_OK, hcd_urb_enqueue(intr_pipe, urb));
-        TEST_HCD_EXPECT_PIPE_EVENT(intr_pipe, HCD_PIPE_EVENT_URB_DONE);
-        // Dequeue the URB and check results
-        TEST_ASSERT_EQUAL_PTR(urb, hcd_urb_dequeue(intr_pipe));
-        TEST_HCD_EXPECT_TRANSFER_STATUS(urb, USB_TRANSFER_STATUS_COMPLETED);
-        TEST_ASSERT_EQUAL(URB_CONTEXT_VAL, urb->transfer.context);
-        // report == MPS: the transfer completes once the buffer is full (MULTI_PKT_NUM_PKTS full MPS packets)
-        // report <  MPS: the first packet is short, the transfer finishes early with a single report
-        const int expected_num_bytes = fills_buffer ? num_bytes : hid_info->report_len;
-        ESP_LOGI(TAG, "Actual num bytes: %d (expected %d)", urb->transfer.actual_num_bytes, expected_num_bytes);
-        TEST_ASSERT_EQUAL(expected_num_bytes, urb->transfer.actual_num_bytes);
-        // Each MPS-sized chunk is one HID report. Byte 1 and 2 contains x and y movement respectively
-        for (int pkt = 0; pkt * mps < urb->transfer.actual_num_bytes; pkt++) {
-            const uint8_t *report = urb->transfer.data_buffer + (pkt * mps);
-            ESP_LOGI(TAG, "pkt %d: X mov %d, Y mov %d", pkt, report[1], report[2]);
+    // Test each HID interface of the composite device one-by-one
+    for (uint8_t itf_num = 0; itf_num < DEV_HID_NUM_ITF; itf_num++) {
+        const dev_hid_info_t *hid_info = dev_hid_get_info(itf_num);
+        const usb_ep_desc_t *in_ep_desc = dev_hid_get_in_ep_desc(port_speed, itf_num);
+        const int mps = USB_EP_DESC_GET_MPS(in_ep_desc);
+        const bool fills_buffer = (hid_info->report_len == mps);
+        ESP_LOGI(TAG, "Interface %d: EP 0x%02x, MPS %d, report %d bytes", itf_num, hid_info->in_ep_addr, mps, hid_info->report_len);
+        if (fills_buffer) {
+            // Per-packet DMA activations only stay DWORD aligned if the MPS itself is DWORD aligned
+            TEST_ASSERT_EQUAL_MESSAGE(0, mps % sizeof(uint32_t), "Multi-packet fill requires DWORD aligned MPS");
         }
-    }
 
-    // Free URB and pipes
-    test_hcd_free_urb(urb);
-    test_hcd_pipe_free(intr_pipe);
+        // Allocate interrupt pipe and a multi-packet URB
+        const int num_bytes = MULTI_PKT_NUM_PKTS * mps;
+        hcd_pipe_handle_t intr_pipe = test_hcd_pipe_alloc(port_hdl, in_ep_desc, dev_addr, port_speed);
+        urb_t *urb = test_hcd_alloc_urb(0, num_bytes);
+        urb->transfer.num_bytes = num_bytes;
+        urb->transfer.context = URB_CONTEXT_VAL;
+
+        for (int iter_count = MULTI_PKT_ITERS; iter_count > 0; iter_count--) {
+            // Enqueue the URB and wait for it to be done
+            TEST_ASSERT_EQUAL(ESP_OK, hcd_urb_enqueue(intr_pipe, urb));
+            TEST_HCD_EXPECT_PIPE_EVENT(intr_pipe, HCD_PIPE_EVENT_URB_DONE);
+            // Dequeue the URB and check results
+            TEST_ASSERT_EQUAL_PTR(urb, hcd_urb_dequeue(intr_pipe));
+            TEST_HCD_EXPECT_TRANSFER_STATUS(urb, USB_TRANSFER_STATUS_COMPLETED);
+            TEST_ASSERT_EQUAL(URB_CONTEXT_VAL, urb->transfer.context);
+            // report == MPS: the transfer completes once the buffer is full (MULTI_PKT_NUM_PKTS full MPS packets)
+            // report <  MPS: the first packet is short, the transfer finishes early with a single report
+            const int expected_num_bytes = fills_buffer ? num_bytes : hid_info->report_len;
+            ESP_LOGI(TAG, "Actual num bytes: %d (expected %d)", urb->transfer.actual_num_bytes, expected_num_bytes);
+            TEST_ASSERT_EQUAL(expected_num_bytes, urb->transfer.actual_num_bytes);
+            // Each MPS-sized chunk is one HID report. Byte 1 and 2 contains x and y movement respectively
+            for (int pkt = 0; pkt * mps < urb->transfer.actual_num_bytes; pkt++) {
+                const uint8_t *report = urb->transfer.data_buffer + (pkt * mps);
+                ESP_LOGI(TAG, "pkt %d: X mov %d, Y mov %d", pkt, (int8_t)report[1], (int8_t)report[2]);
+            }
+        }
+
+        // Free URB and pipe
+        test_hcd_free_urb(urb);
+        test_hcd_pipe_free(intr_pipe);
+    }
     test_hcd_pipe_free(default_pipe);
     // Cleanup
     test_hcd_wait_for_disconn(port_hdl, false);
@@ -383,6 +414,245 @@ TEST_CASE("Test HCD interrupt pipe suspend/resume keeps data toggle", "[intr][ti
     // Cleanup
     test_hcd_wait_for_disconn(port_hdl, false);
 }
+
+#define LONG_BINTERVAL_PIPE_EVENT_TIMEOUT_MS 10000 // Accommodates a valid initial NAK before the bInterval=16 transfer
+
+/*
+Test HCD interrupt pipe long intervals
+Purpose:
+    - Verify long, valid speed-specific bInterval values
+    - Verify that a second packet of an interrupt URB is not immediately scheduled after the
+      first packet completes
+
+The mock HID endpoint descriptor is copied solely to override bInterval. The device accepts
+the IN polls independently of the interval advertised by its original descriptor.
+*/
+TEST_CASE("Test HCD interrupt pipe long bInterval", "[intr][tinyusb_mock]")
+{
+    usb_speed_t port_speed = test_hcd_wait_for_conn(port_hdl);
+    hcd_pipe_handle_t default_pipe = test_hcd_pipe_alloc(port_hdl, NULL, 0, port_speed);
+    uint8_t dev_addr = test_hcd_enum_device(default_pipe);
+    const usb_ep_desc_t *in_ep_desc = dev_hid_get_in_ep_desc(port_speed, 1); // MPS 4, full-sized reports
+
+    const uint8_t hs_intervals[] = {15, 16};  // 2048 ms and 4096 ms
+    const uint8_t fsls_intervals[] = {127, 255}; // 127 ms and 255 ms
+    const uint8_t *long_intervals = (port_speed == USB_SPEED_HIGH) ? hs_intervals : fsls_intervals;
+    const size_t long_intervals_len = (port_speed == USB_SPEED_HIGH) ? sizeof(hs_intervals) : sizeof(fsls_intervals);
+    for (size_t i = 0; i < long_intervals_len; i++) {
+        ESP_LOGI(TAG, "Long binterval: %d", long_intervals[i]);
+        usb_ep_desc_t long_interval_ep_desc = *in_ep_desc;
+        long_interval_ep_desc.bInterval = long_intervals[i];
+
+        hcd_pipe_handle_t intr_pipe = test_hcd_pipe_alloc(port_hdl, &long_interval_ep_desc, dev_addr, port_speed);
+        const int mps = USB_EP_DESC_GET_MPS(&long_interval_ep_desc);
+        urb_t *urb = test_hcd_alloc_urb(0, 2 * mps);
+        urb->transfer.num_bytes = 2 * mps;
+
+        const int64_t start_time_us = esp_timer_get_time();
+        TEST_ASSERT_EQUAL(ESP_OK, hcd_urb_enqueue(intr_pipe, urb));
+        ESP_LOGI(TAG, "Expecting URB_DONE event..");
+        TEST_HCD_EXPECT_PIPE_EVENT_MS(intr_pipe, HCD_PIPE_EVENT_URB_DONE, LONG_BINTERVAL_PIPE_EVENT_TIMEOUT_MS);
+        const int64_t elapsed_us = esp_timer_get_time() - start_time_us;
+
+        // One packet is polled immediately; the second must wait bInterval in the speed-specific unit.
+        const int64_t interval_us = (port_speed == USB_SPEED_HIGH)
+                                    ? (1LL << (long_intervals[i] - 1)) * 125
+                                    : (int64_t)long_intervals[i] * 1000;
+        TEST_ASSERT_MESSAGE(elapsed_us >= interval_us - 200000,
+                            "Interrupt URB completed before its long bInterval elapsed");
+        TEST_ASSERT_EQUAL_PTR(urb, hcd_urb_dequeue(intr_pipe));
+        TEST_HCD_EXPECT_TRANSFER_STATUS(urb, USB_TRANSFER_STATUS_COMPLETED);
+        TEST_ASSERT_EQUAL(2 * mps, urb->transfer.actual_num_bytes);
+
+        test_hcd_free_urb(urb);
+        test_hcd_pipe_free(intr_pipe);
+    }
+    test_hcd_pipe_free(default_pipe);
+    test_hcd_wait_for_disconn(port_hdl, false);
+}
+
+#ifdef CONFIG_USB_HOST_DMA_MODE_BUFFER
+
+#define HFNUM_MAX               USB_DWC_LL_HFNUM_FRAME_COUNT    // DWC2 HW frame number counter (14 bit)
+#define HFNUM_PRE_WRAP_HS       1024                            // Number of µframes left before wrap for HS
+#define HFNUM_PRE_WRAP_FS_LS    128                             // Number of frames left before wrap for FS/LS
+/*
+Test HCD interrupt pipe HFNUM rollover
+Purpose:
+    - Start a multi-packet interrupt URB shortly before the hardware's 14-bit HFNUM counter wraps
+    - Verify that its second packet is not prematurely scheduled before the wrap
+    - This test tests buffer DMA SW scheduler, not relevant for Scatter-Gather DMA
+
+The endpoint descriptor is copied solely to use an interval longer than the time remaining to HFNUM
+rollover. The first packet is serviced immediately; the second must be serviced after HFNUM has
+wrapped. The old HFNUM-based deadline comparison schedules the second packet before the wrap instead.
+*/
+TEST_CASE("Test HCD interrupt pipe HFNUM rollover", "[intr][tinyusb_mock]")
+{
+    usb_speed_t port_speed = test_hcd_wait_for_conn(port_hdl);
+    hcd_pipe_handle_t default_pipe = test_hcd_pipe_alloc(port_hdl, NULL, 0, port_speed);
+    uint8_t dev_addr = test_hcd_enum_device(default_pipe);
+    const usb_ep_desc_t *in_ep_desc = dev_hid_get_in_ep_desc(port_speed, 1); // MPS 4, full-sized reports, every packet is a full packet
+    usb_ep_desc_t rollover_ep_desc = *in_ep_desc;
+
+    /*
+     * Override the mock endpoint's bInterval to force the second packet across HFNUM rollover:
+     * HS bInterval is exponent-encoded: T = (2^(binterval - 1)) * 125 uS = 2^(12 -1) * 125 uS = 256 ms (2048 µframes)
+     * FS/LS bInterval is in milliseconds, T = 255 * 1 mS = 255 ms (255 frames)
+     * Both exceed the 128 ms deliberately left before rollover below.
+     */
+    rollover_ep_desc.bInterval = (port_speed == USB_SPEED_HIGH) ? 12 : 255;
+
+    // Time deliberately left before the wrap:
+    // HS: 16384 − 1024 = 15360 → at most 1024 µframes remain → 1024 × 125 µs = 128 ms
+    // FS/LS: 16384 − 128 = 16256 → at most 128 frames remain → 128 ms
+    // Keep 128 ms before rollover: 1024 HS microframes or 128 FS/LS frames.
+    // The second packet's 256 ms (HS) or 255 ms (FS/LS) interval must therefore cross rollover.
+
+    // 128ms before the wrap (half of the bInterfal lies before the wrap, half lies after the wrap)
+    const uint32_t hfnum_before_wrap = (port_speed == USB_SPEED_HIGH) ? (HFNUM_MAX - HFNUM_PRE_WRAP_HS) : (HFNUM_MAX - HFNUM_PRE_WRAP_FS_LS);
+    const int64_t hfnum_wait_timeout_us = (port_speed == USB_SPEED_HIGH) ? 3000000 : 18000000;
+
+    // Wait until the frame number approaches 1024 µframes (128 frames) → 128ms before the wrap
+    // Thus wait:
+    // HS: 15360 µframes -> 15360 * 125 µs = 1.920 s
+    // FS: 16256 frames -> 16256 * 1ms = 16.256 s
+    ESP_LOGI(TAG, "Waiting (%.3f s) for pre-rollover frame number, to schedule a first packet", (port_speed == USB_SPEED_HIGH) ? (float)1.92 : (float)16.256);
+    const int64_t wait_start_us = esp_timer_get_time();
+    while (usb_dwc_ll_hfnum_get_frame_num(USB_DWC_LL_GET_HW(TEST_PORT_NUM)) < hfnum_before_wrap) {
+        TEST_ASSERT_MESSAGE(esp_timer_get_time() - wait_start_us < hfnum_wait_timeout_us,
+                            "Timed out waiting for HFNUM to approach its rollover");
+        vTaskDelay(pdMS_TO_TICKS(1));
+    }
+    // Get frame number  1024 µframes (128 frames) before the wrap
+    const uint32_t start_hfnum = usb_dwc_ll_hfnum_get_frame_num(USB_DWC_LL_GET_HW(TEST_PORT_NUM));
+    ESP_LOGI(TAG, "start frame number: %d\n", start_hfnum);
+
+    // HFNUM delta tolerances as number of pre-wrap frames / 2
+    const int start_hfnum_delta = (port_speed == USB_SPEED_HIGH) ? HFNUM_PRE_WRAP_HS / 2 : HFNUM_PRE_WRAP_FS_LS / 2;
+    // Expected start frame number shall be within the HFRNUM - hfnum delta
+    const int start_hfnum_expected = HFNUM_MAX - start_hfnum_delta;
+    TEST_ASSERT_INT_WITHIN_MESSAGE(start_hfnum_delta, start_hfnum_expected, start_hfnum, "HFNUM was outside the expected pre-rollover range");
+
+    hcd_pipe_handle_t intr_pipe = test_hcd_pipe_alloc(port_hdl, &rollover_ep_desc, dev_addr, port_speed);
+    const int mps = USB_EP_DESC_GET_MPS(&rollover_ep_desc);
+    urb_t *urb = test_hcd_alloc_urb(0, 2 * mps);
+    urb->transfer.num_bytes = 2 * mps;
+    // Enqueue URB 2 packet long
+    // First packet is enqueued instantly, the second after the binterval (after 255 ms)
+    // This timing forces the HFNUM rollover at at the second packet
+    TEST_ASSERT_EQUAL(ESP_OK, hcd_urb_enqueue(intr_pipe, urb));
+    TEST_HCD_EXPECT_PIPE_EVENT(intr_pipe, HCD_PIPE_EVENT_URB_DONE);
+
+    // Get frame number after the urb is done, after the second packet has been processed
+    const uint32_t completion_hfnum = usb_dwc_ll_hfnum_get_frame_num(USB_DWC_LL_GET_HW(TEST_PORT_NUM));
+
+    // The completion hfnum shall be less than the start hfnum, thus forcing the rollover
+    TEST_ASSERT_MESSAGE(completion_hfnum < start_hfnum, "Second periodic packet completed before HFNUM wrapped");
+
+    /*
+     * The second packet completes after its interval and rollover:
+     * - HS: 2048 µframes minus the at-most 1024 µframes before rollover gives [1024, 2048).
+     * - FS/LS: 255 frames minus the at-most 128 frames before rollover gives [127, 255).
+     * Allow one extra interval when the first IN attempt is NAKed, giving enclosing ranges [1024, 4096)
+     * and [127, 512). The midpoint/tolerance pairs below encode those ranges for Unity.
+     */
+    const int completion_hfnum_expected = (port_speed == USB_SPEED_HIGH) ? 2560 : 319;
+    const int completion_hfnum_delta = (port_speed == USB_SPEED_HIGH) ? 1536 : 192;
+    TEST_ASSERT_INT_WITHIN_MESSAGE(completion_hfnum_delta, completion_hfnum_expected, completion_hfnum, "Second periodic packet completed outside the expected post-rollover range");
+
+    TEST_ASSERT_EQUAL_PTR(urb, hcd_urb_dequeue(intr_pipe));
+    TEST_HCD_EXPECT_TRANSFER_STATUS(urb, USB_TRANSFER_STATUS_COMPLETED);
+    TEST_ASSERT_EQUAL(2 * mps, urb->transfer.actual_num_bytes);
+
+    test_hcd_free_urb(urb);
+    test_hcd_pipe_free(intr_pipe);
+    test_hcd_pipe_free(default_pipe);
+    test_hcd_wait_for_disconn(port_hdl, false);
+}
+
+#define STRICT_INTERVAL_PACKET_COUNT     16
+#define STRICT_INTERVAL_MAX_HFNUM_DELTA  (STRICT_INTERVAL_PACKET_COUNT + 8)
+#define STRICT_SOF_STRESS_ITERATIONS     8
+#define STRICT_SOF_STRESS_HS_DELAY_US    125
+#define STRICT_SOF_STRESS_FSLS_DELAY_US  1000
+
+static portMUX_TYPE s_strict_sof_stress_mux = portMUX_INITIALIZER_UNLOCKED;
+static uint32_t s_strict_sof_stress_delay_us;
+static TaskHandle_t s_strict_sof_test_task;
+
+static void strict_sof_stress_task(void *arg)
+{
+    (void)arg;
+    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+    for (int i = 0; i < STRICT_SOF_STRESS_ITERATIONS; i++) {
+        portENTER_CRITICAL(&s_strict_sof_stress_mux);
+        esp_rom_delay_us(s_strict_sof_stress_delay_us);
+        portEXIT_CRITICAL(&s_strict_sof_stress_mux);
+    }
+    xTaskNotifyGive(s_strict_sof_test_task);
+    vTaskDelete(NULL);
+}
+
+/*
+Test HCD bInterval 1 scheduling
+Purpose:
+    - Transfer a sequence of full packets from the strict bInterval-1 HID endpoint
+    - Verify they complete within the expected number of USB frames/microframes
+
+The strict mock endpoint queues its next full report from its report-complete callback. This
+keeps an IN packet available for every host poll, so the HFNUM delta reflects host scheduling.
+*/
+TEST_CASE("Test HCD interrupt pipe bInterval 1 scheduling", "[intr][tinyusb_mock]")
+{
+    usb_speed_t port_speed = test_hcd_wait_for_conn(port_hdl);
+    hcd_pipe_handle_t default_pipe = test_hcd_pipe_alloc(port_hdl, NULL, 0, port_speed);
+    uint8_t dev_addr = test_hcd_enum_device(default_pipe);
+    const usb_ep_desc_t *in_ep_desc = dev_hid_get_in_ep_desc(port_speed, DEV_HID_STRICT_ITF);
+    const int mps = USB_EP_DESC_GET_MPS(in_ep_desc);
+    hcd_pipe_handle_t intr_pipe = test_hcd_pipe_alloc(port_hdl, in_ep_desc, dev_addr, port_speed);
+    urb_t *urb = test_hcd_alloc_urb(0, STRICT_INTERVAL_PACKET_COUNT * mps);
+    urb->transfer.num_bytes = STRICT_INTERVAL_PACKET_COUNT * mps;
+
+    // Let the strict endpoint's task queue its first report before the initial poll.
+    vTaskDelay(pdMS_TO_TICKS(20));
+
+    // Create stress task
+    ulTaskNotifyTake(pdTRUE, 0); // Clear any stale task notification before using it for stress completion.
+    s_strict_sof_stress_delay_us = (port_speed == USB_SPEED_HIGH) ? STRICT_SOF_STRESS_HS_DELAY_US : STRICT_SOF_STRESS_FSLS_DELAY_US;
+    s_strict_sof_test_task = xTaskGetCurrentTaskHandle();
+    const UBaseType_t test_task_priority = uxTaskPriorityGet(NULL);
+    const UBaseType_t stress_task_priority = (test_task_priority < configMAX_PRIORITIES - 1)
+                                             ? test_task_priority + 1
+                                             : test_task_priority;
+    TaskHandle_t stress_task;
+    TEST_ASSERT_EQUAL(pdPASS, xTaskCreatePinnedToCore(strict_sof_stress_task, "strict_sof_stress", 2048,
+                                                      NULL, stress_task_priority, &stress_task, xPortGetCoreID()));
+
+    // Check the scheduling
+    const uint32_t start_hfnum = usb_dwc_ll_hfnum_get_frame_num(USB_DWC_LL_GET_HW(TEST_PORT_NUM));
+    TEST_ASSERT_EQUAL(ESP_OK, hcd_urb_enqueue(intr_pipe, urb));
+    xTaskNotifyGive(stress_task);
+    TEST_HCD_EXPECT_PIPE_EVENT(intr_pipe, HCD_PIPE_EVENT_URB_DONE);
+    TEST_ASSERT_NOT_EQUAL(0, ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(10000)));
+    s_strict_sof_test_task = NULL;
+    const uint32_t completion_hfnum = usb_dwc_ll_hfnum_get_frame_num(USB_DWC_LL_GET_HW(TEST_PORT_NUM));
+    const uint32_t hfnum_delta = (completion_hfnum - start_hfnum) & (USB_DWC_LL_HFNUM_FRAME_COUNT - 1);
+
+    ESP_LOGI(TAG, "HFNUM start: %d, HFNUM stop: %d, HFNUM delta: %d packets serviced: %d", start_hfnum, completion_hfnum, hfnum_delta, STRICT_INTERVAL_PACKET_COUNT);
+    TEST_ASSERT_LESS_OR_EQUAL_MESSAGE(STRICT_INTERVAL_MAX_HFNUM_DELTA, hfnum_delta,
+                                      "bInterval 1 packets were not serviced every USB frame/microframe");
+    TEST_ASSERT_EQUAL_PTR(urb, hcd_urb_dequeue(intr_pipe));
+    TEST_HCD_EXPECT_TRANSFER_STATUS(urb, USB_TRANSFER_STATUS_COMPLETED);
+    TEST_ASSERT_EQUAL(STRICT_INTERVAL_PACKET_COUNT * mps, urb->transfer.actual_num_bytes);
+
+    test_hcd_free_urb(urb);
+    test_hcd_pipe_free(intr_pipe);
+    test_hcd_pipe_free(default_pipe);
+    test_hcd_wait_for_disconn(port_hdl, false);
+}
+
+#endif // CONFIG_USB_HOST_DMA_MODE_BUFFER
 
 /*
 Test HCD interrupt pipe allocation, when bInterval = 0

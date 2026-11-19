@@ -385,7 +385,7 @@ esp_err_t hcd_pipe_alloc(hcd_port_handle_t port_hdl, const hcd_pipe_config_t *pi
 int hcd_pipe_get_mps(hcd_pipe_handle_t pipe_hdl);
 
 /**
- * @brief Get the maximum transfer size (in bytes) the controller can move in a single bulk/control transfer
+ * @brief Get the maximum transfer size (in bytes) the controller can move in a single transfer
  *
  * The limit depends on the DMA mode:
  * - Scatter/Gather DMA: the 17-bit non-isochronous qTD "Total bytes to transfer" field (a constant)
@@ -395,11 +395,14 @@ int hcd_pipe_get_mps(hcd_pipe_handle_t pipe_hdl);
  *   usb_dwc_hal_get_xfer_size_limit() HAL API
  *
  * The limit is floored to a whole number of maximum-sized packets.
- * Periodic (INTR/ISOC) transfers are instead bounded by their descriptor list length and are not covered by this value.
+ * The limit applies to bulk and control transfers in both DMA modes, and to interrupt transfers in Buffer
+ * DMA mode (driven one packet per (micro)frame activation and accumulated in the slot state). In Scatter/Gather
+ * DMA, periodic (INTR/ISOC) transfers are instead bounded by their descriptor list length and are not covered
+ * by this value.
  *
  * @param[in] pipe_hdl Pipe handle
  *
- * @return Maximum transfer size in bytes for a bulk/control transfer on this pipe
+ * @return Maximum transfer size in bytes for a transfer on this pipe
  */
 int hcd_pipe_get_xfer_size_limit(hcd_pipe_handle_t pipe_hdl);
 
