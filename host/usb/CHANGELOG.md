@@ -10,11 +10,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - Added a global client-event handling mode selection in Kconfig, allowing applications to choose between per-client handling and one shared handling path for all clients.
 - Added `usb_host_common_clients_handle_events()` so applications can drive all registered clients from one task when `CONFIG_USB_HOST_CLIENT_EVENT_HANDLING_ALL_CLIENTS` is enabled.
+- Added `CONFIG_USB_HOST_ISR_HANDLER_IN_IRAM` (disabled by default) to place the USB Host interrupt handler, the functions it calls, including the USB-DWC HAL interrupt functions in IRAM.
 
 ### Fixed
 
 - Fixed bInterval range check for HS interrupt pipes, restraining the interval to 1..16.
-- Fixed isochronous transfers losing their first packet (`USB_TRANSFER_STATUS_SKIPPED`) on High-Speed ports: the HCD interrupt handler is now placed in RAM, so it enables the channel for the next transfer in time (https://github.com/espressif/esp-usb/issues/654).
+- Fixed isochronous transfers losing their first packet (`USB_TRANSFER_STATUS_SKIPPED`) on High-Speed ports when `CONFIG_USB_HOST_ISR_HANDLER_IN_IRAM` is enabled (https://github.com/espressif/esp-usb/issues/654).
 
 ## [1.6.1] - 2026-11-13
 

@@ -1,0 +1,13 @@
+# USB-DWC HAL functions called from the USB Host interrupt handler.
+# The archive name is filled in by CMakeLists.txt
+# because it differs between ESP-IDF releases.
+
+[mapping:usb_host_hal_isr]
+archive: @USB_HAL_ARCHIVE@
+entries:
+    if USB_HOST_ISR_HANDLER_IN_IRAM = y:
+        usb_dwc_hal:usb_dwc_hal_decode_intr (noflash)
+        usb_dwc_hal:usb_dwc_hal_get_chan_pending_intr (noflash)
+        usb_dwc_hal:usb_dwc_hal_chan_decode_intr (noflash)
+        usb_dwc_hal:usb_dwc_hal_chan_activate (noflash)
+        usb_dwc_hal:usb_dwc_hal_port_enable (noflash)

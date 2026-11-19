@@ -63,10 +63,27 @@ if(CONFIG_USB_HOST_HUBS_SUPPORTED)
                      "src/ext_port.c")
 endif()
 
+# USB-DWC HAL functions called from the host interrupt. Placement is selected by
+# CONFIG_USB_HOST_ISR_HANDLER_IN_IRAM inside the fragment.
+# The library name differs across ESP-IDF releases:
+# - 5.x: HAL is libhal.a
+# - 6.x: HAL is libesp_hal_usb.a
+if(${IDF_VERSION_MAJOR} LESS 6)
+    set(USB_HAL_ARCHIVE "libhal.a")
+else()
+    set(USB_HAL_ARCHIVE "libesp_hal_usb.a")
+endif()
+
+set(usb_hal_isr_ldfragment "${CMAKE_CURRENT_BINARY_DIR}/usb_hal_isr.lf")
+# COMPONENT_DIR: the requirements scan includes this file with a different
+# CMAKE_CURRENT_SOURCE_DIR, so a relative input path would miss linker.lf.in.
+configure_file("${COMPONENT_DIR}/linker.lf.in" "${usb_hal_isr_ldfragment}" @ONLY)
+
 idf_component_register(SRCS ${srcs}
                        INCLUDE_DIRS ${include}
                        PRIV_INCLUDE_DIRS ${priv_includes}
                        PRIV_REQUIRES ${priv_requires}
+                       LDFRAGMENTS "${usb_hal_isr_ldfragment}"
                        )
 
 if(CONFIG_COMPILER_STATIC_ANALYZER AND CMAKE_C_COMPILER_ID STREQUAL "GNU") # TODO GCC-366 (segfault)
