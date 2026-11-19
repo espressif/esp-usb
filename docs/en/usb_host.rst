@@ -130,14 +130,32 @@ Usage
 The Host Library and the underlying Host Stack will not create any tasks. You create them, either in the application or in a class driver. Two kinds of work need a task:
 
 - Library events, such as device connection and enumeration. Call :cpp:func:`usb_host_lib_handle_events` from the Daemon Task. This is the same in both client-event modes.
-- Client events, such as a transfer completing or a device plug-in. Call either :cpp:func:`usb_host_client_handle_events` or :cpp:func:`usb_host_common_clients_handle_events`, depending on the mode below.
+- Client events, such as a transfer completing, a device becoming ready to open, or an opened device being removed. Call either :cpp:func:`usb_host_client_handle_events` or :cpp:func:`usb_host_common_clients_handle_events`, depending on the mode below.
 
 Client Event Handling
 ^^^^^^^^^^^^^^^^^^^^^
 
-A client event is a message for one registered client. Examples are "a new device is ready", "a device you opened was removed", and "a transfer finished". The Host Library does not create a task to deliver these messages. A task that you create must call a handler function in a loop. The handler runs the client's callback and then returns, so the task can do the work the callback requested.
+A client event is a message for one registered client. Examples are "a device is ready to open", "a device you opened was removed", and "a transfer finished". The Host Library does not create a task to deliver these messages. A task that you create must call a handler function in a loop. The handler runs the client's callback and then returns, so the task can do the work the callback requested.
 
-Select the mode in menuconfig under ``USB-OTG``, then ``Client event handling mode``. The choice is fixed at build time. The default is per-client handling.
+Select the mode in menuconfig under ``Component config``, then ``USB-OTG``, then ``Client event handling mode``. The choice is fixed at build time. The default is per-client handling.
+
+Choose between the modes based on task ownership and RAM budget rather than as a general performance setting.
+
+In the current class-driver configurations in this repository, per-client event tasks commonly use 4096-byte stacks. Replacing several per-client tasks with one shared task can therefore save roughly one 4 KiB stack per client task that is no longer created, plus the associated task-control overhead. The exact savings still depend on the stack size configured by each driver or application.
+
+.. list-table:: Choosing a client-event handling mode
+   :header-rows: 1
+   :widths: 22 42 36
+
+   * - Mode
+     - Use this mode when...
+     - Main trade-off
+   * - Per-client handling
+     - Each class driver already has its own task, or you want one client's event loop isolated from the others.
+     - Higher RAM use because each client needs its own task stack.
+   * - All clients in one task
+     - You want to save RAM by using one shared task for all clients, or you want one application-owned task to drive every client.
+     - A slow or blocked callback delays event delivery for every client handled by the shared task.
 
 Per-client handling
 """""""""""""""""""
@@ -146,7 +164,7 @@ This mode is :ref:`CONFIG_USB_HOST_CLIENT_EVENT_HANDLING_PER_CLIENT <CONFIG_USB_
 
 Create one task per client. In that task, call :cpp:func:`usb_host_client_handle_events` with that client's handle. The call waits until that client has an event, then runs that client's callbacks. Another client's events are not handled by this call.
 
-Use this mode when each class driver already runs in its own task. The worked example in `Clients and Class Driver`_ uses this mode.
+Use this mode when each class driver already runs in its own task, or when you want one client's slow callback to affect only that client's event loop. The worked example in `Clients and Class Driver`_ uses this mode.
 
 All clients in one task
 """""""""""""""""""""""
@@ -154,6 +172,15 @@ All clients in one task
 This mode is :ref:`CONFIG_USB_HOST_CLIENT_EVENT_HANDLING_ALL_CLIENTS <CONFIG_USB_HOST_CLIENT_EVENT_HANDLING_ALL_CLIENTS>`.
 
 Create a single task and use it for every client. In that task, call :cpp:func:`usb_host_common_clients_handle_events`. The call waits until any registered client has an event, then runs that client's callbacks. There is no client handle argument: one call covers all registered clients.
+
+.. figure:: ../_static/usb_host/usb_host_lib_common_task.png
+    :align: center
+    :alt: Diagram of all-clients mode with one shared client event task
+    :figclass: align-center
+
+    One shared client-event task can drive multiple registered clients while the Daemon Task still handles library events
+
+The figure above shows one shared client-event task driving multiple registered clients while the Daemon Task continues to handle library events.
 
 Start this task after :cpp:func:`usb_host_install` and keep it running while clients are registered. Callbacks are delivered only while the loop is running.
 
@@ -180,7 +207,7 @@ Call :cpp:func:`usb_host_common_clients_handle_events` from one task only. If a 
 
 The Daemon Task is still required. It keeps calling :cpp:func:`usb_host_lib_handle_events`. The shared client task does not replace it.
 
-In both modes, a callback runs inside the handler call. Do not block in a callback. A blocked callback delays every later event that the same call still has to deliver. Set a flag in the callback and do the longer work in the loop, after the handler returns.
+In both modes, a callback runs inside the handler call. Do not block in a callback. In per-client mode, a blocked callback delays only that client's later events. In all-clients mode, it delays later events for every client handled by the shared task. Set a flag in the callback and do the longer work in the loop, after the handler returns.
 
 Host Library & Daemon Task
 ^^^^^^^^^^^^^^^^^^^^^^^^^^
