@@ -653,3 +653,248 @@ TEST_CASE("Test HCD control pipe runtime halt and clear, URBs deferred", "[ctrl]
     // Cleanup
     test_hcd_wait_for_disconn(port_hdl, false);
 }
+
+/*
+Test HCD control pipe no data stage and short IN data stage
+Purpose:
+    - Validate control transfers with no data stage (enumerate the device)
+    - Validate control transfers with a short IN data stage (smaller than one MPS, non-DWORD length)
+    - Validate exact actual_num_bytes accounting for each control transfer shape
+Procedure:
+    - Setup HCD and wait for connection
+    - Setup default pipe and enumerate the device (SET_ADDRESS and SET_CONFIGURATION are
+      no-data-stage control transfers)
+    - GET_CONFIGURATION (1-byte IN data stage): expect exact byte count and configured value
+    - GET_STATUS (2-byte IN data stage): expect exact byte count
+    - Teardown
+*/
+TEST_CASE("Test HCD control pipe NO data stage and short IN data stage", "[ctrl][low_speed][full_speed][high_speed]")
+{
+    usb_speed_t port_speed = test_hcd_wait_for_conn(port_hdl);  // Trigger a connection
+    vTaskDelay(pdMS_TO_TICKS(100)); // Short delay send of SOF (for FS) or EOPs (for LS)
+
+    hcd_pipe_handle_t default_pipe = test_hcd_pipe_alloc(port_hdl, NULL, TEST_DEV_ADDR, port_speed);    // Create a default pipe (using a NULL EP descriptor)
+    // Enumerate the device. SET_ADDRESS and SET_CONFIGURATION are no-data-stage control transfers
+    test_hcd_enum_device(default_pipe);
+
+    // Allocate and initialize one URB
+    urb_t *urb = test_hcd_alloc_urb(0, URB_DATA_BUFF_SIZE);
+    urb->transfer.context = URB_CONTEXT_VAL;
+
+    usb_setup_packet_t *setup_pkt = (usb_setup_packet_t *)urb->transfer.data_buffer;
+
+    // --- 1-byte IN data stage: GET_CONFIGURATION ---
+    urb->transfer.num_bytes = sizeof(usb_setup_packet_t) + 1;
+    USB_SETUP_PACKET_INIT_GET_CONFIG(setup_pkt);
+    TEST_ASSERT_EQUAL(ESP_OK, hcd_urb_enqueue(default_pipe, urb));
+    TEST_HCD_EXPECT_PIPE_EVENT(default_pipe, HCD_PIPE_EVENT_URB_DONE);
+    TEST_ASSERT_EQUAL(urb, hcd_urb_dequeue(default_pipe));
+    TEST_HCD_EXPECT_TRANSFER_STATUS(urb, USB_TRANSFER_STATUS_COMPLETED);
+    TEST_ASSERT_EQUAL(sizeof(usb_setup_packet_t) + 1, urb->transfer.actual_num_bytes);
+    TEST_ASSERT_EQUAL(1, urb->transfer.data_buffer[sizeof(usb_setup_packet_t)]);
+
+    // --- 2-byte IN data stage: GET_STATUS ---
+    urb->transfer.num_bytes = sizeof(usb_setup_packet_t) + sizeof(usb_device_status_t);
+    USB_SETUP_PACKET_INIT_GET_STATUS(setup_pkt);
+    TEST_ASSERT_EQUAL(ESP_OK, hcd_urb_enqueue(default_pipe, urb));
+    TEST_HCD_EXPECT_PIPE_EVENT(default_pipe, HCD_PIPE_EVENT_URB_DONE);
+    TEST_ASSERT_EQUAL(urb, hcd_urb_dequeue(default_pipe));
+    TEST_HCD_EXPECT_TRANSFER_STATUS(urb, USB_TRANSFER_STATUS_COMPLETED);
+    TEST_ASSERT_EQUAL(sizeof(usb_setup_packet_t) + sizeof(usb_device_status_t), urb->transfer.actual_num_bytes);
+
+    test_hcd_free_urb(urb);
+    test_hcd_pipe_free(default_pipe);
+    test_hcd_wait_for_disconn(port_hdl, false);
+}
+
+/*
+Test HCD control pipe IN data stage byte count
+Purpose:
+    - Validate exact actual_num_bytes accounting of the IN data stage (in buffer DMA mode the
+      received byte count is derived from the channel's remaining transfer size)
+    - Validate short-packet termination of the IN data stage (device returns less than requested)
+    - On low-speed (MPS = 8), the 9-byte header request additionally covers a multi-packet data stage
+Procedure:
+    - Setup HCD and wait for connection
+    - Setup default pipe and allocate a URB
+    - Request only the configuration descriptor header (9 bytes), expect exact byte count, read wTotalLength
+    - Request the full descriptor with wLength > wTotalLength, device ends the data stage with a
+      short packet, expect actual_num_bytes == sizeof(setup) + wTotalLength
+    - Teardown
+*/
+TEST_CASE("Test HCD control pipe IN data stage byte count", "[ctrl][low_speed][full_speed][high_speed]")
+{
+    usb_speed_t port_speed = test_hcd_wait_for_conn(port_hdl);  // Trigger a connection
+    vTaskDelay(pdMS_TO_TICKS(100)); // Short delay send of SOF (for FS) or EOPs (for LS)
+
+    // Allocate one URB and initialize it's data buffer
+    hcd_pipe_handle_t default_pipe = test_hcd_pipe_alloc(port_hdl, NULL, TEST_DEV_ADDR, port_speed);
+    urb_t *urb = test_hcd_alloc_urb(0, URB_DATA_BUFF_SIZE);
+    urb->transfer.context = URB_CONTEXT_VAL;
+    usb_setup_packet_t *setup_pkt = (usb_setup_packet_t *)urb->transfer.data_buffer;
+
+    // --- Header-only request: 9-byte IN data stage ---
+    urb->transfer.num_bytes = sizeof(usb_setup_packet_t) + sizeof(usb_config_desc_t);
+    USB_SETUP_PACKET_INIT_GET_CONFIG_DESC(setup_pkt, 0, sizeof(usb_config_desc_t));
+    TEST_ASSERT_EQUAL(ESP_OK, hcd_urb_enqueue(default_pipe, urb));
+    TEST_HCD_EXPECT_PIPE_EVENT(default_pipe, HCD_PIPE_EVENT_URB_DONE);
+    TEST_ASSERT_EQUAL(urb, hcd_urb_dequeue(default_pipe));
+    TEST_HCD_EXPECT_TRANSFER_STATUS(urb, USB_TRANSFER_STATUS_COMPLETED);
+    TEST_ASSERT_EQUAL(sizeof(usb_setup_packet_t) + sizeof(usb_config_desc_t), urb->transfer.actual_num_bytes);
+    usb_config_desc_t *config_desc = (usb_config_desc_t *)(urb->transfer.data_buffer + sizeof(usb_setup_packet_t));
+    TEST_ASSERT_EQUAL(USB_B_DESCRIPTOR_TYPE_CONFIGURATION, config_desc->bDescriptorType);
+    const uint16_t total_len = config_desc->wTotalLength;
+    TEST_ASSERT_LESS_OR_EQUAL(TRANSFER_MAX_BYTES, total_len);   // Must fit into the buffer for the next request
+    ESP_LOGI(TAG, "Config Desc wTotalLength %d", total_len);
+
+    // --- Full request larger than the descriptor: short-packet terminated IN data stage ---
+    urb->transfer.num_bytes = sizeof(usb_setup_packet_t) + TRANSFER_MAX_BYTES;
+    USB_SETUP_PACKET_INIT_GET_CONFIG_DESC(setup_pkt, 0, TRANSFER_MAX_BYTES);
+    TEST_ASSERT_EQUAL(ESP_OK, hcd_urb_enqueue(default_pipe, urb));
+    TEST_HCD_EXPECT_PIPE_EVENT(default_pipe, HCD_PIPE_EVENT_URB_DONE);
+    TEST_ASSERT_EQUAL(urb, hcd_urb_dequeue(default_pipe));
+    TEST_HCD_EXPECT_TRANSFER_STATUS(urb, USB_TRANSFER_STATUS_COMPLETED);
+    // The device returned exactly wTotalLength bytes, terminated by a short packet
+    TEST_ASSERT_EQUAL(sizeof(usb_setup_packet_t) + total_len, urb->transfer.actual_num_bytes);
+    test_hcd_free_urb(urb);
+    test_hcd_pipe_free(default_pipe);
+    test_hcd_wait_for_disconn(port_hdl, false);
+}
+
+#define MIXED_NUM_URBS  6   // More than NUM_BUFFERS (2), so buffer slots are reused
+/*
+Test HCD control pipe mixed back-to-back URBs
+Purpose:
+    - Validate that per-buffer control flags (data_stg_in, data_stg_skip, data_stg_actual_bytes)
+      are correctly re-initialized when a buffer slot is reused for a differently shaped control
+      transfer (the pipe has fewer buffer slots than enqueued URBs)
+    - Stress the setup -> data -> status stage state machine with back-to-back URBs
+Procedure:
+    - Setup HCD, wait for connection, enumerate the device
+    - Enqueue a batch of URBs alternating transfer shapes: no data stage (SET_CONFIGURATION),
+      short IN (GET_STATUS, GET_CONFIGURATION), large IN (GET_CONFIG_DESCRIPTOR)
+    - Expect all URBs to complete in order with exact actual_num_bytes
+    - Teardown
+*/
+TEST_CASE("Test HCD control pipe mixed back-to-back URBs", "[ctrl][low_speed][full_speed][high_speed]")
+{
+    usb_speed_t port_speed = test_hcd_wait_for_conn(port_hdl);  // Trigger a connection
+    vTaskDelay(pdMS_TO_TICKS(100)); // Short delay send of SOF (for FS) or EOPs (for LS)
+    hcd_pipe_handle_t default_pipe = test_hcd_pipe_alloc(port_hdl, NULL, TEST_DEV_ADDR, port_speed);
+    test_hcd_enum_device(default_pipe);
+    urb_t *urb_list[MIXED_NUM_URBS];
+
+    for (int i = 0; i < MIXED_NUM_URBS; i++) {
+        urb_list[i] = test_hcd_alloc_urb(0, URB_DATA_BUFF_SIZE);
+        urb_list[i]->transfer.context = URB_CONTEXT_VAL;
+        usb_setup_packet_t *setup_pkt = (usb_setup_packet_t *)urb_list[i]->transfer.data_buffer;
+        switch (i % 3) {
+        case 0:     // Large IN data stage
+            urb_list[i]->transfer.num_bytes = sizeof(usb_setup_packet_t) + TRANSFER_MAX_BYTES;
+            USB_SETUP_PACKET_INIT_GET_CONFIG_DESC(setup_pkt, 0, TRANSFER_MAX_BYTES);
+            break;
+        case 1:     // No data stage
+            urb_list[i]->transfer.num_bytes = sizeof(usb_setup_packet_t);
+            USB_SETUP_PACKET_INIT_SET_CONFIG(setup_pkt, 1);
+            break;
+        default:    // Short IN data stage
+            urb_list[i]->transfer.num_bytes = sizeof(usb_setup_packet_t) + sizeof(usb_device_status_t);
+            USB_SETUP_PACKET_INIT_GET_STATUS(setup_pkt);
+            break;
+        }
+    }
+    ESP_LOGI(TAG, "Enqueuing mixed URBs");
+    for (int i = 0; i < MIXED_NUM_URBS; i++) {
+        TEST_ASSERT_EQUAL(ESP_OK, hcd_urb_enqueue(default_pipe, urb_list[i]));
+    }
+    for (int i = 0; i < MIXED_NUM_URBS; i++) {
+        TEST_HCD_EXPECT_PIPE_EVENT(default_pipe, HCD_PIPE_EVENT_URB_DONE);
+    }
+
+    for (int i = 0; i < MIXED_NUM_URBS; i++) {
+        urb_t *urb = hcd_urb_dequeue(default_pipe);
+        TEST_ASSERT_EQUAL(urb_list[i], urb);
+        TEST_HCD_EXPECT_TRANSFER_STATUS(urb, USB_TRANSFER_STATUS_COMPLETED);
+        TEST_ASSERT_EQUAL(URB_CONTEXT_VAL, urb->transfer.context);
+        if (i % 3 == 1) {
+            // No data stage: only the setup packet was transmitted
+            TEST_ASSERT_EQUAL(sizeof(usb_setup_packet_t), urb->transfer.actual_num_bytes);
+        } else {
+            TEST_ASSERT_GREATER_OR_EQUAL(sizeof(usb_setup_packet_t), urb->transfer.actual_num_bytes);
+            TEST_ASSERT_LESS_OR_EQUAL(urb->transfer.num_bytes, urb->transfer.actual_num_bytes);
+        }
+    }
+    for (int i = 0; i < MIXED_NUM_URBS; i++) {
+        test_hcd_free_urb(urb_list[i]);
+    }
+    test_hcd_pipe_free(default_pipe);
+    test_hcd_wait_for_disconn(port_hdl, false);
+}
+
+#if defined(CONFIG_USB_HOST_DMA_MODE_BUFFER)
+/*
+Test HCD control pipe IN data overrun (Buffer DMA only)
+
+Purpose:
+    - A device that returns more data than the transfer's IN data stage requested must fail the transfer as a data
+      overrun (USB 2.0 §5.5.3: a larger-than-expected data payload aborts the IRP)
+    - In Buffer DMA mode the core completes such a transfer without an error (the surplus fits the MPS-rounded
+      programmed transfer size), so the overrun is detected by software on completion _slot_verify_result().
+    - In Scatter/Gather DMA the same condition leads to a qTD packet babble error instead, thus this test is Buffer DMA only
+
+Procedure:
+    - Setup HCD and wait for connection
+    - Allocate default pipe and enumerate the device
+    - Request the 18-byte device descriptor (wLength), but program only a 1-byte IN data stage
+      (num_bytes): the device returns the whole descriptor, exceeding the requested data stage
+    - Expect HCD_PIPE_EVENT_ERROR_OVERFLOW, pipe halted, URB retired with USB_TRANSFER_STATUS_OVERFLOW
+    - Flush and clear the pipe
+    - Teardown
+*/
+TEST_CASE("Test HCD control pipe IN data overrun", "[ctrl][full_speed][high_speed]")
+{
+    usb_speed_t port_speed = test_hcd_wait_for_conn(port_hdl);  // Trigger a connection
+    vTaskDelay(pdMS_TO_TICKS(100)); // Short delay send of SOF (for FS) or EOPs (for LS)
+
+    // Allocate default pipe and enumerate the device
+    hcd_pipe_handle_t default_pipe = test_hcd_pipe_alloc(port_hdl, NULL, TEST_DEV_ADDR, port_speed);
+    test_hcd_enum_device(default_pipe);
+
+    // Allocate a URB with buffer room for the MPS-rounded IN data stage past the setup packet
+    const int mps = hcd_pipe_get_mps(default_pipe);
+    urb_t *urb = test_hcd_alloc_urb(0, sizeof(usb_setup_packet_t) + mps);
+    urb->transfer.context = URB_CONTEXT_VAL;
+    usb_setup_packet_t *setup_pkt = (usb_setup_packet_t *)urb->transfer.data_buffer;
+
+    // The device answers the request's wLength (the whole 18-byte device descriptor)...
+    USB_SETUP_PACKET_INIT_GET_DEVICE_DESC(setup_pkt);
+    // ...but the transfer's IN data stage is only 1 byte: the surplus data must fail as a data overrun
+
+    /*
+    Here, we would normally have set:
+    urb->transfer.num_bytes = sizeof(usb_setup_packet_t) + sizeof(usb_device_desc_t);
+    But we are deliberately modifying the number of bytes expected from the device to transfer back to the host,
+    to induce the HCD_PIPE_EVENT_ERROR_OVERFLOW error without a need to have malformed device
+    */
+    urb->transfer.num_bytes = sizeof(usb_setup_packet_t) + 1;
+
+    TEST_ASSERT_EQUAL(ESP_OK, hcd_urb_enqueue(default_pipe, urb));
+    TEST_HCD_EXPECT_PIPE_EVENT(default_pipe, HCD_PIPE_EVENT_ERROR_OVERFLOW);
+    TEST_HCD_EXPECT_PIPE_STATE(default_pipe, HCD_PIPE_STATE_HALTED);
+
+    // The failed URB is retired with an overflow status and no byte count
+    TEST_ASSERT_EQUAL_PTR(urb, hcd_urb_dequeue(default_pipe));
+    TEST_HCD_EXPECT_TRANSFER_STATUS(urb, USB_TRANSFER_STATUS_OVERFLOW);
+    TEST_ASSERT_EQUAL(0, urb->transfer.actual_num_bytes);
+
+    // Return the pipe to the active state
+    TEST_ASSERT_EQUAL(ESP_OK, hcd_pipe_command(default_pipe, HCD_PIPE_CMD_FLUSH));
+    TEST_ASSERT_EQUAL(ESP_OK, hcd_pipe_command(default_pipe, HCD_PIPE_CMD_CLEAR));
+    TEST_HCD_EXPECT_PIPE_STATE(default_pipe, HCD_PIPE_STATE_ACTIVE);
+
+    test_hcd_free_urb(urb);
+    test_hcd_pipe_free(default_pipe);
+    // Cleanup
+    test_hcd_wait_for_disconn(port_hdl, false);
+}
+#endif // CONFIG_USB_HOST_DMA_MODE_BUFFER
