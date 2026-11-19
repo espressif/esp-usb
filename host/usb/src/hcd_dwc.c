@@ -1932,9 +1932,26 @@ static void buffer_block_free(dma_buffer_block_t *buffer)
     free(buffer);
 }
 
+/**
+ * @brief Validate USB transfer-type and speed constraints for a pipe
+ *
+ * The following USB 2.0 constraints are enforced:
+ * - A Low-Speed root port cannot communicate with a Full-Speed device.
+ * - Low-Speed devices do not support Bulk or Isochronous endpoints.
+ * - Interrupt endpoint bInterval ranges (USB 2.0 Specification, Table 9-13):
+ *   - Full-/Low-Speed: 1..255 frames. Note: §5.7.4 recommends a 10 ms minimum
+ *     polling period for Low-Speed, but Table 9-13 permits 1..255 (as accepted
+ *     by Linux host), so the Table 9-13 range is enforced.
+ *   - High-Speed: 1..16, encoding 2^(bInterval - 1) microframes.
+ *
+ * @param pipe_config Pipe configuration, including device speed and endpoint descriptor
+ * @param port_speed Speed of the root port's connected device
+ * @param type USB transfer type requested for the pipe
+ * @return true if the pipe configuration satisfies the enforced USB constraints
+ * @return false otherwise
+ */
 static bool pipe_args_usb_compliance_verification(const hcd_pipe_config_t *pipe_config, usb_speed_t port_speed, usb_transfer_type_t type)
 {
-    // Check if pipe can be supported
     if (port_speed == USB_SPEED_LOW && pipe_config->dev_speed == USB_SPEED_FULL) {
         ESP_LOGE(HCD_DWC_TAG, "Low speed port does not support full speed pipe");
         return false;
@@ -1943,6 +1960,14 @@ static bool pipe_args_usb_compliance_verification(const hcd_pipe_config_t *pipe_
     if (pipe_config->dev_speed == USB_SPEED_LOW && (type == USB_TRANSFER_TYPE_BULK || type == USB_TRANSFER_TYPE_ISOCHRONOUS)) {
         ESP_LOGE(HCD_DWC_TAG, "Low speed does not support Bulk or Isochronous pipes");
         return false;
+    }
+
+    if (type == USB_TRANSFER_TYPE_INTR) {
+        const uint8_t b_interval = pipe_config->ep_desc->bInterval;
+        if (pipe_config->dev_speed == USB_SPEED_HIGH && (b_interval < 1 || b_interval > 16)) {
+            ESP_LOGE(HCD_DWC_TAG, "High-speed interrupt bInterval (%d) must be in range 1..16", b_interval);
+            return false;
+        }
     }
 
     return true;
@@ -2032,7 +2057,7 @@ static void pipe_set_ep_char(const hcd_pipe_config_t *pipe_config, usb_transfer_
         if (type == USB_TRANSFER_TYPE_INTR && pipe_config->dev_speed != USB_SPEED_HIGH) {
             interval_value = pipe_config->ep_desc->bInterval;
         } else {
-            interval_value = (1 << (pipe_config->ep_desc->bInterval - 1));
+            interval_value = (1U << (pipe_config->ep_desc->bInterval - 1));
         }
         ep_char->periodic.interval = interval_value;
         // We are the Nth pipe to be allocated. Use N as a phase offset
