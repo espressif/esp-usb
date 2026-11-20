@@ -1781,6 +1781,18 @@ TEST_CASE("light_sleep_dconn_no_dev", "[light_sleep][host_suspend_dconn_no_dev]"
 
     cdc_acm_dev_hdl_t cdc_dev = NULL;
     cdc_acm_host_device_config_t dev_config = default_dev_config;
+    dev_config.event_cb = [](const cdc_acm_host_dev_event_data_t *event, void *user_ctx) {
+        if (event->type != CDC_ACM_HOST_DEVICE_DISCONNECTED) {
+            default_dev_config.event_cb(event, user_ctx);
+            return;
+        }
+        // Keep the disconnected handle for the API checks below.
+        const test_event_t test_event = {
+            .event_group = CDC_ACM_DEVICE_EVENT,
+            .device_evt = { .dev_event_data = *event },
+        };
+        TEST_ASSERT_EQUAL(pdTRUE, xQueueSend(app_queue, &test_event, 0));
+    };
 
     printf("Opening CDC-ACM device\n");
     wait_for_app_event(&new_dev_event, 100);
@@ -1797,22 +1809,30 @@ TEST_CASE("light_sleep_dconn_no_dev", "[light_sleep][host_suspend_dconn_no_dev]"
 
     // Disable timer wakeup source after exiting light sleep
     TEST_ASSERT_EQUAL(ESP_OK, esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_TIMER));
-    // Make sure there is no stale device is present right after exiting light sleep
-    usb_host_lib_info_t info;
-    TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_info(&info));
-    TEST_ASSERT_EQUAL(0, info.num_devices);
-
     // Port was disconnected during light sleep (by USB Device): Disconnect interrupt was not delivered during light sleep,
     // but after exiting light sleep
     // Expect just device disconnect, no suspend event
     wait_for_app_event(&dev_gone_event, pdMS_TO_TICKS(5000));
 
+    TEST_ASSERT_EQUAL(ESP_ERR_INVALID_STATE, cdc_acm_host_data_tx_blocking(cdc_dev, tx_buf, sizeof(tx_buf), 1000));
+    TEST_ASSERT_EQUAL(ESP_OK, cdc_acm_host_close(cdc_dev));
+    cdc_dev = NULL;
+
+    // Device freeing is handled by the USB library task after the last close.
+    usb_host_lib_info_t info;
+    const TickType_t cleanup_start = xTaskGetTickCount();
+    do {
+        TEST_ASSERT_EQUAL(ESP_OK, usb_host_lib_info(&info));
+        if (info.num_devices == 0) {
+            break;
+        }
+        vTaskDelay(1);
+    } while (xTaskGetTickCount() - cleanup_start < pdMS_TO_TICKS(1000));
+    TEST_ASSERT_EQUAL(0, info.num_devices);
+
     // Currently, the port is in recovery stage (after disconnect in light sleep)
     // Expect new connection after recovery (by USB Device)
     wait_for_app_event(&new_dev_event,  pdMS_TO_TICKS(5000));
-    // Try to send data to the device with an old device handler (connected before the light sleep)
-    TEST_ASSERT_EQUAL(ESP_ERR_NOT_SUPPORTED, cdc_acm_host_data_tx_blocking(cdc_dev, tx_buf, sizeof(tx_buf), 1000));
-    cdc_dev = NULL;
     nb_of_responses = 0;
 
     // Open the device again
