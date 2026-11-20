@@ -1,3 +1,7 @@
+## Unreleased
+
+- esp_tinyusb: Fixed `vfs_tinyusb.c` failing to build with picolibc 1.8.12
+
 ## 3.0.1
 
 - tinyusb: Update from version `0.21.0~2` to `0.21.0~6`. [git diff](https://github.com/espressif/tinyusb/compare/v0.21.0.2...espressif:tinyusb:v0.21.0.6).
