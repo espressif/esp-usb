@@ -6,27 +6,20 @@ from typing import Tuple
 import pytest
 from pytest_embedded_idf.dut import IdfDut
 
+# Create matrix of all targets <-> all configs
+_PARAMS = [
+    pytest.param(config, target, marks=[pytest.mark.eco_default] if target == 'esp32p4' else [])
+    for target in ('esp32s2', 'esp32s3', 'esp32h4', 'esp32p4', 'esp32s31')
+    for config in ('default', 'buffer_dma')
+]
+# Append additional config per-targets
+_PARAMS.append(pytest.param('esp32p4_psram', 'esp32p4', marks=[pytest.mark.eco_default]))
+_PARAMS.append(pytest.param('esp32p4_eco4', 'esp32p4', marks=[pytest.mark.esp32p4_eco4]))
+_PARAMS.append(pytest.param('esp32s31_psram', 'esp32s31'))
+
 
 @pytest.mark.usb_host_flash_disk
-@pytest.mark.parametrize(
-    'config, target',
-    [
-        pytest.param('default', 'esp32s2'),
-        pytest.param('buffer_dma', 'esp32s2'),
-        pytest.param('default', 'esp32s3'),
-        pytest.param('buffer_dma', 'esp32s3'),
-        pytest.param('default', 'esp32h4'),
-        pytest.param('buffer_dma', 'esp32h4'),
-        pytest.param('default', 'esp32p4', marks=[pytest.mark.eco_default]),
-        pytest.param('buffer_dma', 'esp32p4', marks=[pytest.mark.eco_default]),
-        pytest.param('esp32p4_psram', 'esp32p4', marks=[pytest.mark.eco_default]),
-        pytest.param('esp32p4_eco4', 'esp32p4', marks=[pytest.mark.esp32p4_eco4]),
-        pytest.param('default', 'esp32s31'),
-        pytest.param('buffer_dma', 'esp32s31'),
-        pytest.param('esp32s31_psram', 'esp32s31'),
-    ],
-    indirect=['target'],
-)
+@pytest.mark.parametrize('config, target', _PARAMS, indirect=['target'])
 def test_usb_hcd(config: str, dut: IdfDut) -> None:
     '''
         USB Host (DUT):     esp32
@@ -52,24 +45,18 @@ def test_usb_hcd(config: str, dut: IdfDut) -> None:
         dut.run_all_single_board_cases(group=speed_group, reset=True)
 
 
+# Create matrix of all targets <-> all configs
+_PARAMS_DUAL = [
+    pytest.param(2, config, target, marks=[pytest.mark.eco_default] if target == 'esp32p4' else [])
+    for target in ('esp32s2', 'esp32s3', 'esp32h4', 'esp32p4', 'esp32s31')
+    for config in ('default', 'buffer_dma')
+]
+# Append additional config per-targets
+_PARAMS_DUAL.append(pytest.param(2, 'esp32p4_eco4', 'esp32p4', marks=[pytest.mark.esp32p4_eco4]))
+
+
 @pytest.mark.usb_host
-@pytest.mark.parametrize(
-    'count, config, target',
-    [
-        pytest.param(2, 'default', 'esp32s2'),
-        pytest.param(2, 'buffer_dma', 'esp32s2'),
-        pytest.param(2, 'default', 'esp32s3'),
-        pytest.param(2, 'buffer_dma', 'esp32s3'),
-        pytest.param(2, 'default', 'esp32h4'),
-        pytest.param(2, 'buffer_dma', 'esp32h4'),
-        pytest.param(2, 'default', 'esp32p4', marks=[pytest.mark.eco_default]),
-        pytest.param(2, 'buffer_dma', 'esp32p4', marks=[pytest.mark.eco_default]),
-        pytest.param(2, 'esp32p4_eco4', 'esp32p4', marks=[pytest.mark.esp32p4_eco4]),
-        pytest.param(2, 'default', 'esp32s31'),
-        pytest.param(2, 'buffer_dma', 'esp32s31'),
-    ],
-    indirect=True,
-)
+@pytest.mark.parametrize('count, config, target', _PARAMS_DUAL, indirect=True)
 def test_usb_hcd_device_mock(dut: Tuple[IdfDut, IdfDut]) -> None:
     '''
         USB Host (DUT):     esp32

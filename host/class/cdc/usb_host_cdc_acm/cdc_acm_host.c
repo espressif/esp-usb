@@ -577,7 +577,7 @@ static esp_err_t cdc_acm_transfers_allocate(cdc_dev_t *cdc_dev, const usb_ep_des
 
     // 2. Setup control transfer
     ESP_GOTO_ON_ERROR(
-        usb_host_transfer_alloc(CDC_ACM_CTRL_TRANSFER_SIZE, 0, &cdc_dev->ctrl_transfer),
+        usb_host_transfer_alloc(CDC_ACM_CTRL_TRANSFER_SIZE + USB_SETUP_PACKET_SIZE, 0, &cdc_dev->ctrl_transfer),
         err, TAG,);
     cdc_dev->ctrl_transfer->timeout_ms = 1000;
     cdc_dev->ctrl_transfer->bEndpointAddress = 0;
@@ -590,8 +590,10 @@ static esp_err_t cdc_acm_transfers_allocate(cdc_dev_t *cdc_dev, const usb_ep_des
 
     // 3. Setup IN data transfer (if it is required (in_buf_len > 0))
     if (in_buf_len != 0) {
+        // For Buffer DMA, we must round the IN transfer length to multiple of EP's MPS
+        const int rounded_len = usb_round_up_to_mps(in_buf_len, USB_EP_DESC_GET_MPS(in_ep_desc));
         ESP_GOTO_ON_ERROR(
-            usb_host_transfer_alloc(in_buf_len, 0, &cdc_dev->data.in_xfer),
+            usb_host_transfer_alloc(rounded_len, 0, &cdc_dev->data.in_xfer),
             err, TAG,
         );
         assert(cdc_dev->data.in_xfer);
