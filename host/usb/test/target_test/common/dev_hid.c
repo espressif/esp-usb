@@ -9,6 +9,7 @@
 #include "usb/usb_types_ch9.h"
 #include "usb/usb_types_stack.h"
 #include "dev_hid.h"
+#include "mock_hid.h"   // Single source of the mock device's geometry (endpoint addresses, MPS, report lengths)
 
 /*
 Some tests where the ESP (acting as host) will require that a particular test
@@ -106,10 +107,10 @@ wData                       : "123456"
 // --------------------------- Device Information ------------------------------
 
 static const dev_hid_info_t dev_info[DEV_HID_NUM_ITF] = {
-    {.bInterfaceNumber = 0, .bAlternateSetting = 0, .in_ep_addr = 0x81, .in_ep_mps = 8, .report_len = 5},
-    {.bInterfaceNumber = 1, .bAlternateSetting = 0, .in_ep_addr = 0x82, .in_ep_mps = 4, .report_len = 4},
-    {.bInterfaceNumber = 2, .bAlternateSetting = 0, .in_ep_addr = 0x83, .in_ep_mps = 5, .report_len = 4},
-    {.bInterfaceNumber = 3, .bAlternateSetting = 0, .in_ep_addr = 0x84, .in_ep_mps = 5, .report_len = 5},
+    {.bInterfaceNumber = DEV_HID_ITF_R5_MPS8, .bAlternateSetting = 0, .in_ep_addr = MOCK_HID_EP_IN_R5_MPS8, .in_ep_mps = MOCK_HID_EP_MPS_ITF0, .report_len = MOCK_HID_REPORT_LEN_5B},
+    {.bInterfaceNumber = DEV_HID_ITF_R4_MPS4, .bAlternateSetting = 0, .in_ep_addr = MOCK_HID_EP_IN_R4_MPS4, .in_ep_mps = MOCK_HID_EP_MPS_ITF1, .report_len = MOCK_HID_REPORT_LEN_4B},
+    {.bInterfaceNumber = DEV_HID_ITF_R4_MPS5, .bAlternateSetting = 0, .in_ep_addr = MOCK_HID_EP_IN_R4_MPS5, .in_ep_mps = MOCK_HID_EP_MPS_ITF2, .report_len = MOCK_HID_REPORT_LEN_4B},
+    {.bInterfaceNumber = DEV_HID_ITF_R5_MPS5, .bAlternateSetting = 0, .in_ep_addr = MOCK_HID_EP_IN_R5_MPS5, .in_ep_mps = MOCK_HID_EP_MPS_ITF3, .report_len = MOCK_HID_REPORT_LEN_5B},
 };
 
 // ------------------------------- Descriptors ---------------------------------
@@ -146,7 +147,7 @@ static const usb_intf_desc_t intf_desc[DEV_HID_NUM_ITF] = {
     {
         .bLength = USB_INTF_DESC_SIZE,
         .bDescriptorType = USB_B_DESCRIPTOR_TYPE_INTERFACE,
-        .bInterfaceNumber = 0,
+        .bInterfaceNumber = DEV_HID_ITF_R5_MPS8,
         .bAlternateSetting = 0,
         .bNumEndpoints = 2,           // Loopback: interrupt IN + OUT
         .bInterfaceClass = USB_CLASS_HID,
@@ -157,7 +158,7 @@ static const usb_intf_desc_t intf_desc[DEV_HID_NUM_ITF] = {
     {
         .bLength = USB_INTF_DESC_SIZE,
         .bDescriptorType = USB_B_DESCRIPTOR_TYPE_INTERFACE,
-        .bInterfaceNumber = 1,
+        .bInterfaceNumber = DEV_HID_ITF_R4_MPS4,
         .bAlternateSetting = 0,
         .bNumEndpoints = 1,
         .bInterfaceClass = USB_CLASS_HID,
@@ -168,7 +169,7 @@ static const usb_intf_desc_t intf_desc[DEV_HID_NUM_ITF] = {
     {
         .bLength = USB_INTF_DESC_SIZE,
         .bDescriptorType = USB_B_DESCRIPTOR_TYPE_INTERFACE,
-        .bInterfaceNumber = 2,
+        .bInterfaceNumber = DEV_HID_ITF_R4_MPS5,
         .bAlternateSetting = 0,
         .bNumEndpoints = 1,
         .bInterfaceClass = USB_CLASS_HID,
@@ -179,7 +180,7 @@ static const usb_intf_desc_t intf_desc[DEV_HID_NUM_ITF] = {
     {
         .bLength = USB_INTF_DESC_SIZE,
         .bDescriptorType = USB_B_DESCRIPTOR_TYPE_INTERFACE,
-        .bInterfaceNumber = 3,
+        .bInterfaceNumber = DEV_HID_ITF_R5_MPS5,
         .bAlternateSetting = 0,
         .bNumEndpoints = 1,
         .bInterfaceClass = USB_CLASS_HID,
@@ -193,34 +194,34 @@ static const usb_ep_desc_t in_ep_desc[DEV_HID_NUM_ITF] = {
     {
         .bLength = USB_EP_DESC_SIZE,
         .bDescriptorType = USB_B_DESCRIPTOR_TYPE_ENDPOINT,
-        .bEndpointAddress = 0x81,       // EP 1 IN
+        .bEndpointAddress = MOCK_HID_EP_IN_R5_MPS8, // EP 1 IN
         .bmAttributes = USB_BM_ATTRIBUTES_XFER_INT,
-        .wMaxPacketSize = 0x0008,
-        .bInterval = 0x0A,              // 10 ms
+        .wMaxPacketSize = MOCK_HID_EP_MPS_ITF0,
+        .bInterval = MOCK_HID_EP_INTERVAL_MS, // 10 ms
     },
     {
         .bLength = USB_EP_DESC_SIZE,
         .bDescriptorType = USB_B_DESCRIPTOR_TYPE_ENDPOINT,
-        .bEndpointAddress = 0x82,       // EP 2 IN
+        .bEndpointAddress = MOCK_HID_EP_IN_R4_MPS4, // EP 2 IN
         .bmAttributes = USB_BM_ATTRIBUTES_XFER_INT,
-        .wMaxPacketSize = 0x0004,
-        .bInterval = 0x01,              // Poll every frame/microframe
+        .wMaxPacketSize = MOCK_HID_EP_MPS_ITF1,
+        .bInterval = MOCK_HID_EP_STRICT_INTERVAL, // Poll every frame/microframe
     },
     {
         .bLength = USB_EP_DESC_SIZE,
         .bDescriptorType = USB_B_DESCRIPTOR_TYPE_ENDPOINT,
-        .bEndpointAddress = 0x83,       // EP 3 IN
+        .bEndpointAddress = MOCK_HID_EP_IN_R4_MPS5, // EP 3 IN
         .bmAttributes = USB_BM_ATTRIBUTES_XFER_INT,
-        .wMaxPacketSize = 0x0005,
-        .bInterval = 0x0A,              // 10 ms
+        .wMaxPacketSize = MOCK_HID_EP_MPS_ITF2,
+        .bInterval = MOCK_HID_EP_INTERVAL_MS, // 10 ms
     },
     {
         .bLength = USB_EP_DESC_SIZE,
         .bDescriptorType = USB_B_DESCRIPTOR_TYPE_ENDPOINT,
-        .bEndpointAddress = 0x84,       // EP 4 IN
+        .bEndpointAddress = MOCK_HID_EP_IN_R5_MPS5, // EP 4 IN
         .bmAttributes = USB_BM_ATTRIBUTES_XFER_INT,
-        .wMaxPacketSize = 0x0005,
-        .bInterval = 0x0A,              // 10 ms
+        .wMaxPacketSize = MOCK_HID_EP_MPS_ITF3,
+        .bInterval = MOCK_HID_EP_INTERVAL_MS, // 10 ms
     },
 };
 
@@ -228,10 +229,10 @@ static const usb_ep_desc_t in_ep_desc[DEV_HID_NUM_ITF] = {
 static const usb_ep_desc_t out_ep_desc = {
     .bLength = USB_EP_DESC_SIZE,
     .bDescriptorType = USB_B_DESCRIPTOR_TYPE_ENDPOINT,
-    .bEndpointAddress = 0x01,       // EP 1 OUT
+    .bEndpointAddress = MOCK_HID_EP_OUT_LOOPBACK, // EP 1 OUT
     .bmAttributes = USB_BM_ATTRIBUTES_XFER_INT,
-    .wMaxPacketSize = 0x0008,
-    .bInterval = 0x0A,              // 10 ms
+    .wMaxPacketSize = MOCK_HID_EP_MPS_ITF0,
+    .bInterval = MOCK_HID_EP_INTERVAL_MS,     // 10 ms
 };
 
 /*

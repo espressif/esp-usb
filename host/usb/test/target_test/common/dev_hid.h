@@ -39,7 +39,7 @@ extern "C" {
  * @brief HID interfaces of the composite test device
  *
  * Named after each interface's interrupt IN endpoint (report length / EP MPS),
- * mirroring the mock device's endpoint defines (MOCK_HID_EP_IN_*, see mock_hid.c)
+ * mirroring the mock device's endpoint defines (MOCK_HID_EP_IN_*, see mock_hid.h)
  */
 typedef enum {
     DEV_HID_ITF_R5_MPS8 = 0,    // EP 0x81: 5-byte report, MPS 8 (DWORD); loopback interface (OUT EP 0x01)

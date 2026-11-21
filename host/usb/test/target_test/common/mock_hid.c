@@ -21,24 +21,11 @@
 #include "freertos/queue.h"
 #include "mock_hid.h"
 
-// Interrupt IN endpoint parameters (one endpoint per HID interface)
-#define MOCK_HID_EP_IN_R5_MPS8      0x81    // Interface 0: 5-byte report, MPS 8 (DWORD)
-#define MOCK_HID_EP_IN_R4_MPS4      0x82    // Interface 1: 4-byte report, MPS 4 (DWORD), bInterval 1
-#define MOCK_HID_EP_IN_R4_MPS5      0x83    // Interface 2: 4-byte report, MPS 5 (non-DWORD)
-#define MOCK_HID_EP_IN_R5_MPS5      0x84    // Interface 3: 5-byte report, MPS 5 (non-DWORD)
-// Interrupt OUT endpoint of the loopback interface (interface 0): echoes received reports on EP 0x81
-
-#define MOCK_HID_EP_OUT_LOOPBACK    0x01
-#define MOCK_HID_EP_OUT_MPS         8       // Same MPS as EP 0x81 (DWORD), one MPS per endpoint in TUD_HID_INOUT_DESCRIPTOR
-#define MOCK_HID_LOOPBACK_MAX_LEN   (3 * MOCK_HID_EP_OUT_MPS) // Longest echoed report (multi-packet OUT)
-#define MOCK_HID_EP_INTERVAL_MS     10
-#define MOCK_HID_EP_STRICT_INTERVAL 1
+// Device geometry (endpoint addresses, MPS, report lengths, intervals) is single-sourced from mock_hid.h
+#define MOCK_HID_LOOPBACK_MAX_LEN   (3 * MOCK_HID_EP_MPS_ITF0)  // Longest echoed report (multi-packet OUT)
 
 #define MOCK_HID_REPORT_PERIOD_MS   10      // Period of generating mouse movement reports
 #define MOCK_HID_MOVE_DELTA         5       // Cursor movement per report
-
-#define MOCK_HID_REPORT_LEN_5B      5       // buttons, X, Y, wheel, AC pan
-#define MOCK_HID_REPORT_LEN_4B      4       // buttons, X, Y, wheel
 
 static const char *TAG = "mock_hid_dev";
 
@@ -118,11 +105,11 @@ static const uint8_t hid_configuration_descriptor[] = {
     TUD_CONFIG_DESCRIPTOR(1, MOCK_HID_NUM_ITF, 0, TUSB_DESC_TOTAL_LEN, TUSB_DESC_CONFIG_ATT_REMOTE_WAKEUP, 100),
 
     // Interface number, string index, protocol, report descriptor len, EP Out & In address, size & polling interval
-    TUD_HID_INOUT_DESCRIPTOR(0, 0, HID_ITF_PROTOCOL_MOUSE, sizeof(hid_report_descriptor_5b), MOCK_HID_EP_OUT_LOOPBACK, MOCK_HID_EP_IN_R5_MPS8, MOCK_HID_EP_OUT_MPS, MOCK_HID_EP_INTERVAL_MS),
+    TUD_HID_INOUT_DESCRIPTOR(0, 0, HID_ITF_PROTOCOL_MOUSE, sizeof(hid_report_descriptor_5b), MOCK_HID_EP_OUT_LOOPBACK, MOCK_HID_EP_IN_R5_MPS8, MOCK_HID_EP_MPS_ITF0, MOCK_HID_EP_INTERVAL_MS),
     // Interface number, string index, protocol, report descriptor len, EP In address, size & polling interval
-    TUD_HID_DESCRIPTOR(1, 0, HID_ITF_PROTOCOL_MOUSE, sizeof(hid_report_descriptor_4b), MOCK_HID_EP_IN_R4_MPS4, 4, MOCK_HID_EP_STRICT_INTERVAL),
-    TUD_HID_DESCRIPTOR(2, 0, HID_ITF_PROTOCOL_MOUSE, sizeof(hid_report_descriptor_4b), MOCK_HID_EP_IN_R4_MPS5, 5, MOCK_HID_EP_INTERVAL_MS),
-    TUD_HID_DESCRIPTOR(3, 0, HID_ITF_PROTOCOL_MOUSE, sizeof(hid_report_descriptor_5b), MOCK_HID_EP_IN_R5_MPS5, 5, MOCK_HID_EP_INTERVAL_MS),
+    TUD_HID_DESCRIPTOR(1, 0, HID_ITF_PROTOCOL_MOUSE, sizeof(hid_report_descriptor_4b), MOCK_HID_EP_IN_R4_MPS4, MOCK_HID_EP_MPS_ITF1, MOCK_HID_EP_STRICT_INTERVAL),
+    TUD_HID_DESCRIPTOR(2, 0, HID_ITF_PROTOCOL_MOUSE, sizeof(hid_report_descriptor_4b), MOCK_HID_EP_IN_R4_MPS5, MOCK_HID_EP_MPS_ITF2, MOCK_HID_EP_INTERVAL_MS),
+    TUD_HID_DESCRIPTOR(3, 0, HID_ITF_PROTOCOL_MOUSE, sizeof(hid_report_descriptor_5b), MOCK_HID_EP_IN_R5_MPS5, MOCK_HID_EP_MPS_ITF3, MOCK_HID_EP_INTERVAL_MS),
 };
 
 /************* Device descriptors ****************/

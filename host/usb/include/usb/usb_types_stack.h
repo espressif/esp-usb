@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2015-2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2015-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -198,7 +198,7 @@ struct usb_transfer_s {
  * @note IN transfers normally terminate when the Host as receive the exact amount of data it needs (must be multiple of MPS)
  *       or the endpoint sends a short packet to the Host
  */
-#define USB_TRANSFER_FLAG_ZERO_PACK  0x01           /**< (For bulk OUT only). Indicates that a bulk OUT transfers should always terminate with a short packet, even if it means adding an extra zero length packet */
+#define USB_TRANSFER_FLAG_ZERO_PACK  0x01           /**< (For bulk and interrupt OUT only). Indicates that bulk and interrupt OUT transfers should always terminate with a short packet, even if it means adding an extra zero length packet */
 
 #ifdef __cplusplus
 }
