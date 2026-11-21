@@ -8,8 +8,20 @@
 
 /*
 Mock HID device based on the TinyUSB device stack.
-The device emulates an HID mouse that periodically generates movement reports on its interrupt IN endpoint
+The device emulates a composite HID mouse with 4 HID interfaces, each with its own
+interrupt IN endpoint and (report length, EP MPS) combination:
+  - Interface 0 (EP 0x81): 5-byte report, MPS 8 (DWORD)      - report < MPS, short packet
+  - Interface 1 (EP 0x82): 4-byte report, MPS 4, bInterval 1 - report == MPS, multi-packet fill, strict (never NAKs)
+  - Interface 2 (EP 0x83): 4-byte report, MPS 5 (non-DWORD)  - report < MPS, short packet
+  - Interface 3 (EP 0x84): 5-byte report, MPS 5 (non-DWORD)  - report == MPS, full packets
+Each interface periodically generates mouse movement reports on its interrupt IN endpoint.
+Interface 0 additionally has an interrupt OUT endpoint (EP 0x01, MPS 8): received OUT
+reports are echoed back on its interrupt IN endpoint (loopback), so host tests can verify
+interrupt OUT transfers end-to-end.
 Intended to run on a second ESP board, connected to the USB Host DUT.
+
+Requires CONFIG_TINYUSB_HID_COUNT=4 (one TinyUSB HID instance per interface),
+enforced in the test app's sdkconfig.defaults.
 */
 
 #ifdef __cplusplus
@@ -40,6 +52,19 @@ extern "C" {
     (setup_pkt_ptr)->wLength = (report_len);  \
 })
 
+
+/**
+ * @brief Mock HID device behavior modes
+ *
+ * Selected at runtime by a SET_REPORT carrying MOCK_HID_SET_REPORT_MODE_TRIGGER. The device
+ * falls back to MOCK_HID_DEVICE_MODE_MOUSE_REPORT when unmounted (the host powers off the
+ * port at the end of every test case).
+ */
+typedef enum {
+    MOCK_HID_DEVICE_MODE_MOUSE_REPORT,  /**< Mouse reports on all interfaces (default) */
+    MOCK_HID_DEVICE_MODE_LOOPBACK_ONLY, /**< Loopback interface sends only echoes */
+} mock_hid_device_mode_t;
+
 /**
  * @brief SET_REPORT payload byte that triggers a stall of the mock's interrupt IN endpoint
  *
@@ -51,10 +76,28 @@ extern "C" {
 #define MOCK_HID_SET_REPORT_STALL_TRIGGER     0xA5
 
 /**
+ * @brief SET_REPORT payload byte that selects the mock's device mode
+ *
+ * Test hook: this first byte identifies a device-mode request. The second byte
+ * contains the mock_hid_device_mode_t value to select.
+ *
+ * @note The value 0x5B is an arbitrary test-only magic value. It has no USB or
+ * HID protocol meaning.
+ */
+#define MOCK_HID_SET_REPORT_MODE_TRIGGER      0x5B
+
+/**
+ * @brief Number of HID interfaces of the mock composite device
+ */
+#define MOCK_HID_NUM_ITF        4
+#define MOCK_HID_STRICT_ITF     1
+#define MOCK_HID_LOOPBACK_ITF   0   // Interface with the interrupt OUT endpoint (echoes on its IN endpoint)
+
+/**
  * @brief Install the TinyUSB driver and run the mock HID mouse device
  *
  * A FreeRTOS task is started that periodically sends HID mouse movement
- * reports (square pattern) on the interrupt IN endpoint.
+ * reports (square pattern) on the interrupt IN endpoint of each interface.
  *
  * @note This function must be called only once (from a mock device test case)
  */
