@@ -15,7 +15,14 @@ Some tests where the ESP (acting as host) will require that a particular test
 device acting as an HID mouse be connected. This header contains
 functions to get information and descriptors about that test device.
 
-The descriptors match the TinyUSB based mock HID mouse device (see mock_hid.c).
+The descriptors match the TinyUSB based mock HID mouse device (see mock_hid.c):
+a composite device with 4 HID interfaces, each with its own interrupt IN
+endpoint and (report length, EP MPS) combination:
+  - Interface 0 (EP 0x81): 5-byte report, MPS 8 (DWORD)      - report < MPS, short packet
+    (+ EP 0x01 OUT, MPS 8: loopback, echoes received OUT reports on EP 0x81)
+  - Interface 1 (EP 0x82): 4-byte report, MPS 4, bInterval 1 - report == MPS, multi-packet fill, strict (never NAKs)
+  - Interface 2 (EP 0x83): 4-byte report, MPS 5 (non-DWORD)  - report < MPS, short packet
+  - Interface 3 (EP 0x84): 5-byte report, MPS 5 (non-DWORD)  - report == MPS, full packets
 If you are connecting a different HID mouse, please update the descriptors in
 dev_hid.c accordingly.
 */
@@ -25,15 +32,35 @@ extern "C" {
 #endif
 
 /**
+ * @brief Number of HID interfaces of the composite test device
+ */
+#define DEV_HID_NUM_ITF     4
+#define DEV_HID_STRICT_ITF  1
+
+/**
+ * @brief HID interfaces of the composite test device
+ *
+ * Named after each interface's interrupt IN endpoint (report length / EP MPS),
+ * mirroring the mock device's endpoint defines (MOCK_HID_EP_IN_*, see mock_hid.c)
+ */
+typedef enum {
+    DEV_HID_ITF_R5_MPS8 = 0,    // EP 0x81: 5-byte report, MPS 8 (DWORD); loopback interface (OUT EP 0x01)
+    DEV_HID_ITF_R4_MPS4 = 1,    // EP 0x82: 4-byte report, MPS 4, bInterval 1; strict (never NAKs)
+    DEV_HID_ITF_R4_MPS5 = 2,    // EP 0x83: 4-byte report, MPS 5 (non-DWORD)
+    DEV_HID_ITF_R5_MPS5 = 3,    // EP 0x84: 5-byte report, MPS 5 (non-DWORD)
+} dev_hid_itf_t;
+
+/**
  * @brief HID test device information
  *
- * Structure containing basic information about the HID interface on
+ * Structure containing basic information about one HID interface on
  * the test device.
  */
 typedef struct {
     uint8_t bInterfaceNumber;
     uint8_t bAlternateSetting;
     uint8_t in_ep_addr;
+    uint16_t in_ep_mps;     // Interrupt IN endpoint MPS
     uint8_t report_len;     // HID report length in bytes
 } dev_hid_info_t;
 
@@ -45,11 +72,12 @@ typedef struct {
 void dev_hid_init(void);
 
 /**
- * @brief Get information about the test device's HID interface
+ * @brief Get information about one of the test device's HID interfaces
  *
+ * @param[in] itf_num Interface number (see dev_hid_itf_t)
  * @return Information object
  */
-const dev_hid_info_t *dev_hid_get_info(void);
+const dev_hid_info_t *dev_hid_get_info(uint8_t itf_num);
 
 /**
  * @brief Get the test device's descriptor
@@ -68,20 +96,33 @@ const usb_device_desc_t *dev_hid_get_dev_desc(usb_speed_t speed);
 const usb_config_desc_t *dev_hid_get_config_desc(usb_speed_t speed);
 
 /**
- * @brief Get the test device's HID interface descriptor
+ * @brief Get one of the test device's HID interface descriptors
  *
  * @param[in] speed Test device's current speed
+ * @param[in] itf_num Interface number (see dev_hid_itf_t)
  * @return HID interface descriptor
  */
-const usb_intf_desc_t *dev_hid_get_intf_desc(usb_speed_t speed);
+const usb_intf_desc_t *dev_hid_get_intf_desc(usb_speed_t speed, uint8_t itf_num);
 
 /**
- * @brief Get the test device's HID interrupt IN endpoint descriptor
+ * @brief Get one of the test device's HID interrupt IN endpoint descriptors
  *
  * @param[in] speed Test device's current speed
+ * @param[in] itf_num Interface number (see dev_hid_itf_t)
  * @return Interrupt IN endpoint descriptor
  */
-const usb_ep_desc_t *dev_hid_get_in_ep_desc(usb_speed_t speed);
+const usb_ep_desc_t *dev_hid_get_in_ep_desc(usb_speed_t speed, uint8_t itf_num);
+
+/**
+ * @brief Get the test device's HID interrupt OUT endpoint descriptor
+ *
+ * Only the loopback interface (interface 0) has an interrupt OUT endpoint;
+ * reports received on it are echoed back on the interface's interrupt IN endpoint
+ *
+ * @param[in] speed Test device's current speed
+ * @return Interrupt OUT endpoint descriptor
+ */
+const usb_ep_desc_t *dev_hid_get_out_ep_desc(usb_speed_t speed);
 
 /**
  * @brief Get the test device's manufacturer string descriptor

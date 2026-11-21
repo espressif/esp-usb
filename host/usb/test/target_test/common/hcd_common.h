@@ -29,6 +29,7 @@
 extern hcd_port_handle_t port_hdl;
 
 #define URB_CONTEXT_VAL ((void *)0xDEADBEEF)
+#define EVENT_EXPECT_TIMEOUT_MS     5000
 
 // ------------------------------------------------- HCD Event Test ----------------------------------------------------
 
@@ -39,18 +40,29 @@ extern hcd_port_handle_t port_hdl;
  *
  * @param port_hdl Port handle to expect event from
  * @param expected_event Port event to expect
+ * @param timeout_ms Time to wait for the event, in milliseconds
  * @param file File from which the function was called
  * @param line Line from which the function was called
  */
-void test_hcd_expect_port_event_impl(hcd_port_handle_t port_hdl, hcd_port_event_t expected_event, const char *file, int line);
+void test_hcd_expect_port_event_impl(hcd_port_handle_t port_hdl, hcd_port_event_t expected_event, uint32_t timeout_ms, const char *file, int line);
 
 /**
  * @brief Expect (wait) for an HCD port event
  *
+ * @note Event expectation timeout is default 5000 ms
  * @param port_hdl Port handle to expect event from
  * @param expected_event Port event to expect
  */
-#define TEST_HCD_EXPECT_PORT_EVENT(port_hdl, expected_event) test_hcd_expect_port_event_impl((port_hdl), (expected_event), __FILE__, __LINE__)
+#define TEST_HCD_EXPECT_PORT_EVENT(port_hdl, expected_event) test_hcd_expect_port_event_impl((port_hdl), (expected_event), EVENT_EXPECT_TIMEOUT_MS, __FILE__, __LINE__)
+
+/**
+ * @brief Expect (wait) for an HCD port event with a custom timeout
+ *
+ * @param port_hdl Port handle to expect event from
+ * @param expected_event Port event to expect
+ * @param timeout_ms Time to wait for the event, in milliseconds
+ */
+#define TEST_HCD_EXPECT_PORT_EVENT_MS(port_hdl, expected_event, timeout_ms) test_hcd_expect_port_event_impl((port_hdl), (expected_event), (timeout_ms), __FILE__, __LINE__)
 
 /**
  * @brief Expect (wait) for an HCD pipe event
@@ -59,18 +71,29 @@ void test_hcd_expect_port_event_impl(hcd_port_handle_t port_hdl, hcd_port_event_
  *
  * @param pipe_hdl Pipe handle to expect event from
  * @param expected_event Pipe event to expect
+ * @param timeout_ms Time to wait for the event, in milliseconds
  * @param file File from which the function was called
  * @param line Line from which the function was called
  */
-void test_hcd_expect_pipe_event_impl(hcd_pipe_handle_t pipe_hdl, hcd_pipe_event_t expected_event, const char *file, int line);
+void test_hcd_expect_pipe_event_impl(hcd_pipe_handle_t pipe_hdl, hcd_pipe_event_t expected_event, uint32_t timeout_ms, const char *file, int line);
 
 /**
  * @brief Expect (wait) for an HCD pipe event
  *
+ * @note Event expectation timeout is default 5000 ms
  * @param pipe_hdl Pipe handle to expect event from
  * @param expected_event Pipe event to expect
  */
-#define TEST_HCD_EXPECT_PIPE_EVENT(pipe_hdl, expected_event) test_hcd_expect_pipe_event_impl((pipe_hdl), (expected_event), __FILE__, __LINE__)
+#define TEST_HCD_EXPECT_PIPE_EVENT(pipe_hdl, expected_event) test_hcd_expect_pipe_event_impl((pipe_hdl), (expected_event), EVENT_EXPECT_TIMEOUT_MS, __FILE__, __LINE__)
+
+/**
+ * @brief Expect (wait) for an HCD pipe event with a custom timeout
+ *
+ * @param pipe_hdl Pipe handle to expect event from
+ * @param expected_event Pipe event to expect
+ * @param timeout_ms Time to wait for the event, in milliseconds
+ */
+#define TEST_HCD_EXPECT_PIPE_EVENT_MS(pipe_hdl, expected_event, timeout_ms) test_hcd_expect_pipe_event_impl((pipe_hdl), (expected_event), (timeout_ms), __FILE__, __LINE__)
 
 /**
  * @brief Expect (wait) for an HCD pipe event, but none should be delivered

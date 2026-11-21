@@ -220,14 +220,14 @@ static bool pipe_callback(hcd_pipe_handle_t pipe_hdl, hcd_pipe_event_t pipe_even
 
 // ------------------------------------------------- HCD Event Test ----------------------------------------------------
 
-void test_hcd_expect_port_event_impl(hcd_port_handle_t port_hdl, hcd_port_event_t expected_event, const char *file, int line)
+void test_hcd_expect_port_event_impl(hcd_port_handle_t port_hdl, hcd_port_event_t expected_event, uint32_t timeout_ms, const char *file, int line)
 {
     // Get the port event queue from the port's context variable
     QueueHandle_t port_evt_queue = (QueueHandle_t)hcd_port_get_context(port_hdl);
     TEST_ASSERT_NOT_NULL(port_evt_queue);
     // Wait for port callback to send an event message
     port_event_msg_t msg;
-    BaseType_t ret = xQueueReceive(port_evt_queue, &msg, pdMS_TO_TICKS(5000));
+    BaseType_t ret = xQueueReceive(port_evt_queue, &msg, pdMS_TO_TICKS(timeout_ms));
     if (ret != pdPASS) {
         snprintf(err_msg_buf, sizeof(err_msg_buf), "Port event %s not generated on time at %s:%d", port_event_str(expected_event), file, line);
         TEST_FAIL_MESSAGE(err_msg_buf);
@@ -241,14 +241,14 @@ void test_hcd_expect_port_event_impl(hcd_port_handle_t port_hdl, hcd_port_event_
     ESP_LOGD(TAG, "-> Port event");
 }
 
-void test_hcd_expect_pipe_event_impl(hcd_pipe_handle_t pipe_hdl, hcd_pipe_event_t expected_event, const char *file, int line)
+void test_hcd_expect_pipe_event_impl(hcd_pipe_handle_t pipe_hdl, hcd_pipe_event_t expected_event, uint32_t timeout_ms, const char *file, int line)
 {
     // Get the pipe's event queue from the pipe's context variable
     QueueHandle_t pipe_evt_queue = (QueueHandle_t)hcd_pipe_get_context(pipe_hdl);
     TEST_ASSERT_NOT_NULL(pipe_evt_queue);
     // Wait for pipe callback to send an event message
     pipe_event_msg_t msg;
-    BaseType_t ret =  xQueueReceive(pipe_evt_queue, &msg, pdMS_TO_TICKS(5000));
+    BaseType_t ret =  xQueueReceive(pipe_evt_queue, &msg, pdMS_TO_TICKS(timeout_ms));
     if (ret != pdPASS) {
         snprintf(err_msg_buf, sizeof(err_msg_buf), "Pipe event %s not generated on time at %s:%d", pipe_event_str(expected_event), file, line);
         TEST_FAIL_MESSAGE(err_msg_buf);
