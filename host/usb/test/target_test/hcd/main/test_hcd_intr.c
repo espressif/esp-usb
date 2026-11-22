@@ -434,15 +434,20 @@ TEST_CASE("Test HCD interrupt pipe alloc: bInterval=0", "[intr][low_speed][full_
 /*
 Test HCD interrupt pipe allocation, when bInterval in the interval [0x01..0xFF]
 Purpose:
-    - Test that an interrupt pipe can be created with bInterval in the interval [0x01..0xFF]
-    - Test that an interrupt pipe creation cause no panic with any bInterval
+    - Verify that valid interrupt bInterval values allocate successfully:
+      - Full-Speed: 1..255
+      - Low-Speed: 1..255 (USB 2.0 Specification Table 9-13 defines minimum as 10, but Linux host allows also lower than 10)
+      - High-Speed: 1..16
+    - Verify that USB 2.0-disallowed interrupt bInterval values are rejected:
+      - High-Speed: 17..255
 
 Procedure:
     - Setup HCD and wait for connection
-    - Allocate interrupt pipe with bInterval in the interval [0x01..0xFF]
-    - Expect ESP_OK
+    - Attempt interrupt pipe allocation for each bInterval in the interval [0x01..0xFF]
+    - Expect ESP_OK only for the range valid at the selected device speed
+    - Expect ESP_ERR_NOT_SUPPORTED and a NULL pipe handle for disallowed values
     - Cleanup
-*Note: for all speeds (LS, FS, HS)
+*Note: USB 2.0 Specification Table 9-13 defines these speed-specific bInterval ranges.
 */
 TEST_CASE("Test HCD interrupt pipe alloc: bInterval [0x1..0xff]", "[intr][low_speed][full_speed][high_speed]")
 {
@@ -473,9 +478,17 @@ TEST_CASE("Test HCD interrupt pipe alloc: bInterval [0x1..0xff]", "[intr][low_sp
             // Create an interrupt pipe (using a EP descriptor)
             hcd_pipe_handle_t pipe_hdl = NULL;
             pipe_config.dev_speed = test_speed;
-            TEST_ASSERT_EQUAL_MESSAGE(ESP_OK, hcd_pipe_alloc(port_hdl, &pipe_config, &pipe_hdl), "Create pipe should not fail");
-            TEST_ASSERT_NOT_NULL_MESSAGE(pipe_hdl, "Pipe handle should not be NULL");
-            TEST_ASSERT_EQUAL(ESP_OK, hcd_pipe_free(pipe_hdl));
+
+            const bool invalid_hs_config = (test_speed == USB_SPEED_HIGH) && test_bInterval > 16;
+
+            if (invalid_hs_config) {
+                TEST_ASSERT_EQUAL_MESSAGE(ESP_ERR_NOT_SUPPORTED, hcd_pipe_alloc(port_hdl, &pipe_config, &pipe_hdl), "Create pipe should fail");
+                TEST_ASSERT_NULL_MESSAGE(pipe_hdl, "Pipe handle should be NULL");
+            } else {
+                TEST_ASSERT_EQUAL_MESSAGE(ESP_OK, hcd_pipe_alloc(port_hdl, &pipe_config, &pipe_hdl), "Create pipe should not fail");
+                TEST_ASSERT_NOT_NULL_MESSAGE(pipe_hdl, "Pipe handle should not be NULL");
+                TEST_ASSERT_EQUAL(ESP_OK, hcd_pipe_free(pipe_hdl));
+            }
         }
     }
     // Cleanup
