@@ -225,8 +225,9 @@ menu "USB-OTG"
         bool "Place USB Host interrupt handling in IRAM"
         default n
         help
-            Place the USB Host interrupt handler, and every function in this component that the handler
-            calls, in IRAM.
+            Place the USB Host interrupt handler, every function in this component that the handler
+            calls, and the USB-DWC HAL functions that decode the interrupt and activate the channel,
+            in IRAM.
 
             When a periodic transfer completes, the handler halts the channel and must enable it again
             for the next buffer before the next (micro)frame starts. On a High-Speed port with bInterval 1
@@ -235,6 +236,9 @@ menu "USB-OTG"
 
             Enable this option for that High-Speed isochronous case. It uses extra IRAM. When disabled,
             the handler still runs, but it is linked into flash.
+
+            Application and class-driver callbacks are not moved. This option does not make the handler
+            safe to run while the flash cache is disabled.
 
     config USB_HOST_ENABLE_ENUM_FILTER_CALLBACK
         bool "Enable enumeration filter callback"

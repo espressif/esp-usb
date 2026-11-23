@@ -8,7 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
-- Added `CONFIG_USB_HOST_ISR_HANDLER_IN_IRAM` (disabled by default) to place the USB Host interrupt handler and the functions it calls in IRAM.
+- Added `CONFIG_USB_HOST_ISR_HANDLER_IN_IRAM` (disabled by default) to place the USB Host interrupt handler, the functions it calls, and the USB-DWC HAL interrupt functions in IRAM.
 
 ### Fixed
 

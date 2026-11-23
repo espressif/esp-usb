@@ -1085,9 +1085,10 @@ static hcd_pipe_event_t USB_HOST_ISR_ATTR _intr_hdlr_chan(pipe_t *pipe, usb_dwc_
  *   allow the users to send whatever OS primitives they need.
  *
  * @note When CONFIG_USB_HOST_ISR_HANDLER_IN_IRAM is enabled, this handler and every function in this component
- *       that it calls are placed in IRAM (USB_HOST_ISR_ATTR). A periodic transfer completion has to re-enable the
- *       channel before the next (micro)frame. With that path in flash, a High-Speed bInterval 1 transfer can lose
- *       its first packet (USB_TRANSFER_STATUS_SKIPPED).
+ *       that it calls are placed in IRAM (USB_HOST_ISR_ATTR). The same option places the USB-DWC HAL functions
+ *       this handler calls (interrupt decode and channel activate) in IRAM via a linker fragment. A periodic
+ *       transfer completion has to re-enable the channel before the next (micro)frame. With that path in flash,
+ *       a High-Speed bInterval 1 transfer can lose its first packet (USB_TRANSFER_STATUS_SKIPPED).
  *
  * @param arg Interrupt handler argument
  */
