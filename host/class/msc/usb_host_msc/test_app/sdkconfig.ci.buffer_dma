@@ -1,1 +1,3 @@
+# Configuration with Buffer DMA selected
+
 CONFIG_USB_HOST_DMA_MODE_BUFFER=y
