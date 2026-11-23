@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- Added a global client-event handling mode selection in Kconfig, allowing applications to choose between per-client handling and one shared handling path for all clients.
+- Added `usb_host_common_clients_handle_events()` so applications can drive all registered clients from one task when `CONFIG_USB_HOST_CLIENT_EVENT_HANDLING_ALL_CLIENTS` is enabled.
+
 ### Fixed
 
 - Fixed bInterval range check for HS interrupt pipes, restraining the interval to 1..16.
