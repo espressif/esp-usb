@@ -317,8 +317,12 @@ uint8_t const descriptor_hs_cfg_default[] = {
 #endif
 
 #if CFG_TUD_NCM
-    // Interface number, description string index, MAC address string index, EP notification address and size, EP data address (out, in), and size, max segment size.
-    TUD_CDC_NCM_DESCRIPTOR(ITF_NUM_NET, STRID_NET_INTERFACE, STRID_MAC, (0x80 | EPNUM_NET_NOTIF), 64, EPNUM_NET_DATA, (0x80 | EPNUM_NET_DATA), 512, CFG_TUD_NET_MTU),
+    // Interface number, description string index, MAC address string index, EP notification address and size, EP data address (out, in), and size, max segment size,
+    // EP notification interval, network capabilities.
+    // bInterval 9 (32 ms) matches upstream TinyUSB; the 9-argument default (50) is invalid at High-speed.
+#define NCM_HS_NOTIF_EP_INTERVAL    9
+    TUD_CDC_NCM_DESCRIPTOR(ITF_NUM_NET, STRID_NET_INTERFACE, STRID_MAC, (0x80 | EPNUM_NET_NOTIF), 64, EPNUM_NET_DATA, (0x80 | EPNUM_NET_DATA), 512, CFG_TUD_NET_MTU,
+                           NCM_HS_NOTIF_EP_INTERVAL, (NCM_NETWORK_CAPS_ETH_FILTER | NCM_NETWORK_CAPS_NTB_INPUT_SIZE)),
 #endif
 
 #if CFG_TUD_VENDOR

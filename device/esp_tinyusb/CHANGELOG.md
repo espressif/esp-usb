@@ -1,3 +1,7 @@
+## [Unreleased]
+
+- esp_tinyusb: Fixed invalid NCM notification endpoint `bInterval` in the default High-speed descriptor, set to 9 to match upstream TinyUSB.
+
 ## 3.0.1
 
 - tinyusb: Update from version `0.21.0~2` to `0.21.0~6`. [git diff](https://github.com/espressif/tinyusb/compare/v0.21.0.2...espressif:tinyusb:v0.21.0.6).
