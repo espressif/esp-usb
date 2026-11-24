@@ -51,6 +51,23 @@ extern "C" {
 #define MOCK_HID_SET_REPORT_STALL_TRIGGER     0xA5
 
 /**
+ * @brief SET_REPORT payload byte that switches the mock's interrupt IN report length
+ *
+ * Test hook: this first byte selects the interrupt IN report length.
+ * A zero second byte selects the mouse report; a nonzero byte selects the long report.
+ * This lets host tests exercise a multi-packet interrupt IN transfer that ends
+ * in a short packet.
+ */
+#define MOCK_HID_SET_REPORT_MODE_TRIGGER      0x5B
+
+/**
+ * @brief Length of the mock's long interrupt IN report in bytes
+ *
+ * Two full MPS (8-byte) packets followed by a 1-byte short packet
+ */
+#define MOCK_HID_LONG_REPORT_LEN              17
+
+/**
  * @brief Install the TinyUSB driver and run the mock HID mouse device
  *
  * A FreeRTOS task is started that periodically sends HID mouse movement

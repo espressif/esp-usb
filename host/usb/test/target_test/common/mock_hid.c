@@ -100,6 +100,9 @@ static const tusb_desc_device_qualifier_t device_qualifier = {
 };
 #endif // TUD_OPT_HIGH_SPEED
 
+// Set by the SET_REPORT test hook to send a long report instead of a mouse report.
+static bool s_long_report_mode;
+
 /********* TinyUSB HID callbacks ***************/
 
 // Invoked when received GET HID REPORT DESCRIPTOR request
@@ -134,6 +137,10 @@ void tud_hid_set_report_cb(uint8_t instance, uint8_t report_id, hid_report_type_
     if (bufsize >= 1 && buffer[0] == MOCK_HID_SET_REPORT_STALL_TRIGGER) {
         usbd_edpt_stall(0, MOCK_HID_EP_IN);
     }
+    // Host test hook: switch the interrupt IN report length when SET_REPORT has the mode trigger.
+    if (bufsize >= 2 && buffer[0] == MOCK_HID_SET_REPORT_MODE_TRIGGER) {
+        s_long_report_mode = (buffer[1] != 0);
+    }
 }
 
 /************* Mock HID device *****************/
@@ -149,7 +156,11 @@ static void mock_hid_mouse_task(void *arg)
     uint8_t step = 0;
     while (1) {
         vTaskDelay(pdMS_TO_TICKS(MOCK_HID_REPORT_PERIOD_MS));
-        if (!tud_mounted() || !tud_hid_ready()) {
+        if (!tud_mounted()) {
+            s_long_report_mode = false; // Fall back to standard reports after reset or disconnect.
+            continue;
+        }
+        if (!tud_hid_ready()) {
             continue;
         }
         // Move the cursor in a square pattern
@@ -168,7 +179,15 @@ static void mock_hid_mouse_task(void *arg)
             dy = -MOCK_HID_MOVE_DELTA;
             break;
         }
-        tud_hid_mouse_report(0, 0, dx, dy, 0, 0);
+        if (s_long_report_mode) {
+            // Two full MPS packets followed by a short packet terminate a multi-packet transfer.
+            uint8_t report[MOCK_HID_LONG_REPORT_LEN] = {0};
+            report[1] = (uint8_t)dx;
+            report[2] = (uint8_t)dy;
+            tud_hid_report(0, report, MOCK_HID_LONG_REPORT_LEN);
+        } else {
+            tud_hid_mouse_report(0, 0, dx, dy, 0, 0);
+        }
     }
 }
 

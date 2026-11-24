@@ -2761,34 +2761,31 @@ static inline void _buffer_parse_intr(dma_buffer_block_t *buffer, bool is_in, in
     usb_transfer_t *transfer = &buffer->urb->transfer;
     int intr_stop_idx = buffer->status_flags.stop_idx;
     if (is_in) {
-        if (intr_stop_idx > 0) { // This is an early stop (short packet)
-            assert(intr_stop_idx <= buffer->flags.intr.num_qtds);
-            int rem_len;
-            int desc_status;
-            for (int i = 0; i < intr_stop_idx - 1; i++) {    // Check all packets before the short
-                usb_dwc_hal_xfer_desc_parse(buffer->xfer_desc_list, i, &rem_len, &desc_status);
-                assert(rem_len == 0 && desc_status == USB_DWC_HAL_XFER_DESC_STS_SUCCESS);
+        assert(intr_stop_idx <= buffer->flags.intr.num_qtds);
+        // stop_idx wraps to 0 when the channel went through the whole descriptor list, so the number of
+        // executed QTDs is stop_idx, or num_qtds when stop_idx is 0
+        const int num_exec = (intr_stop_idx > 0) ? intr_stop_idx : buffer->flags.intr.num_qtds;
+
+        // A short packet closes its QTD normally, and the core attempts the next QTD. The
+        // software halt is asynchronous, so later QTDs may receive full packets first. The
+        // transfer terminator is the first executed QTD that did not receive a full packet.
+        int short_idx = -1, rem_len = 0;
+        int desc_status = USB_DWC_HAL_XFER_DESC_STS_SUCCESS;
+        for (int i = 0; i < num_exec; i++) {
+            usb_dwc_hal_xfer_desc_parse(buffer->xfer_desc_list, i, &rem_len, &desc_status);
+            if (desc_status != USB_DWC_HAL_XFER_DESC_STS_SUCCESS || rem_len != 0) {
+                short_idx = i;
+                break;
             }
-            // Check the short packet
-            usb_dwc_hal_xfer_desc_parse(buffer->xfer_desc_list, intr_stop_idx - 1, &rem_len, &desc_status);
-            assert(rem_len > 0 && desc_status == USB_DWC_HAL_XFER_DESC_STS_SUCCESS);
-            // Update actual bytes
-            transfer->actual_num_bytes = (mps * (intr_stop_idx - 1)) + (mps - rem_len);
+        }
+        if (short_idx >= 0) {
+            // Early stop on a short packet: QTDs executed after it carry the device's next data
+            // and must not be counted
+            assert(desc_status == USB_DWC_HAL_XFER_DESC_STS_SUCCESS);
+            transfer->actual_num_bytes = (mps * short_idx) + (mps - rem_len);
         } else {
-            // Check that all but the last packet transmitted MPS
-            for (int i = 0; i < buffer->flags.intr.num_qtds - 1; i++) {
-                int rem_len;
-                int desc_status;
-                usb_dwc_hal_xfer_desc_parse(buffer->xfer_desc_list, i, &rem_len, &desc_status);
-                assert(rem_len == 0 && desc_status == USB_DWC_HAL_XFER_DESC_STS_SUCCESS);
-            }
-            // Check the last packet
-            int last_packet_rem_len;
-            int last_packet_desc_status;
-            usb_dwc_hal_xfer_desc_parse(buffer->xfer_desc_list, buffer->flags.intr.num_qtds - 1, &last_packet_rem_len, &last_packet_desc_status);
-            assert(last_packet_desc_status == USB_DWC_HAL_XFER_DESC_STS_SUCCESS);
-            // All packets except last MUST be MPS. So just deduct the remaining length of the last packet to get actual number of bytes
-            transfer->actual_num_bytes = transfer->num_bytes - last_packet_rem_len;
+            // No short packet among the executed QTDs: all packets received full MPS
+            transfer->actual_num_bytes = num_exec * mps;
         }
     } else {
         // OUT INTR transfers can only complete successfully if all packets have been transmitted. Double check

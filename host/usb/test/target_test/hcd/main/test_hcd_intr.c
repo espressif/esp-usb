@@ -7,6 +7,8 @@
 #include <stdio.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
+#include "freertos/task.h"
+#include "esp_rom_sys.h"
 #include "unity.h"
 #include "esp_log.h"
 #include "dev_hid.h"
@@ -114,6 +116,8 @@ Note: Some mice will NAK until it is moved, so try moving the mouse around if th
 Note: The mock device's report (5 bytes) is smaller than the EP MPS (8), so the transfer always
 terminates early after the first packet. The buffer-full completion path (report == MPS) is kept
 in the expectations for completeness, but is not exercised by this mock device.
+The early-stop path after several full packets (intr_stop_idx > 1) is covered by the
+"Test HCD interrupt pipe multi-packet URBs: late halt after short packet" test case.
 */
 
 #define MULTI_PKT_NUM_PKTS  3
@@ -378,6 +382,101 @@ TEST_CASE("Test HCD interrupt pipe suspend/resume keeps data toggle", "[intr][ti
 
     // Free URB and pipes
     test_hcd_free_urb(intr_urb);
+    test_hcd_pipe_free(intr_pipe);
+    test_hcd_pipe_free(default_pipe);
+    // Cleanup
+    test_hcd_wait_for_disconn(port_hdl, false);
+}
+
+// ----------------------- Multi-packet early stop on a short packet -----------------------
+
+// Covers the worst-case 70 ms transfer at bInterval = 10 ms and remains below the interrupt
+// watchdog timeout.
+#define LATE_HALT_WINDOW_US     (150 * 1000)
+
+static portMUX_TYPE s_late_halt_lock = portMUX_INITIALIZER_UNLOCKED;
+
+/*
+Test HCD interrupt pipe multi-packet URBs: late halt after short packet
+Purpose:
+    - Reproduce the asynchronous halt race: a short packet in a QTD without HOC does not halt
+      the channel. It can execute the next QTD before software requests a halt.
+    - The window is forced open deterministically: with interrupts disabled, the software halt
+      cannot be requested until the channel receives one more full packet in the HOC QTD.
+
+Procedure:
+    - Setup HCD, enumerate the mock device, switch it to its long report via SET_REPORT
+    - Setup interrupt pipe and allocate a URB one QTD larger than the long report
+    - Drain one report (a standard report can still be queued on the device endpoint)
+    - Enqueue the URB and keep interrupts disabled while the channel runs past the short packet
+    - Expect HCD_PIPE_EVENT_URB_DONE and check actual_num_bytes
+    - Teardown
+
+Note: The URB completes with actual_num_bytes == MOCK_HID_LONG_REPORT_LEN:
+the extra QTD receives the next report and must not be counted.
+*/
+TEST_CASE("Test HCD interrupt pipe multi-packet URBs: late halt after short packet", "[intr][tinyusb_mock]")
+{
+    usb_speed_t port_speed = test_hcd_wait_for_conn(port_hdl);  // Trigger a connection
+    vTaskDelay(pdMS_TO_TICKS(100)); // Short delay send of SOF (for FS) or EOPs (for LS)
+
+    hcd_pipe_handle_t default_pipe = test_hcd_pipe_alloc(port_hdl, NULL, 0, port_speed); // Create a default pipe (using a NULL EP descriptor)
+    uint8_t dev_addr = test_hcd_enum_device(default_pipe);
+
+    // Switch the mock device to its long report (2 full MPS packets + 1 byte) via SET_REPORT
+    const dev_hid_info_t *hid_info = dev_hid_get_info();
+    urb_t *ctrl_urb = test_hcd_alloc_urb(0, sizeof(usb_setup_packet_t) + hid_info->report_len);
+    usb_setup_packet_t *setup = (usb_setup_packet_t *)ctrl_urb->transfer.data_buffer;
+    USB_SETUP_PACKET_INIT_HID_SET_REPORT(setup, HID_REPORT_TYPE_OUTPUT, 0, hid_info->bInterfaceNumber, hid_info->report_len);
+    // First payload byte is the mode trigger, second selects the long report (see mock_hid.h)
+    ctrl_urb->transfer.data_buffer[sizeof(usb_setup_packet_t)] = MOCK_HID_SET_REPORT_MODE_TRIGGER;
+    ctrl_urb->transfer.data_buffer[sizeof(usb_setup_packet_t) + 1] = 1;
+    ctrl_urb->transfer.num_bytes = sizeof(usb_setup_packet_t) + setup->wLength;
+    ctrl_urb->transfer.context = URB_CONTEXT_VAL;
+    TEST_ASSERT_EQUAL(ESP_OK, hcd_urb_enqueue(default_pipe, ctrl_urb));
+    TEST_HCD_EXPECT_PIPE_EVENT(default_pipe, HCD_PIPE_EVENT_URB_DONE);
+    TEST_ASSERT_EQUAL_PTR(ctrl_urb, hcd_urb_dequeue(default_pipe));
+    TEST_HCD_EXPECT_TRANSFER_STATUS(ctrl_urb, USB_TRANSFER_STATUS_COMPLETED);
+
+    // Allocate interrupt pipe and a URB one QTD larger than the long report,
+    // so the report's short packet lands in a QTD without the HOC flag
+    const usb_ep_desc_t *in_ep_desc = dev_hid_get_in_ep_desc(port_speed);
+    const int mps = USB_EP_DESC_GET_MPS(in_ep_desc);
+    const int num_bytes = (MULTI_PKT_NUM_PKTS + 1) * mps;
+    hcd_pipe_handle_t intr_pipe = test_hcd_pipe_alloc(port_hdl, in_ep_desc, dev_addr, port_speed);
+    urb_t *urb = test_hcd_alloc_urb(0, num_bytes);
+    urb->transfer.num_bytes = num_bytes;
+    urb->transfer.context = URB_CONTEXT_VAL;
+    ESP_LOGI(TAG, "Long report %d bytes (%d full MPS packets + short), URB %d bytes = %d QTDs, bInterval %d ms, freeze %d us",
+             MOCK_HID_LONG_REPORT_LEN, MOCK_HID_LONG_REPORT_LEN / mps, num_bytes, num_bytes / mps,
+             in_ep_desc->bInterval, LATE_HALT_WINDOW_US);
+
+    // Drain one report: a standard report can still be queued on the device endpoint from before the mode switch
+    TEST_ASSERT_EQUAL(ESP_OK, hcd_urb_enqueue(intr_pipe, urb));
+    TEST_HCD_EXPECT_PIPE_EVENT(intr_pipe, HCD_PIPE_EVENT_URB_DONE);
+    TEST_ASSERT_EQUAL_PTR(urb, hcd_urb_dequeue(intr_pipe));
+    TEST_HCD_EXPECT_TRANSFER_STATUS(urb, USB_TRANSFER_STATUS_COMPLETED);
+    ESP_LOGI(TAG, "Drained report: %d bytes", urb->transfer.actual_num_bytes);
+
+    // Enqueue the URB. The channel is activated inline by the enqueue call
+    TEST_ASSERT_EQUAL(ESP_OK, hcd_urb_enqueue(intr_pipe, urb));
+    // Freeze the software halt. The channel receives another full packet in the HOC QTD before
+    // it can handle the short packet's XFERCOMPL, so the short QTD is not the final QTD.
+    taskENTER_CRITICAL(&s_late_halt_lock);
+    esp_rom_delay_us(LATE_HALT_WINDOW_US);
+    taskEXIT_CRITICAL(&s_late_halt_lock);
+    // Dequeue the URB and check results
+    TEST_HCD_EXPECT_PIPE_EVENT(intr_pipe, HCD_PIPE_EVENT_URB_DONE);
+    TEST_ASSERT_EQUAL_PTR(urb, hcd_urb_dequeue(intr_pipe));
+    TEST_HCD_EXPECT_TRANSFER_STATUS(urb, USB_TRANSFER_STATUS_COMPLETED);
+    TEST_ASSERT_EQUAL(URB_CONTEXT_VAL, urb->transfer.context);
+    ESP_LOGI(TAG, "URB done: %d of %d bytes transferred", urb->transfer.actual_num_bytes, urb->transfer.num_bytes);
+    // After the driver fix, the transfer terminates at the short packet: the long report only
+    TEST_ASSERT_EQUAL(MOCK_HID_LONG_REPORT_LEN, urb->transfer.actual_num_bytes);
+
+    // Free URBs and pipes
+    test_hcd_free_urb(urb);
+    test_hcd_free_urb(ctrl_urb);
     test_hcd_pipe_free(intr_pipe);
     test_hcd_pipe_free(default_pipe);
     // Cleanup
