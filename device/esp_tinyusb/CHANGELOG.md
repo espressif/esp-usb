@@ -1,6 +1,7 @@
 ## [Unreleased]
 
-- esp_tinyusb: Fixed invalid NCM notification endpoint `bInterval` in the default High-speed descriptor, set to 9 to match upstream TinyUSB.
+- NCM: Fixed invalid NCM notification endpoint `bInterval` in the default High-speed descriptor, set to 9 to match upstream TinyUSB.
+- esp_tinyusb: Fixed `vfs_tinyusb.c` failing to build with picolibc 1.8.12
 
 ## 3.0.1
 
