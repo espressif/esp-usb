@@ -25,6 +25,7 @@
 # Temporarily disabled tests and TODOs of this workflow:
 # - USB Device NCM example run: Ignored due to GH Runner configuration (docker needs --net=host to access host network namespace)
 # - Examples runs on targets enabled only for IDF >= 5.3
+# - USB device (esp_tinyusb) examples: build disabled for IDF_VERSION < 6.2.0 in .github/ci/.idf-build-examples-rules.yml; run disabled on release-v5.3 through release-v6.1
 
 name: Build and Run ESP-IDF USB examples
 
@@ -221,6 +222,17 @@ jobs:
           - runner_tag: usb_device
             example: device
         exclude:
+          # Device esp_tinyusb examples are not run on release-v5.3 .. release-v6.1
+          - runner_tag: "usb_device"
+            idf_ver: "release-v5.3"
+          - runner_tag: "usb_device"
+            idf_ver: "release-v5.4"
+          - runner_tag: "usb_device"
+            idf_ver: "release-v5.5"
+          - runner_tag: "usb_device"
+            idf_ver: "release-v6.0"
+          - runner_tag: "usb_device"
+            idf_ver: "release-v6.1"
           # Exclude eco4 version for esp32s2
           - idf_target: "esp32s2"
             eco_ver: "eco4"
