@@ -10,6 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Fixed data toggle desync when restarting a bulk stream: `ClearFeature(ENDPOINT_HALT)` on stream stop reinitializes the device endpoint's data toggle to DATA0 (USB 2.0 §9.4.5), so the host-side data toggle is now resynced as well
+- Fixed isochronous streams that delivered no frames because the host stayed on a high-bandwidth alternate setting after probe. The streaming interface is claimed before negotiation, so that first claim can only cap on `MAX_MPS_IN` and takes the largest endpoint the target supports. A camera that then commits a smaller `dwMaxPayloadTransferSize` sees the host on that endpoint and sends nothing: every isochronous packet completes with zero bytes. After probe the driver now selects the alternate setting again from the negotiated payload, before the URBs are sized from the endpoint descriptor. Bulk streams (`bAlternateSetting == 0`) are unchanged (https://github.com/espressif/esp-usb/pull/571)
+- Fixed negotiated payloads of 64 KiB and above being truncated when choosing the streaming alternate setting. The probe result `dwMaxPayloadTransferSize` is a `uint32_t`, but it was passed to the descriptor parser as `uint16_t` (https://github.com/espressif/esp-usb/pull/571)
 
 ## [2.6.0] - 2026-09-16
 
