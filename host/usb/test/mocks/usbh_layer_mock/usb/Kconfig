@@ -65,4 +65,18 @@ menu "USBH Layer mock"
 
         endmenu #Root Hub configuration
     endmenu #Hub Driver Configuration
+
+    config USB_HOST_ENUM_CTRL_TRANSFER_TIMEOUT_MS
+        int "Enumeration control transfer timeout in ms"
+        default 5000
+        range 100 60000
+        help
+            Maximum time to wait for a control transfer during enumeration.
+
+    config USB_HOST_ENUM_TIMEOUT_RETRIES
+        int "Enumeration retries after a control transfer timeout"
+        default 1
+        range 0 5
+        help
+            Number of times the enumeration of a device is restarted after a control transfer timeout.
 endmenu

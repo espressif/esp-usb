@@ -1485,6 +1485,54 @@ esp_err_t usbh_dev_enum_unlock(usb_device_handle_t dev_hdl)
     return ret;
 }
 
+esp_err_t usbh_dev_enum_reset(usb_device_handle_t dev_hdl, uint16_t wMaxPacketSize)
+{
+    USBH_CHECK(dev_hdl != NULL, ESP_ERR_INVALID_ARG);
+    esp_err_t ret;
+    device_t *dev_obj = (device_t *)dev_hdl;
+    usb_device_desc_t *desc = NULL;
+    usb_config_desc_t *config_desc = NULL;
+    usb_str_desc_t *str_desc_manu = NULL;
+    usb_str_desc_t *str_desc_product = NULL;
+    usb_str_desc_t *str_desc_ser_num = NULL;
+
+    USBH_ENTER_CRITICAL();
+    // Device's enum_lock must be set before enumeration related data fields can be set
+    if (!dev_obj->dynamic.flags.enum_lock) {
+        ret = ESP_ERR_NOT_ALLOWED;
+        goto exit;
+    }
+    ret = hcd_pipe_update_dev_addr(dev_obj->constant.default_pipe, 0);
+    if (ret == ESP_OK) {
+        ret = hcd_pipe_update_mps(dev_obj->constant.default_pipe, wMaxPacketSize);
+    }
+    if (ret != ESP_OK) {
+        goto exit;
+    }
+    // Detach descriptors, they are freed outside of the critical section
+    desc = dev_obj->constant.desc;
+    config_desc = dev_obj->constant.config_desc;
+    str_desc_manu = dev_obj->constant.str_desc_manu;
+    str_desc_product = dev_obj->constant.str_desc_product;
+    str_desc_ser_num = dev_obj->constant.str_desc_ser_num;
+    dev_obj->constant.desc = NULL;
+    dev_obj->constant.config_desc = NULL;
+    dev_obj->constant.str_desc_manu = NULL;
+    dev_obj->constant.str_desc_product = NULL;
+    dev_obj->constant.str_desc_ser_num = NULL;
+    dev_obj->constant.address = 0;
+    dev_obj->dynamic.state = USB_DEVICE_STATE_DEFAULT;
+exit:
+    USBH_EXIT_CRITICAL();
+
+    heap_caps_free(desc);
+    heap_caps_free(config_desc);
+    heap_caps_free(str_desc_manu);
+    heap_caps_free(str_desc_product);
+    heap_caps_free(str_desc_ser_num);
+    return ret;
+}
+
 esp_err_t usbh_dev_set_ep0_mps(usb_device_handle_t dev_hdl, uint16_t wMaxPacketSize)
 {
     USBH_CHECK(dev_hdl != NULL, ESP_ERR_INVALID_ARG);
@@ -1806,6 +1854,25 @@ void *usbh_ep_get_context(usbh_ep_handle_t ep_hdl)
 // -----------------------------------------------------------------------------
 // ------------------------ Transfer Functions ---------------------------------
 // -----------------------------------------------------------------------------
+
+esp_err_t usbh_dev_cancel_ctrl_xfers(usb_device_handle_t dev_hdl)
+{
+    USBH_CHECK(dev_hdl != NULL, ESP_ERR_INVALID_ARG);
+    device_t *dev_obj = (device_t *)dev_hdl;
+    bool call_proc_req_cb = false;
+
+    USBH_ENTER_CRITICAL();
+    USBH_CHECK_FROM_CRIT(dev_obj->dynamic.flags.enum_lock, ESP_ERR_NOT_ALLOWED);
+    if (dev_obj->dynamic.num_ctrl_xfers_inflight > 0) {
+        call_proc_req_cb = _dev_set_actions(dev_obj, DEV_ACTION_EP0_FLUSH | DEV_ACTION_EP0_DEQUEUE | DEV_ACTION_EP0_CLEAR);
+    }
+    USBH_EXIT_CRITICAL();
+
+    if (call_proc_req_cb) {
+        p_usbh_obj->constant.proc_req_cb(USB_PROC_REQ_SOURCE_USBH, false, p_usbh_obj->constant.proc_req_cb_arg);
+    }
+    return ESP_OK;
+}
 
 esp_err_t usbh_dev_submit_ctrl_urb(usb_device_handle_t dev_hdl, urb_t *urb)
 {
