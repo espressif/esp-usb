@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2024-2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2024-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -24,6 +24,12 @@
 // frame-sending function, allowing `run_streaming_frame_reconstruction_scenario` to run identical tests
 // with either transfer method.
 std::function<void(size_t, void *, std::span<const uint8_t>, uint8_t, bool, bool, bool)> send_frame_function;
+
+struct bulk_payload_test_context {
+    std::vector<uint8_t> expected;
+    int callback_count;
+};
+
 inline void send_function_wrapper(size_t transfer_size, void *transfer_context, std::span<const uint8_t> data, uint8_t frame_id = 0, bool error_in_sof = false, bool error_in_eof = false, bool eof_in_sof = false)
 {
     send_frame_function(transfer_size, transfer_context, data, frame_id, error_in_sof, error_in_eof, eof_in_sof);
@@ -245,6 +251,85 @@ SCENARIO("Bulk stream frame reconstruction", "[streaming][bulk]")
                 REQUIRE(frame_callback_called == 1);
             }
         }
+    }
+
+    GIVEN("A frame spans multiple maximum-size UVC payloads") {
+        constexpr size_t transfer_size = 48;
+        constexpr size_t max_payload_size = 64;
+        constexpr size_t payload_data_size = max_payload_size - HEADER_LEN;
+
+        bulk_payload_test_context context = {
+            .expected = std::vector<uint8_t>(2 * payload_data_size),
+            .callback_count = 0,
+        };
+        for (size_t i = 0; i < context.expected.size(); ++i) {
+            context.expected[i] = static_cast<uint8_t>(i);
+        }
+
+        uvc_stream_t payload_stream = {};
+        payload_stream.constant.bulk_mps = 16;
+        payload_stream.constant.cb_arg = &context;
+        payload_stream.dynamic.dwMaxPayloadTransferSize = max_payload_size;
+        payload_stream.constant.frame_cb = [](const uvc_host_frame_t *frame, void *user_ctx) -> bool {
+            auto *ctx = static_cast<bulk_payload_test_context *>(user_ctx);
+            REQUIRE(std::vector<uint8_t>(frame->data, frame->data + frame->data_len) == ctx->expected);
+            ctx->callback_count++;
+            return true;
+        };
+
+        REQUIRE(uvc_frame_allocate(&payload_stream, 1, context.expected.size(), 0, nullptr) == ESP_OK);
+        REQUIRE(uvc_host_stream_unpause(&payload_stream) == ESP_OK);
+
+        std::vector<uint8_t> wire_data;
+        for (size_t offset = 0; offset < context.expected.size(); offset += payload_data_size) {
+            uvc_payload_header_t header = {};
+            header.bHeaderLength = HEADER_LEN;
+            header.bmHeaderInfo.end_of_header = 1;
+            const auto *header_bytes = reinterpret_cast<const uint8_t *>(&header);
+            wire_data.insert(wire_data.end(), header_bytes, header_bytes + HEADER_LEN);
+            wire_data.insert(wire_data.end(), context.expected.begin() + offset,
+                             context.expected.begin() + offset + payload_data_size);
+        }
+
+        std::vector<uint8_t> transfer_buffer(transfer_size);
+        usb_transfer_t transfer = {
+            .data_buffer = transfer_buffer.data(),
+            .data_buffer_size = transfer_size,
+            .num_bytes = 0,
+            .actual_num_bytes = 0,
+            .flags = 0,
+            .device_handle = nullptr,
+            .bEndpointAddress = 0,
+            .status = USB_TRANSFER_STATUS_COMPLETED,
+            .timeout_ms = 0,
+            .callback = nullptr,
+            .context = &payload_stream,
+            .num_isoc_packets = 0,
+        };
+
+        for (size_t offset = 0; offset < wire_data.size(); offset += transfer_size) {
+            const size_t chunk_size = std::min(transfer_size, wire_data.size() - offset);
+            std::copy_n(wire_data.begin() + offset, chunk_size, transfer_buffer.begin());
+            transfer.actual_num_bytes = chunk_size;
+            usb_host_transfer_submit_ExpectAndReturn(&transfer, ESP_OK);
+            bulk_transfer_callback(&transfer);
+        }
+
+        uvc_payload_header_t eof_header = {};
+        eof_header.bHeaderLength = HEADER_LEN;
+        eof_header.bmHeaderInfo.end_of_header = 1;
+        eof_header.bmHeaderInfo.end_of_frame = 1;
+        std::copy_n(reinterpret_cast<const uint8_t *>(&eof_header), HEADER_LEN, transfer_buffer.begin());
+        transfer.actual_num_bytes = HEADER_LEN;
+        usb_host_transfer_submit_ExpectAndReturn(&transfer, ESP_OK);
+        bulk_transfer_callback(&transfer);
+
+        THEN("Each payload header is removed from the reconstructed frame") {
+            REQUIRE(context.callback_count == 1);
+        }
+
+        REQUIRE(uvc_frame_are_all_returned(&payload_stream));
+        uvc_frame_free(&payload_stream);
     }
 }
 

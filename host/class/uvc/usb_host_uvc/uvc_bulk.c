@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2024-2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2024-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -67,6 +67,133 @@ static void bulk_add_frame_data(uvc_stream_t *uvc_stream, const uint8_t *data, s
 }
 
 /**
+ * Process one contiguous part of a UVC payload.
+ *
+ * A USB transfer can contain the end of one UVC payload and the beginning of
+ * the next. The caller therefore splits transfers at known payload boundaries
+ * and calls this function once for each piece. payload_end is true for both a
+ * counted dwMaxPayloadTransferSize boundary and a short-transfer boundary.
+ *
+ * @return true when an expected payload header was valid
+ */
+static bool bulk_process_payload_piece(uvc_stream_t *uvc_stream, const uint8_t *payload,
+                                       size_t payload_len, bool payload_end)
+{
+    const uint8_t *payload_data = payload;
+    size_t payload_data_len = payload_len;
+
+    switch (uvc_stream->single_thread.next_bulk_packet) {
+    case UVC_STREAM_BULK_PACKET_SOF: {
+label_sof:
+        const uvc_payload_header_t *payload_header = (const uvc_payload_header_t *)payload;
+        if (!uvc_frame_payload_header_validate(payload_header, payload_len)) {
+            ESP_LOGW(TAG, "invalid UVC payload header, %02x, %02x, len:%zu",
+                     payload_len > 0 ? payload[0] : 0, payload_len > 1 ? payload[1] : 0, payload_len);
+            uvc_stream->single_thread.skip_current_frame = true;
+            return false;
+        }
+
+        uvc_stream->single_thread.current_frame_id = payload_header->bmHeaderInfo.frame_id;
+        uvc_stream->single_thread.skip_current_frame = payload_header->bmHeaderInfo.error;
+        payload_data += payload_header->bHeaderLength;
+        payload_data_len -= payload_header->bHeaderLength;
+
+        if (payload_data_len == 0) {
+            ESP_LOGD(TAG, "header-only payload, skipping");
+            goto skip_sof;
+        }
+
+        if (payload_header->bmHeaderInfo.error) {
+            ESP_LOGW(TAG, "frame error flag set");
+            uvc_stream->single_thread.skip_current_frame = true;
+            goto skip_sof;
+        }
+
+        if (uvc_stream->dynamic.vs_format.format == UVC_VS_FORMAT_MJPEG &&
+                (payload_data_len < 2 || payload_data[0] != JPEG_MARKER || payload_data[1] != JPEG_SOI)) {
+            uvc_stream->single_thread.skip_current_frame = true;
+            ESP_LOGW(TAG, "invalid MJPEG SOI");
+            goto skip_sof;
+        }
+
+        UVC_ENTER_CRITICAL();
+        const bool need_new_frame = (uvc_stream->dynamic.streaming && !uvc_stream->dynamic.current_frame);
+        if (need_new_frame) {
+            UVC_EXIT_CRITICAL();
+            uvc_stream->dynamic.current_frame = uvc_frame_get_empty(uvc_stream);
+            if (uvc_stream->dynamic.current_frame == NULL) {
+                uvc_stream->single_thread.skip_current_frame = true;
+
+                uvc_host_stream_callback_t stream_cb = uvc_stream->constant.stream_cb;
+                if (stream_cb) {
+                    const uvc_host_stream_event_data_t event = {
+                        .type = UVC_HOST_FRAME_BUFFER_UNDERFLOW,
+                    };
+                    stream_cb(&event, uvc_stream->constant.cb_arg);
+                }
+            }
+        } else {
+            uvc_frame_reset(uvc_stream->dynamic.current_frame);
+            UVC_EXIT_CRITICAL();
+        }
+skip_sof:
+        uvc_stream->single_thread.next_bulk_packet = UVC_STREAM_BULK_PACKET_DATA;
+        __attribute__((fallthrough));
+    }
+    case UVC_STREAM_BULK_PACKET_DATA:
+        bulk_add_frame_data(uvc_stream, payload_data, payload_data_len);
+        if (payload_end) {
+            // The next payload starts with a header, which determines whether
+            // it continues this frame or starts/terminates a frame.
+            uvc_stream->single_thread.next_bulk_packet = UVC_STREAM_BULK_PACKET_EOF;
+        }
+        break;
+
+    case UVC_STREAM_BULK_PACKET_EOF: {
+        // EOF means that the previous payload ended, not necessarily that the
+        // video frame ended. Inspect the next payload header for EOF or FID.
+        const uvc_payload_header_t *payload_header = (const uvc_payload_header_t *)payload;
+        if (!uvc_frame_payload_header_validate(payload_header, payload_len)) {
+            ESP_LOGD(TAG, "invalid UVC payload header in EOF, %02x, %02x, len:%zu",
+                     payload_len > 0 ? payload[0] : 0, payload_len > 1 ? payload[1] : 0, payload_len);
+            uvc_stream->single_thread.skip_current_frame = true;
+            return false;
+        }
+
+        uvc_stream->single_thread.skip_current_frame |= payload_header->bmHeaderInfo.error;
+        const bool start_of_frame =
+            (uvc_stream->single_thread.current_frame_id != payload_header->bmHeaderInfo.frame_id);
+        payload_data += payload_header->bHeaderLength;
+        payload_data_len -= payload_header->bHeaderLength;
+
+        if (!start_of_frame && !payload_header->bmHeaderInfo.end_of_frame) {
+            // Another payload of the same frame: strip its header and collect
+            // its data. A short piece must leave us expecting another header.
+            bulk_add_frame_data(uvc_stream, payload_data, payload_data_len);
+            uvc_stream->single_thread.next_bulk_packet =
+                payload_end ? UVC_STREAM_BULK_PACKET_EOF : UVC_STREAM_BULK_PACKET_DATA;
+            break;
+        }
+
+        bulk_complete_frame(uvc_stream);
+        uvc_stream->single_thread.next_bulk_packet = UVC_STREAM_BULK_PACKET_SOF;
+
+        if (start_of_frame && payload_data_len > 0) {
+            // Some cameras never set EOF. A FID toggle both completes the old
+            // frame and makes this payload the start of the next frame.
+            uvc_stream->single_thread.current_frame_id = payload_header->bmHeaderInfo.frame_id;
+            goto label_sof;
+        }
+        break;
+    }
+    default:
+        abort();
+    }
+
+    return true;
+}
+
+/**
  * @brief Callback function for handling Bulk USB transfers from a UVC camera.
  *
  * This function processes Bulk transfer packets, managing frame data according to a state machine. The characteristics
@@ -74,8 +201,8 @@ static void bulk_add_frame_data(uvc_stream_t *uvc_stream, const uint8_t *data, s
  *
  * - **CRC Included**: Ensures no errors in frame data.
  * - **ACK Mechanism**: Missed packets are retransmitted, ensuring reliable data delivery.
- * - **Packet Headers**: Not all packets contain headers; the end of a transfer is indicated by a short packet
- *   (less than the maximum packet size), and the next packet usually contains a header.
+ * - **Payload Headers**: Every UVC bulk payload starts with a header. A payload ends at the negotiated
+ *   dwMaxPayloadTransferSize or at a short USB transfer.
  *
  * To process these packets, a state machine is implemented to track the next expected Bulk packet type:
  * - Start of Frame (SoF), usually followed by data packets in the same transfer
@@ -115,132 +242,86 @@ void bulk_transfer_callback(usb_transfer_t *transfer)
         return; // If the streaming was turned off, we don't have to do anything
     }
 
-    // In BULK implementation, 'payload' is a constant pointer to constant data,
-    // meaning both the pointer and the data it points to cannot be changed.
-    // This contrasts with the ISOC implementation, where 'payload' is a variable
-    // pointer and is increased after every ISOC packet processing
-    const uint8_t *const payload = transfer->data_buffer;
-    const uint8_t *payload_data  = payload;
-    size_t payload_data_len      = transfer->actual_num_bytes;
+    const bool transfer_is_short = transfer->actual_num_bytes < transfer->data_buffer_size;
+    const size_t max_payload_size = uvc_stream->dynamic.dwMaxPayloadTransferSize;
 
-    // Note for developers:
-    // The order of SoF, Data, and EoF handling is intentional and represents a workaround for detecting EoF in the Bulk stream.
-    // Normally, a complete Sample transfer includes two short packets: one marking the last data packet and another with the EoF header.
-    // However, if the last data packet has a size equal to the Maximum Packet Size (MPS), there is no zero-length packet between the data and the EoF header.
-    // Consequently, it becomes impossible to distinguish between the last data packet and the EoF header.
-    // To address this, the hack discards all frames whose last data packet has the MPS size.
-    switch (uvc_stream->single_thread.next_bulk_packet) {
-    case UVC_STREAM_BULK_PACKET_SOF: {
-label_sof:
-        const uvc_payload_header_t *payload_header = (const uvc_payload_header_t *)payload;
-        // Validate header before accessing it
-        if (!uvc_frame_payload_header_validate(payload_header, transfer->actual_num_bytes)) {
-            ESP_LOGW(TAG, "invalid UVC payload header, %02x, %02x, len:%d", payload[0], payload[1], transfer->actual_num_bytes);
-            uvc_stream->single_thread.skip_current_frame = true;
-            goto skip_sof;
-        }
+    // Byte counting is needed only when a maximum-size payload can end on an
+    // MPS boundary without producing a short USB packet. If the negotiated
+    // size is not an MPS multiple, USB supplies an unambiguous short packet
+    // and the original short-transfer parser remains sufficient.
+    const bool count_payload_bytes = max_payload_size > 0 && uvc_stream->constant.bulk_mps > 0 &&
+                                     max_payload_size % uvc_stream->constant.bulk_mps == 0;
 
-        // We detected start of new frame. Update Frame ID and start fetching this frame
-        uvc_stream->single_thread.current_frame_id   = payload_header->bmHeaderInfo.frame_id;
-        uvc_stream->single_thread.skip_current_frame = payload_header->bmHeaderInfo.error; // Check for error flag
-        payload_data     += payload_header->bHeaderLength; // Pointer arithmetic!
-        payload_data_len -= payload_header->bHeaderLength;
-
-        if (payload_data_len == 0) {
-            // This is a zero-length packet, skip it
-            ESP_LOGD(TAG, "zero-length packet, skipping");
-            goto skip_sof;
-        }
-
-        // Drop frame if device signals error in header
-        if (payload_header->bmHeaderInfo.error) {
-            ESP_LOGW(TAG, "frame error flag set");
-            uvc_stream->single_thread.skip_current_frame = true;
-            goto skip_sof;
-        }
-
-        // Check mjpeg frame start
-        if (uvc_stream->dynamic.vs_format.format == UVC_VS_FORMAT_MJPEG &&
-                (payload_data[0] != JPEG_MARKER || payload_data[1] != JPEG_SOI)) {
-            // We received frame with invalid frame, skip this frame
-            uvc_stream->single_thread.skip_current_frame = true;
-            ESP_LOGW(TAG, "invalid MJPEG SOI");
-            goto skip_sof;
-        }
-
-        // Get free frame buffer for this new frame
-        UVC_ENTER_CRITICAL();
-        const bool need_new_frame = (uvc_stream->dynamic.streaming && !uvc_stream->dynamic.current_frame);
-        if (need_new_frame) {
-            UVC_EXIT_CRITICAL();
-            uvc_stream->dynamic.current_frame = uvc_frame_get_empty(uvc_stream);
-            if (uvc_stream->dynamic.current_frame == NULL) {
-                // There is no free frame buffer now, skipping this frame
-                uvc_stream->single_thread.skip_current_frame = true;
-
-                // Inform the user about the underflow
-                uvc_host_stream_callback_t stream_cb = uvc_stream->constant.stream_cb;
-                if (stream_cb) {
-                    const uvc_host_stream_event_data_t event = {
-                        .type = UVC_HOST_FRAME_BUFFER_UNDERFLOW,
-                    };
-                    stream_cb(&event, uvc_stream->constant.cb_arg);
-                }
-            }
-        } else {
-            // We received SoF but current_frame is not NULL: We missed EoF - reset the frame buffer
-            uvc_frame_reset(uvc_stream->dynamic.current_frame);
-            UVC_EXIT_CRITICAL();
-        }
-skip_sof:
-        uvc_stream->single_thread.next_bulk_packet = UVC_STREAM_BULK_PACKET_DATA;
-        __attribute__((fallthrough));  // Fall through! There can be data after SoF!
+    if (!count_payload_bytes) {
+        bulk_process_payload_piece(uvc_stream, transfer->data_buffer, transfer->actual_num_bytes, transfer_is_short);
+        goto resubmit;
     }
-    case UVC_STREAM_BULK_PACKET_DATA: {
-        // Add received data to frame buffer
-        bulk_add_frame_data(uvc_stream, payload_data, payload_data_len);
 
-        // We got short packet in data section, this packet is EoF
-        if (transfer->data_buffer_size > transfer->actual_num_bytes) {
+    if (uvc_stream->single_thread.bulk_payload_resync) {
+        // An invalid header means the byte counter can no longer be trusted.
+        // Ignore input until a short transfer provides an absolute payload
+        // boundary, then expect a header in the following transfer.
+        if (transfer_is_short) {
+            uvc_stream->single_thread.bulk_payload_resync = false;
+            uvc_stream->single_thread.bulk_payload_bytes_left = 0;
             uvc_stream->single_thread.next_bulk_packet = UVC_STREAM_BULK_PACKET_EOF;
         }
-        break;
+        goto resubmit;
     }
-    case UVC_STREAM_BULK_PACKET_EOF: {
-        uvc_stream->single_thread.next_bulk_packet = UVC_STREAM_BULK_PACKET_SOF;
-        const uvc_payload_header_t *payload_header = (const uvc_payload_header_t *)payload;
 
-        // Validate header before accessing it
-        if (!uvc_frame_payload_header_validate(payload_header, transfer->actual_num_bytes)) {
-            ESP_LOGD(TAG, "invalid UVC payload header in EOF, %02x, %02x, len:%d", payload[0], payload[1], transfer->actual_num_bytes);
-            uvc_stream->single_thread.skip_current_frame = true;
+    // A ZLP after an exactly full payload is padding, not another payload with a missing header.
+    if (transfer->actual_num_bytes == 0) {
+        if (uvc_stream->single_thread.bulk_payload_bytes_left != 0 &&
+                uvc_stream->single_thread.next_bulk_packet == UVC_STREAM_BULK_PACKET_DATA) {
+            // A ZLP before the negotiated maximum terminates this payload in
+            // the same way as any other short transfer.
+            uvc_stream->single_thread.next_bulk_packet = UVC_STREAM_BULK_PACKET_EOF;
+            uvc_stream->single_thread.bulk_payload_bytes_left = 0;
+        }
+        goto resubmit;
+    }
+
+    size_t offset = 0;
+    while (offset < transfer->actual_num_bytes) {
+        // One URB can cross one or more UVC payload boundaries. Process only
+        // up to the next boundary so an embedded payload header is never
+        // copied into the frame buffer as image data.
+        if (uvc_stream->single_thread.bulk_payload_bytes_left == 0) {
+            uvc_stream->single_thread.bulk_payload_bytes_left = max_payload_size;
+        }
+
+        const size_t bytes_available = transfer->actual_num_bytes - offset;
+        const size_t piece_len = bytes_available < uvc_stream->single_thread.bulk_payload_bytes_left
+                                 ? bytes_available : uvc_stream->single_thread.bulk_payload_bytes_left;
+        const bool counted_payload_end = piece_len == uvc_stream->single_thread.bulk_payload_bytes_left;
+        const bool physical_payload_end = transfer_is_short && piece_len == bytes_available;
+        const bool payload_end = counted_payload_end || physical_payload_end;
+        const bool header_expected =
+            uvc_stream->single_thread.next_bulk_packet != UVC_STREAM_BULK_PACKET_DATA;
+
+        const bool valid_header = bulk_process_payload_piece(
+                                      uvc_stream, transfer->data_buffer + offset, piece_len, payload_end);
+        offset += piece_len;
+
+        if (!valid_header && header_expected) {
+            // A physical short packet already restored alignment. Otherwise
+            // stop counting now and wait for the next short transfer.
+            uvc_stream->single_thread.bulk_payload_bytes_left = 0;
+            uvc_stream->single_thread.next_bulk_packet = UVC_STREAM_BULK_PACKET_EOF;
+            if (!physical_payload_end) {
+                uvc_stream->single_thread.bulk_payload_resync = true;
+            }
             break;
         }
 
-        uvc_stream->single_thread.skip_current_frame |= payload_header->bmHeaderInfo.error; // Check for error flag
-        const bool start_of_frame = (uvc_stream->single_thread.current_frame_id != payload_header->bmHeaderInfo.frame_id);
-
-        if (!start_of_frame && payload_header->bmHeaderInfo.end_of_frame == false && payload_data_len > 0) {
-            // This is not the end of frame, we collect more data
-            uvc_stream->single_thread.next_bulk_packet = UVC_STREAM_BULK_PACKET_DATA;
-            bulk_add_frame_data(uvc_stream, payload_data + payload_header->bHeaderLength, payload_data_len - payload_header->bHeaderLength);
-            break;
+        if (payload_end) {
+            uvc_stream->single_thread.bulk_payload_bytes_left = 0;
+        } else {
+            uvc_stream->single_thread.bulk_payload_bytes_left -= piece_len;
         }
-
-        bulk_complete_frame(uvc_stream);
-
-        if (start_of_frame && payload_header->bHeaderLength < payload_data_len) {
-            // If the frame ID has changed and this packet contains more data,
-            // we assume that this is a new frame and we should start processing it.
-            uvc_stream->single_thread.current_frame_id = payload_header->bmHeaderInfo.frame_id;
-            goto label_sof;
-        }
-        break;
-
-    }
-    default: abort();
     }
 
+resubmit:
     if (UVC_ATOMIC_LOAD(uvc_stream->dynamic.streaming)) {
         usb_host_transfer_submit(transfer); // Restart the transfer
     }
