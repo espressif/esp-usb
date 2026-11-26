@@ -14,7 +14,7 @@
 #include "tinyusb.h"
 #include "tinyusb_default_config.h"
 #include "class/hid/hid_device.h"
-#include "device/usbd_pvt.h"    // For usbd_edpt_stall()
+#include "device/usbd_pvt.h"    // For usbd_edpt_stall(), usbd_edpt_release()
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "mock_hid.h"
@@ -168,7 +168,12 @@ static void mock_hid_mouse_task(void *arg)
             dy = -MOCK_HID_MOVE_DELTA;
             break;
         }
-        tud_hid_mouse_report(0, 0, dx, dy, 0, 0);
+        if (!tud_hid_mouse_report(0, 0, dx, dy, 0, 0) && tud_hid_ready()) {
+            // SET_REPORT stall hook makes dcd_edpt_stall() discard an armed report without a completion event.
+            // The endpoint stays claimed after the halt is cleared and claims fail while ready.
+            // Release the stale claim so reporting resumes.
+            usbd_edpt_release(0, MOCK_HID_EP_IN);
+        }
     }
 }
 
