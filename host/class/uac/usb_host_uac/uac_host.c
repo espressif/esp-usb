@@ -23,6 +23,7 @@
 #include "freertos/task.h"
 #include "freertos/semphr.h"
 #include "freertos/ringbuf.h"
+#include "esp_heap_caps.h"
 #include "esp_private/critical_section.h"
 #include "usb/usb_host.h"
 #include "usb/uac_host.h"
@@ -810,7 +811,9 @@ static esp_err_t uac_host_interface_add(uac_device_t *uac_device, uint8_t iface_
                     iface_alt->dev_alt_param.channels = as_format_type_desc->bNrChannels;
                     iface_alt->dev_alt_param.subframe_size = as_format_type_desc->bSubframeSize;
                     iface_alt->dev_alt_param.bit_resolution = as_format_type_desc->bBitResolution;
-                    iface_alt->dev_alt_param.sample_freq_type = as_format_type_desc->bSamFreqType;
+                    // clamp to the array size, otherwise sample_freq[] is read out of bounds later
+                    iface_alt->dev_alt_param.sample_freq_type = as_format_type_desc->bSamFreqType > UAC_FREQ_NUM_MAX ?
+                                                                UAC_FREQ_NUM_MAX : as_format_type_desc->bSamFreqType;
                     if (as_format_type_desc->bSamFreqType == 0) {
                         iface_alt->dev_alt_param.sample_freq_lower = (as_format_type_desc->tSamFreq[2] << 16) | (as_format_type_desc->tSamFreq[1] << 8) | as_format_type_desc->tSamFreq[0];
                         iface_alt->dev_alt_param.sample_freq_upper = (as_format_type_desc->tSamFreq[5] << 16) | (as_format_type_desc->tSamFreq[4] << 8) | as_format_type_desc->tSamFreq[3];
@@ -828,8 +831,17 @@ static esp_err_t uac_host_interface_add(uac_device_t *uac_device, uint8_t iface_
                 }
                 break;
             }
+            case USB_B_DESCRIPTOR_TYPE_INTERFACE:
+            case USB_B_DESCRIPTOR_TYPE_INTERFACE_ASSOCIATION:
+                // never parse into the next interface/alt setting
+                parse_continue = false;
+                break;
             case USB_B_DESCRIPTOR_TYPE_ENDPOINT: {
                 ep_desc = (const usb_ep_desc_t *)cs_desc;
+                if (iface_alt->ep_addr != 0) {
+                    // keep the first (data) endpoint, ignore e.g. feedback endpoints
+                    break;
+                }
                 iface_alt->ep_addr = ep_desc->bEndpointAddress;
                 iface_alt->ep_mps = ep_desc->wMaxPacketSize;
                 iface_alt->ep_attr = ep_desc->bmAttributes;
@@ -883,7 +895,11 @@ static esp_err_t uac_host_interface_add(uac_device_t *uac_device, uint8_t iface_
                 const uac_as_cs_ep_desc_t *cs_ep_desc = (const uac_as_cs_ep_desc_t *)cs_desc;
                 if (cs_ep_desc->bDescriptorSubtype == UAC_EP_GENERAL) {
                     iface_alt->freq_ctrl_supported = cs_ep_desc->bmAttributes & UAC_SAMPLING_FREQ_CONTROL;
-                    parse_continue = false;
+                    // some devices (e.g. Jabra Link) place the class-specific endpoint descriptor
+                    // BEFORE the standard endpoint descriptor. Only stop once the endpoint has been parsed.
+                    if (iface_alt->ep_addr != 0) {
+                        parse_continue = false;
+                    }
                     ESP_LOGD(TAG, "UAC EP General, Attributes 0x%02X", cs_ep_desc->bmAttributes);
                     ESP_LOGD(TAG, "UAC EP Frequency Control %d", iface_alt->freq_ctrl_supported);
                 }
@@ -2147,7 +2163,12 @@ esp_err_t uac_host_device_open(const uac_host_device_config_t *config, uac_host_
     uac_iface->user_cb = config->callback;
     uac_iface->user_cb_arg = config->callback_arg;
     // create a ringbuffer for the incoming/outgoing data
-    uac_iface->ringbuf = xRingbufferCreate(config->buffer_size, RINGBUF_TYPE_BYTEBUF);
+    // large audio ring buffers in PSRAM (internal RAM is scarce with WiFi/LVGL/audio),
+    // fall back to internal RAM. Always created "WithCaps" so it is always deleted "WithCaps".
+    uac_iface->ringbuf = xRingbufferCreateWithCaps(config->buffer_size, RINGBUF_TYPE_BYTEBUF, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (uac_iface->ringbuf == NULL) {
+        uac_iface->ringbuf = xRingbufferCreateWithCaps(config->buffer_size, RINGBUF_TYPE_BYTEBUF, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    }
     UAC_GOTO_ON_FALSE(uac_iface->ringbuf, ESP_ERR_NO_MEM, "Unable to create ringbuffer");
     uac_iface->ringbuf_size = config->buffer_size;
     // if the threshold is not set, set it to 25% of the buffer size
@@ -2179,7 +2200,7 @@ fail:
         usb_host_device_close(s_uac_driver->client_handle, dev_hdl);
     }
     if (uac_iface->ringbuf) {
-        vRingbufferDelete(uac_iface->ringbuf);
+        vRingbufferDeleteWithCaps(uac_iface->ringbuf);
     }
     return ret;
 }
@@ -2279,7 +2300,7 @@ esp_err_t uac_host_device_close(uac_host_device_handle_t uac_dev_handle)
         }
         // Unblock the low priority tasks waiting for the ringbuffer before deleting it
         vTaskDelay(pdMS_TO_TICKS(CONFIG_UAC_RINGBUF_SAFE_DELETE_WAITING_MS));
-        vRingbufferDelete(uac_iface->ringbuf);
+        vRingbufferDeleteWithCaps(uac_iface->ringbuf);
         uac_iface->ringbuf = NULL;
     }
 
