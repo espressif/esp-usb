@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- Fixed parsing of AS interfaces whose class-specific endpoint descriptor precedes the standard endpoint descriptor (e.g. Jabra Link dongles). Parsing stopped at `EP_GENERAL`, leaving `ep_addr`/`ep_mps` at 0, so every `uac_host_device_start()` failed with "Calculated packet size exceeds endpoint max packet size". Parsing now also stops at the next interface descriptor and keeps the first endpoint of an alternate setting.
+- Clamp `sample_freq_type` to `UAC_FREQ_NUM_MAX` so devices with more discrete sample rates no longer cause an out-of-bounds read of `sample_freq[]`.
+
+### Changed
+
+- The stream ring buffer is allocated in PSRAM when available (fallback: internal RAM), so larger `buffer_size` values no longer fail with `ESP_ERR_NO_MEM`.
+
 - Reject Feature Unit descriptors with `bControlSize == 0` or `bLength < 7` before dividing by `bControlSize` (BBP 575 open-time divide-by-zero DoS)
 
 ## [1.5.0] - 2026-05-14
