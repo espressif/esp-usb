@@ -1181,6 +1181,7 @@ esp_err_t uvc_host_stream_unpause(uvc_host_stream_hdl_t stream_hdl)
     stream_hdl->single_thread.next_bulk_packet = UVC_STREAM_BULK_PACKET_SOF;
     stream_hdl->single_thread.bulk_payload_bytes_left = 0;
     stream_hdl->single_thread.bulk_payload_resync = false;
+    stream_hdl->single_thread.bulk_payload_frame_end = false;
     UVC_EXIT_CRITICAL();
 
     for (int i = 0; i < stream_hdl->constant.num_of_xfers; i++) {

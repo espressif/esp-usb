@@ -68,5 +68,6 @@ struct uvc_host_stream_s {
         uint8_t current_frame_id;                       // Frame ID can be only 0 or 1. But we also allow setting it to invalid value = 2.
         size_t bulk_payload_bytes_left;                 // Bytes left before the next payload header
         bool bulk_payload_resync;                       // Ignore data until a short transfer restores payload alignment
+        bool bulk_payload_frame_end;                    // Current payload has EOF set; complete frame at payload boundary
     } single_thread; // Single thread members are only accessed from 1 thread, so they do not need protection
 };

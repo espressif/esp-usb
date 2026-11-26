@@ -285,6 +285,8 @@ SCENARIO("Bulk stream frame reconstruction", "[streaming][bulk]")
             uvc_payload_header_t header = {};
             header.bHeaderLength = HEADER_LEN;
             header.bmHeaderInfo.end_of_header = 1;
+            header.bmHeaderInfo.end_of_frame =
+                (offset + payload_data_size == context.expected.size());
             const auto *header_bytes = reinterpret_cast<const uint8_t *>(&header);
             wire_data.insert(wire_data.end(), header_bytes, header_bytes + HEADER_LEN);
             wire_data.insert(wire_data.end(), context.expected.begin() + offset,
@@ -315,6 +317,77 @@ SCENARIO("Bulk stream frame reconstruction", "[streaming][bulk]")
             bulk_transfer_callback(&transfer);
         }
 
+        THEN("Each header is removed and data in the EOF payload is retained") {
+            REQUIRE(context.callback_count == 1);
+        }
+
+        REQUIRE(uvc_frame_are_all_returned(&payload_stream));
+        uvc_frame_free(&payload_stream);
+    }
+
+    GIVEN("An exactly full payload is followed by a zero-length packet") {
+        constexpr size_t transfer_size = 32;
+        constexpr size_t max_payload_size = 64;
+        constexpr size_t payload_data_size = max_payload_size - HEADER_LEN;
+
+        bulk_payload_test_context context = {
+            .expected = std::vector<uint8_t>(payload_data_size, 0x5a),
+            .callback_count = 0,
+        };
+
+        uvc_stream_t zlp_stream = {};
+        zlp_stream.constant.bulk_mps = 16;
+        zlp_stream.constant.cb_arg = &context;
+        zlp_stream.dynamic.dwMaxPayloadTransferSize = max_payload_size;
+        zlp_stream.constant.frame_cb = [](const uvc_host_frame_t *frame, void *user_ctx) -> bool {
+            auto *ctx = static_cast<bulk_payload_test_context *>(user_ctx);
+            REQUIRE(std::vector<uint8_t>(frame->data, frame->data + frame->data_len) == ctx->expected);
+            ctx->callback_count++;
+            return true;
+        };
+
+        REQUIRE(uvc_frame_allocate(&zlp_stream, 1, payload_data_size, 0, nullptr) == ESP_OK);
+        REQUIRE(uvc_host_stream_unpause(&zlp_stream) == ESP_OK);
+
+        uvc_payload_header_t data_header = {};
+        data_header.bHeaderLength = HEADER_LEN;
+        data_header.bmHeaderInfo.end_of_header = 1;
+
+        std::vector<uint8_t> payload;
+        const auto *header_bytes = reinterpret_cast<const uint8_t *>(&data_header);
+        payload.insert(payload.end(), header_bytes, header_bytes + HEADER_LEN);
+        payload.insert(payload.end(), context.expected.begin(), context.expected.end());
+        REQUIRE(payload.size() == max_payload_size);
+
+        std::vector<uint8_t> transfer_buffer(transfer_size);
+        usb_transfer_t transfer = {
+            .data_buffer = transfer_buffer.data(),
+            .data_buffer_size = transfer_size,
+            .num_bytes = 0,
+            .actual_num_bytes = 0,
+            .flags = 0,
+            .device_handle = nullptr,
+            .bEndpointAddress = 0,
+            .status = USB_TRANSFER_STATUS_COMPLETED,
+            .timeout_ms = 0,
+            .callback = nullptr,
+            .context = &zlp_stream,
+            .num_isoc_packets = 0,
+        };
+
+        for (size_t offset = 0; offset < payload.size(); offset += transfer_size) {
+            std::copy_n(payload.begin() + offset, transfer_size, transfer_buffer.begin());
+            transfer.actual_num_bytes = transfer_size;
+            usb_host_transfer_submit_ExpectAndReturn(&transfer, ESP_OK);
+            bulk_transfer_callback(&transfer);
+        }
+
+        // A ZLP following an exactly full payload is padding. It must not be
+        // interpreted as another payload with a missing header.
+        transfer.actual_num_bytes = 0;
+        usb_host_transfer_submit_ExpectAndReturn(&transfer, ESP_OK);
+        bulk_transfer_callback(&transfer);
+
         uvc_payload_header_t eof_header = {};
         eof_header.bHeaderLength = HEADER_LEN;
         eof_header.bmHeaderInfo.end_of_header = 1;
@@ -324,12 +397,89 @@ SCENARIO("Bulk stream frame reconstruction", "[streaming][bulk]")
         usb_host_transfer_submit_ExpectAndReturn(&transfer, ESP_OK);
         bulk_transfer_callback(&transfer);
 
-        THEN("Each payload header is removed from the reconstructed frame") {
+        THEN("The ZLP is ignored and the frame is reconstructed") {
             REQUIRE(context.callback_count == 1);
         }
 
-        REQUIRE(uvc_frame_are_all_returned(&payload_stream));
-        uvc_frame_free(&payload_stream);
+        REQUIRE(uvc_frame_are_all_returned(&zlp_stream));
+        uvc_frame_free(&zlp_stream);
+    }
+
+    GIVEN("A payload starts a new frame by toggling FID") {
+        constexpr size_t transfer_size = 48;
+        constexpr size_t max_payload_size = 64;
+        constexpr size_t payload_data_size = max_payload_size - HEADER_LEN;
+
+        std::vector<std::vector<uint8_t>> expected_frames = {
+            std::vector<uint8_t>(payload_data_size, 0x11),
+            std::vector<uint8_t>(payload_data_size, 0x22),
+        };
+        std::vector<std::vector<uint8_t>> completed_frames;
+
+        uvc_stream_t fid_stream = {};
+        fid_stream.constant.bulk_mps = 16;
+        fid_stream.constant.cb_arg = &completed_frames;
+        fid_stream.dynamic.dwMaxPayloadTransferSize = max_payload_size;
+        fid_stream.constant.frame_cb = [](const uvc_host_frame_t *frame, void *user_ctx) -> bool {
+            auto *frames = static_cast<std::vector<std::vector<uint8_t>> *>(user_ctx);
+            frames->emplace_back(frame->data, frame->data + frame->data_len);
+            return true;
+        };
+
+        REQUIRE(uvc_frame_allocate(&fid_stream, 1, payload_data_size, 0, nullptr) == ESP_OK);
+        REQUIRE(uvc_host_stream_unpause(&fid_stream) == ESP_OK);
+
+        std::vector<uint8_t> wire_data;
+        for (size_t frame_index = 0; frame_index < expected_frames.size(); ++frame_index) {
+            uvc_payload_header_t header = {};
+            header.bHeaderLength = HEADER_LEN;
+            header.bmHeaderInfo.end_of_header = 1;
+            header.bmHeaderInfo.frame_id = static_cast<uint8_t>(frame_index);
+            const auto *header_bytes = reinterpret_cast<const uint8_t *>(&header);
+            wire_data.insert(wire_data.end(), header_bytes, header_bytes + HEADER_LEN);
+            wire_data.insert(wire_data.end(), expected_frames[frame_index].begin(), expected_frames[frame_index].end());
+        }
+
+        std::vector<uint8_t> transfer_buffer(transfer_size);
+        usb_transfer_t transfer = {
+            .data_buffer = transfer_buffer.data(),
+            .data_buffer_size = transfer_size,
+            .num_bytes = 0,
+            .actual_num_bytes = 0,
+            .flags = 0,
+            .device_handle = nullptr,
+            .bEndpointAddress = 0,
+            .status = USB_TRANSFER_STATUS_COMPLETED,
+            .timeout_ms = 0,
+            .callback = nullptr,
+            .context = &fid_stream,
+            .num_isoc_packets = 0,
+        };
+
+        for (size_t offset = 0; offset < wire_data.size(); offset += transfer_size) {
+            const size_t chunk_size = std::min(transfer_size, wire_data.size() - offset);
+            std::copy_n(wire_data.begin() + offset, chunk_size, transfer_buffer.begin());
+            transfer.actual_num_bytes = chunk_size;
+            usb_host_transfer_submit_ExpectAndReturn(&transfer, ESP_OK);
+            bulk_transfer_callback(&transfer);
+        }
+
+        uvc_payload_header_t eof_header = {};
+        eof_header.bHeaderLength = HEADER_LEN;
+        eof_header.bmHeaderInfo.end_of_header = 1;
+        eof_header.bmHeaderInfo.frame_id = 1;
+        eof_header.bmHeaderInfo.end_of_frame = 1;
+        std::copy_n(reinterpret_cast<const uint8_t *>(&eof_header), HEADER_LEN, transfer_buffer.begin());
+        transfer.actual_num_bytes = HEADER_LEN;
+        usb_host_transfer_submit_ExpectAndReturn(&transfer, ESP_OK);
+        bulk_transfer_callback(&transfer);
+
+        THEN("The new frame payload header is stripped exactly once") {
+            REQUIRE(completed_frames == expected_frames);
+        }
+
+        REQUIRE(uvc_frame_are_all_returned(&fid_stream));
+        uvc_frame_free(&fid_stream);
     }
 }
 

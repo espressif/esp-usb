@@ -85,6 +85,10 @@ static bool bulk_process_payload_piece(uvc_stream_t *uvc_stream, const uint8_t *
     switch (uvc_stream->single_thread.next_bulk_packet) {
     case UVC_STREAM_BULK_PACKET_SOF: {
 label_sof:
+        // This label is also reached after an FID toggle from the EOF state.
+        // Restore the unconsumed payload before stripping its header as SoF.
+        payload_data = payload;
+        payload_data_len = payload_len;
         const uvc_payload_header_t *payload_header = (const uvc_payload_header_t *)payload;
         if (!uvc_frame_payload_header_validate(payload_header, payload_len)) {
             ESP_LOGW(TAG, "invalid UVC payload header, %02x, %02x, len:%zu",
@@ -95,6 +99,7 @@ label_sof:
 
         uvc_stream->single_thread.current_frame_id = payload_header->bmHeaderInfo.frame_id;
         uvc_stream->single_thread.skip_current_frame = payload_header->bmHeaderInfo.error;
+        uvc_stream->single_thread.bulk_payload_frame_end = payload_header->bmHeaderInfo.end_of_frame;
         payload_data += payload_header->bHeaderLength;
         payload_data_len -= payload_header->bHeaderLength;
 
@@ -143,9 +148,17 @@ skip_sof:
     case UVC_STREAM_BULK_PACKET_DATA:
         bulk_add_frame_data(uvc_stream, payload_data, payload_data_len);
         if (payload_end) {
-            // The next payload starts with a header, which determines whether
-            // it continues this frame or starts/terminates a frame.
-            uvc_stream->single_thread.next_bulk_packet = UVC_STREAM_BULK_PACKET_EOF;
+            if (uvc_stream->single_thread.bulk_payload_frame_end) {
+                // EOF describes the whole payload. Delay completion until all
+                // pieces of that payload have been appended.
+                bulk_complete_frame(uvc_stream);
+                uvc_stream->single_thread.bulk_payload_frame_end = false;
+                uvc_stream->single_thread.next_bulk_packet = UVC_STREAM_BULK_PACKET_SOF;
+            } else {
+                // The next payload starts with a header, which determines
+                // whether it continues this frame or starts a new frame.
+                uvc_stream->single_thread.next_bulk_packet = UVC_STREAM_BULK_PACKET_EOF;
+            }
         }
         break;
 
@@ -163,15 +176,30 @@ skip_sof:
         uvc_stream->single_thread.skip_current_frame |= payload_header->bmHeaderInfo.error;
         const bool start_of_frame =
             (uvc_stream->single_thread.current_frame_id != payload_header->bmHeaderInfo.frame_id);
+        uvc_stream->single_thread.bulk_payload_frame_end = payload_header->bmHeaderInfo.end_of_frame;
         payload_data += payload_header->bHeaderLength;
         payload_data_len -= payload_header->bHeaderLength;
 
-        if (!start_of_frame && !payload_header->bmHeaderInfo.end_of_frame) {
-            // Another payload of the same frame: strip its header and collect
-            // its data. A short piece must leave us expecting another header.
+        if (!start_of_frame) {
+            // The payload belongs to the current frame even when its header
+            // carries EOF, so append its data before completing the frame.
             bulk_add_frame_data(uvc_stream, payload_data, payload_data_len);
-            uvc_stream->single_thread.next_bulk_packet =
-                payload_end ? UVC_STREAM_BULK_PACKET_EOF : UVC_STREAM_BULK_PACKET_DATA;
+            if (payload_header->bmHeaderInfo.end_of_frame) {
+                if (payload_end) {
+                    bulk_complete_frame(uvc_stream);
+                    uvc_stream->single_thread.bulk_payload_frame_end = false;
+                    uvc_stream->single_thread.next_bulk_packet = UVC_STREAM_BULK_PACKET_SOF;
+                } else {
+                    // More pieces of this EOF payload follow in later URBs.
+                    uvc_stream->single_thread.bulk_payload_frame_end = true;
+                    uvc_stream->single_thread.next_bulk_packet = UVC_STREAM_BULK_PACKET_DATA;
+                }
+            } else {
+                // Another payload of the same frame. A short piece must leave
+                // us expecting a header at the start of the next payload.
+                uvc_stream->single_thread.next_bulk_packet =
+                    payload_end ? UVC_STREAM_BULK_PACKET_EOF : UVC_STREAM_BULK_PACKET_DATA;
+            }
             break;
         }
 
@@ -181,9 +209,9 @@ skip_sof:
         if (start_of_frame && payload_data_len > 0) {
             // Some cameras never set EOF. A FID toggle both completes the old
             // frame and makes this payload the start of the next frame.
-            uvc_stream->single_thread.current_frame_id = payload_header->bmHeaderInfo.frame_id;
             goto label_sof;
         }
+        uvc_stream->single_thread.bulk_payload_frame_end = false;
         break;
     }
     default:
@@ -264,6 +292,7 @@ void bulk_transfer_callback(usb_transfer_t *transfer)
         if (transfer_is_short) {
             uvc_stream->single_thread.bulk_payload_resync = false;
             uvc_stream->single_thread.bulk_payload_bytes_left = 0;
+            uvc_stream->single_thread.bulk_payload_frame_end = false;
             uvc_stream->single_thread.next_bulk_packet = UVC_STREAM_BULK_PACKET_EOF;
         }
         goto resubmit;
@@ -307,6 +336,7 @@ void bulk_transfer_callback(usb_transfer_t *transfer)
             // A physical short packet already restored alignment. Otherwise
             // stop counting now and wait for the next short transfer.
             uvc_stream->single_thread.bulk_payload_bytes_left = 0;
+            uvc_stream->single_thread.bulk_payload_frame_end = false;
             uvc_stream->single_thread.next_bulk_packet = UVC_STREAM_BULK_PACKET_EOF;
             if (!physical_payload_end) {
                 uvc_stream->single_thread.bulk_payload_resync = true;
