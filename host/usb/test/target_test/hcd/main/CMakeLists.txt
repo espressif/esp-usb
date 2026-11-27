@@ -9,5 +9,5 @@ endif()
 
 idf_component_register(SRC_DIRS "."
                        PRIV_INCLUDE_DIRS "."
-                       REQUIRES usb unity common esp_mm ${usb_hal_requires}
+                       REQUIRES usb unity common esp_mm esp_timer ${usb_hal_requires}
                        WHOLE_ARCHIVE)

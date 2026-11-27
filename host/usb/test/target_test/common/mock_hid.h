@@ -87,6 +87,39 @@ typedef enum {
 #define MOCK_HID_SET_REPORT_MODE_TRIGGER      0x5B
 
 /**
+ * @brief Interrupt IN endpoint addresses (one per HID interface)
+ */
+#define MOCK_HID_EP_IN_R5_MPS8      0x81    // Interface 0
+#define MOCK_HID_EP_IN_R4_MPS4      0x82    // Interface 1 (strict)
+#define MOCK_HID_EP_IN_R4_MPS5      0x83    // Interface 2
+#define MOCK_HID_EP_IN_R5_MPS5      0x84    // Interface 3
+
+/**
+ * @brief Interrupt OUT endpoint of the loopback interface (interface 0): received reports echo on EP 0x81
+ */
+#define MOCK_HID_EP_OUT_LOOPBACK    0x01
+
+/**
+ * @brief Interrupt endpoint MPS per interface (TUD_HID_INOUT_DESCRIPTOR uses one MPS for both EPs)
+ */
+#define MOCK_HID_EP_MPS_ITF0        8       // DWORD aligned
+#define MOCK_HID_EP_MPS_ITF1        4       // DWORD aligned
+#define MOCK_HID_EP_MPS_ITF2        5       // Non-DWORD aligned
+#define MOCK_HID_EP_MPS_ITF3        5       // Non-DWORD aligned
+
+/**
+ * @brief HID report lengths
+ */
+#define MOCK_HID_REPORT_LEN_5B      5       // buttons, X, Y, wheel, AC pan
+#define MOCK_HID_REPORT_LEN_4B      4       // buttons, X, Y, wheel
+
+/**
+ * @brief Endpoint polling intervals (bInterval)
+ */
+#define MOCK_HID_EP_INTERVAL_MS     10
+#define MOCK_HID_EP_STRICT_INTERVAL 1
+
+/**
  * @brief Number of HID interfaces of the mock composite device
  */
 #define MOCK_HID_NUM_ITF        4
