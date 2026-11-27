@@ -514,6 +514,29 @@ esp_err_t usbh_dev_enum_lock(usb_device_handle_t dev_hdl);
 esp_err_t usbh_dev_enum_unlock(usb_device_handle_t dev_hdl);
 
 /**
+ * @brief Revert a device's enumeration data to the default state
+ *
+ * Typically called before resetting the device's port to restart a failed enumeration. The device's address and
+ * the default pipe's target address are set to 0, the EP0 MPS is set to the provided value, and the device,
+ * configuration and string descriptors are freed.
+ *
+ * @note Callers of this function must have opened the device via usbh_devs_open()
+ *
+ * @note The device's enumeration lock must be set before calling this function
+ * (see 'usbh_dev_enum_lock()')
+ *
+ * @param[in] dev_hdl Device handle
+ * @param[in] wMaxPacketSize EP0 maximum packet size to use in the default state
+ *
+ * @return
+ *    - ESP_OK: Device reverted to the default state successfully
+ *    - ESP_ERR_INVALID_ARG: Invalid argument
+ *    - ESP_ERR_INVALID_STATE: Default pipe is not in a condition to be updated
+ *    - ESP_ERR_NOT_ALLOWED: Device's enum_lock must be set before enumeration related data fields can be set
+ */
+esp_err_t usbh_dev_enum_reset(usb_device_handle_t dev_hdl, uint16_t wMaxPacketSize);
+
+/**
  * @brief Set the maximum packet size of EP0 for a device
  *
  * Typically called during enumeration after obtaining the first 8 bytes of the
@@ -724,6 +747,18 @@ esp_err_t usbh_ep_command(usbh_ep_handle_t ep_hdl, usbh_ep_cmd_t command);
 void *usbh_ep_get_context(usbh_ep_handle_t ep_hdl);
 
 // ------------------------- Transfer Functions --------------------------------
+
+/**
+ * @brief Cancel all control transfers submitted to a device
+ *
+ * @param[in] dev_hdl Device handle
+ *
+ * @return
+ *    - ESP_OK: Cancellation scheduled successfully
+ *    - ESP_ERR_INVALID_ARG: Invalid argument
+ *    - ESP_ERR_NOT_ALLOWED: Device is not locked for enumeration
+ */
+esp_err_t usbh_dev_cancel_ctrl_xfers(usb_device_handle_t dev_hdl);
 
 /**
  * @brief Submit a control transfer (URB) to a device

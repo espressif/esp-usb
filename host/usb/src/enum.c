@@ -11,12 +11,16 @@
 #include "esp_heap_caps.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/timers.h"
+#include "esp_private/critical_section.h"
 #include "usb_private.h"
 #include "usbh.h"
 #include "enum.h"
 #include "usb/usb_helpers.h"
 
 #define SET_ADDR_RECOVERY_INTERVAL_MS               CONFIG_USB_HOST_SET_ADDR_RECOVERY_MS
+#define ENUM_CTRL_TRANSFER_TIMEOUT_MS               CONFIG_USB_HOST_ENUM_CTRL_TRANSFER_TIMEOUT_MS
+#define ENUM_TIMEOUT_RETRIES                        CONFIG_USB_HOST_ENUM_TIMEOUT_RETRIES
 
 #define ENUM_CTRL_TRANSFER_MAX_DATA_LEN             CONFIG_USB_HOST_CONTROL_TRANSFER_MAX_SIZE
 #define ENUM_INIT_VALUE_DEV_ADDR                    1       // Init value for device address
@@ -37,6 +41,7 @@
  * - Must start with 0 as enum is also used as an index
  * - The short descriptor stages are used to fetch the start particular descriptors that don't have a fixed length in order to determine the full descriptors length
  * - Any state of Get String Descriptor could be STALLed by the device. In that case we just don't fetch them and treat enumeration as successful
+ * - Recovery stages are only entered when a control transfer times out. They reset the port and restart from ENUM_STAGE_GET_SHORT_DEV_DESC
  */
 typedef enum {
     ENUM_STAGE_IDLE = 0,                    /**< There is no device awaiting enumeration */
@@ -78,6 +83,9 @@ typedef enum {
     // Terminal stages
     ENUM_STAGE_COMPLETE,                    /**< Successful enumeration complete. */
     ENUM_STAGE_CANCEL,                      /**< Cancel enumeration. Free device resources */
+    // Recovery stages
+    ENUM_STAGE_RECOVERY_RESET,              /**< Revert the device object to the default state and reset the port after a control transfer timeout */
+    ENUM_STAGE_RECOVERY_RESET_COMPLETE,     /**< Reset completed, restart enumeration from ENUM_STAGE_GET_SHORT_DEV_DESC */
 } enum_stage_t;
 
 const char *const enum_stage_strings[] = {
@@ -116,6 +124,8 @@ const char *const enum_stage_strings[] = {
     "CHECK_CONFIG",
     "COMPLETE",
     "CANCEL",
+    "RECOVERY_RESET",
+    "RECOVERY_RESET_COMPLETE",
 };
 
 typedef struct {
@@ -141,6 +151,7 @@ typedef struct {
         enum_device_params_t dev_params;            /**< Parameters of device under enumeration */
         int expect_num_bytes;                       /**< Expected number of bytes for IN transfers stages. Set to 0 for OUT transfer */
         uint8_t next_dev_addr;                      /**< Device address for device under enumeration */
+        int timeout_retries;                        /**< Number of recoveries already done after a control transfer timeout */
         // Pending enumeration queue
         unsigned int pending_uids[ENUM_PENDING_QUEUE_LEN];
         uint16_t pending_head;
@@ -149,8 +160,15 @@ typedef struct {
     } single_thread;                                /**< Single thread members don't require a critical section so long as they are never accessed from multiple threads */
 
     struct {
+        bool ctrl_xfer_inflight;                    /**< Enumeration control transfer is submitted and not yet returned */
+        bool ctrl_xfer_timed_out;                   /**< Timeout expired before the in-flight control transfer returned */
+        TickType_t ctrl_xfer_submit_tick;           /**< Tick count when the in-flight control transfer was submitted */
+    } dynamic;                                      /**< Dynamic members shared with the timeout timer callback. Require a critical section */
+
+    struct {
         // Internal objects
         urb_t *urb;                                 /**< URB used for enumeration control transfers. Max data length of ENUM_CTRL_TRANSFER_MAX_DATA_LEN */
+        TimerHandle_t ctrl_xfer_timer;              /**< One-shot timer to detect control transfers that never return */
         // Callbacks
         usb_proc_req_cb_t proc_req_cb;              /**< USB Host process request callback. Refer to proc_req_callback() in usb_host.c */
         void *proc_req_cb_arg;                      /**< USB Host process request callback argument */
@@ -166,6 +184,10 @@ typedef struct {
 static enum_driver_t *p_enum_driver = NULL;
 
 const char *ENUM_TAG = "ENUM";
+
+DEFINE_CRIT_SECTION_LOCK_STATIC(enum_driver_lock);
+#define ENUM_ENTER_CRITICAL()           esp_os_enter_critical(&enum_driver_lock)
+#define ENUM_EXIT_CRITICAL()            esp_os_exit_critical(&enum_driver_lock)
 
 // -----------------------------------------------------------------------------
 // ---------------------------- Helpers ----------------------------------------
@@ -301,7 +323,7 @@ static esp_err_t select_active_configuration(void)
     return ESP_OK;
 }
 
-static esp_err_t second_reset_request(void)
+static esp_err_t port_reset_request(void)
 {
     // Notify USB Host
     enum_event_data_t event_data = {
@@ -310,6 +332,41 @@ static esp_err_t second_reset_request(void)
     };
     p_enum_driver->constant.enum_event_cb(&event_data, p_enum_driver->constant.enum_event_cb_arg);
     return ESP_OK;
+}
+
+/**
+ * @brief Reset device parameters to the values used at the start of enumeration
+ *
+ * @param[in] speed Speed of the device under enumeration
+ */
+static void dev_params_init(usb_speed_t speed)
+{
+    memset(&p_enum_driver->single_thread.dev_params, 0, sizeof(enum_device_params_t));
+    p_enum_driver->single_thread.dev_params.bMaxPacketSize0 = (speed == USB_SPEED_LOW)
+                                                              ? ENUM_WORST_CASE_MPS_LS
+                                                              : ENUM_WORST_CASE_MPS_FS_HS;
+}
+
+/**
+ * @brief Revert the device under enumeration to the default state and request a port reset
+ *
+ * After the port reset the device responds at address 0 again, so the device object must not keep
+ * the address, EP0 MPS and descriptors obtained by the previous attempt.
+ */
+static esp_err_t recovery_reset_request(void)
+{
+    usb_device_handle_t dev_hdl = p_enum_driver->single_thread.dev_hdl;
+    usb_device_info_t dev_info;
+    ESP_ERROR_CHECK(usbh_dev_get_info(dev_hdl, &dev_info));
+
+    dev_params_init(dev_info.speed);
+    p_enum_driver->single_thread.expect_num_bytes = 0;
+    esp_err_t ret = usbh_dev_enum_reset(dev_hdl, p_enum_driver->single_thread.dev_params.bMaxPacketSize0);
+    if (ret != ESP_OK) {
+        ESP_LOGE(ENUM_TAG, "Failed to revert device to default state: %s", esp_err_to_name(ret));
+        return ret;
+    }
+    return port_reset_request();
 }
 
 /**
@@ -771,11 +828,26 @@ static esp_err_t control_request(enum_stage_t stage)
         break;
     }
 
+    ENUM_ENTER_CRITICAL();
+    p_enum_driver->dynamic.ctrl_xfer_inflight = true;
+    p_enum_driver->dynamic.ctrl_xfer_timed_out = false;
+    p_enum_driver->dynamic.ctrl_xfer_submit_tick = xTaskGetTickCount();
+    ENUM_EXIT_CRITICAL();
+
     ret = usbh_dev_submit_ctrl_urb(p_enum_driver->single_thread.dev_hdl, p_enum_driver->constant.urb);
     if (ret != ESP_OK) {
+        ENUM_ENTER_CRITICAL();
+        p_enum_driver->dynamic.ctrl_xfer_inflight = false;
+        ENUM_EXIT_CRITICAL();
         ESP_LOGE(ENUM_TAG, "Control transfer submit error %s, stage '%s'",
                  esp_err_to_name(ret),
                  enum_stage_strings[stage]);
+        return ret;
+    }
+
+    // Without the timer the transfer can still complete, it just can't be recovered if the device never responds
+    if (xTimerReset(p_enum_driver->constant.ctrl_xfer_timer, 0) != pdPASS) {
+        ESP_LOGW(ENUM_TAG, "Failed to start control transfer timeout timer");
     }
 
     return ret;
@@ -796,6 +868,13 @@ static esp_err_t control_response_handling(enum_stage_t stage)
     usb_transfer_t *ctrl_xfer = &p_enum_driver->constant.urb->transfer;
 
     if (ctrl_xfer->status != USB_TRANSFER_STATUS_COMPLETED) {
+        ENUM_ENTER_CRITICAL();
+        const bool timed_out = p_enum_driver->dynamic.ctrl_xfer_timed_out;
+        ENUM_EXIT_CRITICAL();
+        if (timed_out) {
+            // Transfer was canceled by the timeout handling in enum_process()
+            return ESP_ERR_TIMEOUT;
+        }
         if (ctrl_xfer->status == USB_TRANSFER_STATUS_STALL &&
                 stage >= ENUM_STAGE_CHECK_SHORT_LANGID_TABLE &&
                 stage <= ENUM_STAGE_CHECK_FULL_SER_STR_DESC) {
@@ -986,6 +1065,7 @@ static bool stage_need_process(enum_stage_t stage)
     case ENUM_STAGE_SELECT_CONFIG:
     case ENUM_STAGE_COMPLETE:
     case ENUM_STAGE_CANCEL:
+    case ENUM_STAGE_RECOVERY_RESET:
         need_process_cb = true;
         break;
     default:
@@ -1025,6 +1105,9 @@ static bool set_next_stage(bool last_stage_pass)
                     last_stage == ENUM_STAGE_CANCEL) {
                 // Stages are terminal, move state machine to IDLE
                 next_stage = ENUM_STAGE_IDLE;
+            } else if (last_stage == ENUM_STAGE_RECOVERY_RESET_COMPLETE) {
+                // Restart enumeration of the same device
+                next_stage = ENUM_STAGE_GET_SHORT_DEV_DESC;
             } else {
                 // Simply increment to get the next stage
                 next_stage = last_stage + 1;
@@ -1036,7 +1119,8 @@ static bool set_next_stage(bool last_stage_pass)
                    last_stage != ENUM_STAGE_SECOND_RESET &&
                    last_stage != ENUM_STAGE_SECOND_RESET_COMPLETE &&
                    last_stage != ENUM_STAGE_COMPLETE &&
-                   last_stage != ENUM_STAGE_CANCEL);
+                   last_stage != ENUM_STAGE_CANCEL &&
+                   last_stage != ENUM_STAGE_RECOVERY_RESET_COMPLETE);
 
             // Last stage failed
             switch (last_stage) {
@@ -1121,6 +1205,35 @@ static bool set_next_stage(bool last_stage_pass)
 }
 
 /**
+ * @brief Set the stage after a control transfer timeout
+ *
+ * Restarts enumeration via a port reset while retries are left, otherwise cancels enumeration.
+ * The device is considered unresponsive, so the stages that are allowed to fail (i.e. string descriptors) are not skipped.
+ *
+ * @return Processing for the next stage is:
+ * @retval true     Required
+ * @retval false    Not required
+ */
+static bool set_timeout_stage(void)
+{
+    enum_stage_t last_stage = p_enum_driver->single_thread.stage;
+
+    if (p_enum_driver->single_thread.timeout_retries < ENUM_TIMEOUT_RETRIES) {
+        p_enum_driver->single_thread.timeout_retries++;
+        ESP_LOGW(ENUM_TAG, "%s timeout, reset port and retry enumeration (%d/%d)",
+                 enum_stage_strings[last_stage],
+                 p_enum_driver->single_thread.timeout_retries,
+                 ENUM_TIMEOUT_RETRIES);
+        p_enum_driver->single_thread.stage = ENUM_STAGE_RECOVERY_RESET;
+    } else {
+        ESP_LOGE(ENUM_TAG, "%s timeout, no retries left", enum_stage_strings[last_stage]);
+        p_enum_driver->single_thread.cancel_reason = ENUM_CANCEL_REASON_ERROR;
+        p_enum_driver->single_thread.stage = ENUM_STAGE_CANCEL;
+    }
+    return stage_need_process(p_enum_driver->single_thread.stage);
+}
+
+/**
  * @brief Control transfer completion callback
  *
  * Is called by lower logic when transfer is completed with or without error
@@ -1134,8 +1247,40 @@ static void enum_control_transfer_complete(usb_transfer_t *ctrl_xfer)
     assert(ctrl_xfer->context);
     assert(p_enum_driver->single_thread.dev_hdl == ctrl_xfer->context);
 
+    // ctrl_xfer_timed_out is kept, so that the check stage can tell a timeout from other failures
+    ENUM_ENTER_CRITICAL();
+    p_enum_driver->dynamic.ctrl_xfer_inflight = false;
+    ENUM_EXIT_CRITICAL();
+    xTimerStop(p_enum_driver->constant.ctrl_xfer_timer, 0);
+
     // Request processing
     p_enum_driver->constant.proc_req_cb(USB_PROC_REQ_SOURCE_ENUM, false, p_enum_driver->constant.proc_req_cb_arg);
+}
+
+/**
+ * @brief Control transfer timeout timer callback
+ *
+ * Runs in the timer service task. The in-flight transfer is canceled later from enum_process()
+ *
+ * @param[in] timer Timer handle, its ID is the enum driver object
+ */
+static void enum_control_transfer_timeout(TimerHandle_t timer)
+{
+    enum_driver_t *enum_drv = (enum_driver_t *)pvTimerGetTimerID(timer);
+    bool timed_out = false;
+
+    ENUM_ENTER_CRITICAL();
+    // A late expiry of the previous transfer's timer must not time out the transfer submitted after it
+    if (enum_drv->dynamic.ctrl_xfer_inflight &&
+            xTaskGetTickCount() - enum_drv->dynamic.ctrl_xfer_submit_tick >= pdMS_TO_TICKS(ENUM_CTRL_TRANSFER_TIMEOUT_MS)) {
+        enum_drv->dynamic.ctrl_xfer_timed_out = true;
+        timed_out = true;
+    }
+    ENUM_EXIT_CRITICAL();
+
+    if (timed_out) {
+        enum_drv->constant.proc_req_cb(USB_PROC_REQ_SOURCE_ENUM, false, enum_drv->constant.proc_req_cb_arg);
+    }
 }
 
 // -----------------------------------------------------------------------------
@@ -1162,6 +1307,12 @@ esp_err_t enum_install(enum_config_t *config, void **client_ret)
     urb->usb_host_client = (void *) enum_drv;   // Client is an address of the enum driver object
     urb->transfer.callback = enum_control_transfer_complete;
     enum_drv->constant.urb = urb;
+    TimerHandle_t ctrl_xfer_timer = xTimerCreate("usb_enum_tmr", pdMS_TO_TICKS(ENUM_CTRL_TRANSFER_TIMEOUT_MS), pdFALSE, enum_drv, enum_control_transfer_timeout);
+    if (ctrl_xfer_timer == NULL) {
+        ret = ESP_ERR_NO_MEM;
+        goto timer_err;
+    }
+    enum_drv->constant.ctrl_xfer_timer = ctrl_xfer_timer;
     // Save callbacks
     enum_drv->constant.proc_req_cb = config->proc_req_cb;
     enum_drv->constant.proc_req_cb_arg = config->proc_req_cb_arg;
@@ -1186,6 +1337,8 @@ esp_err_t enum_install(enum_config_t *config, void **client_ret)
     return ESP_OK;
 
 err:
+    xTimerDelete(ctrl_xfer_timer, portMAX_DELAY);
+timer_err:
     urb_free(urb);
 alloc_err:
     heap_caps_free(enum_drv);
@@ -1199,6 +1352,7 @@ esp_err_t enum_uninstall(void)
     enum_driver_t *enum_drv = p_enum_driver;
     p_enum_driver = NULL;
     // Free resources
+    xTimerDelete(enum_drv->constant.ctrl_xfer_timer, portMAX_DELAY);
     urb_free(enum_drv->constant.urb);
     heap_caps_free(enum_drv);
     return ESP_OK;
@@ -1235,15 +1389,13 @@ esp_err_t enum_start(unsigned int uid)
 
     p_enum_driver->single_thread.stage = ENUM_STAGE_GET_SHORT_DEV_DESC;
     p_enum_driver->single_thread.cancel_reason = ENUM_CANCEL_REASON_NONE;
+    p_enum_driver->single_thread.timeout_retries = 0;
     p_enum_driver->single_thread.node_uid = uid;
     p_enum_driver->single_thread.dev_hdl = dev_hdl;
     // Save device handle to the URB transfer context
     p_enum_driver->constant.urb->transfer.context = (void *) dev_hdl;
     // Device params
-    memset(&p_enum_driver->single_thread.dev_params, 0, sizeof(enum_device_params_t));
-    p_enum_driver->single_thread.dev_params.bMaxPacketSize0 = (dev_info.speed == USB_SPEED_LOW)
-                                                              ? ENUM_WORST_CASE_MPS_LS
-                                                              : ENUM_WORST_CASE_MPS_FS_HS;
+    dev_params_init(dev_info.speed);
 
     // Notify USB Host about starting enumeration process
     enum_event_data_t event_data = {
@@ -1300,9 +1452,9 @@ esp_err_t enum_cancel(unsigned int uid)
         }
     }
 
-    // SECOND_RESET_COMPLETE is the exceptional stage, as it awaits the notification after port reset completion via the enum_proceed() call.
+    // SECOND_RESET_COMPLETE and RECOVERY_RESET_COMPLETE are the exceptional stages, as they await the notification after port reset completion via the enum_proceed() call.
     // Meanwhile, the device could be detached during the reset, thus the device disconnect comes instead of reset completion.
-    if (old_stage == ENUM_STAGE_SECOND_RESET_COMPLETE) {
+    if (old_stage == ENUM_STAGE_SECOND_RESET_COMPLETE || old_stage == ENUM_STAGE_RECOVERY_RESET_COMPLETE) {
         p_enum_driver->constant.proc_req_cb(USB_PROC_REQ_SOURCE_ENUM, false, p_enum_driver->constant.proc_req_cb_arg);
     }
 
@@ -1312,6 +1464,26 @@ esp_err_t enum_cancel(unsigned int uid)
 esp_err_t enum_process(void)
 {
     ENUM_CHECK(p_enum_driver != NULL, ESP_ERR_INVALID_STATE);
+
+    ENUM_ENTER_CRITICAL();
+    const bool ctrl_xfer_inflight = p_enum_driver->dynamic.ctrl_xfer_inflight;
+    const bool ctrl_xfer_timed_out = p_enum_driver->dynamic.ctrl_xfer_timed_out;
+    ENUM_EXIT_CRITICAL();
+
+    // The stage can only proceed once the in-flight transfer has returned via enum_control_transfer_complete()
+    if (ctrl_xfer_inflight) {
+        if (ctrl_xfer_timed_out) {
+            ESP_LOGW(ENUM_TAG, "Control transfer timeout (%d ms) at %s, cancel transfer",
+                     ENUM_CTRL_TRANSFER_TIMEOUT_MS,
+                     enum_stage_strings[p_enum_driver->single_thread.stage]);
+            // Canceled transfer returns through the completion callback
+            esp_err_t ret = usbh_dev_cancel_ctrl_xfers(p_enum_driver->single_thread.dev_hdl);
+            if (ret != ESP_OK) {
+                ESP_LOGE(ENUM_TAG, "Failed to cancel control transfer: %s", esp_err_to_name(ret));
+            }
+        }
+        return ESP_OK;
+    }
 
     esp_err_t res = ESP_FAIL;
     enum_stage_t stage = p_enum_driver->single_thread.stage;
@@ -1362,7 +1534,7 @@ esp_err_t enum_process(void)
         break;
     case ENUM_STAGE_SECOND_RESET:
         // We need to wait Hub driver to finish port reset
-        res = second_reset_request();
+        res = port_reset_request();
         break;
     case ENUM_STAGE_SECOND_RESET_COMPLETE:
         // Second reset complete
@@ -1374,6 +1546,12 @@ esp_err_t enum_process(void)
     case ENUM_STAGE_COMPLETE:
         res = stage_complete();
         break;
+    case ENUM_STAGE_RECOVERY_RESET:
+        res = recovery_reset_request();
+        break;
+    case ENUM_STAGE_RECOVERY_RESET_COMPLETE:
+        res = ESP_OK;
+        break;
     default:
         // Should never occur
         abort();
@@ -1381,7 +1559,8 @@ esp_err_t enum_process(void)
     }
 
     // Set nest stage of enumeration process, based on the stage pass result
-    if (set_next_stage(res == ESP_OK)) {
+    const bool need_process = (res == ESP_ERR_TIMEOUT) ? set_timeout_stage() : set_next_stage(res == ESP_OK);
+    if (need_process) {
         p_enum_driver->constant.proc_req_cb(USB_PROC_REQ_SOURCE_ENUM, false, p_enum_driver->constant.proc_req_cb_arg);
     }
 

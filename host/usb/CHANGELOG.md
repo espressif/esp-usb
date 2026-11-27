@@ -14,6 +14,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Fixed
 
 - Fixed bInterval range check for HS interrupt pipes, restraining the interval to 1..16.
+- Fixed enumeration stalling forever when a device never responds to a control request. The request is now canceled after `CONFIG_USB_HOST_ENUM_CTRL_TRANSFER_TIMEOUT_MS`, the port is reset and the enumeration is restarted up to `CONFIG_USB_HOST_ENUM_TIMEOUT_RETRIES` times.
 
 ## [1.6.1] - 2026-11-13
 

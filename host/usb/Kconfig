@@ -252,6 +252,23 @@ menu "USB-OTG"
             If enabled, the enumeration filter callback can be set via 'usb_host_config_t' when calling
             'usb_host_install()'.
 
+    config USB_HOST_ENUM_CTRL_TRANSFER_TIMEOUT_MS
+        int "Enumeration control transfer timeout in ms"
+        default 5000
+        range 100 60000
+        help
+            Maximum time to wait for a control transfer during enumeration. Some devices never respond to a request
+            (e.g., they keep NAKing it), which would stall the enumeration forever. When the timeout expires, the
+            transfer is canceled, the port is reset and the enumeration of the device is restarted.
+
+    config USB_HOST_ENUM_TIMEOUT_RETRIES
+        int "Enumeration retries after a control transfer timeout"
+        default 1
+        range 0 5
+        help
+            Number of times the enumeration of a device is restarted after a control transfer timeout.
+            When no retries are left, the enumeration is canceled and the port is disabled.
+
     config USB_HOST_DWC_DMA_CAP_MEMORY_IN_PSRAM
         depends on (IDF_TARGET_ESP32P4 || IDF_TARGET_ESP32S31) && SPIRAM
         bool "Allocate USB_DWC DMA capable memory in PSRAM"
