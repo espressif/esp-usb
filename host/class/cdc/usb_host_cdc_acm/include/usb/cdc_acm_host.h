@@ -59,10 +59,12 @@ typedef void (*cdc_acm_new_dev_callback_t)(usb_device_handle_t usb_dev);
  * @brief CDC-ACM host driver configuration.
  */
 typedef struct {
-    size_t driver_task_stack_size;         /**< Stack size of the driver's task */
-    unsigned driver_task_priority;         /**< Driver task priority. This should be higher than the priority of the
-                                                application task using the driver. */
-    int  xCoreID;                          /**< Core affinity of the driver's task */
+    size_t driver_task_stack_size;         /**< Stack size of the driver's task. Used only when
+                                                `CONFIG_USB_HOST_CLIENT_EVENT_HANDLING_ALL_CLIENTS` is disabled. */
+    unsigned driver_task_priority;         /**< Driver task priority. Used only when
+                                                `CONFIG_USB_HOST_CLIENT_EVENT_HANDLING_ALL_CLIENTS` is disabled. */
+    int  xCoreID;                          /**< Core affinity of the driver's task. Used only when
+                                                `CONFIG_USB_HOST_CLIENT_EVENT_HANDLING_ALL_CLIENTS` is disabled. */
     cdc_acm_new_dev_callback_t new_dev_cb; /**< New USB device connected callback. Can be NULL. */
 } cdc_acm_host_driver_config_t;
 
@@ -71,6 +73,10 @@ typedef struct {
  *
  * - The USB Host Library must already be installed with `usb_host_install()`.
  * - Call this function before any other CDC-ACM host API.
+ * - If `CONFIG_USB_HOST_CLIENT_EVENT_HANDLING_ALL_CLIENTS` is enabled, the
+ *   application must run `cdc_acm_host_install()`,
+ *   `usb_host_common_clients_handle_events()`, and
+ *   `cdc_acm_host_uninstall()` from the same task/context.
  *
  * @param[in] driver_config Driver configuration. If set to NULL, the default
  *                          configuration is used.

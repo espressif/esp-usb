@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- Added support for `CONFIG_USB_HOST_CLIENT_EVENT_HANDLING_ALL_CLIENTS` with `create_background_task = false` and application-driven `usb_host_common_clients_handle_events()`.
+
 ### Fixed
 
 - Reject Feature Unit descriptors with `bControlSize == 0` or `bLength < 7` before dividing by `bControlSize` (BBP 575 open-time divide-by-zero DoS)

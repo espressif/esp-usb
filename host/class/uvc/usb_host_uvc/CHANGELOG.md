@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Added support for `CONFIG_USB_HOST_CLIENT_EVENT_HANDLING_ALL_CLIENTS` with `create_background_task = false` and application-driven `usb_host_common_clients_handle_events()`.
+
 ### Fixed
 
 - Fixed data toggle desync when restarting a bulk stream: `ClearFeature(ENDPOINT_HALT)` on stream stop reinitializes the device endpoint's data toggle to DATA0 (USB 2.0 §9.4.5), so the host-side data toggle is now resynced as well

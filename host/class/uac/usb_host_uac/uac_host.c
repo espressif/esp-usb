@@ -28,6 +28,12 @@
 #include "usb/uac_host.h"
 #include "usb/usb_types_ch9.h"
 
+#if CONFIG_USB_HOST_CLIENT_EVENT_HANDLING_ALL_CLIENTS
+#define UAC_HOST_COMMON_CLIENT_HANDLING_ENABLED 1
+#else
+#define UAC_HOST_COMMON_CLIENT_HANDLING_ENABLED 0
+#endif
+
 // UAC spinlock
 DEFINE_CRIT_SECTION_LOCK_STATIC(uac_lock);
 #define UAC_ENTER_CRITICAL()           esp_os_enter_critical(&uac_lock)
@@ -2029,11 +2035,13 @@ esp_err_t uac_host_install(const uac_host_driver_config_t *config)
     UAC_RETURN_ON_FALSE(!s_uac_driver, ESP_ERR_INVALID_STATE, "UAC Host driver is already installed");
     UAC_RETURN_ON_INVALID_ARG(config);
     UAC_RETURN_ON_INVALID_ARG(config->callback);
+    const bool host_uses_common_handling = UAC_HOST_COMMON_CLIENT_HANDLING_ENABLED;
 
     if (config->create_background_task) {
         UAC_RETURN_ON_FALSE(config->stack_size != 0, ESP_ERR_INVALID_ARG, "Wrong stack size value");
         UAC_RETURN_ON_FALSE(config->task_priority != 0, ESP_ERR_INVALID_ARG, "Wrong task priority value");
     }
+    UAC_RETURN_ON_FALSE(!(host_uses_common_handling && config->create_background_task), ESP_ERR_INVALID_ARG, "create_background_task must be false in all-clients mode");
 
     uac_driver_t *driver = heap_caps_calloc(1, sizeof(uac_driver_t), MALLOC_CAP_DEFAULT);
     UAC_RETURN_ON_FALSE(driver, ESP_ERR_NO_MEM, "Unable to allocate memory");
@@ -2092,13 +2100,29 @@ esp_err_t uac_host_uninstall(void)
     s_uac_driver->end_client_event_handling = true;
     UAC_EXIT_CRITICAL();
 
-    if (s_uac_driver->event_handling_started) {
-        ESP_ERROR_CHECK(usb_host_client_unblock(s_uac_driver->client_handle));
-        // In case the event handling started, we must wait until it finishes
-        xSemaphoreTake(s_uac_driver->all_events_handled, portMAX_DELAY);
+    // Common mode deregisters directly; per-client mode syncs with the event task only if it was started
+    if (UAC_HOST_COMMON_CLIENT_HANDLING_ENABLED) {
+        esp_err_t ret = usb_host_client_deregister(s_uac_driver->client_handle);
+        // Roll back the uninstall gate if deregistration fails
+        if (ret != ESP_OK) {
+            UAC_ENTER_CRITICAL();
+            s_uac_driver->end_client_event_handling = false;
+            UAC_EXIT_CRITICAL();
+            return ret;
+        }
+    } else {
+        // Wait only if the background event task was started
+        if (s_uac_driver->event_handling_started) {
+            ESP_ERROR_CHECK(usb_host_client_unblock(s_uac_driver->client_handle));
+            // In case the event handling started, we must wait until it finishes
+            xSemaphoreTake(s_uac_driver->all_events_handled, portMAX_DELAY);
+        }
     }
     vSemaphoreDelete(s_uac_driver->all_events_handled);
-    ESP_ERROR_CHECK(usb_host_client_deregister(s_uac_driver->client_handle));
+    // Per-client mode still owns deregistration at this point
+    if (!UAC_HOST_COMMON_CLIENT_HANDLING_ENABLED) {
+        ESP_ERROR_CHECK(usb_host_client_deregister(s_uac_driver->client_handle));
+    }
     free(s_uac_driver);
     s_uac_driver = NULL;
     return ESP_OK;
@@ -2298,6 +2322,9 @@ fail:
 esp_err_t uac_host_handle_events(TickType_t timeout)
 {
     UAC_RETURN_ON_FALSE(s_uac_driver != NULL, ESP_ERR_INVALID_STATE, "UAC Driver is not installed");
+    UAC_RETURN_ON_FALSE(!UAC_HOST_COMMON_CLIENT_HANDLING_ENABLED,
+                        ESP_ERR_INVALID_STATE,
+                        "All-clients handling enabled");
     s_uac_driver->event_handling_started = true;
     esp_err_t ret = usb_host_client_handle_events(s_uac_driver->client_handle, timeout);
     UAC_ENTER_CRITICAL();

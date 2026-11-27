@@ -4,6 +4,12 @@ All notable changes to this component will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Added support for `CONFIG_USB_HOST_CLIENT_EVENT_HANDLING_ALL_CLIENTS` with application-driven `usb_host_common_clients_handle_events()` and no private CDC-ACM client-event task.
+
 ## [2.4.1] - 2026-08-25
 
 ### Fixed
