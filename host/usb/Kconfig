@@ -241,6 +241,21 @@ menu "USB-OTG"
 
     endmenu #Power management
 
+    config USB_HOST_ISR_HANDLER_IN_IRAM
+        bool "Place USB Host interrupt handling in IRAM"
+        default n
+        help
+            Place the USB Host interrupt handler and every function that the handler
+            calls, including the USB-DWC HAL functions, in IRAM.
+
+            When a periodic transfer completes, the handler halts the channel and must enable it again
+            for the next buffer before the next (micro)frame starts. On a High-Speed port with bInterval 1
+            that window is under 125 microseconds. Fetching this path from flash can miss the deadline, and
+            the next isochronous transfer then reports its first packet as USB_TRANSFER_STATUS_SKIPPED.
+
+            Enable this option for that High-Speed isochronous case. It uses extra IRAM. When disabled,
+            the handler still runs, but it is linked into flash.
+
     config USB_HOST_ENABLE_ENUM_FILTER_CALLBACK
         bool "Enable enumeration filter callback"
         default n

@@ -8,6 +8,7 @@
 #include <string.h>
 #include <sys/queue.h>
 #include "sdkconfig.h"
+#include "usb_host_attr.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/semphr.h"
@@ -329,7 +330,7 @@ static inline void cache_sync_frame_list(void *frame_list)
  * @param[in] buffer       Buffer that holds the Transfer Descriptor List
  * @param[in] mem_to_cache Direction of cache sync
  */
-static inline void cache_sync_xfer_descriptor_list(dma_buffer_block_t *buffer, bool mem_to_cache)
+static inline void USB_HOST_ISR_ATTR cache_sync_xfer_descriptor_list(dma_buffer_block_t *buffer, bool mem_to_cache)
 {
     esp_err_t ret = esp_cache_msync(buffer->xfer_desc_list, buffer->xfer_desc_list_len_bytes, mem_to_cache ? ESP_CACHE_MSYNC_FLAG_DIR_M2C : 0);
     assert(ret == ESP_OK);
@@ -386,7 +387,7 @@ static inline void cache_sync_data_buffer(pipe_t *pipe, urb_t *urb, bool done)
  * @return true There are one or more pending URBs, and the inactive buffer is yet to be filled
  * @return false Otherwise
  */
-static inline bool _buffer_can_fill(pipe_t *pipe)
+static inline bool USB_HOST_ISR_ATTR _buffer_can_fill(pipe_t *pipe)
 {
     // We can only fill if there are pending URBs and at least one unfilled buffer
     if (pipe->num_urb_pending > 0 && pipe->multi_buffer_control.buffer_num_to_fill > 0) {
@@ -416,7 +417,7 @@ static void _buffer_fill(pipe_t *pipe);
  * @return true There are more filled buffers to be executed
  * @return false No more buffers to execute
  */
-static inline bool _buffer_can_exec(pipe_t *pipe)
+static inline bool USB_HOST_ISR_ATTR _buffer_can_exec(pipe_t *pipe)
 {
     // We can only execute if there is not already a buffer executing and if there are filled buffers awaiting execution
     if (!pipe->multi_buffer_control.buffer_is_executing && pipe->multi_buffer_control.buffer_num_to_exec > 0) {
@@ -446,7 +447,7 @@ static void _buffer_exec(pipe_t *pipe);
  * @return true Buffer complete
  * @return false Buffer not complete
  */
-static inline bool _buffer_check_done(pipe_t *pipe)
+static inline bool USB_HOST_ISR_ATTR _buffer_check_done(pipe_t *pipe)
 {
     // Only control transfers need to be continued
     if (pipe->ep_char.type != USB_DWC_XFER_TYPE_CTRL) {
@@ -480,7 +481,7 @@ static void _buffer_exec_cont(pipe_t *pipe);
  * @param pipe_event Pipe event that caused the buffer to be complete. Use HCD_PIPE_EVENT_NONE for halt request of disconnections
  * @param canceled Whether the buffer was done due to a canceled (i.e., halt request). Must set pipe_event to HCD_PIPE_EVENT_NONE
  */
-static inline void _buffer_done(pipe_t *pipe, int stop_idx, hcd_pipe_event_t pipe_event, bool canceled)
+static inline void USB_HOST_ISR_ATTR _buffer_done(pipe_t *pipe, int stop_idx, hcd_pipe_event_t pipe_event, bool canceled)
 {
     // Store the stop_idx and pipe_event for later parsing
     dma_buffer_block_t *buffer_done = pipe->buffers[pipe->multi_buffer_control.rd_idx];
@@ -844,7 +845,7 @@ static void _internal_port_event_wait(port_t *port)
     }
 }
 
-static bool _internal_port_event_notify_from_isr(port_t *port)
+static bool USB_HOST_ISR_ATTR _internal_port_event_notify_from_isr(port_t *port)
 {
     // There must be a thread/task waiting for an internal event
     assert(port->task_waiting_port_notif != NULL);
@@ -874,7 +875,7 @@ static void _internal_pipe_event_wait(pipe_t *pipe)
     }
 }
 
-static bool _internal_pipe_event_notify(pipe_t *pipe, bool from_isr)
+static bool USB_HOST_ISR_ATTR _internal_pipe_event_notify(pipe_t *pipe, bool from_isr)
 {
     // There must be a thread/task waiting for an internal event
     assert(pipe->task_waiting_pipe_notif != NULL);
@@ -899,7 +900,7 @@ static bool _internal_pipe_event_notify(pipe_t *pipe, bool from_isr)
 
 // ----------------- HAL <-> USB helpers --------------------
 
-static usb_speed_t get_usb_port_speed(usb_dwc_speed_t priv)
+static usb_speed_t USB_HOST_ISR_ATTR get_usb_port_speed(usb_dwc_speed_t priv)
 {
     switch (priv) {
     case USB_DWC_SPEED_LOW: return USB_SPEED_LOW;
@@ -919,7 +920,7 @@ static usb_speed_t get_usb_port_speed(usb_dwc_speed_t priv)
  * @param[out] yield Set to true if a yield is required as a result of handling the interrupt
  * @return hcd_port_event_t  Returns a port event, or HCD_PORT_EVENT_NONE if no port event occurred
  */
-static hcd_port_event_t _intr_hdlr_hprt(port_t *port, usb_dwc_hal_port_event_t hal_port_event, bool *yield)
+static hcd_port_event_t USB_HOST_ISR_ATTR _intr_hdlr_hprt(port_t *port, usb_dwc_hal_port_event_t hal_port_event, bool *yield)
 {
     hcd_port_event_t port_event = HCD_PORT_EVENT_NONE;
     switch (hal_port_event) {
@@ -997,7 +998,7 @@ static hcd_port_event_t _intr_hdlr_hprt(port_t *port, usb_dwc_hal_port_event_t h
  * @param[out] yield Set to true if a yield is required as a result of handling the interrupt
  * @return hcd_pipe_event_t The pipe event
  */
-static hcd_pipe_event_t _intr_hdlr_chan(pipe_t *pipe, usb_dwc_hal_chan_t *chan_obj, bool *yield)
+static hcd_pipe_event_t USB_HOST_ISR_ATTR _intr_hdlr_chan(pipe_t *pipe, usb_dwc_hal_chan_t *chan_obj, bool *yield)
 {
     usb_dwc_hal_chan_event_t chan_event = usb_dwc_hal_chan_decode_intr(chan_obj);
     hcd_pipe_event_t event = HCD_PIPE_EVENT_NONE;
@@ -1083,9 +1084,14 @@ static hcd_pipe_event_t _intr_hdlr_chan(pipe_t *pipe, usb_dwc_hal_chan_t *chan_o
  * - The HCD has not blocking functions, so the user's ISR callback is run to
  *   allow the users to send whatever OS primitives they need.
  *
+ * @note When CONFIG_USB_HOST_ISR_HANDLER_IN_IRAM is enabled, this handler and every function
+ *       that it calls, including HAL, are placed in IRAM (USB_HOST_ISR_ATTR). A periodic
+ *       transfer completion has to re-enable the channel before the next (micro)frame. With that path in flash,
+ *       a High-Speed bInterval 1 transfer can lose its first packet (USB_TRANSFER_STATUS_SKIPPED).
+ *
  * @param arg Interrupt handler argument
  */
-static void intr_hdlr_main(void *arg)
+static void USB_HOST_ISR_ATTR intr_hdlr_main(void *arg)
 {
     port_t *port = (port_t *) arg;
     bool yield = false;
@@ -1862,7 +1868,7 @@ esp_err_t hcd_port_check_all_pipes_idle(hcd_port_handle_t port_hdl)
 
 // ----------------------- Private -------------------------
 
-static inline hcd_pipe_event_t pipe_decode_error_event(usb_dwc_hal_chan_error_t chan_error)
+static inline hcd_pipe_event_t USB_HOST_ISR_ATTR pipe_decode_error_event(usb_dwc_hal_chan_error_t chan_error)
 {
     hcd_pipe_event_t event = HCD_PIPE_EVENT_NONE;
     switch (chan_error) {
@@ -2446,7 +2452,7 @@ hcd_pipe_event_t hcd_pipe_get_event(hcd_pipe_handle_t pipe_hdl)
 
 // ------------------------------------------------- Buffer Control ----------------------------------------------------
 
-static inline void _buffer_fill_ctrl(dma_buffer_block_t *buffer, usb_transfer_t *transfer)
+static inline void USB_HOST_ISR_ATTR _buffer_fill_ctrl(dma_buffer_block_t *buffer, usb_transfer_t *transfer)
 {
     // Get information about the control transfer by analyzing the setup packet (the first 8 bytes of the URB's data)
     usb_setup_packet_t *setup_pkt = (usb_setup_packet_t *)transfer->data_buffer;
@@ -2473,7 +2479,7 @@ static inline void _buffer_fill_ctrl(dma_buffer_block_t *buffer, usb_transfer_t 
     buffer->flags.ctrl.cur_stg = 0;
 }
 
-static inline void _buffer_fill_bulk(dma_buffer_block_t *buffer, usb_transfer_t *transfer, bool is_in, int mps)
+static inline void USB_HOST_ISR_ATTR _buffer_fill_bulk(dma_buffer_block_t *buffer, usb_transfer_t *transfer, bool is_in, int mps)
 {
     // Only add a zero length packet if OUT, flag is set, and transfer length is multiple of EP's MPS
     // Minor optimization: Do the mod operation last
@@ -2495,7 +2501,7 @@ static inline void _buffer_fill_bulk(dma_buffer_block_t *buffer, usb_transfer_t 
     buffer->flags.bulk.zero_len_packet = zero_len_packet;
 }
 
-static inline void _buffer_fill_intr(dma_buffer_block_t *buffer, usb_transfer_t *transfer, bool is_in, int mps)
+static inline void USB_HOST_ISR_ATTR _buffer_fill_intr(dma_buffer_block_t *buffer, usb_transfer_t *transfer, bool is_in, int mps)
 {
     int num_qtds;
     int mod_mps = transfer->num_bytes % mps;
@@ -2687,7 +2693,7 @@ static void IRAM_ATTR _buffer_exec(pipe_t *pipe)
     usb_dwc_hal_chan_activate(pipe->chan_obj, buffer_to_exec->xfer_desc_list, desc_list_len, start_idx);
 }
 
-static void _buffer_exec_cont(pipe_t *pipe)
+static void USB_HOST_ISR_ATTR _buffer_exec_cont(pipe_t *pipe)
 {
     // This should only ever be called on control transfers
     assert(pipe->ep_char.type == USB_DWC_XFER_TYPE_CTRL);
@@ -2718,7 +2724,7 @@ static void _buffer_exec_cont(pipe_t *pipe)
     usb_dwc_hal_chan_activate(pipe->chan_obj, buffer_inflight->xfer_desc_list, XFER_LIST_LEN_CTRL, buffer_inflight->flags.ctrl.cur_stg);
 }
 
-static inline void _buffer_parse_ctrl(dma_buffer_block_t *buffer)
+static inline void USB_HOST_ISR_ATTR _buffer_parse_ctrl(dma_buffer_block_t *buffer)
 {
     usb_transfer_t *transfer = &buffer->urb->transfer;
     // Update URB's actual number of bytes
@@ -2740,7 +2746,7 @@ static inline void _buffer_parse_ctrl(dma_buffer_block_t *buffer)
     memset(buffer->xfer_desc_list, 0, XFER_LIST_LEN_CTRL * sizeof(usb_dwc_ll_dma_qtd_t));
 }
 
-static inline void _buffer_parse_bulk(dma_buffer_block_t *buffer)
+static inline void USB_HOST_ISR_ATTR _buffer_parse_bulk(dma_buffer_block_t *buffer)
 {
     usb_transfer_t *transfer = &buffer->urb->transfer;
     // Update URB's actual number of bytes
@@ -2756,7 +2762,7 @@ static inline void _buffer_parse_bulk(dma_buffer_block_t *buffer)
     memset(buffer->xfer_desc_list, 0, XFER_LIST_LEN_BULK * sizeof(usb_dwc_ll_dma_qtd_t));
 }
 
-static inline void _buffer_parse_intr(dma_buffer_block_t *buffer, bool is_in, int mps)
+static inline void USB_HOST_ISR_ATTR _buffer_parse_intr(dma_buffer_block_t *buffer, bool is_in, int mps)
 {
     usb_transfer_t *transfer = &buffer->urb->transfer;
     int intr_stop_idx = buffer->status_flags.stop_idx;
@@ -2806,7 +2812,7 @@ static inline void _buffer_parse_intr(dma_buffer_block_t *buffer, bool is_in, in
     memset(buffer->xfer_desc_list, 0, XFER_LIST_LEN_INTR * sizeof(usb_dwc_ll_dma_qtd_t));
 }
 
-static inline void _buffer_parse_isoc(dma_buffer_block_t *buffer, bool is_in)
+static inline void USB_HOST_ISR_ATTR _buffer_parse_isoc(dma_buffer_block_t *buffer, bool is_in)
 {
     usb_transfer_t *transfer = &buffer->urb->transfer;
     int desc_idx = buffer->flags.isoc.start_idx;    // Descriptor index tracks which descriptor in the QTD list
@@ -2849,7 +2855,7 @@ static inline void _buffer_parse_isoc(dma_buffer_block_t *buffer, bool is_in)
     transfer->status = USB_TRANSFER_STATUS_COMPLETED;
 }
 
-static inline void _buffer_parse_error(dma_buffer_block_t *buffer)
+static inline void USB_HOST_ISR_ATTR _buffer_parse_error(dma_buffer_block_t *buffer)
 {
     // The URB had an error in one of its packet, or a port error), so we the entire URB an error.
     usb_transfer_t *transfer = &buffer->urb->transfer;
@@ -2875,7 +2881,7 @@ static inline void _buffer_parse_error(dma_buffer_block_t *buffer)
     }
 }
 
-static void _buffer_parse(pipe_t *pipe)
+static void USB_HOST_ISR_ATTR _buffer_parse(pipe_t *pipe)
 {
     assert(pipe->multi_buffer_control.buffer_num_to_parse > 0);
     dma_buffer_block_t *buffer_to_parse = pipe->buffers[pipe->multi_buffer_control.fr_idx];
