@@ -522,7 +522,7 @@ Procedure:
     - Setup HCD, a default pipe, and multiple URBs
     - Check current status of the remote wakeup feature, enable it and check again
     - Halt the default pipe, suspend the root port and expect port event
-    - Manually generate remote wakeup from connected device (button press on keyboard or mouse, or other remote wakeup capable device)
+    - Manually generate remote wakeup from connected device (button press on keyboard or other remote wakeup capable device)
     - Expect HCD_PORT_EVENT_REMOTE_WAKEUP event
     - Take over the resume signaling, by resuming the root port
     - Check current status of the remote wakeup feature, disable it and check again
