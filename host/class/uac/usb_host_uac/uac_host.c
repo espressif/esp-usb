@@ -55,6 +55,9 @@ DEFINE_CRIT_SECTION_LOCK_STATIC(uac_lock);
 
 #define UAC_GOTO_ON_FALSE(exp, err, msg) ESP_GOTO_ON_FALSE((exp), err, fail, TAG, msg)
 
+#define UAC_RESUME_CTRL_RETRIES        3
+#define UAC_RESUME_CTRL_RETRY_DELAY_MS 20
+
 #define UAC_RETURN_ON_ERROR(exp, msg) ESP_RETURN_ON_ERROR((exp), TAG, msg)
 
 #define UAC_RETURN_ON_FALSE(exp, err, msg) ESP_RETURN_ON_FALSE((exp), (err), TAG, msg)
@@ -1440,13 +1443,36 @@ static esp_err_t uac_host_interface_resume(uac_iface_t *iface)
     // memcpy, because of alignment warning
     uac_cs_request_t uac_request = {0};
     memcpy(&uac_request, &usb_request, sizeof(usb_setup_packet_t));
-    UAC_RETURN_ON_ERROR(uac_cs_request_set(iface->parent, &uac_request), "Unable to set Interface alternate");
+    // Some devices (e.g. CSR-based Bluetooth audio dongles) occasionally STALL a control request
+    // right after the stream was suspended. Retry a few times before giving up on the stream.
+    esp_err_t ret = ESP_FAIL;
+    for (int attempt = 1; attempt <= UAC_RESUME_CTRL_RETRIES; attempt++) {
+        ret = uac_cs_request_set(iface->parent, &uac_request);
+        if (ret == ESP_OK) {
+            break;
+        }
+        ESP_LOGW(TAG, "Set Interface %d-%d failed (%s), attempt %d/%d", iface->dev_info.iface_num, iface->cur_alt + 1,
+                 esp_err_to_name(ret), attempt, UAC_RESUME_CTRL_RETRIES);
+        vTaskDelay(pdMS_TO_TICKS(UAC_RESUME_CTRL_RETRY_DELAY_MS));
+    }
+    UAC_RETURN_ON_ERROR(ret, "Unable to set Interface alternate");
     ESP_LOGI(TAG, "Resume Interface %d-%d", iface->dev_info.iface_num, iface->cur_alt + 1);
     // Set endpoint frequency control
     if (iface->iface_alt[iface->cur_alt].freq_ctrl_supported) {
         ESP_LOGI(TAG, "Set EP %d frequency %"PRIu32, iface->iface_alt[iface->cur_alt].ep_addr & USB_B_ENDPOINT_ADDRESS_EP_NUM_MASK, iface->iface_alt[iface->cur_alt].cur_sampling_freq);
-        UAC_RETURN_ON_ERROR(uac_cs_request_set_ep_frequency(iface, iface->iface_alt[iface->cur_alt].ep_addr,
-                                                            iface->iface_alt[iface->cur_alt].cur_sampling_freq), "Unable to set endpoint frequency");
+        for (int attempt = 1; attempt <= UAC_RESUME_CTRL_RETRIES; attempt++) {
+            ret = uac_cs_request_set_ep_frequency(iface, iface->iface_alt[iface->cur_alt].ep_addr,
+                                                  iface->iface_alt[iface->cur_alt].cur_sampling_freq);
+            if (ret == ESP_OK) {
+                break;
+            }
+            ESP_LOGW(TAG, "Set EP frequency failed (%s), attempt %d/%d", esp_err_to_name(ret), attempt, UAC_RESUME_CTRL_RETRIES);
+            vTaskDelay(pdMS_TO_TICKS(UAC_RESUME_CTRL_RETRY_DELAY_MS));
+        }
+        // The frequency was already set when the stream was started; keep streaming with it.
+        if (ret != ESP_OK) {
+            ESP_LOGW(TAG, "Keeping previous EP frequency");
+        }
     }
     // for RX, we just submit all the transfers
     if (iface->dev_info.type == UAC_STREAM_RX) {
