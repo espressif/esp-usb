@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2024-2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2024-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -46,6 +46,7 @@ struct uvc_host_stream_s {
         uint8_t  uvc_index;                   // Index of this UVC function in the device. Needed for descriptor lookups
         uint8_t  bAlternateSetting;           // Alternate setting for selected interface. Needed for ISOC Stream start
         uint8_t  bEndpointAddress;            // Streaming endpoint address. Needed for BULK Stream stop
+        uint16_t bulk_mps;                    // Bulk endpoint maximum packet size
 
         // USB host related members
         usb_device_handle_t dev_hdl;          // USB device handle
@@ -56,6 +57,7 @@ struct uvc_host_stream_s {
     struct {
         uvc_host_stream_format_t vs_format;   // Format of the video stream
         uint32_t dwMaxVideoFrameSize;         // Maximum frame size of this vs_format
+        uint32_t dwMaxPayloadTransferSize;    // Maximum payload size negotiated for this format
         uvc_host_frame_t *current_frame;      // Frame that is being written to
         bool streaming;                       // Flag whether stream is on/off
     } dynamic; // Dynamic members require a critical section
@@ -64,5 +66,8 @@ struct uvc_host_stream_s {
         uvc_stream_bulk_packet_type_t next_bulk_packet; // Bulk only: next expected packet
         bool skip_current_frame;                        // Flag to skip current frame. An error has occurred in the stream
         uint8_t current_frame_id;                       // Frame ID can be only 0 or 1. But we also allow setting it to invalid value = 2.
+        size_t bulk_payload_bytes_left;                 // Bytes left before the next payload header
+        bool bulk_payload_resync;                       // Ignore data until a short transfer restores payload alignment
+        bool bulk_payload_frame_end;                    // Current payload has EOF set; complete frame at payload boundary
     } single_thread; // Single thread members are only accessed from 1 thread, so they do not need protection
 };
