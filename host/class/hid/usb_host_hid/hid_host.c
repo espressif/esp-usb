@@ -10,6 +10,7 @@
 #include <string.h>
 #include <sys/queue.h>
 #include <sys/param.h>
+#include "sdkconfig.h"
 #include "esp_log.h"
 #include "esp_check.h"
 #include "freertos/FreeRTOS.h"
@@ -19,6 +20,12 @@
 #include "usb/usb_host.h"
 
 #include "usb/hid_host.h"
+
+#if CONFIG_USB_HOST_CLIENT_EVENT_HANDLING_ALL_CLIENTS
+#define HID_HOST_COMMON_CLIENT_HANDLING_ENABLED 1
+#else
+#define HID_HOST_COMMON_CLIENT_HANDLING_ENABLED 0
+#endif
 
 // We are allowing realloc ctrl_xfer buffer, so max report desc size is limited by sane value
 // based on very large, exotic devices: can go into the low kilobytes
@@ -1355,6 +1362,7 @@ esp_err_t hid_host_install(const hid_host_driver_config_t *config)
 
     HID_RETURN_ON_INVALID_ARG(config);
     HID_RETURN_ON_INVALID_ARG(config->callback);
+    const bool host_uses_common_handling = HID_HOST_COMMON_CLIENT_HANDLING_ENABLED;
 
     if ( config->create_background_task ) {
         HID_RETURN_ON_FALSE(config->stack_size != 0,
@@ -1368,6 +1376,9 @@ esp_err_t hid_host_install(const hid_host_driver_config_t *config)
     HID_RETURN_ON_FALSE(!s_hid_driver,
                         ESP_ERR_INVALID_STATE,
                         "HID Host driver is already installed");
+    HID_RETURN_ON_FALSE(!(host_uses_common_handling && config->create_background_task),
+                        ESP_ERR_INVALID_ARG,
+                        "create_background_task must be false in all-clients mode");
 
     // Create HID driver structure
     hid_driver_t *driver = heap_caps_calloc(1, sizeof(hid_driver_t), MALLOC_CAP_DEFAULT);
@@ -1435,14 +1446,15 @@ fail:
 esp_err_t hid_host_uninstall(void)
 {
     esp_err_t ret = ESP_OK;
+    hid_driver_t *driver = s_hid_driver;
 
     // Make sure hid driver is installed,
-    HID_RETURN_ON_FALSE(s_hid_driver,
+    HID_RETURN_ON_FALSE(driver,
                         ESP_OK,
                         "HID Host driver was not installed");
 
     // Wait for all open/close calls to finish
-    SemaphoreHandle_t open_close_mutex = s_hid_driver->open_close_mutex;
+    SemaphoreHandle_t open_close_mutex = driver->open_close_mutex;
     xSemaphoreTake(open_close_mutex, portMAX_DELAY);
     HID_GOTO_ON_FALSE(s_hid_driver, ESP_OK, "HID Driver is not installed"); // Check again after acquiring mutex - driver may have been uninstalled
 
@@ -1450,22 +1462,36 @@ esp_err_t hid_host_uninstall(void)
     // not being uninstalled from other task
     // and no hid device is registered
     HID_ENTER_CRITICAL();
-    HID_GOTO_ON_FALSE_CRITICAL(!s_hid_driver->end_client_event_handling, ESP_ERR_INVALID_STATE);
-    HID_GOTO_ON_FALSE_CRITICAL(STAILQ_EMPTY(&s_hid_driver->hid_devices_tailq), ESP_ERR_INVALID_STATE);
-    HID_GOTO_ON_FALSE_CRITICAL(STAILQ_EMPTY(&s_hid_driver->hid_ifaces_tailq), ESP_ERR_INVALID_STATE);
-    s_hid_driver->end_client_event_handling = true;
+    driver = s_hid_driver;
+    HID_GOTO_ON_FALSE_CRITICAL(driver && !driver->end_client_event_handling, ESP_ERR_INVALID_STATE);
+    HID_GOTO_ON_FALSE_CRITICAL(STAILQ_EMPTY(&driver->hid_devices_tailq), ESP_ERR_INVALID_STATE);
+    HID_GOTO_ON_FALSE_CRITICAL(STAILQ_EMPTY(&driver->hid_ifaces_tailq), ESP_ERR_INVALID_STATE);
+    driver->end_client_event_handling = true;
     HID_EXIT_CRITICAL();
 
-    if (s_hid_driver->event_handling_started) {
-        ESP_ERROR_CHECK( usb_host_client_unblock(s_hid_driver->client_handle) );
-        // In case the event handling started, we must wait until it finishes
-        xSemaphoreTake(s_hid_driver->all_events_handled, portMAX_DELAY);
+    // Common mode deregisters directly; per-client mode first stops and joins the event task
+    if (HID_HOST_COMMON_CLIENT_HANDLING_ENABLED) {
+        ret = usb_host_client_deregister(driver->client_handle);
+        // Roll back the uninstall gate if deregistration fails
+        if (ret != ESP_OK) {
+            HID_ENTER_CRITICAL();
+            driver->end_client_event_handling = false;
+            HID_EXIT_CRITICAL();
+            goto fail;
+        }
+    } else {
+        // Wait only if the background event task was started
+        if (driver->event_handling_started) {
+            ESP_ERROR_CHECK( usb_host_client_unblock(driver->client_handle) );
+            // In case the event handling started, we must wait until it finishes
+            xSemaphoreTake(driver->all_events_handled, portMAX_DELAY);
+        }
+        ESP_ERROR_CHECK( usb_host_client_deregister(driver->client_handle) );
     }
-    ESP_ERROR_CHECK( usb_host_client_deregister(s_hid_driver->client_handle) );
 
     // Delete semaphores and free driver
-    vSemaphoreDelete(s_hid_driver->all_events_handled);
-    free(s_hid_driver);
+    vSemaphoreDelete(driver->all_events_handled);
+    free(driver);
     s_hid_driver = NULL;
     xSemaphoreGive(open_close_mutex); // Unblock any waiting tasks
     return ESP_OK;
@@ -1654,6 +1680,9 @@ esp_err_t hid_host_handle_events(uint32_t timeout)
     HID_RETURN_ON_FALSE(s_hid_driver != NULL,
                         ESP_ERR_INVALID_STATE,
                         "HID Driver is not installed");
+    HID_RETURN_ON_FALSE(!HID_HOST_COMMON_CLIENT_HANDLING_ENABLED,
+                        ESP_ERR_INVALID_STATE,
+                        "All-clients handling enabled");
 
     ESP_LOGD(TAG, "USB HID handling");
     s_hid_driver->event_handling_started = true;

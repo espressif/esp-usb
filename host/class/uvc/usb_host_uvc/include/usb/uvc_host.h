@@ -97,7 +97,12 @@ typedef struct {
     unsigned driver_task_priority;         /*!< Priority of the driver's task. */
     int xCoreID;                           /*!< Core affinity of the driver's task. */
     bool create_background_task;           /*!< When set to true, a background task handles USB events.
-                                                Otherwise call uvc_host_handle_events(). */
+                                                Otherwise, the application drives events with
+                                                uvc_host_handle_events() in per-client mode, or with
+                                                usb_host_common_clients_handle_events() when
+                                                CONFIG_USB_HOST_CLIENT_EVENT_HANDLING_ALL_CLIENTS is enabled.
+                                                In all-clients mode, install, common event handling, and
+                                                uninstall must run in the same task/context. */
     uvc_host_driver_event_callback_t event_cb; /*!< Callback function that handles driver events. */
     void *user_ctx;                        /*!< User argument passed to event_cb. */
 } uvc_host_driver_config_t;
@@ -236,15 +241,16 @@ esp_err_t uvc_host_uninstall(void);
 /**
  * @brief Handle USB Host events for the UVC driver.
  *
- * If uvc_host_install() is called with `create_background_task = false`, the
- * application must call this function periodically to dispatch USB Host events.
- * Do not call this function when `create_background_task = true`.
+ * Use this function only in per-client mode when
+ * `create_background_task = false`.
+ * If `CONFIG_USB_HOST_CLIENT_EVENT_HANDLING_ALL_CLIENTS` is enabled, use
+ * `usb_host_common_clients_handle_events()` instead.
  *
  * @param[in] timeout Timeout in FreeRTOS ticks.
  *
  * @return
  *      - ESP_OK on success
- *      - ESP_ERR_INVALID_STATE if the UVC driver is not installed
+ *      - ESP_ERR_INVALID_STATE if the UVC driver is not installed or global all-clients handling is enabled
  *      - ESP_FAIL if event handling finished and the function should no longer be called
  *      - Other error codes returned by usb_host_client_handle_events()
  */

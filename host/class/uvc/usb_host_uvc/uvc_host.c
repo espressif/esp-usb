@@ -11,6 +11,7 @@
 #include <sys/queue.h>
 #include <sys/param.h>
 
+#include "sdkconfig.h"
 #include "esp_log.h"
 #include "esp_check.h"
 #include "esp_system.h"
@@ -32,6 +33,12 @@
 #include "freertos/semphr.h"
 #include "freertos/queue.h"
 #include "freertos/event_groups.h"
+
+#if CONFIG_USB_HOST_CLIENT_EVENT_HANDLING_ALL_CLIENTS
+#define UVC_HOST_COMMON_CLIENT_HANDLING_ENABLED 1
+#else
+#define UVC_HOST_COMMON_CLIENT_HANDLING_ENABLED 0
+#endif
 
 static const char *TAG = "uvc";
 
@@ -298,6 +305,10 @@ esp_err_t uvc_host_handle_events(unsigned long timeout)
 {
     uvc_host_driver_t *uvc_obj = UVC_ATOMIC_LOAD(p_uvc_host_driver); // Make local copy of the driver's handle
     UVC_CHECK(uvc_obj, ESP_ERR_INVALID_STATE);
+    ESP_RETURN_ON_FALSE(!UVC_HOST_COMMON_CLIENT_HANDLING_ENABLED,
+                        ESP_ERR_INVALID_STATE,
+                        TAG,
+                        "All-clients handling enabled");
 
     ESP_LOGV(TAG, "USB UVC handling");
     // Get driver status
@@ -678,13 +689,14 @@ static esp_err_t uvc_claim_interface(uvc_stream_t *uvc_stream, uint8_t uvc_index
 esp_err_t uvc_host_install(const uvc_host_driver_config_t *driver_config)
 {
     UVC_CHECK(!UVC_ATOMIC_LOAD(p_uvc_host_driver), ESP_ERR_INVALID_STATE);
+    const bool host_uses_common_handling = UVC_HOST_COMMON_CLIENT_HANDLING_ENABLED;
 
     // In case user did not provide driver_config, use default settings
     const uvc_host_driver_config_t default_driver_config = {
         .driver_task_stack_size = 5 * 1024,
         .driver_task_priority = 5,
         .xCoreID = tskNO_AFFINITY,
-        .create_background_task = true,
+        .create_background_task = !host_uses_common_handling,
     };
     if (driver_config == NULL) {
         driver_config = &default_driver_config;
@@ -700,6 +712,13 @@ esp_err_t uvc_host_install(const uvc_host_driver_config_t *driver_config)
     usb_transfer_t *ctrl_xfer = NULL;
     usb_host_transfer_alloc(64, 0, &ctrl_xfer); // Worst case HS MPS
     TaskHandle_t driver_task_h = NULL;
+    usb_host_client_handle_t usb_client = NULL;
+
+    // Common mode cannot also create a private background task
+    if (host_uses_common_handling && driver_config->create_background_task) {
+        ret = ESP_ERR_INVALID_ARG;
+        goto err;
+    }
 
     if (driver_config->create_background_task) {
         xTaskCreatePinnedToCore(
@@ -714,7 +733,6 @@ esp_err_t uvc_host_install(const uvc_host_driver_config_t *driver_config)
     }
 
     // Register USB Host client
-    usb_host_client_handle_t usb_client = NULL;
     const usb_host_client_config_t client_config = {
         .is_synchronous = false,
         .max_num_event_msg = 3,
@@ -727,8 +745,8 @@ esp_err_t uvc_host_install(const uvc_host_driver_config_t *driver_config)
     SLIST_INIT(&(uvc_obj->uvc_stream_list));
     uvc_obj->driver_status = driver_status;
     uvc_obj->open_close_mutex = mutex;
-    uvc_obj->usb_client_hdl = usb_client;
     uvc_obj->ctrl_mutex = ctrl_mutex;
+    uvc_obj->usb_client_hdl = usb_client;
     uvc_obj->ctrl_transfer = ctrl_xfer;
     uvc_obj->ctrl_transfer->context = ctrl_sem;
     uvc_obj->ctrl_transfer->bEndpointAddress = 0;
@@ -736,12 +754,10 @@ esp_err_t uvc_host_install(const uvc_host_driver_config_t *driver_config)
     uvc_obj->ctrl_transfer->callback = ctrl_xfer_cb;
     uvc_obj->user_cb = driver_config->event_cb;
     uvc_obj->user_ctx = driver_config->user_ctx;
-
-    // Between 1st call of this function and following section, another task might try to install this driver:
-    // Make sure that there is only one instance of this driver in the system
+    // Publish the driver only if no parallel install won the race
     if (!UVC_ATOMIC_SET_IF_NULL(p_uvc_host_driver, uvc_obj)) {
         ret = ESP_ERR_INVALID_STATE;
-        goto client_err;
+        goto err;
     }
 
     // Everything OK: Start UVC-Driver task and return
@@ -749,10 +765,11 @@ esp_err_t uvc_host_install(const uvc_host_driver_config_t *driver_config)
         xTaskNotifyGive(driver_task_h);
     }
     return ESP_OK;
-
-client_err:
-    usb_host_client_deregister(usb_client);
 err: // Clean-up
+    // Deregister only if client registration already succeeded
+    if (usb_client != NULL) {
+        usb_host_client_deregister(usb_client);
+    }
     free(uvc_obj);
     if (driver_status) {
         vEventGroupDelete(driver_status);
@@ -794,21 +811,35 @@ esp_err_t uvc_host_uninstall()
     }
     UVC_EXIT_CRITICAL();
 
-    // Signal to UVC task to stop, unblock it and wait for its deletion
-    xEventGroupSetBits(uvc_obj->driver_status, UVC_TEARDOWN);
-    usb_host_client_unblock(uvc_obj->usb_client_hdl);
-    taskYIELD(); // Give the now unblocked UVC handling task a chance to run
+    // Per-client mode must stop and join the private UVC task before uninstall continues
+    if (!UVC_HOST_COMMON_CLIENT_HANDLING_ENABLED) {
+        // Signal to UVC task to stop, unblock it and wait for its deletion
+        xEventGroupSetBits(uvc_obj->driver_status, UVC_TEARDOWN);
+        usb_host_client_unblock(uvc_obj->usb_client_hdl);
+        taskYIELD(); // Give the now unblocked UVC handling task a chance to run
 
-    EventBits_t driver_status = xEventGroupGetBits(uvc_obj->driver_status);
-    if (driver_status & UVC_STARTED) {
-        // Wait for the UVC task to finish
-        ESP_GOTO_ON_FALSE(
-            xEventGroupWaitBits(uvc_obj->driver_status, UVC_TEARDOWN_COMPLETE, pdFALSE, pdFALSE, pdMS_TO_TICKS(100)),
-            ESP_ERR_NOT_FINISHED, unblock, TAG, "Timeout waiting for UVC_TEARDOWN_COMPLETE");
+        EventBits_t driver_status = xEventGroupGetBits(uvc_obj->driver_status);
+        // Wait only if the background task had already started
+        if (driver_status & UVC_STARTED) {
+            // Wait for the UVC task to finish
+            ESP_GOTO_ON_FALSE(
+                xEventGroupWaitBits(uvc_obj->driver_status, UVC_TEARDOWN_COMPLETE, pdFALSE, pdFALSE, pdMS_TO_TICKS(100)),
+                ESP_ERR_NOT_FINISHED, unblock, TAG, "Timeout waiting for UVC_TEARDOWN_COMPLETE");
+        }
     }
 
+    // Common mode deregisters directly; on failure restore the published driver and abort uninstall
     ESP_LOGD(TAG, "Deregistering client");
-    ESP_ERROR_CHECK(usb_host_client_deregister(uvc_obj->usb_client_hdl));
+    if (UVC_HOST_COMMON_CLIENT_HANDLING_ENABLED) {
+        ret = usb_host_client_deregister(uvc_obj->usb_client_hdl);
+        // Restore the published driver if common-mode deregistration fails
+        if (ret != ESP_OK) {
+            __atomic_store_n(&p_uvc_host_driver, uvc_obj, __ATOMIC_SEQ_CST);
+            goto unblock;
+        }
+    } else {
+        ESP_ERROR_CHECK(usb_host_client_deregister(uvc_obj->usb_client_hdl));
+    }
 
     // Free remaining resources and return
     vEventGroupDelete(uvc_obj->driver_status);
